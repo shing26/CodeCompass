@@ -27,6 +27,23 @@ const ACTIONS: TaskAction[] = ['pause', 'resume', 'cancel', 'approve', 'reject']
 
 export function createHttpApp(deps: HttpDeps): express.Express {
   const app = express();
+
+  // CORS: the web workbench runs on a different origin/port than the API server
+  // (e.g. Vite dev server on 5173, API on 43110). Browsers enforce same-origin
+  // for fetch and EventSource, so the API must answer with explicit CORS
+  // headers, including the SSE GET preflight (no custom headers are used, so
+  // the preflight only needs the origin + method).
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+
   app.use(express.json());
 
   app.get('/health', (_req, res) => {

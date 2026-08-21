@@ -6,3 +6,9 @@ dist/
 .env
 .DS_Store
 Thumbs.db
+
+# Local gh askpass helper (contains a token invocation) — never commit.
+.git-askpass.ps1
+
+# E2E gate scratch artifacts (sample repo, indexed data, screenshots, probes).
+.scratch/phase2-gate/

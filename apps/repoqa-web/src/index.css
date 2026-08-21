@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* One-shot amber line glow in the Monaco Inspector (spec FR-4). */
+.inspector-glow {
+  background-color: rgba(245, 158, 11, 0.35);
+  transition: background-color 0.3s ease;
+}
+.inspector-glow-gutter {
+  border-left: 3px solid rgb(245, 158, 11);
+}
