@@ -1,0 +1,14 @@
+{
+  "name": "multi-harness-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-Harness coordination workbench for full-stack AI R&D",
+  "scripts": {
+    "install:all": "npm install --prefix packages/contracts && npm install --prefix packages/bridge-adapters && npm install --prefix services/control-plane && npm install --prefix apps/desktop",
+    "typecheck": "npm run typecheck --prefix packages/contracts && npm run typecheck --prefix packages/bridge-adapters && npm run typecheck --prefix services/control-plane && npm run typecheck --prefix apps/desktop",
+    "test": "npm run test --prefix services/control-plane",
+    "build": "npm run build --prefix packages/contracts && npm run build --prefix packages/bridge-adapters && npm run build --prefix services/control-plane && npm run build --prefix apps/desktop",
+    "dev": "npm run dev --prefix apps/desktop",
+    "test:e2e": "npm run test:e2e --prefix apps/desktop"
+  }
+}
