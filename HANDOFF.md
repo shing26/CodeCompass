@@ -1,197 +1,157 @@
-# CodeCompass — Agent Handoff Document
+# CodeCompass Phase 2 Handoff
 
-## 1. Project Identity
+> 生成时间：2026-08-21
+> 生成自：CodeCompass Phase 1 实现会话
+> 目标：让 fresh agent 接手 Phase 2 前端 Workbench 开发
 
-**Name**: CodeCompass (internal codename: RepoPulse)  
-**Purpose**: Read-only code intelligence workbench for new-developer onboarding and architecture Q&A.  
-**Built on**: Multi-Harness Workbench (MHW) — Control Plane (Node/TS + SQLite) + future standalone web frontend.  
-**Location**: `D:/CodeCompass`  
-**Original source**: `D:/multi-harness-workbench`  
+## 1. 项目身份
 
-## 2. What Was Completed
+**名称**: CodeCompass (内部代号 RepoPulse)
+**仓库**: `git@github.com:shing26/CodeCompass.git` (branch: master, commit: 5d7e031)
+**用途**: 只读代码智能工作台，帮助新开发者理解 Java 项目架构
+**位置**: `D:/CodeCompass`
+**原始来源**: `D:/multi-harness-workbench`（已适配为本地副本，不修改原工作台）
 
-### 2.1 Code Changes
-- `packages/contracts/src/repoqa.ts` — RepoQA data contracts (index/query I/O)
-- `packages/contracts/src/index.ts` — re-exports `repoqa.ts`
-- `services/control-plane/src/types.ts` — added `repoqa.index | repoqa.query` to `TaskType`; extended `ServerEvent` union
-- `services/control-plane/src/db.ts` — SQLite schema: `repos`, `repo_symbols`, `repo_chunks` + indexes
-- `services/control-plane/src/repoqa-repos.ts` — `RepoQARepos` DAO with CRUD, LIKE search, recursive CTE call-chain
-- `services/control-plane/src/repoqa-worker.ts` — `RepoQAWorker` class with `startIndex()` and `startQuery()` skeletons emitting SSE events
+## 2. Phase 1 已完成 — 当前状态
 
-### 2.2 Documentation
-- `docs/repoqa-prd.md` — full PRD (users, JTBD, IA, FR, NFR, Eval, roadmap)
-- `docs/repoqa-plan.md` — technical architecture, data flow, API contracts, verification gates, frontend plan
+Phase 1 交付了一个可验证的本地 Java 静态 trace 闭环：
 
-### 2.3 Current State
-- Contracts are schema-first and type-checked.
-- Database schema is ready; new tables will be created automatically on next Control Plane startup.
-- Repository layer compiles and has working SQL for insert/search/call-chain.
-- Worker layer compiles but `parseRepo`, `extractChunks`, and `runReActLoop` are stubbed (TODO).
+| 能力 | 状态 |
+|------|------|
+| 契约冻结（embedding 移除，SSE 固定为 token/mermaid/anchors/done） | ✅ |
+| 本地 Repo 导入、幂等、重启恢复、3,000/500K 上限 | ✅ |
+| Java AST 解析（@lezer/java）：class/interface/method/field/route/service/repository + calls[] | ✅ |
+| 确定性 call-chain 跨层解析，未解析边标记 Static Analysis Break | ✅ |
+| README/Javadoc chunk + config key 提取（YAML/properties/pom），不暴露值 | ✅ |
+| Secret masking（password/token/api key/AK-SK/private key） | ✅ |
+| 本地只读事件平面（repoqa_events 表） | ✅ |
+| Golden dataset eval harness（50 题分桶，真实 git commit，RECALL_K=5） | ✅ |
+| 真实 LLM adapter（streaming，首 token 1.5s 硬 gate，REPOQA_GATES_PASSED 门禁） | ✅ |
+| 21 条集成测试 + typecheck + eval + build 全通过 | ✅ |
 
-## 3. What Remains (Exact Next Steps)
+**验证命令**: `npm test --prefix services/control-plane` (21 passed), `npm run eval --prefix services/control-plane` (passed)
 
-### Step 1 — Wire RepoQA Routes into Bootstrap
-File: `services/control-plane/src/index.ts`
+## 3. 架构全景
 
-Currently, `index.ts` is the raw `http.createServer` + WebSocket demo. You need to:
-1. Import `createHttpApp` from `./http`.
-2. Instantiate `RepoQARepos` and `RepoQAWorker`.
-3. Build the Express app with existing deps + `repoqa` + `worker`.
-4. Mount RepoQA routes:
-   - `GET /api/repos`
-   - `POST /api/repos`
-   - `GET /api/repos/:id/symbols`
-   - `GET /api/repos/:id/query` (SSE)
-   - `GET /api/repos/:id/file/raw`
-5. Make `server` use `app` for requests while keeping existing `/health`, `/harnesses` routes working.
-
-Reference: `docs/repoqa-plan.md` Section 8 has the exact wiring snippet.
-
-### Step 2 — Implement Tree-sitter Symbol Extraction
-Files to create/modify:
-- `services/control-plane/src/repoqa-worker.ts` → `parseRepo()`
-
-Recommended approach for MVP (Java Spring Boot):
-- Use `tree-sitter` CLI via `child_process.execFile` to parse `.java` files.
-- Extract:
-  - `@RestController` / `@RequestMapping` → `kind=route`, `signature=HTTP METHOD path`
-  - `@Service`, `@Repository` → `kind=class`
-  - class declarations → `kind=class`
-  - method declarations → `kind=method`
-  - `calls[]` — resolve simple identifier references within method body
-- Stop at 3,000 files; emit `repoqa.index.error` with guidance if exceeded.
-
-### Step 3 — Implement Chunk Extraction
-File: `services/control-plane/src/repoqa-worker.ts` → `extractChunks()`
-
-- Collect `README*.md`, `*.md` in root, and all Java doc comments.
-- Split into ~800-token chunks.
-- Persist as `RepoChunk` via `repoqa.upsertChunks()`.
-
-### Step 4 — Implement ReAct Loop + LLM Integration
-File: `services/control-plane/src/repoqa-worker.ts` → `runReActLoop()`
-
-- Intent routing: classify user question into `architecture | call-chain | environment`.
-- Tool calling: let LLM call `findSymbol`, `getCallChain`, `searchChunks` on `RepoQARepos`.
-- Strict prompt: no guessing; if chain breaks, emit `⚠️ 静态分析在此处中断`.
-- Stream SSE events back: `token`, `mermaid`, `anchors`, `done`.
-
-LLM config must come from `.env`:
-- `OPENAI_API_KEY` or `OPENAI_BASE_URL` (for Ollama/vLLM)
-- No hardcoded URLs in code.
-
-### Step 5 — Add Sensitive Config Masking
-Before any code context is sent to the LLM, apply:
-```ts
-const SECRET_PATTERNS = [
-  /(password|passwd|pwd)\s*[:=]\s*.+/gi,
-  /(api[_-]?key|apikey|token|secret)\s*[:=]\s*.+/gi,
-  /(AK|SK)[a-zA-Z0-9]{20,}/g,
-  /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/g
-];
+```
+packages/
+  contracts/          # 数据契约（index/query I/O）
+  bridge-adapters/    # 桥接适配器（浏览器/Shell 等 runtime）
+services/
+  control-plane/      # Node.js 后端（Express + SQLite + WebSocket）
+    src/
+      db.ts           # SQLite schema（repos, repo_symbols, repo_chunks, repo_files, repoqa_events）
+      http.ts         # Express 路由（/api/repos, /api/repos/:id/query SSE, /file/raw）
+      index.ts        # 入口：HTTP server + WebSocket + EventBus 转发
+      repoqa-worker.ts    # 核心 Worker：indexRepo / queryRepo / ReAct loop
+      repoqa-repos.ts     # RepoQARepos DAO
+      repoqa-parser.ts    # @lezer/java AST 提取
+      repoqa-callchain.ts # 调用链解析（递归 CTE + 同文件/跨文件 fallback）
+      repoqa-config.ts    # 配置 key 提取（YAML/properties/pom）
+      repoqa-masking.ts   # 敏感信息掩码（正则替换）
+      repoqa-llm.ts       # LLM adapter（streaming，OpenAI-compatible）
+      repoqa-eval.ts      # Golden dataset eval harness
+      repoqa-http.test.ts # 21 条集成测试
+      repoqa-scan.ts      # 文件扫描（忽略 .git/node_modules/dist 等）
+      ws.ts               # WebSocket 辅助（可挂载 eventBus，当前未使用）
 ```
 
-### Step 6 — Validation & Golden Dataset
-Repos to test:
-1. `spring-petclinic` (Java)
-2. `RuoYi-Vue` backend (Java)
-3. `mall` (Java)
+**关键端口**: 控制平面在 `http://localhost:{port}` 启动，port 由 `config.ts` 决定。
 
-Run 50-question golden dataset (20 route chain, 15 config, 15 architecture).  
-Pass thresholds:
-- Recall@K ≥ 85%
-- Line hallucination ≤ 2%
-- Valid anchor rate ≥ 90%
-- First-token latency ≤ 1.5s
+## 4. Phase 2 工作范围
 
-## 4. Architecture Reminders
+### 4.1 目标
+构建一个三面板 Web 工作台，让开发者通过自然语言交互可视化地理解代码库。
 
-### 4.1 Key Design Decisions
-- **Local-first**: Control Plane runs on `localhost:20128` by default.
-- **Schema-first**: All shapes in `packages/contracts/src/repoqa.ts`. Do not invent ad-hoc types in worker/http.
-- **Read-only**: No write-back to source repo. AST parsing is read-only.
-- **Token budget**: Prompt context ≤ 8,000 tokens. Agent uses ReAct tool loops, never whole-file injection.
-- **Event reuse**: All RepoQA progress/answers flow through existing `EventBus` + `ServerEvent` union.
-
-### 4.2 Important Paths
-- Contracts: `D:/CodeCompass/packages/contracts/src/`
-- Control Plane: `D:/CodeCompass/services/control-plane/src/`
-- Docs: `D:/CodeCompass/docs/`
-
-### 4.3 Existing MHW Patterns to Follow
-- Use `better-sqlite3` with WAL mode (already configured in `db.ts`).
-- Use `express` for HTTP, `ws` for WebSocket (already in `package.json`).
-- `RepoQARepos` methods should mirror style of existing `Repos` class in `repos.ts`.
-- Worker should mirror event-emission pattern of `Orchestrator`.
-
-## 5. Quick Verification Checklist
-
-```bash
-cd D:/CodeCompass/services/control-plane
-
-# 1. Install deps if needed
-npm install
-
-# 2. Typecheck
-npm run typecheck
-
-# 3. Run tests
-npm run test
-
-# 4. Start Control Plane
-npm run dev
-
-# 5. Import repo
-curl -X POST http://localhost:20128/api/repos \
-  -H 'content-type: application/json' \
-  -d '{"name":"petclinic","localPath":"C:/projects/spring-petclinic"}'
-
-# 6. Poll status
-curl http://localhost:20128/api/repos | jq '.repos[].status'
-
-# 7. Query (SSE)
-curl "http://localhost:20128/api/repos/<id>/query?q=/owners 经过哪些类&mode=call-chain" \
-  -H 'accept: text/event-stream'
-```
-
-## 6. Frontend (Phase 2) Brief
-
-When backend Phase 1 is solid, build `apps/repoqa-web/`:
-- Vite + React 19 + TS + Tailwind
+### 4.2 技术栈（来自 `docs/repoqa-plan.md` §10.1）
+- Vite + React 19 + TypeScript
+- Tailwind CSS
 - Monaco Editor (`@monaco-editor/react`)
 - Mermaid.js (`mermaid`)
-- Three-pane layout: TopBar + Sidebar + Canvas + Right Inspector
-- SSE client via `EventSource`
-- `code://` protocol for diagram-to-code linking
 
-Reference: `docs/repoqa-prd.md` Section 6 (IA) and `docs/repoqa-plan.md` Section 10 (Frontend Plan).
+### 4.3 核心组件（来自 `docs/repoqa-plan.md` §10.3）
+- **TopBar**: repo 选择器、step stepper、导出按钮
+- **Sidebar**: Quick Tours 列表、route 列表、symbol 树
+- **Canvas**: 聊天流 + Mermaid 渲染 + Source Trace 抽屉
+- **Inspector**: Monaco 编辑器，支持 `code://` 深链跳转 + glow 高亮
 
-## 7. Environment & Config
+### 4.4 交互流程
+1. 用户导入 repo 或选择已导入的 repo
+2. 点击 Quick Tour → 自动提交 prompt 到 `GET /api/repos/:id/query`
+3. SSE `token` 事件 → 追加到 Markdown 渲染
+4. SSE `mermaid` 事件 → 渲染 Mermaid 图
+5. SSE `anchors` 事件 → 显示 Source Trace 抽屉（源码卡片列表）
+6. 点击 diagram 节点或源码卡片 → `code://` 深链 → Inspector 打开 + 高亮行
+7. Inspector 导航栈支持前进/后退
 
-Create `D:/CodeCompass/.env` when ready for LLM integration:
-```
-OPENAI_API_KEY=...
-OPENAI_BASE_URL=...
-CONTROL_PLANE_PORT=20128
-```
+### 4.5 关键设计决策（来自于 `docs/repoqa-review.md`）
+- 首屏只有 1 个 Recommended Flow，不展示三卡并列
+- 自然语言按钮为主入口，slash command 只作为高级快捷方式
+- 答案按"业务概览 → 图 → 源码卡片 → 下一步"分阶段揭晓
+- 首次跳转后再触发 Monaco glow
+- 完成后给可量化 micro-win 和显式 off-ramp，不得用成功 toast 掩盖 Static Analysis Break
+- SSE 重连、Mermaid 降级、`code://` 深链与 Monaco 定位纳入 Phase 2 gate
 
-Never commit `.env` to version control.
+### 4.6 状态模型（来自 `docs/repoqa-plan.md` §10.2）
+- `RepoState`: repo 元数据 + symbols
+- `ChatState`: 消息列表 + streaming 状态
+- `InspectorState`: 当前文件 + 内容 + 导航栈
 
-## 8. Handoff Checklist for Next Agent
+## 5. Phase 2 的 API 契约
 
-- [ ] Read `docs/repoqa-prd.md` for product context.
-- [ ] Read `docs/repoqa-plan.md` for technical plan.
-- [ ] Wire `index.ts` per Step 1 above.
-- [ ] Implement `parseRepo()` with Tree-sitter for Java.
-- [ ] Implement `extractChunks()`.
-- [ ] Implement `runReActLoop()` with tool calling.
-- [ ] Add secret masking regex before LLM calls.
-- [ ] Run golden dataset; ensure Recall@K ≥ 85%, hallucination ≤ 2%.
-- [ ] Only after Phase 1 gates pass, start Phase 2 frontend.
+所有后端 API 已就绪，Phase 2 只需消费：
 
-## 9. Contact / Context
+| 端点 | 用途 |
+|------|------|
+| `GET /api/repos` | 列出已导入 repo |
+| `POST /api/repos` | 导入本地 repo |
+| `GET /api/repos/:id` | 获取单个 repo 状态 |
+| `GET /api/repos/:id/symbols?kind=...` | 列出 symbols |
+| `GET /api/repos/:id/chunks?q=...` | 搜索 chunks |
+| `GET /api/repos/:id/query?question=&mode=` | SSE 查询（核心端点） |
+| `GET /api/repos/:id/file/raw?path=` | 获取原始文件内容 |
+| `POST /api/repos/:id/anchor-click` | 记录 anchor 点击事件 |
+| `POST /api/repos/:id/feedback` | 记录反馈 |
 
-- User preference: Chinese replies, English code/CLI.
-- Host: Windows 10/11, Hermes desktop, bash shell available.
-- Do not modify MHW original at `D:/multi-harness-workbench`; all work is in `D:/CodeCompass`.
-- For questions about existing MHW architecture patterns, inspect `D:/multi-harness-workbench` source.
+SSE 事件流顺序：`token → mermaid → anchors → done`
+
+## 6. 未解决的 Phase 2 问题
+
+来自 `docs/repoqa-review.md` 的决策清单中，以下项处于 `needs-validation`：
+
+- 单一 Recommended Flow 与文案（是否优于空白聊天需对照实验）
+- Day 1/3/7/14 节奏（需要真实回访数据）
+- `code://` 深链在 Monaco 中的定位精度（需要验证）
+
+## 7. Phase 3 预览
+
+`docs/repoqa-prd.md` §12 和 `docs/repoqa-plan.md` §13 有完整描述，核心：
+- Onboarding Dashboard（技术栈/模块/环境依赖）
+- Markdown/PNG 导出
+- Commit-hash caching → instant re-open
+- Golden dataset CI gate
+- 5–10 人 pilot outcome 作为 gate
+
+## 8. 建议的 Skills
+
+下一个 agent 应依次调用：
+
+1. **`/to-spec`** — 把 Phase 2 的 PRD/plan 转化为 actionable spec
+2. **`/to-tickets`** — 拆分为 tracer-bullet tickets，声明 blocking edges
+3. **`/implement`** — 逐 ticket 实现
+4. **`/code-review`** — 双轴 review（Standards + Spec）后提交
+
+## 9. 引用文档
+
+- `docs/repoqa-prd.md` — 完整 PRD（用户故事、功能需求、路线图）
+- `docs/repoqa-plan.md` — 技术架构、API 契约、前端计划
+- `docs/repoqa-review.md` — 产品评审报告、决策清单、分歧裁决
+- `docs/adr/` — 4 条架构建决策（本地优先、结构化检索、安全门禁、golden dataset 先于 prompt 调优）
+- `CONTEXT.md` — 领域术语词汇表
+- `.scratch/repoqa-phase1/issues/` — Phase 1 实现 ticket（参考验收标准）
+- `HANDOFF.md` — 原始交接文档（Phase 1 起点）
+
+## 10. 敏感信息
+
+无。LLM 配置通过 `REPOQA_LLM_URL` / `REPOQA_LLM_MODEL` / `REPOQA_LLM_API_KEY` 环境变量传入，无硬编码 URL。GitHub token 已从上下文移除。
+
