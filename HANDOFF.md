@@ -132,6 +132,39 @@ SSE 事件流顺序：`token → mermaid → anchors → done`
 - Golden dataset CI gate
 - 5–10 人 pilot outcome 作为 gate
 
+## 7. Phase 3 — Onboarding Cockpit
+
+### 7.1 目标
+当开发者输入一个本地 repo 路径后，一键获得该项目的技术栈概览、关键调用链、环境依赖和可导出的离线文档，无需手动考古或询问 mentor。
+
+### 7.2 核心功能
+- **Onboarding Dashboard**：一屏简报，展示技术栈 → 1 条关键调用链 → 核心 API → 环境依赖 → 导出
+- **Commit-hash caching**：缓存已导入 repo 的 commit hash，再次打开时如果 commit 未变则跳过重新索引，实现 < 200ms 即时恢复
+- **Markdown/PNG 导出**：将查询结果和架构图导出为离线可读的 Markdown 或 PNG 文件
+- **Golden dataset CI gate**：golden 指标作为 CI 门禁，Recall@K ≥ 85%、hallucination ≤ 2%、anchor validity ≥ 90%
+
+### 7.3 设计决策（来自 `docs/repoqa-review.md` §5）
+- commit-hash cache 优先于 PNG/PDF export；export 只在用户证据证明有高频导出诉求后投入
+- 只展示配置 key 名与是否存在，不展示值或本地绝对路径（复用 Phase 1 的 masking）
+- Phase 3 gate 改为 5–10 人 pilot outcome（任务完成率、mentor 求助数、anchor 跳转、改问与放弃率），取消"100% journeys 无需 mentor"指标
+- 证据策略：不允许使用 NPS 或满意度作为 gate；只用量化行为数据（completed_trace、first anchor jump、question revised、mentor 求助、改问与放弃位置）
+
+### 7.4 依赖关系
+- **Blocked by**: Phase 2 前端 workbench（Monaco、Mermaid 渲染、SSE 重连、`code://` 深链）必须就绪，因为 Dashboard 和导出都依赖 Phase 2 的前端基础设施
+- **Blocked by**: Phase 1 的 golden dataset eval harness 已就绪，Phase 3 只需将其接入 CI
+
+### 7.5 Gate 标准
+1. Re-open cached repo < 200ms
+2. Export offline-readable Markdown 可用
+3. Golden dataset CI gate 通过（Recall@K ≥ 85%、hallucination ≤ 2%）
+4. 5–10 人 pilot 完成，核心指标（任务完成率、mentor 求助数、anchor 跳转率）有基线
+
+### 7.6 技术要点
+- Dashboard 数据源：复用 Phase 1 的 `listSymbols` 和 `searchChunks`，组合展示技术栈/模块/依赖
+- cache 方案：在 repo 行增加 `commit_hash` 字段，import 时扫描 `.git/HEAD` 获取当前 commit；如果 commit 未变且 symbolCount > 0 则跳过索引
+- 导出方案：Markdown 渲染用现有 SSE 回答拼接；PNG 导出需引入 `html-to-image` 或类似库
+- CI gate：`npm run eval` 输出的 `passed: boolean` 作为 CI pass/fail 信号
+
 ## 8. 建议的 Skills
 
 下一个 agent 应依次调用：
@@ -141,6 +174,8 @@ SSE 事件流顺序：`token → mermaid → anchors → done`
 3. **`/implement`** — 逐 ticket 实现
 4. **`/code-review`** — 双轴 review（Standards + Spec）后提交
 
+> 注：Phase 3 依赖 Phase 2 完成，建议在 Phase 2 交付后重新生成交接文档，再按相同流程推进。跨 Phase 工具：`/domain-modeling`（术语模糊时）、`/research`（调研前端方案时）、`/prototype`（不确定 UI 交互时）。
+
 ## 9. 引用文档
 
 - `docs/repoqa-prd.md` — 完整 PRD（用户故事、功能需求、路线图）
@@ -148,10 +183,12 @@ SSE 事件流顺序：`token → mermaid → anchors → done`
 - `docs/repoqa-review.md` — 产品评审报告、决策清单、分歧裁决
 - `docs/adr/` — 4 条架构建决策（本地优先、结构化检索、安全门禁、golden dataset 先于 prompt 调优）
 - `CONTEXT.md` — 领域术语词汇表
+- `docs/repoqa-architecture-vision.md` — 架构愿景（附件恢复，仅参考不作为落地 spec）
 - `.scratch/repoqa-phase1/issues/` — Phase 1 实现 ticket（参考验收标准）
 - `HANDOFF.md` — 原始交接文档（Phase 1 起点）
 
 ## 10. 敏感信息
 
 无。LLM 配置通过 `REPOQA_LLM_URL` / `REPOQA_LLM_MODEL` / `REPOQA_LLM_API_KEY` 环境变量传入，无硬编码 URL。GitHub token 已从上下文移除。
+Phase 2/3 无新的敏感信息引入。
 
