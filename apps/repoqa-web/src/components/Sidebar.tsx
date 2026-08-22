@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { RepoSymbol } from '../types';
+import type { RepoSymbol, RepoTour } from '../types';
 import { buildSymbolTree, filterByKind } from '../hooks/useSymbols';
 import { QuickTours } from './QuickTours';
 
@@ -7,14 +7,27 @@ interface SidebarProps {
   repoName: string | null;
   symbols: RepoSymbol[];
   loading: boolean;
-  onTour: (question: string) => void;
+  tours: RepoTour[];
+  toursLoading: boolean;
+  toursError: string | null;
+  onRetryTours: () => void;
+  onPlayTour: (tour: RepoTour) => void;
 }
 
 /**
  * Left sidebar: Quick Tours (Recommended + More), route list and symbol tree.
  * Route/symbol browsing is read-only navigation of deterministic AST symbols.
  */
-export function Sidebar({ repoName, symbols, loading, onTour }: SidebarProps) {
+export function Sidebar({
+  repoName,
+  symbols,
+  loading,
+  tours,
+  toursLoading,
+  toursError,
+  onRetryTours,
+  onPlayTour
+}: SidebarProps) {
   const [symbolsExpanded, setSymbolsExpanded] = useState(false);
 
   const routes = filterByKind(symbols, 'route');
@@ -30,7 +43,13 @@ export function Sidebar({ repoName, symbols, loading, onTour }: SidebarProps) {
           Quick Tours
         </h2>
         {repoName && (
-          <QuickTours repoName={repoName} symbols={symbols} onTour={onTour} />
+          <QuickTours
+            tours={tours}
+            loading={toursLoading}
+            error={toursError}
+            onRetry={onRetryTours}
+            onPlay={onPlayTour}
+          />
         )}
         {!repoName && (
           <p data-testid="sidebar-placeholder" className="text-xs text-slate-400">

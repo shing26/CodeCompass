@@ -108,6 +108,114 @@ async function makeConfigRepo(root: string): Promise<void> {
   );
 }
 
+async function makeMultiImplRepo(root: string): Promise<void> {
+  const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+  await fs.mkdir(pkg, { recursive: true });
+  await fs.writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+  await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
+  await fs.writeFile(
+    path.join(pkg, 'PaymentGateway.java'),
+    'package com.demo;\npublic interface PaymentGateway {\n  String pay(double amount);\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'AlipayGateway.java'),
+    'package com.demo;\npublic class AlipayGateway implements PaymentGateway {\n  public String pay(double amount) {\n    return "alipay";\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'WechatGateway.java'),
+    'package com.demo;\npublic class WechatGateway implements PaymentGateway {\n  public String pay(double amount) {\n    return "wechat";\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'PaymentController.java'),
+    'package com.demo;\n@RestController\npublic class PaymentController {\n  private final PaymentGateway gateway = new AlipayGateway();\n  public String checkout() {\n    return gateway.pay(10.0);\n  }\n}\n'
+  );
+  await fs.mkdir(path.join(root, '.git'), { recursive: true });
+  await fs.writeFile(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+}
+
+async function makeDocsRepo(root: string): Promise<void> {
+  await fs.mkdir(path.join(root, 'src', 'main', 'java', 'com', 'demo'), {
+    recursive: true
+  });
+  await fs.writeFile(
+    path.join(root, 'README.md'),
+    '# Demo\nGradle build runs from the repository root.\n'
+  );
+  await fs.writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+  await fs.writeFile(
+    path.join(root, 'src', 'main', 'java', 'com', 'demo', 'OrderService.java'),
+    'package com.demo;\n\n/** Core order service: handles checkout and refunds. */\npublic class OrderService {\n  public String checkout() {\n    return "ok";\n  }\n}\n'
+  );
+}
+
+async function makeDepsRepo(root: string): Promise<void> {
+  await fs.mkdir(path.join(root, 'src', 'main', 'java', 'com', 'demo'), {
+    recursive: true
+  });
+  await fs.writeFile(
+    path.join(root, 'pom.xml'),
+    '<project>\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.demo</groupId>\n  <artifactId>demo</artifactId>\n  <version>1.0.0</version>\n  <dependencies>\n    <dependency>\n      <groupId>org.springframework.boot</groupId>\n      <artifactId>spring-boot-starter-web</artifactId>\n      <version>3.2.4</version>\n    </dependency>\n    <dependency>\n      <groupId>com.mysql</groupId>\n      <artifactId>mysql-connector-j</artifactId>\n      <version>8.3.0</version>\n      <scope>runtime</scope>\n    </dependency>\n  </dependencies>\n</project>\n'
+  );
+  await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
+  await fs.writeFile(
+    path.join(root, 'src', 'main', 'java', 'com', 'demo', 'OrderService.java'),
+    'package com.demo;\n\npublic class OrderService {\n  public String checkout() {\n    return "ok";\n  }\n}\n'
+  );
+}
+
+async function makeDashboardRepo(root: string): Promise<void> {
+  await fs.mkdir(path.join(root, 'src', 'main', 'java', 'com', 'demo'), {
+    recursive: true
+  });
+  await fs.mkdir(path.join(root, 'src', 'main', 'resources'), { recursive: true });
+  const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+  await fs.writeFile(
+    path.join(root, 'pom.xml'),
+    `<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.demo</groupId>
+  <artifactId>demo</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.2.4</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+      <version>3.2.4</version>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <version>8.3.0</version>
+    </dependency>
+  </dependencies>
+</project>
+`
+  );
+  await fs.writeFile(
+    path.join(root, 'src', 'main', 'resources', 'application.yml'),
+    'spring:\n  datasource:\n    password: supersecret\nserver:\n  port: 8080\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'OrdersController.java'),
+    'package com.demo;\n\n@RestController\npublic class OrdersController {\n  private final OrderService orderService = new OrderService();\n\n  public String listOrders() {\n    return orderService.findOrders();\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'OrderService.java'),
+    'package com.demo;\n\n@Service\npublic class OrderService {\n  private final OrderRepository orderRepository = new OrderRepository();\n\n  public String findOrders() {\n    return orderRepository.findAll();\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'OrderRepository.java'),
+    'package com.demo;\n\n@Repository\npublic class OrderRepository {\n  public String findAll() {\n    return "orders";\n  }\n}\n'
+  );
+  await fs.mkdir(path.join(root, '.git'), { recursive: true });
+  await fs.writeFile(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+}
+
 async function importRepo(baseUrl: string, repoPath: string, branch?: string) {
   const response = await fetch(`${baseUrl}/api/repos`, {
     method: 'POST',
@@ -297,7 +405,7 @@ describe('RepoPulse repo import HTTP API', () => {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('serves raw files inside the repo and rejects traversal', async () => {
     const ctx = await startServer();
@@ -379,7 +487,7 @@ describe('RepoPulse symbol extraction HTTP API', () => {
     }
   });
 
-  it('surfaces Java parser failures as repo errors with detail', async () => {
+  it('skips unparseable Java files with a warning event instead of failing the repo', async () => {
     const ctx = await startServer();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-parse-error-'));
     try {
@@ -389,12 +497,270 @@ describe('RepoPulse symbol extraction HTTP API', () => {
         'package com.demo;\npublic class Broken { int value = ; }\n'
       );
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.body.repo?.status).toBe('error');
-      expect(result.body.repo?.error).toContain('failed to parse');
-      expect(result.body.repo?.error).toContain('Broken.java');
+      // Dogfooding (Issue 17): a single unparseable file must not abort the
+      // whole import — the repo becomes ready and the skip is visible as an event.
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+      const eventsResponse = await fetch(
+        `${ctx.baseUrl}/api/events?repoId=${encodeURIComponent(repoId)}&eventType=repoqa.index.warning`
+      );
+      const eventsBody = (await eventsResponse.json()) as {
+        events: Array<{ eventType: string; feedback: string }>;
+      };
+      const warning = eventsBody.events.find((event) => event.eventType === 'repoqa.index.warning');
+      expect(warning).toBeTruthy();
+      const feedback = JSON.parse(warning!.feedback) as { skippedFiles: number; files: Array<{ file: string; error: string }> };
+      expect(feedback.skippedFiles).toBe(1);
+      expect(feedback.files[0].file).toContain('Broken.java');
+      expect(feedback.files[0].error).toContain('failed to parse');
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('RepoPulse onboarding tours HTTP API', () => {
+  it('returns three deterministic onboarding tours from the symbol table', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-tours-http-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/tours`);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        tours: Array<{
+          id: string;
+          title: string;
+          description: string;
+          steps: Array<{
+            step: string;
+            filePath: string;
+            lineNumber: number;
+            symbol: string;
+            kind: string;
+          }>;
+          mermaid: string;
+        }>;
+      };
+      expect(body.tours.map((tour) => tour.id)).toEqual([
+        'auth-chain',
+        'main-flow',
+        'error-handling'
+      ]);
+      for (const tour of body.tours) {
+        expect(tour.title).toBeTruthy();
+        expect(tour.description).toBeTruthy();
+        expect(tour.mermaid).toContain('flowchart LR');
+      }
+
+      // Controller.hello → DemoService.greet is the only route chain, so it
+      // wins main-flow; auth-chain/error-handling have no security/advice
+      // classes in this fixture.
+      const mainFlow = body.tours.find((tour) => tour.id === 'main-flow')!;
+      expect(mainFlow.steps.map((step) => step.step)).toEqual([
+        '1. Controller.hello（入口接口）',
+        '2. greet'
+      ]);
+      expect(mainFlow.steps.map((step) => step.lineNumber)).toEqual([5, 4]);
+      expect(mainFlow.mermaid).toContain('hello --> greet');
+      expect(mainFlow.mermaid).toContain(
+        'click greet "code://src/main/java/com/demo/DemoService.java#4"'
+      );
+
+      const authChain = body.tours.find((tour) => tour.id === 'auth-chain')!;
+      expect(authChain.steps.map((step) => step.step)).toEqual([
+        '1. Controller.hello（受保护端点）'
+      ]);
+      const errorHandling = body.tours.find((tour) => tour.id === 'error-handling')!;
+      expect(errorHandling.steps).toEqual([]);
+      expect(errorHandling.mermaid).toContain('暂无匹配代码');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('filters tours by ?type= and 404s for unknown repos', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-tours-filter-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const filtered = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/tours?type=auth-chain`
+      );
+      expect(filtered.status).toBe(200);
+      const filteredBody = (await filtered.json()) as { tours: Array<{ id: string }> };
+      expect(filteredBody.tours).toHaveLength(1);
+      expect(filteredBody.tours[0].id).toBe('auth-chain');
+
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/missing-repo/tours`);
+      expect(missing.status).toBe(404);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('RepoPulse dashboard HTTP API', () => {
+  it('aggregates tech stack, config topology, scale, and top APIs over the wire', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-dashboard-http-'));
+    try {
+      await makeDashboardRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/dashboard`);
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      // Values are never indexed (Issue 06) — the payload must be value-free.
+      expect(text).not.toContain('supersecret');
+      expect(text).not.toContain('8080');
+      expect(text).not.toContain('jdbc:mysql');
+
+      const body = JSON.parse(text) as {
+        dashboard: {
+          repoId: string;
+          repoName?: string;
+          techStack: {
+            summary: Array<{ category: string; label: string; count: number }>;
+            highlights: string[];
+          };
+          config: {
+            topology: Array<{
+              key: string;
+              filePath: string;
+              lineStart?: number;
+              group: string;
+              sensitive: boolean;
+            }>;
+            maskedValues: boolean;
+          };
+          scale: Record<string, number>;
+          topApis: Array<{
+            name: string;
+            controller: string;
+            filePath: string;
+            lineStart: number;
+            depth: number;
+            hops: string[];
+          }>;
+        };
+      };
+      const dashboard = body.dashboard;
+      expect(dashboard.repoId).toBe(repoId);
+      expect(dashboard.techStack.summary.length).toBe(3);
+      expect(
+        dashboard.techStack.summary.map((entry) => entry.category).sort()
+      ).toEqual(['database', 'framework', 'security']);
+      expect(dashboard.techStack.highlights[0]).toBe('Spring Boot');
+
+      expect(dashboard.scale).toMatchObject({
+        routes: 1,
+        services: 1,
+        repositories: 1,
+        advices: 0,
+        configKeys: 11
+      });
+
+      expect(dashboard.config.maskedValues).toBe(true);
+      const serverPort = dashboard.config.topology.find(
+        (item) => item.key === 'server.port'
+      );
+      expect(serverPort).toMatchObject({ group: 'server', sensitive: false });
+      const dbPassword = dashboard.config.topology.find(
+        (item) => item.key === 'spring.datasource.password'
+      );
+      expect(dbPassword).toMatchObject({ group: 'datasource', sensitive: true });
+
+      expect(dashboard.topApis).toHaveLength(1);
+      expect(dashboard.topApis[0]).toMatchObject({
+        name: 'listOrders',
+        controller: 'OrdersController',
+        depth: 3,
+        hops: ['listOrders', 'findOrders', 'findAll']
+      });
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('404s for unknown repos', async () => {
+    const ctx = await startServer();
+    try {
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/missing-repo/dashboard`);
+      expect(missing.status).toBe(404);
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+describe('RepoPulse onboarding export HTTP API', () => {
+  it('serves a value-free ONBOARDING.md with dashboard + tours sections', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-export-http-'));
+    try {
+      await makeDashboardRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/export/onboarding`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/markdown');
+      const disposition = response.headers.get('content-disposition') ?? '';
+      expect(disposition).toMatch(/filename="[^"]+-ONBOARDING\.md"/);
+
+      const markdown = await response.text();
+      // Standard handover scaffolding.
+      for (const section of [
+        'ONBOARDING 架构交接手册',
+        '## 技术栈（Tech Stack）',
+        '## 架构指标（Architecture Scale）',
+        '## 脱敏配置（Config Topology）',
+        '## Top 核心 API（时序图）',
+        '## Onboarding 路线（3 条）'
+      ]) {
+        expect(markdown).toContain(section);
+      }
+      // Dashboard content.
+      expect(markdown).toContain('listOrders');
+      expect(markdown).toContain('sequenceDiagram');
+      expect(markdown).toContain('spring.datasource.password');
+      expect(markdown).toContain('sensitive');
+      // Tours content — all three routes present.
+      expect(markdown).toContain('`auth-chain`');
+      expect(markdown).toContain('`main-flow`');
+      expect(markdown).toContain('`error-handling`');
+      // Issue 06: values never leave the process.
+      expect(markdown).not.toContain('supersecret');
+      expect(markdown).not.toContain('8080');
+      expect(markdown).not.toContain('jdbc:mysql');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('404s for unknown repos', async () => {
+    const ctx = await startServer();
+    try {
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/missing-repo/export/onboarding`);
+      expect(missing.status).toBe(404);
+    } finally {
+      await ctx.close();
     }
   });
 });
@@ -436,6 +802,21 @@ describe('RepoPulse SSE query skeleton', () => {
         anchorBlock.slice(anchorBlock.indexOf('data: ') + 6)
       ) as { anchors: Array<{ file: string; line: number; symbol: string }> };
       expect(anchorData.anchors.length).toBeGreaterThan(0);
+
+      // Issue 10: deterministic architecture diagrams carry code:// click
+      // bindings whose node IDs equal the rendered labels, so the frontend
+      // can jump from a clicked node to the Inspector.
+      const mermaidBlock = blocks[mermaidEventIndex];
+      const mermaidData = JSON.parse(
+        mermaidBlock.slice(mermaidBlock.indexOf('data: ') + 6)
+      ) as { mermaid: string };
+      expect(mermaidData.mermaid).toContain('Controller[Controller]');
+      expect(mermaidData.mermaid).toContain(
+        'click Controller "code://src/main/java/com/demo/Controller.java#3"'
+      );
+      expect(mermaidData.mermaid).toContain(
+        'click greet "code://src/main/java/com/demo/DemoService.java#4"'
+      );
 
       const doneBlock = blocks[doneEventIndex];
       const doneData = JSON.parse(
@@ -559,6 +940,107 @@ describe('RepoPulse deterministic call-chain query', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('returns exact start/end/call line numbers for a Controller → Service chain', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-chain-lines-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('trace hello')}`
+      );
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      const doneBlock = text
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      expect(doneBlock).toBeDefined();
+      const doneData = JSON.parse(
+        doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
+      ) as {
+        trace?: Array<{
+          file: string;
+          method: string;
+          line?: number;
+          lineEnd?: number;
+          callLine?: number;
+          break?: true;
+          reason?: string;
+        }>;
+      };
+      // Controller.java: hello() spans 5-7 and calls demoService.greet() on line 6;
+      // DemoService.java: greet() spans 4-6.
+      expect(doneData.trace).toEqual([
+        {
+          file: 'src/main/java/com/demo/Controller.java',
+          method: 'hello',
+          line: 5,
+          lineEnd: 7,
+          callLine: 5
+        },
+        {
+          file: 'src/main/java/com/demo/DemoService.java',
+          method: 'greet',
+          line: 4,
+          lineEnd: 6,
+          callLine: 6
+        }
+      ]);
+      expect(doneData.trace?.some((hop) => hop.break)).toBe(false);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('flags interface multi-implementation dispatch as a Static Analysis Break in trace, mermaid, and answer', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-chain-dispatch-'));
+    try {
+      await makeMultiImplRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('checkout')}`
+      );
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      const doneBlock = text
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      expect(doneBlock).toBeDefined();
+      const doneData = JSON.parse(
+        doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
+      ) as {
+        answer: string;
+        mermaid?: string;
+        trace?: Array<{
+          file: string;
+          method: string;
+          line?: number;
+          lineEnd?: number;
+          callLine?: number;
+          break?: true;
+          reason?: string;
+        }>;
+      };
+      const payHop = doneData.trace?.find((hop) => hop.method === 'pay');
+      expect(payHop?.break).toBe(true);
+      expect(payHop?.reason).toContain('Static Analysis Break: Dynamic/RPC Dispatch');
+      expect(doneData.trace?.[0]).toEqual(
+        expect.objectContaining({ method: 'checkout', line: 5, lineEnd: 7, callLine: 5 })
+      );
+      expect(doneData.mermaid).toContain('Dynamic/RPC Dispatch');
+      expect(doneData.answer).toContain('Static Analysis Break: Dynamic/RPC Dispatch');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('RepoPulse chunks and config evidence', () => {
@@ -620,6 +1102,157 @@ describe('RepoPulse chunks and config evidence', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('returns precise config key evidence with file+line for environment queries', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-config-evidence-'));
+    try {
+      await makeConfigRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const configResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/symbols?kind=config`
+      );
+      const configBody = (await configResponse.json()) as {
+        symbols: Array<{ name: string; filePath: string; lineStart?: number }>;
+      };
+      const serverPort = configBody.symbols.find(
+        (symbol) => symbol.name === 'server.port'
+      );
+      expect(serverPort).toMatchObject({
+        filePath: 'src/main/resources/application.properties',
+        lineStart: 1
+      });
+      const dbPassword = configBody.symbols.find(
+        (symbol) => symbol.name === 'spring.datasource.password'
+      );
+      expect(dbPassword).toMatchObject({
+        filePath: 'src/main/resources/application.yml',
+        lineStart: 3
+      });
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=environment&question=${encodeURIComponent('port')}`
+      );
+      const text = await response.text();
+      expect(text).toContain('Found');
+      expect(text).toContain('server.port');
+      expect(text).toContain('src/main/resources/application.properties:1');
+      expect(text).not.toContain('8080');
+      expect(text.toLowerCase()).not.toContain('secret');
+
+      const doneBlock = text
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const doneData = JSON.parse(
+        doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
+      ) as {
+        anchors?: Array<{ file: string; line: number; symbol: string }>;
+      };
+      expect(doneData.anchors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            file: 'src/main/resources/application.properties',
+            line: 1,
+            symbol: 'server.port'
+          })
+        ])
+      );
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('indexes README and class-level doc comments as locatable chunks', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-docs-'));
+    try {
+      await makeDocsRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const readmeResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/chunks?q=${encodeURIComponent('Gradle')}`
+      );
+      const readmeBody = (await readmeResponse.json()) as {
+        chunks: Array<{
+          chunkType: string;
+          filePath: string;
+          lineStart?: number;
+          content: string;
+        }>;
+      };
+      const readmeChunk = readmeBody.chunks.find(
+        (chunk) => chunk.chunkType === 'readme'
+      );
+      expect(readmeChunk).toMatchObject({ filePath: 'README.md', lineStart: 1 });
+      expect(readmeChunk!.content).toContain('Gradle');
+
+      const docResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/chunks?q=${encodeURIComponent('checkout')}`
+      );
+      const docBody = (await docResponse.json()) as {
+        chunks: Array<{
+          chunkType: string;
+          filePath: string;
+          lineStart?: number;
+          content: string;
+        }>;
+      };
+      const docChunk = docBody.chunks.find(
+        (chunk) => chunk.chunkType === 'docstring'
+      );
+      expect(docChunk).toMatchObject({
+        filePath: 'src/main/java/com/demo/OrderService.java',
+        lineStart: 3
+      });
+      expect(docChunk!.content).toContain('Core order service');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('scans pom dependencies as component keys and answers dependency queries', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-deps-'));
+    try {
+      await makeDepsRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const configResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/symbols?kind=config`
+      );
+      const configBody = (await configResponse.json()) as {
+        symbols: Array<{ name: string; filePath: string; lineStart?: number }>;
+      };
+      const starter = configBody.symbols.find(
+        (symbol) => symbol.name === 'org.springframework.boot:spring-boot-starter-web'
+      );
+      expect(starter).toMatchObject({ filePath: 'pom.xml', lineStart: 9 });
+      const mysql = configBody.symbols.find(
+        (symbol) => symbol.name === 'com.mysql:mysql-connector-j (runtime)'
+      );
+      expect(mysql).toMatchObject({ filePath: 'pom.xml', lineStart: 14 });
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=environment&question=${encodeURIComponent('依赖组件')}`
+      );
+      const text = await response.text();
+      expect(text).toContain('Found');
+      expect(text).toContain('org.springframework.boot:spring-boot-starter-web');
+      expect(text).toContain('com.mysql:mysql-connector-j (runtime)');
+      expect(text).toContain('pom.xml:9');
+      expect(text).toContain('pom.xml:14');
+      expect(text.toLowerCase()).not.toContain('secret');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('RepoPulse local evidence plane', () => {
@@ -676,13 +1309,11 @@ describe('RepoPulse local evidence plane', () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-evidence-failure-'));
     try {
       await makeJavaRepo(root);
-      await fs.writeFile(
-        path.join(root, 'src', 'main', 'java', 'com', 'demo', 'Broken.java'),
-        'package com.demo;\npublic class Broken { int value = ; }\n'
-      );
       const result = await importRepo(ctx.baseUrl, root);
       const repoId = result.body.repo!.id;
-      expect(result.body.repo?.status).toBe('error');
+      expect(result.body.repo?.status).toBe('ready');
+      // Force a bad repo state directly so the query path records a failure class.
+      ctx.db.prepare(`UPDATE repos SET status = 'error' WHERE id = ?`).run(repoId);
 
       const failureQueryResponse = await fetch(
         `${ctx.baseUrl}/api/repos/${repoId}/query?question=${encodeURIComponent('architecture')}`
@@ -767,13 +1398,116 @@ describe('RepoPulse real LLM adapter', () => {
       }
       expect(events.some((event) => event.type === 'repoqa.query.token')).toBe(true);
       const done = events.find((event) => event.type === 'repoqa.query.done');
-      expect(done?.payload.answer).toBe('LLM route hit');
+      // Issue 10: the adapter finalizes every answer into the three-section
+      // layout (业务概述 / 证据与拆解 / 结论与下一步).
+      expect(done?.payload.answer).toContain('LLM route hit');
+      expect(done?.payload.answer).toContain('业务概述');
+      expect(done?.payload.answer).toContain('结论与下一步');
       expect(done?.payload.suggestedAction).toBe('Trace Controller');
     } finally {
       if (oldUrl === undefined) delete process.env.REPOQA_LLM_URL;
       else process.env.REPOQA_LLM_URL = oldUrl;
       if (oldModel === undefined) delete process.env.REPOQA_LLM_MODEL;
       else process.env.REPOQA_LLM_MODEL = oldModel;
+      if (oldGate === undefined) delete process.env.REPOQA_GATES_PASSED;
+      else process.env.REPOQA_GATES_PASSED = oldGate;
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+      await new Promise<void>((resolve) => stub.close(() => resolve()));
+    }
+  });
+
+  it('runs the ReAct tool loop end-to-end and masks secrets in every prompt', async () => {
+    const bodies: string[] = [];
+    let call = 0;
+    const stub = http.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (chunk) => (raw += chunk));
+      req.on('end', () => {
+        bodies.push(raw);
+        call += 1;
+        let content: string;
+        if (call === 1) {
+          content = JSON.stringify({
+            tool: { name: 'trace_call_chain', args: { query: 'hello' } }
+          });
+        } else if (call === 2) {
+          content = JSON.stringify({
+            tool: { name: 'repoqa-masking', args: { text: 'password=supersecret' } }
+          });
+        } else {
+          content = JSON.stringify({
+            answer: 'Route Controller.hello calls DemoService.greet',
+            mermaid:
+              'flowchart LR\n  Controller[Controller]\n  Service[Service]\n  Controller --> Service',
+            anchors: [
+              { file: 'src/main/java/com/demo/Controller.java', line: 7, symbol: 'Controller' },
+              { file: 'src/main/java/com/demo/DemoService.java', line: 4, symbol: 'Service' }
+            ],
+            suggestedAction: 'Trace greet'
+          });
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content } }] }));
+      });
+    });
+    await new Promise<void>((resolve) => stub.listen(0, '127.0.0.1', resolve));
+    const address = stub.address() as AddressInfo;
+
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-llm-react-'));
+    const oldUrl = process.env.REPOQA_LLM_URL;
+    const oldGate = process.env.REPOQA_GATES_PASSED;
+    process.env.REPOQA_LLM_URL = `http://127.0.0.1:${address.port}`;
+    process.env.REPOQA_GATES_PASSED = '1';
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+      const events: Array<{ type: string; payload: any }> = [];
+      for await (const event of ctx.worker.queryRepo({
+        repoId,
+        question: 'trace hello'
+      })) {
+        events.push(event as { type: string; payload: any });
+      }
+      // Tool loop: trace_call_chain -> repoqa-masking -> final answer.
+      expect(bodies.length).toBe(3);
+      // The masking tool result is fed back, and the secret never reaches the
+      // model raw: every prompt leaving the adapter is masked.
+      expect(bodies[1]).toContain('[tool result 1]');
+      expect(bodies[1]).toContain('Tool trace_call_chain');
+      expect(bodies[2]).toContain('password=***');
+      expect(bodies[2]).not.toContain('supersecret');
+      const done = events.find((event) => event.type === 'repoqa.query.done');
+      expect(done?.payload.answer).toContain('业务概述');
+      expect(done?.payload.answer).toContain('结论与下一步');
+      expect(done?.payload.answer).toContain('Controller.hello');
+      // code:// anchors are bound into the diagram and validated against the repo.
+      expect(done?.payload.mermaid).toContain(
+        'code://src/main/java/com/demo/Controller.java#7'
+      );
+      expect(done?.payload.mermaid).toContain(
+        'code://src/main/java/com/demo/DemoService.java#4'
+      );
+      expect(done?.payload.mermaid).not.toContain('http');
+      expect(done?.payload.anchors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            file: 'src/main/java/com/demo/Controller.java',
+            line: 7,
+            symbol: 'Controller'
+          }),
+          expect.objectContaining({
+            file: 'src/main/java/com/demo/DemoService.java',
+            line: 4,
+            symbol: 'Service'
+          })
+        ])
+      );
+    } finally {
+      if (oldUrl === undefined) delete process.env.REPOQA_LLM_URL;
+      else process.env.REPOQA_LLM_URL = oldUrl;
       if (oldGate === undefined) delete process.env.REPOQA_GATES_PASSED;
       else process.env.REPOQA_GATES_PASSED = oldGate;
       await ctx.close();

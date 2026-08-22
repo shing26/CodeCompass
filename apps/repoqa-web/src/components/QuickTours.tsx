@@ -1,76 +1,48 @@
 import { useState } from 'react';
-import type { RepoSymbol } from '../types';
-import { filterByKind } from '../hooks/useSymbols';
+import type { RepoTour } from '../types';
 
 interface QuickToursProps {
-  repoName: string;
-  symbols: RepoSymbol[];
-  onTour: (question: string) => void;
-}
-
-interface Tour {
-  id: string;
-  title: string;
-  question: string;
-}
-
-function deriveTours(repoName: string, symbols: RepoSymbol[]): Tour[] {
-  const firstRoute = filterByKind(symbols, 'route')[0];
-  if (firstRoute) {
-    return [
-      {
-        id: 'recommended',
-        title: `Trace ${firstRoute.name}`,
-        question: `${firstRoute.name} 经过了哪些类`
-      },
-      {
-        id: 'arch',
-        title: 'Architecture overview',
-        question: '这个项目的整体架构是怎样的？请给出模块划分和调用层次'
-      },
-      {
-        id: 'exception',
-        title: 'Where are exceptions handled?',
-        question: '全局异常处理在哪里实现？'
-      }
-    ];
-  }
-  const firstClass = symbols.find((s) => s.kind === 'class');
-  if (firstClass) {
-    return [
-      {
-        id: 'recommended',
-        title: `Understand ${firstClass.name}`,
-        question: `${firstClass.name} 的职责是什么，它调用了哪些类`
-      },
-      {
-        id: 'arch',
-        title: 'Architecture overview',
-        question: '这个项目的整体架构是怎样的？请给出模块划分和调用层次'
-      },
-      {
-        id: 'exception',
-        title: 'Where are exceptions handled?',
-        question: '全局异常处理在哪里实现？'
-      }
-    ];
-  }
-  return [
-    {
-      id: 'recommended',
-      title: 'Architecture overview',
-      question: `请介绍 ${repoName} 项目的整体架构`
-    }
-  ];
+  tours: RepoTour[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  /** Start playing a guided tour (switches the main view to the tour player). */
+  onPlay: (tour: RepoTour) => void;
 }
 
 /**
- * Quick Tours: one Recommended Flow on first screen; the rest collapse under
- * "More Tours" (review decision: no three-card row).
+ * Quick Tours (issue 11/13): list of backend generated onboarding tours.
+ * The first tour is the prominent recommended card; the rest collapse under
+ * "More Tours" (review decision: no three-card row). Clicking a tour starts
+ * the step-by-step tour player in the main view.
  */
-export function QuickTours({ repoName, symbols, onTour }: QuickToursProps) {
+export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickToursProps) {
   const [expanded, setExpanded] = useState(false);
-  const tours = deriveTours(repoName, symbols);
+
+  if (loading && tours.length === 0) {
+    return <p className="text-xs text-slate-400">Loading tours…</p>;
+  }
+
+  if (error && tours.length === 0) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-red-600">Tours 加载失败</span>
+        <button
+          type="button"
+          data-testid="tours-retry"
+          onClick={onRetry}
+          className="rounded border border-red-300 bg-white px-1.5 py-0.5 text-[11px] text-red-700 hover:bg-red-50"
+        >
+          重试
+        </button>
+      </div>
+    );
+  }
+
+  if (tours.length === 0) {
+    return <p className="text-xs text-slate-400">No tours available.</p>;
+  }
+
   const [recommended, ...rest] = tours;
 
   return (
@@ -78,12 +50,17 @@ export function QuickTours({ repoName, symbols, onTour }: QuickToursProps) {
       <button
         type="button"
         data-testid={`tour-${recommended.id}`}
-        onClick={() => onTour(recommended.question)}
+        onClick={() => onPlay(recommended)}
         className="mb-1 flex w-full items-center justify-between gap-2 rounded-md border border-accent/30 bg-accent-soft/50 px-2.5 py-2 text-left text-xs font-medium text-accent hover:bg-accent-soft"
       >
         <span>{recommended.title}</span>
         <span aria-hidden className="text-accent">→</span>
       </button>
+      {recommended.description && (
+        <p className="mb-1 px-1 text-[11px] leading-snug text-slate-400">
+          {recommended.description}
+        </p>
+      )}
 
       {rest.length > 0 && (
         <div className="mt-1">
@@ -102,7 +79,7 @@ export function QuickTours({ repoName, symbols, onTour }: QuickToursProps) {
                   <button
                     type="button"
                     data-testid={`tour-${tour.id}`}
-                    onClick={() => onTour(tour.question)}
+                    onClick={() => onPlay(tour)}
                     className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs text-slate-600 hover:border-accent/40 hover:text-accent"
                   >
                     {tour.title}

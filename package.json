@@ -1,14 +1,18 @@
 {
   "name": "multi-harness-workbench",
-  "version": "0.1.0",
+  "version": "0.2.0-beta",
   "private": true,
   "description": "Multi-Harness coordination workbench for full-stack AI R&D",
+  "bin": {
+    "codecompass": "./bin/codecompass.js"
+  },
   "scripts": {
-    "install:all": "npm install --prefix packages/contracts && npm install --prefix packages/bridge-adapters && npm install --prefix services/control-plane && npm install --prefix apps/desktop",
-    "typecheck": "npm run typecheck --prefix packages/contracts && npm run typecheck --prefix packages/bridge-adapters && npm run typecheck --prefix services/control-plane && npm run typecheck --prefix apps/desktop",
+    "install:all": "npm install --prefix packages/contracts && npm install --prefix packages/bridge-adapters && npm install --prefix services/control-plane && npm install --prefix apps/repoqa-web",
+    "typecheck": "npm run typecheck --prefix packages/contracts && npm run typecheck --prefix packages/bridge-adapters && npm run typecheck --prefix services/control-plane && npm run typecheck --prefix apps/repoqa-web",
     "test": "npm run test --prefix services/control-plane",
-    "build": "npm run build --prefix packages/contracts && npm run build --prefix packages/bridge-adapters && npm run build --prefix services/control-plane && npm run build --prefix apps/desktop",
-    "dev": "npm run dev --prefix apps/desktop",
-    "test:e2e": "npm run test:e2e --prefix apps/desktop"
+    "test:web": "npm run test --prefix apps/repoqa-web",
+    "build": "npm run build --prefix packages/contracts && npm run build --prefix packages/bridge-adapters && npm run build --prefix services/control-plane && npm run build --prefix apps/repoqa-web",
+    "dev": "npm run dev --prefix apps/repoqa-web",
+    "start": "node services/control-plane/dist/cli.js"
   }
 }

@@ -4,7 +4,9 @@ import type {
   QueryEvent,
   QueryMode,
   Repo,
+  RepoDashboard,
   RepoSymbol,
+  RepoTour,
   SymbolKind
 } from '../types';
 
@@ -41,7 +43,8 @@ export class RepoQAClient {
       if (res.status === 404) return null;
       throw new Error(`getRepo failed: ${res.status}`);
     }
-    return (await res.json()) as Repo;
+    const body = (await res.json()) as { repo?: Repo };
+    return body.repo ?? null;
   }
 
   async importRepo(input: ImportRepoInput): Promise<Repo> {
@@ -51,7 +54,9 @@ export class RepoQAClient {
       body: JSON.stringify(input)
     });
     if (!res.ok) throw new Error(`importRepo failed: ${res.status}`);
-    return (await res.json()) as Repo;
+    const body = (await res.json()) as { repo?: Repo };
+    if (!body.repo) throw new Error('importRepo failed: missing repo in response');
+    return body.repo;
   }
 
   async listSymbols(repoId: string, kind?: SymbolKind): Promise<RepoSymbol[]> {
@@ -69,6 +74,39 @@ export class RepoQAClient {
       `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/file/raw?path=${encodeURIComponent(path)}`
     );
     if (!res.ok) throw new Error(`getFileRaw failed: ${res.status}`);
+    return await res.text();
+  }
+
+  /** Issue 12/13: zero-prompt dashboard aggregation (values never leak). */
+  async getDashboard(repoId: string): Promise<RepoDashboard | null> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/dashboard`
+    );
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`getDashboard failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { dashboard?: RepoDashboard };
+    return body.dashboard ?? null;
+  }
+
+  /** Issue 11/13: AST-heuristic onboarding tours, optionally filtered by type. */
+  async getTours(repoId: string, type?: string): Promise<RepoTour[]> {
+    const params = type ? `?type=${encodeURIComponent(type)}` : '';
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/tours${params}`
+    );
+    if (!res.ok) throw new Error(`getTours failed: ${res.status}`);
+    const body = (await res.json()) as { tours?: RepoTour[] };
+    return body.tours ?? [];
+  }
+
+  /** Issue 14: fetch the ONBOARDING.md handover document as plain text. */
+  async exportOnboarding(repoId: string): Promise<string> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/export/onboarding`
+    );
+    if (!res.ok) throw new Error(`exportOnboarding failed: ${res.status}`);
     return await res.text();
   }
 
@@ -269,7 +307,11 @@ export class QueryStream implements QueryStreamLike {
   }
 }
 
-/** Resolve the API base URL from the environment; never hardcode the port. */
+/**
+ * Resolve the API base URL. Defaults to same-origin (`''`) so the production
+ * build works on any port in single-process mode; the dev server (different
+ * origin) pins the API via VITE_REPOQA_API_BASE in apps/repoqa-web/.env.development.
+ */
 export function resolveBaseUrl(env: Record<string, string | undefined> = import.meta.env ?? {}): string {
-  return (env.VITE_REPOQA_API_BASE ?? 'http://localhost:43110').replace(/\/$/, '');
+  return (env.VITE_REPOQA_API_BASE ?? '').replace(/\/$/, '');
 }

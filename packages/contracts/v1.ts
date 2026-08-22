@@ -104,8 +104,15 @@ export interface RepoQaQueryAnchors {
 export interface RepoQaTraceHop {
   file: string;
   method: string;
+  /** Definition start line of the resolved target (or call-site line for a break hop). */
   line?: number;
+  /** Definition end line of the resolved target (start/end range for one hop). */
+  lineEnd?: number;
+  /** Line in the caller where the call happens (0/undefined when unknown). */
+  callLine?: number;
   break?: true;
+  /** Human-readable break marker, e.g. '[Static Analysis Break: Dynamic/RPC Dispatch]'. */
+  reason?: string;
 }
 
 export interface RepoQaQueryDone {

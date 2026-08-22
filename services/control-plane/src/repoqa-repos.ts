@@ -17,16 +17,37 @@ export interface Repo {
   updatedAt: string;
 }
 
+export interface RepoSymbolCall {
+  /** Calling file (the file where the invocation appears). */
+  file: string;
+  /** Called method name. */
+  method: string;
+  /** Call-site line number inside `file`. */
+  line?: number;
+  /** Receiver variable name (`orderService`, `this`, ...). */
+  receiver?: string;
+  /** Statically resolved receiver type name, e.g. `OrderService`. */
+  receiverType?: string;
+  /** True when the receiver could not be typed statically (chains, external calls). */
+  dynamic?: boolean;
+}
+
 export interface RepoSymbol {
   id?: number;
   repoId: string;
-  kind: 'class' | 'interface' | 'method' | 'route' | 'service' | 'repository' | 'config' | 'field';
+  kind: 'class' | 'interface' | 'method' | 'route' | 'service' | 'repository' | 'advice' | 'config' | 'field';
   name: string;
   filePath: string;
   lineStart?: number;
   lineEnd?: number;
   signature?: string;
-  calls?: Array<{ file: string; method: string }>;
+  /** Enclosing class/interface name for methods and fields (Issue 05 cross-file resolution). */
+  parentType?: string;
+  /** For field symbols: declared type name. */
+  type?: string;
+  /** For class symbols: implemented interface names. */
+  interfaces?: string[];
+  calls?: RepoSymbolCall[];
 }
 
 export interface RepoChunk {
@@ -36,6 +57,62 @@ export interface RepoChunk {
   content: string;
   filePath?: string;
   lineStart?: number;
+}
+
+/** Structured record stored on the local evidence plane (`repoqa_events`). */
+export interface RepoQAEvent {
+  id: number;
+  repoId?: string;
+  sessionId?: string;
+  eventType: string;
+  intent?: string;
+  queryStartAt?: string;
+  firstTokenAt?: string;
+  queryDoneAt?: string;
+  anchorClicked: boolean;
+  toolMiss?: string;
+  feedback?: string;
+  failureClass?: string;
+  createdAt: string;
+}
+
+/** Read-only filters for `listEvents`. */
+export interface EventFilters {
+  repoId?: string;
+  /** Exact type or comma-separated list of types, e.g. `query.start,query.done`. */
+  eventType?: string;
+  intent?: string;
+  limit?: number;
+  offset?: number;
+}
+
+function mapEvent(row: any): RepoQAEvent {
+  return {
+    id: row.id,
+    repoId: row.repo_id ?? undefined,
+    sessionId: row.session_id ?? undefined,
+    eventType: row.event_type,
+    intent: row.intent ?? undefined,
+    queryStartAt: row.query_start_at ?? undefined,
+    firstTokenAt: row.first_token_at ?? undefined,
+    queryDoneAt: row.query_done_at ?? undefined,
+    anchorClicked: Boolean(row.anchor_clicked),
+    toolMiss: row.tool_miss ?? undefined,
+    feedback: row.feedback ?? undefined,
+    failureClass: row.failure_class ?? undefined,
+    createdAt: row.created_at
+  };
+}
+
+function sanitizePaging(
+  value: number | undefined,
+  fallback: number,
+  max: number
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+  return Math.min(value, max);
 }
 
 function mapRepo(row: {
@@ -201,11 +278,14 @@ export class RepoQARepos {
   }
 
   recordEvent(input: {
-    repoId: string;
+    // Optional since Issue 09: eval harness events (`eval.run`, `eval.bucket`)
+    // are written without a real repo (column is nullable, mapEvent is optional).
+    repoId?: string;
     eventType: string;
     sessionId?: string;
     intent?: string;
     queryStartAt?: string;
+    firstTokenAt?: string;
     queryDoneAt?: string;
     anchorClicked?: boolean;
     toolMiss?: string;
@@ -215,16 +295,17 @@ export class RepoQARepos {
     this.db
       .prepare(
         `INSERT INTO repoqa_events (
-          repo_id, session_id, event_type, intent, query_start_at, query_done_at,
-          anchor_clicked, tool_miss, feedback, failure_class, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          repo_id, session_id, event_type, intent, query_start_at, first_token_at,
+          query_done_at, anchor_clicked, tool_miss, feedback, failure_class, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        input.repoId,
+        input.repoId ?? null,
         input.sessionId ?? null,
         input.eventType,
         input.intent ?? null,
         input.queryStartAt ?? null,
+        input.firstTokenAt ?? null,
         input.queryDoneAt ?? null,
         input.anchorClicked ? 1 : 0,
         input.toolMiss ?? null,
@@ -234,11 +315,52 @@ export class RepoQARepos {
       );
   }
 
+  listEvents(filters: EventFilters = {}): { events: RepoQAEvent[]; total: number } {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (filters.repoId) {
+      where.push('repo_id = ?');
+      params.push(filters.repoId);
+    }
+    if (filters.eventType) {
+      // Comma-separated list of event types is allowed for convenience.
+      const types = filters.eventType
+        .split(',')
+        .map((type) => type.trim())
+        .filter(Boolean);
+      if (types.length > 0) {
+        where.push(`event_type IN (${types.map(() => '?').join(', ')})`);
+        params.push(...types);
+      }
+    }
+    if (filters.intent) {
+      where.push('intent = ?');
+      params.push(filters.intent);
+    }
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) AS count FROM repoqa_events ${whereSql}`).get(...params) as {
+        count: number;
+      }
+    ).count;
+    const limit = sanitizePaging(filters.limit, 100, 500);
+    const offset = sanitizePaging(filters.offset, 0, Number.MAX_SAFE_INTEGER);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM repoqa_events ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`
+      )
+      .all(...params, limit, offset) as any[];
+    return {
+      events: rows.map(mapEvent),
+      total
+    };
+  }
+
   upsertSymbols(symbols: RepoSymbol[]): void {
     if (symbols.length === 0) return;
     const insert = this.db.prepare(
-      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const del = this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?');
     const tx = this.db.transaction(() => {
@@ -252,7 +374,10 @@ export class RepoQARepos {
           s.lineStart ?? null,
           s.lineEnd ?? null,
           s.signature ?? null,
-          s.calls ? JSON.stringify(s.calls) : null
+          s.calls ? JSON.stringify(s.calls) : null,
+          s.parentType ?? null,
+          s.type ?? null,
+          s.interfaces ? JSON.stringify(s.interfaces) : null
         );
       }
     });
@@ -275,6 +400,9 @@ export class RepoQARepos {
       lineStart: row.line_start ?? undefined,
       lineEnd: row.line_end ?? undefined,
       signature: row.signature ?? undefined,
+      parentType: row.parent_type ?? undefined,
+      type: row.type_name ?? undefined,
+      interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
       calls: row.calls ? JSON.parse(row.calls) : undefined
     }));
   }
@@ -325,6 +453,9 @@ export class RepoQARepos {
       lineStart: row.line_start ?? undefined,
       lineEnd: row.line_end ?? undefined,
       signature: row.signature ?? undefined,
+      parentType: row.parent_type ?? undefined,
+      type: row.type_name ?? undefined,
+      interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
       calls: row.calls ? JSON.parse(row.calls) : undefined
     }));
   }

@@ -17,13 +17,21 @@ export interface UseRepoCatalogResult {
 /**
  * Owns the repo catalog: list, current selection, import, and polling while a
  * repo is still indexing. Polling stops as soon as status is terminal.
+ *
+ * `initialRepoId` (e.g. from a `?repo=` deep link opened by the CLI) is
+ * applied once the catalog has loaded; it never overrides an explicit user
+ * selection made afterwards.
  */
-export function useRepoCatalog(client: RepoQAClient): UseRepoCatalogResult {
+export function useRepoCatalog(
+  client: RepoQAClient,
+  initialRepoId?: string | null
+): UseRepoCatalogResult {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didApplyInitial = useRef(false);
 
   const selectRepo = useCallback((id: string) => {
     setCurrentId(id);
@@ -39,8 +47,17 @@ export function useRepoCatalog(client: RepoQAClient): UseRepoCatalogResult {
     let cancelled = false;
     setLoading(true);
     refresh()
-      .then(() => {
-        if (!cancelled) setError(null);
+      .then((list) => {
+        if (cancelled) return;
+        setError(null);
+        if (initialRepoId && !didApplyInitial.current) {
+          didApplyInitial.current = true;
+          setCurrentId((prev) =>
+            prev === null && list.some((r) => r.id === initialRepoId)
+              ? initialRepoId
+              : prev
+          );
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -51,7 +68,7 @@ export function useRepoCatalog(client: RepoQAClient): UseRepoCatalogResult {
     return () => {
       cancelled = true;
     };
-  }, [refresh]);
+  }, [refresh, initialRepoId]);
 
   // Poll repo status while any repo is active (indexing), then stop.
   useEffect(() => {

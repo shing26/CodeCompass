@@ -60,7 +60,10 @@ export function MermaidDiagram({ code, onNavigate }: MermaidDiagramProps) {
   const bindings = useRef(parseClickBindings(code));
   bindings.current = parseClickBindings(code);
 
-  // Click delegation: match the clicked text against click bindings.
+  // Click delegation: match the clicked label against click bindings. mermaid
+  // 11 renders node labels as <text> (htmlLabels:false) by default in some
+  // setups, but with the default htmlLabels:true it renders them as
+  // <foreignObject><div>. Accept both so code:// bindings always navigate.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || svgHtml === null) return;
@@ -68,8 +71,10 @@ export function MermaidDiagram({ code, onNavigate }: MermaidDiagramProps) {
       const target = ev.target as Element;
       const textEl =
         target.tagName === 'text' ? target : (target.closest('text') as Element | null);
-      if (!textEl || !textEl.textContent) return;
-      const name = textEl.textContent.trim();
+      const foreignEl = textEl ? null : (target.closest('foreignObject') as Element | null);
+      const labelEl = textEl ?? foreignEl;
+      if (!labelEl || !labelEl.textContent) return;
+      const name = labelEl.textContent.trim();
       const url = bindings.current.get(name);
       if (!url) return;
       const deepLink = parseDeepLink(url);

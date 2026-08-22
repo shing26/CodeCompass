@@ -3,11 +3,22 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
 import { RepoQAClient } from './client/RepoQAClient';
-import type { Repo } from './types';
+import type { Repo, RepoDashboard, RepoTour } from './types';
 
 // The Inspector's monaco wiring imports the ESM-only monaco-editor package,
 // which vite-node cannot resolve; tests never create a real editor.
 vi.mock('./client/monacoSetup', () => ({ monaco: {} }));
+
+// TourPlayer renders MermaidDiagram; keep jsdom away from the real renderer.
+vi.mock('./client/mermaidRenderer', () => ({
+  renderMermaid: vi.fn(async (_uid: string) => '<svg id="d"><text>A</text></svg>')
+}));
+
+// Issue 14: stub the browser download side effect so tests can assert it.
+vi.mock('./utils/download', () => ({
+  downloadTextFile: vi.fn()
+}));
+import { downloadTextFile } from './utils/download';
 
 const readyRepo: Repo = {
   id: 'repo-1',
@@ -22,6 +33,74 @@ const readyRepo: Repo = {
   updated_at: '2026-08-21T00:00:00.000Z'
 };
 
+const roundDashboard: RepoDashboard = {
+  repoId: 'repo-1',
+  repoName: 'petclinic',
+  techStack: { summary: [], highlights: ['Spring Boot'] },
+  config: { topology: [], maskedValues: true },
+  scale: {
+    routes: 2,
+    services: 1,
+    repositories: 1,
+    advices: 1,
+    classes: 4,
+    interfaces: 2,
+    methods: 10,
+    fields: 6,
+    configKeys: 4,
+    files: 8
+  },
+  topApis: [
+    {
+      name: 'listOrders',
+      controller: 'OrderController',
+      filePath: 'src/main/java/OrderController.java',
+      lineStart: 24,
+      depth: 3,
+      hops: ['listOrders', 'findOrders', 'findAll']
+    }
+  ]
+};
+
+const roundTours: RepoTour[] = [
+  {
+    id: 'auth-chain',
+    title: 'Trace the auth filter chain',
+    description: '从认证过滤器到受保护端点',
+    steps: [
+      { step: '1. AuthFilter', filePath: 'src/AuthFilter.java', lineNumber: 5, symbol: 'AuthFilter', kind: 'class' }
+    ],
+    mermaid: 'flowchart LR\n  AuthFilter --> Stop'
+  },
+  {
+    id: 'main-flow',
+    title: 'Follow the core business flow',
+    description: '',
+    steps: [
+      { step: '1. listOrders', filePath: 'src/OrderController.java', lineNumber: 24, symbol: 'listOrders', kind: 'method' }
+    ],
+    mermaid: 'flowchart LR\n  Controller --> Service'
+  },
+  {
+    id: 'error-handling',
+    title: 'Where are exceptions handled?',
+    description: '',
+    steps: [
+      { step: '1. GlobalExceptionHandler', filePath: 'src/GlobalExceptionHandler.java', lineNumber: 9, symbol: 'GlobalExceptionHandler', kind: 'advice' }
+    ],
+    mermaid: 'flowchart LR\n  Advice --> Stop'
+  }
+];
+
+/** Minimal QueryStream-like double so a trace submission never crashes. */
+const noopStream = {
+  onEvent: () => () => undefined,
+  onError: () => () => undefined,
+  onDone: () => () => undefined,
+  connect: () => undefined,
+  close: () => undefined
+};
+
 function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
@@ -29,10 +108,20 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
     getRepo: vi.fn(),
     listSymbols: vi.fn().mockResolvedValue([]),
     getFileRaw: vi.fn(),
-    queryRepo: vi.fn(),
+    queryRepo: vi.fn().mockReturnValue(noopStream),
+    getDashboard: vi.fn().mockResolvedValue(roundDashboard),
+    getTours: vi.fn().mockResolvedValue(roundTours),
+    exportOnboarding: vi.fn().mockResolvedValue('# petclinic ONBOARDING\n'),
     baseUrl: 'http://localhost:43110',
     ...overrides
   } as unknown as RepoQAClient;
+}
+
+async function selectRepo(user: ReturnType<typeof userEvent.setup>) {
+  await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+  await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+  // Issue 13: the dashboard is the default view once a repo is selected.
+  await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
 }
 
 describe('App scaffold and repo connect', () => {
@@ -74,8 +163,7 @@ describe('App scaffold and repo connect', () => {
   it('shows the ready status stepper once a repo is selected', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
-    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
-    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await selectRepo(user);
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('Graph Ready'));
   });
 
@@ -107,5 +195,126 @@ describe('App scaffold and repo connect', () => {
       expect(screen.getByTestId('import-dialog')).toHaveTextContent('import failed')
     );
     expect(screen.getByTestId('import-dialog')).toBeInTheDocument();
+  });
+});
+
+describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
+  it('lands on the dashboard after selecting a repo', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await selectRepo(user);
+    expect(screen.getByTestId('highlight-badge')).toHaveTextContent('Spring Boot');
+    expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
+  });
+
+  it('plays a tour from the sidebar and returns to the dashboard with one click', async () => {
+    const client = makeClient();
+    client.getFileRaw = vi.fn().mockResolvedValue('class AuthFilter {}');
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tour-auth-chain'));
+    await waitFor(() => expect(screen.getByTestId('tour-player')).toBeInTheDocument());
+    expect(screen.getByTestId('tour-progress')).toHaveTextContent('Step 1 / 1');
+    // First step auto-opens in the Inspector.
+    await waitFor(() => expect(client.getFileRaw).toHaveBeenCalledWith('repo-1', 'src/AuthFilter.java'));
+
+    await user.click(screen.getByTestId('back-to-dashboard'));
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    expect(screen.queryByTestId('tour-player')).not.toBeInTheDocument();
+  });
+
+  it('starts a call-chain trace when a top API entry is clicked', async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('api-entry'));
+    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+    expect(screen.getByTestId('user-message')).toHaveTextContent('listOrders 的完整调用链是怎样的？');
+    expect(client.queryRepo).toHaveBeenCalledWith(
+      'repo-1',
+      'listOrders 的完整调用链是怎样的？',
+      undefined
+    );
+    expect(screen.getByTestId('back-to-dashboard')).toBeInTheDocument();
+  });
+
+  it('switches to the chat view from the dashboard 提问 button', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('open-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+    await user.click(screen.getByTestId('back-to-dashboard'));
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+  });
+});
+
+describe('Issue 14 ONBOARDING.md export', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('downloads {repoName}-ONBOARDING.md for the selected repo', async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('export-onboarding'));
+    await waitFor(() => expect(client.exportOnboarding).toHaveBeenCalledWith('repo-1'));
+    await waitFor(() =>
+      expect(downloadTextFile).toHaveBeenCalledWith(
+        'petclinic-ONBOARDING.md',
+        '# petclinic ONBOARDING\n'
+      )
+    );
+  });
+
+  it('hides the export button until a repo is selected', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    expect(screen.queryByTestId('export-onboarding')).not.toBeInTheDocument();
+
+    await selectRepo(user);
+    expect(screen.getByTestId('export-onboarding')).toBeInTheDocument();
+  });
+
+  it('surfaces an export failure without leaving the dashboard', async () => {
+    const client = makeClient({
+      exportOnboarding: vi.fn().mockRejectedValue(new Error('export boom'))
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('export-onboarding'));
+    await waitFor(() => expect(screen.getByText('export boom')).toBeInTheDocument());
+    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    expect(downloadTextFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('Issue 16 cockpit deep link (?repo=<id>)', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('auto-selects the repo from the query param and lands on the dashboard', async () => {
+    window.history.replaceState(null, '', '/?repo=repo-1');
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+  });
+
+  it('keeps the manual selection flow when no query param is present', async () => {
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument();
   });
 });

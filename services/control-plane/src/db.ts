@@ -86,6 +86,9 @@ CREATE TABLE IF NOT EXISTS repo_symbols (
   line_end INTEGER,
   signature TEXT,
   calls TEXT,
+  parent_type TEXT,
+  type_name TEXT,
+  interfaces TEXT,
   FOREIGN KEY (repo_id) REFERENCES repos(id)
 );
 CREATE INDEX IF NOT EXISTS idx_repo_symbols_repo ON repo_symbols(repo_id, kind, name);
@@ -139,6 +142,19 @@ export function openDb(dbPath: string): Database.Database {
     .all() as Array<{ name: string }>;
   if (!repoColumns.some((column) => column.name === 'error')) {
     db.exec('ALTER TABLE repos ADD COLUMN error TEXT');
+  }
+  // Issue 05: richer symbol metadata for deterministic call chains.
+  const symbolColumns = db
+    .prepare('PRAGMA table_info(repo_symbols)')
+    .all() as Array<{ name: string }>;
+  for (const [column, ddl] of [
+    ['parent_type', 'ALTER TABLE repo_symbols ADD COLUMN parent_type TEXT'],
+    ['type_name', 'ALTER TABLE repo_symbols ADD COLUMN type_name TEXT'],
+    ['interfaces', 'ALTER TABLE repo_symbols ADD COLUMN interfaces TEXT']
+  ] as const) {
+    if (!symbolColumns.some((existing) => existing.name === column)) {
+      db.exec(ddl);
+    }
   }
   return db;
 }

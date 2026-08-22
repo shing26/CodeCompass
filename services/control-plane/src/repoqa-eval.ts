@@ -12,6 +12,23 @@ import { RepoQAWorker } from './repoqa-worker';
 const execFile = promisify(execFileCallback);
 const RECALL_K = 5;
 
+// Issue 09: pass thresholds for the golden eval — referenced both when
+// computing the report and when mapping bucket results onto the evidence
+// plane, so the two can never drift apart.
+export const EVAL_PASS_THRESHOLDS = {
+  recallAtK: 85,
+  hallucinationRateMax: 2,
+  anchorValidity: 90
+} as const;
+
+function bucketPasses(bucket: EvalReport['buckets'][keyof EvalReport['buckets']]): boolean {
+  return (
+    bucket.recallAtK >= EVAL_PASS_THRESHOLDS.recallAtK &&
+    bucket.hallucinationRate <= EVAL_PASS_THRESHOLDS.hallucinationRateMax &&
+    bucket.anchorValidity >= EVAL_PASS_THRESHOLDS.anchorValidity
+  );
+}
+
 interface EvalFixture {
   name: string;
   files: Record<string, string>;
@@ -118,7 +135,7 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
   }))
 ];
 
-async function materializeFixture(fixture: EvalFixture): Promise<string> {
+export async function materializeFixture(fixture: EvalFixture): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), `repoqa-eval-${fixture.name}-`));
   for (const [relativePath, content] of Object.entries(fixture.files)) {
     const target = path.join(root, relativePath);
@@ -128,7 +145,7 @@ async function materializeFixture(fixture: EvalFixture): Promise<string> {
   return root;
 }
 
-async function commitFixture(root: string): Promise<string> {
+export async function commitFixture(root: string): Promise<string> {
   const gitEnv = {
     ...process.env,
     GIT_AUTHOR_NAME: 'RepoPulse',
@@ -151,7 +168,7 @@ async function commitFixture(root: string): Promise<string> {
   return stdout.trim();
 }
 
-export async function runGoldenEval(): Promise<EvalReport> {
+export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport> {
   const roots = new Map<string, string>();
   const fixtureCommits = new Map<string, string>();
   const symbolsByFixture = new Map<string, ReturnType<RepoQARepos['listSymbols']>>();
@@ -249,15 +266,21 @@ export async function runGoldenEval(): Promise<EvalReport> {
 
   const generationFailures = Math.min(
     1,
-    Object.values(buckets).filter((bucket) => bucket.hallucinationRate > 2).length
+    Object.values(buckets).filter(
+      (bucket) => bucket.hallucinationRate > EVAL_PASS_THRESHOLDS.hallucinationRateMax
+    ).length
   );
   const anchorFailures = Math.min(
     1,
-    Object.values(buckets).filter((bucket) => bucket.anchorValidity < 90).length
+    Object.values(buckets).filter(
+      (bucket) => bucket.anchorValidity < EVAL_PASS_THRESHOLDS.anchorValidity
+    ).length
   );
   const retrievalFailures = Math.min(
     1,
-    Object.values(buckets).filter((bucket) => bucket.recallAtK < 85).length
+    Object.values(buckets).filter(
+      (bucket) => bucket.recallAtK < EVAL_PASS_THRESHOLDS.recallAtK
+    ).length
   );
 
   for (const root of roots.values()) {
@@ -266,14 +289,9 @@ export async function runGoldenEval(): Promise<EvalReport> {
 
   const passed =
     parseFailures === 0 &&
-    Object.values(buckets).every(
-      (bucket) =>
-        bucket.recallAtK >= 85 &&
-        bucket.hallucinationRate <= 2 &&
-        bucket.anchorValidity >= 90
-    );
+    Object.values(buckets).every((bucket) => bucketPasses(bucket));
 
-  return {
+  const report: EvalReport = {
     passed,
     totalQuestions: GOLDEN_DATASET.length,
     fixtureCommits: Object.fromEntries(fixtureCommits),
@@ -285,6 +303,44 @@ export async function runGoldenEval(): Promise<EvalReport> {
       anchor: anchorFailures
     }
   };
+
+  if (recordTo) recordEvalReport(recordTo, report);
+  return report;
+}
+
+/**
+ * Issue 09: write a golden-eval run onto the local evidence plane
+ * (`repoqa_events`) — one `eval.run` summary plus one `eval.bucket` event per
+ * bucket with its recall/hallucination/anchor metrics. The eval owns no repo,
+ * so these events carry no repoId; `failureClass` carries the guardrail outcome.
+ */
+export function recordEvalReport(repoqa: RepoQARepos, report: EvalReport): void {
+  repoqa.recordEvent({
+    eventType: 'eval.run',
+    intent: 'golden-eval',
+    feedback: JSON.stringify({
+      passed: report.passed,
+      totalQuestions: report.totalQuestions,
+      fixtureCommits: report.fixtureCommits,
+      buckets: report.buckets,
+      failureTaxonomy: report.failureTaxonomy
+    }),
+    failureClass: report.passed ? undefined : 'eval-failed'
+  });
+  for (const [mode, bucket] of Object.entries(report.buckets)) {
+    repoqa.recordEvent({
+      eventType: 'eval.bucket',
+      intent: mode,
+      feedback: JSON.stringify({
+        total: bucket.total,
+        recallAtK: bucket.recallAtK,
+        hallucinationRate: bucket.hallucinationRate,
+        anchorValidity: bucket.anchorValidity,
+        avgLatencyMs: bucket.avgLatencyMs
+      }),
+      failureClass: bucketPasses(bucket) ? undefined : 'threshold-miss'
+    });
+  }
 }
 
 if (process.argv[1]?.endsWith('repoqa-eval.ts')) {

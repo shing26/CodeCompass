@@ -65,7 +65,7 @@ export function Canvas({
                   Explore {repo.name}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Click a Quick Tour on the left, or ask a question like
+                  打开看板查看技术栈与核心 API，或在左侧选择 Quick Tour，也可以直接提问，例如
                   “/owners 经过了哪些类”.
                 </p>
                 {error && <p className="mt-2 text-xs text-red-600">{error}</p>}

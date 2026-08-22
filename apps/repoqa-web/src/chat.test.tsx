@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { App } from './App';
 import { RepoQAClient } from './client/RepoQAClient';
 import type { QueryStreamLike } from './client/RepoQAClient';
-import type { QueryEvent, Repo } from './types';
+import type { QueryEvent, Repo, RepoDashboard } from './types';
 
 vi.mock('./client/mermaidRenderer', () => ({
   renderMermaid: vi.fn(async () => '<svg id="d"><text>A</text></svg>')
@@ -76,6 +76,26 @@ class FakeStream implements QueryStreamLike {
   }
 }
 
+const emptyDashboard: RepoDashboard = {
+  repoId: 'repo-1',
+  repoName: 'petclinic',
+  techStack: { summary: [], highlights: [] },
+  config: { topology: [], maskedValues: true },
+  scale: {
+    routes: 0,
+    services: 0,
+    repositories: 0,
+    advices: 0,
+    classes: 0,
+    interfaces: 0,
+    methods: 0,
+    fields: 0,
+    configKeys: 0,
+    files: 0
+  },
+  topApis: []
+};
+
 function makeClient(stream?: FakeStream) {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
@@ -83,6 +103,8 @@ function makeClient(stream?: FakeStream) {
     getRepo: vi.fn(),
     listSymbols: vi.fn().mockResolvedValue([]),
     getFileRaw: vi.fn(),
+    getDashboard: vi.fn().mockResolvedValue(emptyDashboard),
+    getTours: vi.fn().mockResolvedValue([]),
     queryRepo: vi.fn().mockReturnValue(stream ?? new FakeStream()),
     baseUrl: 'http://localhost:43110'
   } as unknown as RepoQAClient;
@@ -91,6 +113,9 @@ function makeClient(stream?: FakeStream) {
 async function selectRepo(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
   await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+  // Issue 13: the dashboard is the default view; open the Q&A chat explicitly.
+  await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
+  await user.click(screen.getByTestId('open-chat'));
 }
 
 describe('chat stream (ticket 02)', () => {

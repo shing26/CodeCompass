@@ -9,18 +9,30 @@ interface TopBarProps {
   error: string | null;
   onSelectRepo: (id: string) => void;
   onImport: (name: string, localPath: string) => Promise<void>;
+  /** Issue 14: fetch the ONBOARDING.md handover doc and trigger the download. */
+  onExport: () => Promise<void>;
 }
 
 /**
  * TopBar: repo selector + import entry + index status stepper.
  * Import keeps a minimal inline dialog so the flow stays in one ceremony.
  */
-export function TopBar({ repos, currentRepo, loading, error, onSelectRepo, onImport }: TopBarProps) {
+export function TopBar({
+  repos,
+  currentRepo,
+  loading,
+  error,
+  onSelectRepo,
+  onImport,
+  onExport
+}: TopBarProps) {
   const [showImport, setShowImport] = useState(false);
   const [name, setName] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const submitImport = async (e: FormEvent) => {
     e.preventDefault();
@@ -36,6 +48,19 @@ export function TopBar({ repos, currentRepo, loading, error, onSelectRepo, onImp
       setImportError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (!currentRepo || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await onExport();
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -68,10 +93,22 @@ export function TopBar({ repos, currentRepo, loading, error, onSelectRepo, onImp
         >
           Import local repo
         </button>
+        {currentRepo && (
+          <button
+            type="button"
+            data-testid="export-onboarding"
+            onClick={handleExport}
+            disabled={exporting}
+            className="h-8 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            {exporting ? 'Exporting…' : '导出 ONBOARDING.md'}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
         {error && <span className="text-xs text-red-600">{error}</span>}
+        {exportError && <span className="text-xs text-red-600">{exportError}</span>}
         {currentRepo ? (
           <>
             <StatusStepper status={currentRepo.status} />

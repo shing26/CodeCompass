@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import type { Repos } from './repos';
@@ -8,7 +9,10 @@ import type { EventBus } from './events';
 import type { RepoQARepos } from './repoqa-repos';
 import type { RepoQAWorker } from './repoqa-worker';
 import { exportWorkspace, importWorkspace } from './workspace-export';
-import { maskSensitiveText } from './repoqa-masking';
+import { maskSensitiveText, maskEventPayload } from './repoqa-masking';
+import { buildTours } from './repoqa-tours';
+import { buildDashboard } from './repoqa-dashboard';
+import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-export';
 
 export interface HttpDeps {
   repos: Repos;
@@ -21,6 +25,9 @@ export interface HttpDeps {
   dataDir: string;
   port: number;
   exportDir: string;
+  /** Absolute path to the built SPA dist. When present (and its index.html
+   * exists) the app serves it with an SPA fallback; API/WS routes keep priority. */
+  staticDir?: string;
 }
 
 const ACTIONS: TaskAction[] = ['pause', 'resume', 'cancel', 'approve', 'reject'];
@@ -198,6 +205,55 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     res.json({ symbols: deps.repoqa.listSymbols(repo.id, kind) });
   });
 
+  // Issue 11: AST-heuristic onboarding tours. Deterministic, no LLM involved.
+  app.get('/api/repos/:id/tours', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const symbols = deps.repoqa.listSymbols(repo.id);
+    const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols });
+    const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
+    res.json({ tours: type === '' ? tours : tours.filter((tour) => tour.id === type) });
+  });
+
+  // Issue 12: zero-prompt dashboard aggregation. Config values are never
+  // indexed (Issue 06), and the payload is defensively masked as well.
+  app.get('/api/repos/:id/dashboard', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const symbols = deps.repoqa.listSymbols(repo.id);
+    const dashboard = buildDashboard({ repoId: repo.id, repoName: repo.name, symbols });
+    res.json({ dashboard: maskEventPayload(dashboard) });
+  });
+
+  // Issue 14: one-click ONBOARDING.md handover export. Aggregates dashboard +
+  // tours into a standard Markdown doc; config values are never indexed
+  // (Issue 06), and the text is defensively masked one more time.
+  app.get('/api/repos/:id/export/onboarding', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const symbols = deps.repoqa.listSymbols(repo.id);
+    const markdown = buildOnboardingMarkdown({
+      repoId: repo.id,
+      repoName: repo.name,
+      symbols
+    });
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${onboardingExportFileName(repo.name)}"`
+    );
+    res.send(maskSensitiveText(markdown));
+  });
+
   app.get('/api/repos/:id/chunks', (req, res) => {
     const repo = deps.repoqa.getRepo(req.params.id);
     if (!repo) {
@@ -210,7 +266,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(400).json({ error: 'q query parameter is required' });
       return;
     }
-    res.json({ chunks: deps.repoqa.searchChunks(repo.id, query) });
+    res.json({ chunks: maskEventPayload(deps.repoqa.searchChunks(repo.id, query)) });
   });
 
   app.get('/api/repos/:id/query', async (req, res) => {
@@ -250,7 +306,11 @@ export function createHttpApp(deps: HttpDeps): express.Express {
         mode
       })) {
         if (closed) return;
-        res.write(`event: ${event.type}\ndata: ${JSON.stringify(event.payload)}\n\n`);
+        // Issue 07: masking middleware — every SSE payload passes through the
+        // sensitive-information filter before leaving the process.
+        res.write(
+          `event: ${event.type}\ndata: ${JSON.stringify(maskEventPayload(event.payload))}\n\n`
+        );
       }
       res.end();
     } catch (error) {
@@ -324,6 +384,27 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     res.status(201).json({ ok: true });
   });
 
+  // Issue 08: read-only local evidence plane accessor.
+  app.get('/api/events', (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    const asString = (value: unknown): string | undefined =>
+      typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+    const asNumber = (value: unknown): number | undefined => {
+      if (typeof value !== 'string' || value.trim() === '') return undefined;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+    };
+    res.json(
+      deps.repoqa.listEvents({
+        repoId: asString(query.repoId),
+        eventType: asString(query.eventType),
+        intent: asString(query.intent),
+        limit: asNumber(query.limit),
+        offset: asNumber(query.offset)
+      })
+    );
+  });
+
   app.post('/api/repos', async (req, res) => {
     try {
       const body = (req.body ?? {}) as {
@@ -394,6 +475,29 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(404).json({ error: 'File not found' });
     }
   });
+
+  // Issue 16: single-process production hosting. Mounted after every API/WS
+  // route so they keep priority; unknown non-API GETs fall back to index.html
+  // for client-side routing (the SPA is state-driven, no router needed — but
+  // deep links and hard refreshes still hit server routes).
+  if (
+    deps.staticDir &&
+    existsSync(path.join(deps.staticDir, 'index.html'))
+  ) {
+    app.use(express.static(deps.staticDir));
+    app.use((req, res, next) => {
+      if (
+        (req.method !== 'GET' && req.method !== 'HEAD') ||
+        req.path === '/api' ||
+        req.path.startsWith('/api/') ||
+        req.path === '/ws'
+      ) {
+        next();
+        return;
+      }
+      res.sendFile(path.join(deps.staticDir!, 'index.html'));
+    });
+  }
 
   return app;
 }

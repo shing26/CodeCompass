@@ -6,7 +6,12 @@ import { MermaidDiagram, parseClickBindings, parseDeepLink } from './MermaidDiag
 vi.mock('../client/mermaidRenderer', () => ({
   renderMermaid: vi.fn(async (_uid: string, code: string) => {
     if (code.includes('INVALID')) throw new Error('parse error');
-    return '<svg id="diagram"><text>OwnerController</text><text>OwnerRepository</text></svg>';
+    return [
+      '<svg id="diagram">',
+      '<text>OwnerController</text>',
+      '<foreignObject><div xmlns="http://www.w3.org/1999/xhtml">OwnerRepository</div></foreignObject>',
+      '</svg>'
+    ].join('');
   })
 }));
 
@@ -75,5 +80,22 @@ describe('MermaidDiagram', () => {
     await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
     await user.click(screen.getByText('OwnerRepository'));
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('routes a click on a foreignObject/div label through onNavigate', async () => {
+    const onNavigate = vi.fn();
+    const code = [
+      'flowchart LR',
+      '  OwnerController --> OwnerRepository',
+      '  click OwnerRepository "code://src/OwnerRepository.java#7-9"'
+    ].join('\n');
+    const user = userEvent.setup();
+    render(<MermaidDiagram code={code} onNavigate={onNavigate} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+
+    // mermaid renders node labels as <foreignObject><div> by default; the
+    // click delegation must resolve bindings for those labels too.
+    await user.click(screen.getByText('OwnerRepository'));
+    expect(onNavigate).toHaveBeenCalledWith('src/OwnerRepository.java', 7);
   });
 });

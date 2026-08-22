@@ -1,0 +1,21 @@
+# CodeCompass — local container development.
+# Mounts the current directory read-only at /repo so the workbench can import
+# and index it without giving the container write access to your sources.
+
+services:
+  codecompass:
+    build: .
+    image: codecompass:local
+    ports:
+      - "43110:43110"
+    environment:
+      MHW_DATA_DIR: /data
+    volumes:
+      - ./:/repo:ro
+      - codecompass-data:/data
+    # Start straight into the cockpit for the mounted repo.
+    command: ["node", "services/control-plane/dist/cli.js", "/repo", "--no-browser"]
+    restart: unless-stopped
+
+volumes:
+  codecompass-data:

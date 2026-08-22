@@ -6,6 +6,9 @@ export interface Config {
   dataDir: string;
   wsPath: string;
   dbPath: string;
+  /** Absolute path to the built SPA (apps/repoqa-web/dist) for single-process
+   * serving; undefined disables static hosting entirely. */
+  staticDir?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -18,6 +21,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     dataDir,
     wsPath: '/ws',
-    dbPath: path.join(dataDir, 'mhw.db')
+    dbPath: path.join(dataDir, 'mhw.db'),
+    staticDir: env.MHW_STATIC_DIR
+      ? path.resolve(env.MHW_STATIC_DIR)
+      : undefined
   };
 }

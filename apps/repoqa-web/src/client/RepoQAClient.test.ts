@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QueryStream } from './RepoQAClient';
+import { QueryStream, RepoQAClient } from './RepoQAClient';
 import type { QueryEvent } from '../types';
 
 /**
@@ -240,5 +240,56 @@ describe('QueryStream reconnect (ticket 07)', () => {
     src.fail(); // any late error after finish is ignored
     expect(errors).toEqual([]);
     expect(FakeEventSource.instances).toHaveLength(1);
+  });
+});
+describe('RepoQAClient dashboard/tours (issue 13)', () => {
+  it('unwraps the { dashboard } payload and URL-encodes the repo id', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ dashboard: { repoId: 'r 1' } })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.getDashboard('r 1')).resolves.toEqual({ repoId: 'r 1' });
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/dashboard');
+  });
+
+  it('unwraps the { tours } payload and passes an optional type filter', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ tours: [{ id: 'main-flow' }] })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.getTours('repo-1', 'main-flow')).resolves.toEqual([{ id: 'main-flow' }]);
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/tours?type=main-flow');
+  });
+
+  it('returns null for a missing dashboard (404) and throws on other failures', async () => {
+    const notFound = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    const client404 = new RepoQAClient('http://api', notFound as unknown as typeof fetch);
+    await expect(client404.getDashboard('missing')).resolves.toBeNull();
+
+    const failed = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    const client500 = new RepoQAClient('http://api', failed as unknown as typeof fetch);
+    await expect(client500.getTours('repo-1')).rejects.toThrow('getTours failed: 500');
+  });
+});
+
+describe('RepoQAClient onboarding export (issue 14)', () => {
+  it('returns the ONBOARDING.md text and URL-encodes the repo id', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '# demo — ONBOARDING 架构交接手册\n'
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.exportOnboarding('r 1')).resolves.toContain('ONBOARDING');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/export/onboarding');
+  });
+
+  it('throws on non-ok responses so the UI can surface the failure', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.exportOnboarding('repo-1')).rejects.toThrow(
+      'exportOnboarding failed: 500'
+    );
   });
 });

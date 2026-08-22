@@ -7,14 +7,16 @@ import type {
   RepoQaTraceHop,
   ServerEvent
 } from '../../../packages/contracts/src/index';
-import { MAX_FILES, MAX_LINES, scanRepo } from './repoqa-scan';
+import { MAX_FILES, MAX_LINES, scanRepo, detectMavenModules, mavenSourceRoots } from './repoqa-scan';
 import { parseJavaFile } from './repoqa-parser';
-import { extractConfigSymbols } from './repoqa-config';
+import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { resolveCallChain } from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
 import {
   capPrompt,
-  completeReAct,
+  runReActAgent,
+  isLlmConfigured,
+  type AgentTool,
   type ReActLLMResult
 } from './repoqa-llm';
 
@@ -89,20 +91,52 @@ export class RepoQAWorker {
         );
       }
 
+      // Issue 15: multi-module Maven detection (parent pom `<modules>`); the
+      // recursive scan below already covers every module's sources with
+      // repo-root-relative paths, this just lifts the module layout out of the
+      // repo so it is visible on the evidence plane.
+      const modules = await detectMavenModules(localPath);
+      const moduleSummary =
+        modules.length > 0
+          ? `, ${modules.length} Maven module${modules.length === 1 ? '' : 's'} (${modules.map((m) => m.name).join(', ')})`
+          : '';
+
       this.repoqa.saveFiles(repoId, localPath, stats.files);
-      const symbols = await this.parseRepo(repoId, localPath, stats.files);
+      const { symbols, skipped } = await this.parseRepo(repoId, localPath, stats.files);
+      if (skipped.length > 0) {
+        this.repoqa.recordEvent({
+          repoId,
+          eventType: 'repoqa.index.warning',
+          feedback: JSON.stringify({
+            skippedFiles: skipped.length,
+            files: skipped.map((entry) => ({ file: entry.file, error: entry.error }))
+          })
+        });
+      }
       const configSymbols = await extractConfigSymbols(repoId, localPath, stats.files);
       const chunks = await this.extractChunks(repoId, localPath, stats.files);
       const allSymbols = [...symbols, ...configSymbols];
       this.repoqa.upsertSymbols(allSymbols);
       this.repoqa.upsertChunks(chunks);
       this.repoqa.updateRepoStatus(repoId, 'ready', stats.fileCount, allSymbols.length);
+      if (modules.length > 0) {
+        const sourceRoots = await mavenSourceRoots(localPath, modules);
+        this.repoqa.recordEvent({
+          repoId,
+          eventType: 'repoqa.modules.detected',
+          feedback: JSON.stringify({
+            moduleCount: modules.length,
+            modules: modules.map((module) => ({ name: module.name, pomPath: module.pomPath })),
+            sourceRoots
+          })
+        });
+      }
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
         payload: {
           repoId,
           phase: 'ready',
-          detail: `Indexed ${stats.fileCount} files, ${stats.lineCount} lines`
+          detail: `Indexed ${stats.fileCount} files, ${stats.lineCount} lines${moduleSummary}`
         }
       } as any);
       this.broadcast(taskId, {
@@ -148,12 +182,14 @@ export class RepoQAWorker {
     });
 
     const symbols = this.repoqa.listSymbols(repo.id);
-    const llmUrl = process.env.REPOQA_LLM_URL?.trim();
+    // Issue 10: configuration can come from process.env or a local `.env`
+    // (REPOQA_LLM_BASE / REPOQA_LLM_URL / REPOQA_LLM_API_KEY / REPOQA_LLM_MODEL).
+    const llmConfigured = isLlmConfigured(process.env);
     const gatesPassed =
       process.env.REPOQA_GATES_PASSED === '1' ||
       process.env.REPOQA_EVAL_PASSED === '1';
     if (
-      llmUrl &&
+      llmConfigured &&
       gatesPassed &&
       input.mode !== 'call-chain' &&
       input.mode !== 'environment'
@@ -202,6 +238,11 @@ export class RepoQAWorker {
         eventType: 'query.done',
         intent: input.mode ?? 'architecture',
         queryStartAt,
+        // Issue 08: persist first-token latency on the evidence plane.
+        firstTokenAt:
+          firstTokenMs !== undefined
+            ? new Date(startedAt + firstTokenMs).toISOString()
+            : undefined,
         queryDoneAt: new Date().toISOString()
       });
       yield {
@@ -223,6 +264,7 @@ export class RepoQAWorker {
     let route: RepoSymbol | undefined;
     let environmentKeyCount = 0;
     let environmentChunkCount = 0;
+    let environmentEvidence: string[] = [];
 
     if (isCallChain) {
       const start = this.findStartSymbol(input.question, symbols);
@@ -245,10 +287,17 @@ export class RepoQAWorker {
         });
       }
     } else if (input.mode === 'environment') {
-      const configs = symbols.filter((symbol) => symbol.kind === 'config');
+      const configs = matchConfigSymbols(
+        input.question,
+        symbols.filter((symbol) => symbol.kind === 'config')
+      );
       const chunks = this.repoqa.searchChunks(repo.id, input.question);
       environmentKeyCount = configs.length;
       environmentChunkCount = chunks.length;
+      // Issue 06: precise file + line + key evidence, values never included.
+      environmentEvidence = configs.slice(0, 12).map(
+        (symbol) => `- ${symbol.name} @ ${symbol.filePath}:${symbol.lineStart ?? 1}`
+      );
       candidateAnchors = configs.map((symbol) => ({
         file: symbol.filePath,
         line: symbol.lineStart ?? 1,
@@ -274,7 +323,21 @@ export class RepoQAWorker {
         }));
       mermaid =
         route && method
-          ? `flowchart LR\n  Route[${route.name}]\n  Method[${method.name}]\n  Route --> Method`
+          ? (() => {
+              const routeLine = typeof route.lineStart === 'number' ? route.lineStart : 1;
+              const methodLine = typeof method.lineStart === 'number' ? method.lineStart : 1;
+              // Issue 10: the frontend matches clicked label text to the click
+              // binding key, so node IDs must equal their labels (as in
+              // traceToMermaid) for code:// deep links to work.
+              return [
+                'flowchart LR',
+                `  ${route.name}[${route.name}]`,
+                `  ${method.name}[${method.name}]`,
+                `  ${route.name} --> ${method.name}`,
+                `click ${route.name} "code://${route.filePath}#${routeLine}"`,
+                `click ${method.name} "code://${method.filePath}#${methodLine}"`
+              ].join('\n');
+            })()
           : undefined;
       trace =
         route && method
@@ -292,8 +355,19 @@ export class RepoQAWorker {
 
     const rawAnswer =
       input.mode === 'environment'
-        ? `Found ${environmentKeyCount} config keys and ${environmentChunkCount} matching chunks.`
-        : `Static mock answer for "${input.question}".`;
+        ? (() => {
+            const base = `Found ${environmentKeyCount} config keys and ${environmentChunkCount} matching chunks.`;
+            return environmentEvidence.length > 0
+              ? `${base}\n\nMatched key evidence:\n${environmentEvidence.join('\n')}`
+              : base;
+          })()
+        : (() => {
+            // Issue 05: surface the break marker textually so deterministic
+            // call-chain queries never look like silent success.
+            const breakHop = trace?.find((hop) => hop.break);
+            const base = `Static mock answer for "${input.question}".`;
+            return breakHop?.reason ? `${base}\n\n${breakHop.reason}` : base;
+          })();
     const answer = maskSensitiveText(rawAnswer);
     const tokens = answer.match(/\S+(?:\s+)?/g) ?? [answer];
 
@@ -334,6 +408,15 @@ export class RepoQAWorker {
       );
       if (match) return match;
     }
+    // Issue 05: allow tracing from a route/service/repository/class symbol too;
+    // resolveCallChain normalizes the type into its first method.
+    const typeKinds = new Set(['class', 'interface', 'route', 'service', 'repository']);
+    for (const word of words) {
+      const match = symbols.find(
+        (symbol) => typeKinds.has(symbol.kind) && symbol.name.toLowerCase() === word
+      );
+      if (match) return match;
+    }
     return symbols.find((symbol) => symbol.kind === 'method');
   }
 
@@ -341,8 +424,21 @@ export class RepoQAWorker {
     const lines = ['flowchart LR'];
     const names = [startName, ...trace.slice(1).map((hop) => hop.method)];
     for (let index = 0; index < names.length - 1; index += 1) {
-      const edge = trace[index + 1]?.break ? '-->|break|' : '-->';
+      const hop = trace[index + 1];
+      const label = hop?.break ? (hop.reason ?? 'break').replace(/[\[\]]/g, '') : undefined;
+      const edge = label ? `-->|${label}|` : '-->';
       lines.push(`  ${names[index]}[${names[index]}] ${edge} ${names[index + 1]}[${names[index + 1]}]`);
+    }
+    // Issue 10: code:// deep-link every node to its source location so the
+    // frontend can jump from the diagram to the Inspector.
+    const nodes = [
+      { name: startName, hop: trace[0] },
+      ...trace.slice(1).map((hop, index) => ({ name: names[index + 1], hop }))
+    ];
+    for (const { name, hop } of nodes) {
+      if (hop?.file && typeof hop.line === 'number') {
+        lines.push(`  click ${name} "code://${hop.file}#${hop.line}"`);
+      }
     }
     return lines.join('\n');
   }
@@ -353,22 +449,20 @@ export class RepoQAWorker {
     symbols: RepoSymbol[],
     onFirstToken?: (latencyMs: number) => void
   ): Promise<ReActLLMResult> {
-    const basePrompt = this.buildReActPrompt(repoId, question, symbols);
-    let toolResult = '';
-    for (let step = 0; step < 3; step += 1) {
-      const prompt = `${basePrompt}\n${
-        toolResult ? `Tool result:\n${capPrompt(toolResult, 4000)}\n` : ''
-      }Reply with JSON { "answer": "..." } or { "tool": { "name": "...", "args": {...} } }.`;
-      const result = await completeReAct(prompt);
-      if (result.firstTokenMs !== undefined) onFirstToken?.(result.firstTokenMs);
-      if (result.answer) return result;
-      if (!result.tool) return { answer: 'LLM did not provide an answer.' };
-      toolResult = JSON.stringify(this.executeRepoTool(repoId, result.tool));
-    }
-    return { answer: 'LLM did not converge to an answer after tool calls.' };
+    // Issue 10: the ReAct loop now lives in the adapter (repoqa-llm.ts).
+    // Tools expose deterministic repo intelligence; masking happens both on the
+    // outgoing prompt and inside the repoqa-masking tool.
+    return runReActAgent({
+      question,
+      context: this.buildReActContext(repoId, question, symbols),
+      tools: this.buildAgentTools(symbols),
+      env: process.env,
+      onFirstToken
+    });
   }
 
-  private buildReActPrompt(
+  /** Prebuilt deterministic context: indexed symbols + evidence chunks. */
+  private buildReActContext(
     repoId: string,
     question: string,
     symbols: RepoSymbol[]
@@ -385,36 +479,56 @@ export class RepoQAWorker {
       .slice(0, 30)
       .map((chunk) => `${chunk.filePath ?? '?'}: ${chunk.content.slice(0, 200)}`)
       .join('\n');
-    return capPrompt(
-      `Question: ${question}\nIndexed symbols:\n${symbolLines}\nEvidence chunks:\n${chunkLines}`
-    );
+    return capPrompt(`Indexed symbols:\n${symbolLines}\nEvidence chunks:\n${chunkLines}`);
   }
 
-  private executeRepoTool(
-    repoId: string,
-    tool: { name: string; args: Record<string, unknown> }
-  ): unknown {
-    switch (tool.name) {
-      case 'list_symbols':
-        return this.repoqa
-          .listSymbols(repoId)
-          .map((symbol) => `${symbol.name} ${symbol.kind}`)
-          .slice(0, 100);
-      case 'search_chunks':
-        return this.repoqa.searchChunks(repoId, String(tool.args.q ?? '')).slice(0, 20);
-      case 'find_symbol':
-        return this.repoqa
-          .findSymbol(repoId, String(tool.args.name ?? ''))
-          .slice(0, 20);
-      case 'get_call_chain':
-        return this.repoqa.getCallChain(
-          repoId,
-          String(tool.args.filePath ?? ''),
-          String(tool.args.methodName ?? '')
-        );
-      default:
-        return { error: `unknown tool: ${tool.name}` };
-    }
+  /** Issue 10: Agent Tools wired into the ReAct loop. */
+  private buildAgentTools(symbols: RepoSymbol[]): AgentTool[] {
+    return [
+      {
+        name: 'trace_call_chain',
+        description:
+          'Resolve the call chain starting from a method/route/class name (e.g. "hello"). Returns ordered hops with file, method, line and break markers.',
+        parameters: 'query: string',
+        execute: (args) => {
+          const query = String(args.query ?? args.symbol ?? '');
+          if (!query) return { error: 'query is required' };
+          const start = this.findStartSymbol(query, symbols);
+          if (!start) return { error: `start symbol not found for "${query}"` };
+          const trace = resolveCallChain(symbols, start);
+          return trace.map((hop) => ({
+            file: hop.file,
+            method: hop.method,
+            line: hop.line ?? null,
+            break: hop.break === true,
+            reason: hop.reason ?? null
+          }));
+        }
+      },
+      {
+        name: 'get_config_evidence',
+        description:
+          'Find configuration keys (YAML/properties/pom). Returns key paths with file:line locations, NEVER the secret values.',
+        parameters: 'key: string',
+        execute: (args) => {
+          const key = String(args.key ?? args.query ?? '');
+          const configs = symbols.filter((symbol) => symbol.kind === 'config');
+          const matched = key ? matchConfigSymbols(key, configs) : configs;
+          return matched.slice(0, 30).map((symbol) => ({
+            key: symbol.name,
+            file: symbol.filePath,
+            line: symbol.lineStart ?? 1
+          }));
+        }
+      },
+      {
+        name: 'repoqa-masking',
+        description:
+          'Mask sensitive content (passwords, tokens, API keys, private keys) in arbitrary text before it is shown to users.',
+        parameters: 'text: string',
+        execute: (args) => maskSensitiveText(String(args.text ?? ''))
+      }
+    ];
   }
 
   cancel(taskId: string) {
@@ -430,12 +544,23 @@ export class RepoQAWorker {
     repoId: string,
     root: string,
     files: string[]
-  ): Promise<RepoSymbol[]> {
+  ): Promise<{ symbols: RepoSymbol[]; skipped: Array<{ file: string; error: string }> }> {
     const symbols: RepoSymbol[] = [];
+    const skipped: Array<{ file: string; error: string }> = [];
     for (const filePath of files.filter((file) => file.endsWith('.java'))) {
-      symbols.push(...(await parseJavaFile(filePath, repoId, root)));
+      try {
+        symbols.push(...(await parseJavaFile(filePath, repoId, root)));
+      } catch (error) {
+        // Dogfooding (Issue 17): real-world Java repos routinely contain edge
+        // syntax our parser cannot cover (e.g. class literals inside annotation
+        // arguments). A single unparseable file must not abort the whole import —
+        // skip it, surface a warning event, and keep the rest of the repo.
+        const relative = path.relative(root, filePath).split(path.sep).join('/');
+        const detail = error instanceof Error ? error.message : String(error);
+        skipped.push({ file: relative, error: detail });
+      }
     }
-    return symbols;
+    return { symbols, skipped };
   }
 
   private async isValidAnchor(
