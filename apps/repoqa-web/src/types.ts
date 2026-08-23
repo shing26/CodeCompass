@@ -1,18 +1,18 @@
 // Frontend domain types — mirror packages/contracts/src/repoqa.ts semantics.
 
-export type RepoStatus = 'idle' | 'cloning' | 'parsing' | 'ready' | 'error';
+export type RepoStatus = 'idle' | 'indexing' | 'cloning' | 'parsing' | 'ready' | 'error';
 
 export interface Repo {
   id: string;
   name: string;
-  repo_url?: string;
-  local_path: string;
+  repoUrl?: string;
+  localPath: string;
   branch: string;
   status: RepoStatus;
-  file_count: number;
-  symbol_count: number;
-  created_at: string;
-  updated_at: string;
+  fileCount: number;
+  symbolCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type SymbolKind =
@@ -27,17 +27,30 @@ export type SymbolKind =
 
 export interface RepoSymbol {
   id: number;
-  repo_id: string;
+  repoId: string;
   kind: SymbolKind;
   name: string;
-  file_path: string;
-  line_start: number | null;
-  line_end: number | null;
+  filePath: string;
+  lineStart: number | null;
+  lineEnd: number | null;
   signature: string | null;
   calls: string | null;
+  /** Bug-09: URL path for routing symbols, e.g. `/api/owners/{id}`. */
+  displayPath?: string;
 }
 
 export type QueryMode = 'architecture' | 'call-chain' | 'environment';
+
+/**
+ * Explicit trace start (Top API click): the clicked symbol's exact name
+ * and file. Sent as startName/startFile to the backend so a call-chain
+ * trace never resolves to a same-name symbol in another file (e.g. a
+ * production method vs a test helper).
+ */
+export interface QueryStart {
+  name: string;
+  file: string;
+}
 
 export interface Anchor {
   file: string;

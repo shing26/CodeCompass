@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Repo, RepoStatus } from '../types';
 import type { RepoQAClient } from '../client/RepoQAClient';
 
-const ACTIVE_STATUSES: RepoStatus[] = ['cloning', 'parsing'];
+// Backend status flow is idle → indexing → ready/error. Legacy 'cloning'/
+// 'parsing' remain for older servers; 'indexing' is what makes polling work.
+const ACTIVE_STATUSES: RepoStatus[] = ['cloning', 'parsing', 'indexing'];
 
 export interface UseRepoCatalogResult {
   repos: Repo[];
@@ -92,13 +94,28 @@ export function useRepoCatalog(
   const importRepo = useCallback(
     async (name: string, localPath: string) => {
       setError(null);
+      // Bug-12: while the single POST /api/repos call is in flight (large
+      // imports take tens of seconds) keep refreshing the catalog so the UI
+      // can show live phase feedback from the repo's `indexing` status.
+      let pollTimer: ReturnType<typeof setInterval> | null = null;
       try {
-        const repo = await client.importRepo({ name, localPath });
+        const repoPromise = client.importRepo({ name, localPath });
+        pollTimer = setInterval(() => {
+          client
+            .listRepos()
+            .then(setRepos)
+            .catch(() => {
+              // transient poll failure — the awaited import will resolve anyway
+            });
+        }, 1200);
+        const repo = await repoPromise;
         setRepos((prev) => [repo, ...prev.filter((r) => r.id !== repo.id)]);
         setCurrentId(repo.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         throw err;
+      } finally {
+        if (pollTimer) clearInterval(pollTimer);
       }
     },
     [client]

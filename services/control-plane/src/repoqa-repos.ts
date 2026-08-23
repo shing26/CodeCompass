@@ -47,6 +47,8 @@ export interface RepoSymbol {
   type?: string;
   /** For class symbols: implemented interface names. */
   interfaces?: string[];
+  /** Bug-09: URL path rendered for routing symbols (e.g. `/api/owners`). */
+  displayPath?: string;
   calls?: RepoSymbolCall[];
 }
 
@@ -196,12 +198,14 @@ export class RepoQARepos {
     const existing = this.findByLocalPath(input.localPath);
     if (existing) {
       const now = new Date().toISOString();
+      // Bug-10: re-importing the same path refreshes the display name too
+      // (the worker computes the final name before calling this method).
       this.db
         .prepare(
-          `UPDATE repos SET branch = ?, local_path = ?, updated_at = ?
+          `UPDATE repos SET name = ?, branch = ?, local_path = ?, updated_at = ?
            WHERE id = ?`
         )
-        .run(input.branch ?? existing.branch, input.localPath, now, existing.id);
+        .run(input.name, input.branch ?? existing.branch, input.localPath, now, existing.id);
       return { repo: this.getRepo(existing.id)!, created: false };
     }
     const id = `repo-${randomUUID()}`;
@@ -359,8 +363,8 @@ export class RepoQARepos {
   upsertSymbols(symbols: RepoSymbol[]): void {
     if (symbols.length === 0) return;
     const insert = this.db.prepare(
-      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces, display_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const del = this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?');
     const tx = this.db.transaction(() => {
@@ -377,7 +381,8 @@ export class RepoQARepos {
           s.calls ? JSON.stringify(s.calls) : null,
           s.parentType ?? null,
           s.type ?? null,
-          s.interfaces ? JSON.stringify(s.interfaces) : null
+          s.interfaces ? JSON.stringify(s.interfaces) : null,
+          s.displayPath ?? null
         );
       }
     });
@@ -403,6 +408,7 @@ export class RepoQARepos {
       parentType: row.parent_type ?? undefined,
       type: row.type_name ?? undefined,
       interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
+      displayPath: row.display_path ?? undefined,
       calls: row.calls ? JSON.parse(row.calls) : undefined
     }));
   }
@@ -456,6 +462,7 @@ export class RepoQARepos {
       parentType: row.parent_type ?? undefined,
       type: row.type_name ?? undefined,
       interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
+      displayPath: row.display_path ?? undefined,
       calls: row.calls ? JSON.parse(row.calls) : undefined
     }));
   }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRepoCatalog } from './hooks/useRepoCatalog';
 import { useChat } from './hooks/useChat';
 import { useSymbols } from './hooks/useSymbols';
@@ -13,7 +13,7 @@ import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
 import { TourPlayer } from './components/TourPlayer';
-import type { RepoTour } from './types';
+import type { RepoTour, TopApiEntry } from './types';
 
 export interface AppProps {
   /** Dependency injection seam for tests; defaults to the real client. */
@@ -57,6 +57,15 @@ export function App({ client: clientProp }: AppProps) {
   // Issue 13: main-view switcher between dashboard / tour playback / chat.
   const [view, setView] = useState<MainView>('dashboard');
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
+  // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+
+  // Opening a file (diagram node / anchor / tour step) auto-reveals the
+  // Inspector on mobile; on desktop the drawer classes are inert (md:static).
+  useEffect(() => {
+    if (inspector.file) setInspectorOpen(true);
+  }, [inspector.file]);
 
   const showDashboard = () => {
     setActiveTour(null);
@@ -65,9 +74,35 @@ export function App({ client: clientProp }: AppProps) {
 
   const handleSelectRepo = (id: string) => {
     selectRepo(id);
+    // Persist the selection into the URL so browser refresh and
+    // back/forward restore the same repo instead of dropping back to the
+    // onboarding state (Bug-08). The catalog's initialRepoId deep-link logic
+    // then re-applies the same id on reload.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('repo', id);
+      window.history.replaceState(null, '', url.toString());
+    } catch {
+      // history/URL unavailable (rare test env) — selection still works locally
+    }
     setActiveTour(null);
     setView('dashboard');
   };
+
+  // Bug-08: restore the selected repo when the user navigates back/forward
+  // in browser history (the URL is the single source of truth for selection).
+  useEffect(() => {
+    const onPopState = () => {
+      const id = new URLSearchParams(window.location.search).get('repo');
+      if (id && id !== currentRepo?.id) {
+        selectRepo(id);
+        setActiveTour(null);
+        setView('dashboard');
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [currentRepo?.id, selectRepo]);
 
   const handleImport = async (name: string, localPath: string) => {
     await importRepo(name, localPath);
@@ -80,9 +115,15 @@ export function App({ client: clientProp }: AppProps) {
     setView('tour');
   };
 
-  const handleTrace = (question: string) => {
+  const handleTrace = (api: TopApiEntry) => {
     setView('chat');
-    submit(question);
+    // Pass the clicked entry as structured input and force the deterministic
+    // call-chain mode so the trace starts from THIS exact symbol (name + file),
+    // never from a same-name sibling in another file (e.g. a test helper).
+    submit(`${api.name} 的完整调用链是怎样的？`, 'call-chain', {
+      name: api.name,
+      file: api.filePath
+    });
   };
 
   // Issue 14: fetch the handover document and trigger `{repoName}-ONBOARDING.md`.
@@ -93,7 +134,7 @@ export function App({ client: clientProp }: AppProps) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-white text-slate-900">
+    <div className="flex h-full flex-col overflow-x-hidden bg-white text-slate-900">
       <TopBar
         repos={repos}
         currentRepo={currentRepo}
@@ -102,8 +143,25 @@ export function App({ client: clientProp }: AppProps) {
         onSelectRepo={handleSelectRepo}
         onImport={handleImport}
         onExport={handleExport}
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        sidebarOpen={sidebarOpen}
+        importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
       />
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+        {sidebarOpen && (
+          <div
+            data-testid="sidebar-mask"
+            className="fixed inset-0 z-30 bg-slate-900/30 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        {inspectorOpen && (
+          <div
+            data-testid="inspector-mask"
+            className="fixed inset-0 z-30 bg-slate-900/30 md:hidden"
+            onClick={() => setInspectorOpen(false)}
+          />
+        )}
         <Sidebar
           repoName={currentRepo?.name ?? null}
           symbols={symbols}
@@ -113,6 +171,7 @@ export function App({ client: clientProp }: AppProps) {
           toursError={toursError}
           onRetryTours={refreshTours}
           onPlayTour={handlePlayTour}
+          open={sidebarOpen}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {repoId && view !== 'dashboard' && (
@@ -174,6 +233,8 @@ export function App({ client: clientProp }: AppProps) {
           onForward={inspector.goForward}
           canGoBack={inspector.canGoBack}
           canGoForward={inspector.canGoForward}
+          open={inspectorOpen}
+          onClose={() => setInspectorOpen(false)}
         />
       </div>
     </div>

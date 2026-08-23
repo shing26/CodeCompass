@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Anchor, QueryMode } from '../types';
+import type { Anchor, QueryMode, QueryStart } from '../types';
 import type { QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
 
 export interface ChatMessage {
@@ -27,7 +27,7 @@ export interface UseChatResult {
   /** True while auto-reconnect is retrying a dropped SSE connection (07). */
   reconnecting: boolean;
   error: string | null;
-  submit: (question: string, mode?: QueryMode) => void;
+  submit: (question: string, mode?: QueryMode, start?: QueryStart) => void;
   /** Manually re-run the last question after permanent reconnect failure (07). */
   retry: () => void;
   reset: () => void;
@@ -47,6 +47,8 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   const streamRef = useRef<QueryStreamLike | null>(null);
   const assistantIdRef = useRef<string | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
+  const lastModeRef = useRef<QueryMode | undefined>(undefined);
+  const lastStartRef = useRef<QueryStart | undefined>(undefined);
 
   const cancel = useCallback(() => {
     streamRef.current?.close();
@@ -135,12 +137,14 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   }, []);
 
   const submit = useCallback(
-    (question: string, mode?: QueryMode) => {
+    (question: string, mode?: QueryMode, start?: QueryStart) => {
       const q = question.trim();
       if (!q || !repoId || streaming) return;
 
       cancel();
       lastQuestionRef.current = q;
+      lastModeRef.current = mode;
+      lastStartRef.current = start;
       assistantIdRef.current = null;
       setError(null);
       setReconnecting(false);
@@ -155,7 +159,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
         { id: assistantId, role: 'assistant', text: '', status: 'streaming' }
       ]);
 
-      attachStream(client.queryRepo(repoId, q, mode));
+      attachStream(client.queryRepo(repoId, q, mode, start));
     },
     [attachStream, cancel, client, repoId, streaming]
   );
@@ -180,13 +184,16 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
       return [...kept, { id: assistantId, role: 'assistant', text: '', status: 'streaming' }];
     });
 
-    attachStream(client.queryRepo(repoId, q));
+    // Keep the original mode (e.g. call-chain from a Top API click) on retry.
+    attachStream(client.queryRepo(repoId, q, lastModeRef.current, lastStartRef.current));
   }, [attachStream, cancel, client, repoId, streaming]);
 
   const reset = useCallback(() => {
     cancel();
     assistantIdRef.current = null;
     lastQuestionRef.current = null;
+    lastModeRef.current = undefined;
+    lastStartRef.current = undefined;
     setMessages([]);
     setError(null);
     setReconnecting(false);

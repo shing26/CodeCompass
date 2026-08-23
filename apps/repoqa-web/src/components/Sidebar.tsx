@@ -12,6 +12,8 @@ interface SidebarProps {
   toursError: string | null;
   onRetryTours: () => void;
   onPlayTour: (tour: RepoTour) => void;
+  /** Bug-04: narrow viewports render the sidebar as an off-canvas drawer. */
+  open: boolean;
 }
 
 /**
@@ -26,7 +28,8 @@ export function Sidebar({
   toursLoading,
   toursError,
   onRetryTours,
-  onPlayTour
+  onPlayTour,
+  open
 }: SidebarProps) {
   const [symbolsExpanded, setSymbolsExpanded] = useState(false);
 
@@ -36,7 +39,9 @@ export function Sidebar({
   return (
     <aside
       data-testid="sidebar"
-      className="w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-slate-50"
+      className={`fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto border-r border-slate-200 bg-slate-50 transition-transform md:static md:z-auto md:shrink-0 md:translate-x-0 ${
+        open ? 'translate-x-0' : '-translate-x-full'
+      }`}
     >
       <section className="border-b border-slate-200 p-3">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -66,8 +71,12 @@ export function Sidebar({
         {!loading && routes.length === 0 && <p className="text-xs text-slate-400">—</p>}
         <ul className="space-y-1">
           {routes.slice(0, 20).map((r) => (
-            <li key={r.id} className="truncate text-xs text-slate-600" title={`${r.file_path}:${r.line_start}`}>
-              {r.name}
+            <li
+              key={r.id}
+              className="truncate font-mono text-xs text-slate-600"
+              title={`${r.displayPath ?? r.name} · ${r.filePath}:${r.lineStart}`}
+            >
+              {r.displayPath ?? r.name}
             </li>
           ))}
           {routes.length > 20 && (

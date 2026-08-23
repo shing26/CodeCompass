@@ -3,6 +3,7 @@ import type {
   ImportRepoInput,
   QueryEvent,
   QueryMode,
+  QueryStart,
   Repo,
   RepoDashboard,
   RepoSymbol,
@@ -53,7 +54,21 @@ export class RepoQAClient {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input)
     });
-    if (!res.ok) throw new Error(`importRepo failed: ${res.status}`);
+    if (!res.ok) {
+      // Bug-05: surface the backend's real error (e.g. an invalid local path)
+      // instead of a status-only message. The backend always answers 4xx/5xx
+      // with { error } but guard against non-JSON bodies defensively.
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`importRepo failed: ${res.status}${detail}`);
+    }
     const body = (await res.json()) as { repo?: Repo };
     if (!body.repo) throw new Error('importRepo failed: missing repo in response');
     return body.repo;
@@ -113,9 +128,17 @@ export class RepoQAClient {
   /**
    * Open an SSE query stream. Returns an AsyncIterable of parsed QueryEvents.
    * The caller drives consumption; EventSource cleanup happens on loop exit.
+   * `start` is the explicit trace start (Top API click): the exact symbol
+   * name + file, sent as startName/startFile so the backend resolves the
+   * call-chain start unambiguously.
    */
-  queryRepo(repoId: string, question: string, mode?: QueryMode): QueryStreamLike {
-    return new QueryStream(this.baseUrl, repoId, question, mode);
+  queryRepo(
+    repoId: string,
+    question: string,
+    mode?: QueryMode,
+    start?: QueryStart
+  ): QueryStreamLike {
+    return new QueryStream(this.baseUrl, repoId, question, mode, start);
   }
 }
 
@@ -152,6 +175,8 @@ export class QueryStream implements QueryStreamLike {
     private readonly repoId: string,
     private readonly question: string,
     private readonly mode?: QueryMode,
+    /** Explicit trace start (Top API click), sent as startName/startFile. */
+    private readonly start?: QueryStart,
     /** Ticket 07: backoff base for auto-reconnect (tests inject a tiny value). */
     private readonly reconnectBaseMs = 500,
     /** Ticket 07: at most this many automatic reopen attempts before giving up. */
@@ -163,6 +188,10 @@ export class QueryStream implements QueryStreamLike {
   private open(): EventSource {
     const params = new URLSearchParams({ question: this.question });
     if (this.mode) params.set('mode', this.mode);
+    if (this.start?.name && this.start.file) {
+      params.set('startName', this.start.name);
+      params.set('startFile', this.start.file);
+    }
     const url = `${this.baseUrl}/api/repos/${encodeURIComponent(this.repoId)}/query?${params}`;
     const source = new EventSource(url);
     // Backend event names carry the `repoqa.query.` namespace prefix; the

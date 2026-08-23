@@ -3,19 +3,30 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { Inspector, type InspectorProps } from './Inspector';
 
 // Fake Monaco editor surface, shared between the mocked Editor component and
-// the tests so we can assert reveal/decorations calls.
+// the tests so we can assert reveal/decorations calls. The model's uri.path
+// mirrors the wrapper's current `path` prop (simulating the model swap that
+// real @monaco-editor/react performs when the file changes).
 const editorProbe = vi.hoisted(() => {
-  const collection = { clear: vi.fn() };
+  const collection = { clear: vi.fn(), dispose: vi.fn() };
+  let currentPath = '';
   return {
     revealLineInCenter: vi.fn(),
-    getModel: vi.fn(() => ({ getLineMaxColumn: vi.fn(() => 120) })),
+    getModel: vi.fn(() => ({
+      uri: { path: currentPath },
+      getLineMaxColumn: vi.fn(() => 120)
+    })),
     createDecorationsCollection: vi.fn(() => collection),
     lastCollection: () => collection,
+    setPath: (p: string) => {
+      currentPath = p;
+    },
     clearAll: () => {
+      currentPath = '';
       editorProbe.revealLineInCenter.mockClear();
       editorProbe.getModel.mockClear();
       editorProbe.createDecorationsCollection.mockClear();
       collection.clear.mockClear();
+      collection.dispose.mockClear();
     }
   };
 });
@@ -30,6 +41,9 @@ vi.mock('@monaco-editor/react', async () => {
     path?: string;
     onMount?: (ed: unknown) => void;
   }) => {
+    // Simulate the model swap synchronously: the current model's uri.path
+    // follows the `path` prop on every render.
+    editorProbe.setPath(props.path ?? '');
     React.useEffect(() => {
       props.onMount?.(editorProbe);
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -64,6 +78,9 @@ function baseProps(overrides: Partial<InspectorProps> = {}): InspectorProps {
     onForward: vi.fn(),
     canGoBack: false,
     canGoForward: false,
+    // Bug-04: drawer props introduced with the responsive layout.
+    open: true,
+    onClose: vi.fn(),
     ...overrides
   };
 }

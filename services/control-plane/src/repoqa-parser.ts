@@ -136,6 +136,76 @@ function collectAnnotations(node: SyntaxNode): SyntaxNode[] {
   return annotations;
 }
 
+/**
+ * Bug-09: direct annotations on a declaration (annotations attached to the
+ * class itself, possibly nested under a `Modifiers` node) — unlike
+ * `collectAnnotations` it never descends into method bodies, so a class-level
+ * `@RequestMapping("/api")` is not polluted by its methods' route annotations.
+ */
+function directAnnotationTexts(node: SyntaxNode, source: string): string[] {
+  const texts: string[] = [];
+  const children = [node];
+  while (children.length > 0) {
+    const current = children.pop()!;
+    let child = current.firstChild;
+    while (child) {
+      if (child.name === 'Annotation' || child.name === 'MarkerAnnotation') {
+        texts.push(textOf(child, source));
+      } else if (child.name === 'Modifiers') {
+        children.push(child);
+      }
+      child = child.nextSibling;
+    }
+  }
+  return texts;
+}
+
+/** Spring HTTP mapping annotations whose value holds a URL path. */
+const MAPPING_ANNOTATIONS = [
+  'RequestMapping',
+  'GetMapping',
+  'PostMapping',
+  'PutMapping',
+  'DeleteMapping',
+  'PatchMapping'
+];
+
+/**
+ * Bug-09: extract URL path values from mapping annotations. Supports
+ * `@GetMapping("/owners")`, `@GetMapping(value = "/owners")`, arrays like
+ * `@RequestMapping({"/a", "/b"})` and path templates (`/owners/{id}`).
+ * Annotations without a path (e.g. `@RequestMapping(method = GET)`) yield none.
+ */
+function mappingPathsFromAnnotations(annotationTexts: string[]): string[] {
+  const paths: string[] = [];
+  const annotationRe = new RegExp(
+    `@(?:${MAPPING_ANNOTATIONS.join('|')})\\s*\\(`,
+    'g'
+  );
+  for (const annotation of annotationTexts) {
+    const starts = [...annotation.matchAll(annotationRe)];
+    if (starts.length === 0) continue;
+    // Scan from the first mapping annotation to the end of the annotation text
+    // and collect every string literal inside it (array values included).
+    const rest = annotation.slice(starts[0].index);
+    const literalRe = /["']([^"']*)["']/g;
+    let match: RegExpExecArray | null;
+    while ((match = literalRe.exec(rest)) !== null) {
+      const value = match[1].trim();
+      if (value !== '') paths.push(value);
+    }
+  }
+  return paths;
+}
+
+/** Combine a class-level prefix and a method-level path into one URL. */
+function joinRoutePath(prefix: string | undefined, methodPath: string): string {
+  if (!prefix || prefix === '/') return methodPath;
+  const base = prefix.replace(/\/+$/, '');
+  const tail = methodPath.replace(/^\/+/, '');
+  return `${base}/${tail}`;
+}
+
 function declarationKind(
   node: SyntaxNode,
   source: string,
@@ -253,6 +323,10 @@ export async function parseJavaFile(
   const methodStack: RepoSymbol[] = [];
   const scopeStack: MethodScope[] = [];
   const typeStack: TypeRecord[] = [];
+  // Bug-09: route-path bookkeeping for Spring controllers.
+  const routeClassPrefix = new Map<string, string | undefined>();
+  const routeFirstMethodPath = new Map<string, string>();
+  const routeSymbolStack: number[] = [];
 
   tree.iterate({
     enter(ref) {
@@ -266,6 +340,11 @@ export async function parseJavaFile(
           if (!definition) return;
           const name = textOf(definition, source);
           const kind = declarationKind(node, source, name);
+          const annotationTexts = directAnnotationTexts(node, source);
+          const classPath =
+            kind === 'route'
+              ? mappingPathsFromAnnotations(annotationTexts)[0]
+              : undefined;
           symbols.push({
             repoId,
             kind,
@@ -274,8 +353,13 @@ export async function parseJavaFile(
             lineStart: lineAt(source, definition.from),
             lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
             signature: textOf(node, source).split(/\r?\n/, 1)[0],
-            interfaces: interfaceNames(node, source)
+            interfaces: interfaceNames(node, source),
+            displayPath: classPath
           });
+          if (kind === 'route') {
+            routeClassPrefix.set(name, classPath);
+            routeSymbolStack.push(symbols.length - 1);
+          }
           typeStack.push({ name, kind, fields: new Map() });
           return;
         }
@@ -312,6 +396,7 @@ export async function parseJavaFile(
           const definition = node.getChild('Definition');
           if (!definition) return;
           const name = textOf(definition, source);
+          const parentType = typeStack[typeStack.length - 1];
           const symbol: RepoSymbol = {
             repoId,
             kind: 'method',
@@ -320,9 +405,25 @@ export async function parseJavaFile(
             lineStart: lineAt(source, definition.from),
             lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
             signature: textOf(node, source).split(/\r?\n/, 1)[0],
-            parentType: typeStack[typeStack.length - 1]?.name,
+            parentType: parentType?.name,
             calls: []
           };
+          // Bug-09: methods inside a controller carry the full URL path
+          // (class prefix + method mapping), e.g. `/api/owners/{id}`.
+          if (parentType?.kind === 'route') {
+            const methodPath =
+              mappingPathsFromAnnotations(directAnnotationTexts(node, source))[0];
+            if (methodPath) {
+              const displayPath = joinRoutePath(
+                routeClassPrefix.get(parentType.name),
+                methodPath
+              );
+              symbol.displayPath = displayPath;
+              if (!routeFirstMethodPath.has(parentType.name)) {
+                routeFirstMethodPath.set(parentType.name, displayPath);
+              }
+            }
+          }
           symbols.push(symbol);
           methodStack.push(symbol);
           const scope: MethodScope = { params: new Map(), locals: new Map() };
@@ -403,7 +504,16 @@ export async function parseJavaFile(
         scopeStack.pop();
       }
       if (ref.name === 'ClassDeclaration' || ref.name === 'InterfaceDeclaration') {
-        typeStack.pop();
+        const record = typeStack.pop();
+        // Bug-09: when a controller class has no class-level mapping, fall back
+        // to the first method mapping so the Routes list still shows a URL.
+        if (record?.kind === 'route') {
+          const index = routeSymbolStack.pop();
+          const routeSymbol = index !== undefined ? symbols[index] : undefined;
+          if (routeSymbol && !routeSymbol.displayPath) {
+            routeSymbol.displayPath = routeFirstMethodPath.get(record.name);
+          }
+        }
       }
     }
   });

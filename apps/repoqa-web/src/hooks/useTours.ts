@@ -30,7 +30,10 @@ export function useTours(client: RepoQAClient, repoId: string | null): UseToursR
     setError(null);
     try {
       const list = await client.getTours(repoId);
-      if (seq === requestSeq.current) setTours(list);
+      // A tour without locatable steps is not playable; drop it so the UI
+      // never presents a broken "Step 1 / 0" player.
+      const playable = list.filter((t) => Array.isArray(t.steps) && t.steps.length > 0);
+      if (seq === requestSeq.current) setTours(playable);
     } catch (err) {
       if (seq === requestSeq.current) {
         setError(err instanceof Error ? err.message : String(err));

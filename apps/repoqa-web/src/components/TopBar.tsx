@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Repo } from '../types';
 import { StatusStepper } from './StatusStepper';
 
@@ -11,6 +11,12 @@ interface TopBarProps {
   onImport: (name: string, localPath: string) => Promise<void>;
   /** Issue 14: fetch the ONBOARDING.md handover doc and trigger the download. */
   onExport: () => Promise<void>;
+  /** Bug-04: hamburger toggle for the mobile sidebar drawer. */
+  onToggleSidebar: () => void;
+  sidebarOpen: boolean;
+  /** Bug-12: repo currently being indexed (from catalog polling) — lets the
+   * import dialog show live phase feedback while POST /api/repos is pending. */
+  importingRepo?: Repo | null;
 }
 
 /**
@@ -24,7 +30,10 @@ export function TopBar({
   error,
   onSelectRepo,
   onImport,
-  onExport
+  onExport,
+  onToggleSidebar,
+  sidebarOpen,
+  importingRepo
 }: TopBarProps) {
   const [showImport, setShowImport] = useState(false);
   const [name, setName] = useState('');
@@ -33,6 +42,21 @@ export function TopBar({
   const [importError, setImportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  // Bug-11: standard dialog behavior — Escape closes the import dialog.
+  // Listener lives only while the dialog is mounted; the overlay click uses
+  // the same close path, and Escape never leaks to other components.
+  useEffect(() => {
+    if (!showImport) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowImport(false);
+        setImportError(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showImport]);
 
   const submitImport = async (e: FormEvent) => {
     e.preventDefault();
@@ -65,13 +89,25 @@ export function TopBar({
   };
 
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-2">
-      <div className="flex items-center gap-3">
-        <h1 className="text-sm font-semibold text-slate-900">CodeCompass</h1>
-        <div className="relative">
+    <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 py-2 sm:px-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        <button
+          type="button"
+          data-testid="sidebar-toggle"
+          onClick={onToggleSidebar}
+          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          aria-expanded={sidebarOpen}
+          className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 hover:border-accent hover:text-accent md:hidden"
+        >
+          ☰
+        </button>
+        <h1 className="hidden shrink-0 text-sm font-semibold text-slate-900 min-[420px]:inline">
+          CodeCompass
+        </h1>
+        <div className="relative min-w-0 max-w-[38vw]">
           <select
             data-testid="repo-select"
-            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-accent"
+            className="h-8 w-full min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-accent sm:max-w-none"
             value={currentRepo?.id ?? ''}
             onChange={(e) => onSelectRepo(e.target.value)}
           >
@@ -89,9 +125,9 @@ export function TopBar({
           type="button"
           data-testid="open-import"
           onClick={() => setShowImport(true)}
-          className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-blue-700"
+          className="h-8 shrink-0 rounded-md bg-accent px-2 text-sm font-medium text-white hover:bg-blue-700 sm:px-3"
         >
-          Import local repo
+          Import<span className="hidden sm:inline"> local repo</span>
         </button>
         {currentRepo && (
           <button
@@ -99,23 +135,32 @@ export function TopBar({
             data-testid="export-onboarding"
             onClick={handleExport}
             disabled={exporting}
-            className="h-8 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
+            className="h-8 shrink-0 rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50 sm:px-3"
           >
-            {exporting ? 'Exporting…' : '导出 ONBOARDING.md'}
+            {exporting ? (
+              <span className="sm:hidden">…</span>
+            ) : (
+              <>
+                <span className="hidden sm:inline">导出 ONBOARDING.md</span>
+                <span className="sm:hidden">导出</span>
+              </>
+            )}
           </button>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
-        {error && <span className="text-xs text-red-600">{error}</span>}
-        {exportError && <span className="text-xs text-red-600">{exportError}</span>}
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        {error && <span className="hidden text-xs text-red-600 sm:inline">{error}</span>}
+        {exportError && <span className="hidden text-xs text-red-600 sm:inline">{exportError}</span>}
         {currentRepo ? (
           <>
-            <StatusStepper status={currentRepo.status} />
-            <span className="text-xs text-slate-400">{currentRepo.local_path}</span>
+            <div className="hidden sm:block">
+              <StatusStepper status={currentRepo.status} />
+            </div>
+            <span className="hidden max-w-[220px] truncate text-xs text-slate-400 lg:inline">{currentRepo.localPath}</span>
           </>
         ) : (
-          <span className="text-xs text-slate-400">No repo selected</span>
+          <span className="hidden text-xs text-slate-400 sm:inline">No repo selected</span>
         )}
       </div>
 
@@ -155,6 +200,25 @@ export function TopBar({
               />
             </label>
             {importError && <p className="mb-2 text-xs text-red-600">{importError}</p>}
+            {busy &&
+              (importingRepo ? (
+                <div
+                  data-testid="import-progress"
+                  className="mb-2 flex items-center gap-2 rounded-md border border-accent-soft bg-accent-soft/40 px-2 py-1.5 text-xs text-accent"
+                >
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                  {importingRepo.fileCount > 0
+                    ? `正在解析 AST…（${importingRepo.fileCount} 个文件）`
+                    : '正在扫描仓库…（索引中）'}
+                </div>
+              ) : (
+                <p
+                  data-testid="import-progress"
+                  className="mb-2 text-xs text-slate-500"
+                >
+                  正在启动导入…
+                </p>
+              ))}
             <div className="flex justify-end gap-2">
               <button
                 type="button"

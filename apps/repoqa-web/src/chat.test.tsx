@@ -40,14 +40,14 @@ vi.mock('@monaco-editor/react', async () => {
 const readyRepo: Repo = {
   id: 'repo-1',
   name: 'petclinic',
-  repo_url: undefined,
-  local_path: 'C:/projects/spring-petclinic',
+  repoUrl: undefined,
+  localPath: 'C:/projects/spring-petclinic',
   branch: 'main',
   status: 'ready',
-  file_count: 120,
-  symbol_count: 840,
-  created_at: '2026-08-21T00:00:00.000Z',
-  updated_at: '2026-08-21T00:00:00.000Z'
+  fileCount: 120,
+  symbolCount: 840,
+  createdAt: '2026-08-21T00:00:00.000Z',
+  updatedAt: '2026-08-21T00:00:00.000Z'
 };
 
 /** Fake SSE stream controlled by the test, satisfying QueryStreamLike. */

@@ -45,6 +45,8 @@ export class RepoQAWorker {
   async indexRepo(input: {
     localPath: string;
     branch?: string;
+    /** Bug-10: user-supplied display name; empty falls back to the basename. */
+    name?: string;
   }): Promise<{ repo: Repo; created: boolean }> {
     const localPath = path.resolve(input.localPath);
     const rootStat = await fs.stat(localPath).catch(() => null);
@@ -52,7 +54,8 @@ export class RepoQAWorker {
       throw new Error(`local path is not a directory: ${input.localPath}`);
     }
 
-    const name = localPath.split(/[\\/]/).filter(Boolean).pop() ?? 'local';
+    const name =
+      input.name?.trim() || (localPath.split(/[\\/]/).filter(Boolean).pop() ?? 'local');
     const upsert = this.repoqa.upsertByLocalPath({
       name,
       localPath,
@@ -167,6 +170,10 @@ export class RepoQAWorker {
     repoId: string;
     question: string;
     mode?: 'architecture' | 'call-chain' | 'environment';
+    /** Explicit trace start supplied by the frontend (Top API click): the
+     * exact (name, file) of the clicked symbol. Prevents same-name ambiguity —
+     * e.g. a production method and a test helper with an identical name. */
+    start?: { name: string; file: string };
   }): AsyncGenerator<ServerEvent> {
     const repo = this.repoqa.getRepo(input.repoId);
     if (!repo) throw new Error('Repo not found');
@@ -267,7 +274,7 @@ export class RepoQAWorker {
     let environmentEvidence: string[] = [];
 
     if (isCallChain) {
-      const start = this.findStartSymbol(input.question, symbols);
+      const start = this.findStartSymbol(input.question, symbols, input.start);
       if (start) {
         trace = resolveCallChain(symbols, start);
         candidateAnchors = trace
@@ -365,8 +372,23 @@ export class RepoQAWorker {
             // Issue 05: surface the break marker textually so deterministic
             // call-chain queries never look like silent success.
             const breakHop = trace?.find((hop) => hop.break);
-            const base = `Static mock answer for "${input.question}".`;
-            return breakHop?.reason ? `${base}\n\n${breakHop.reason}` : base;
+            const chainLines =
+              trace && trace.length > 0
+                ? trace
+                    .map(
+                      (hop, index) =>
+                        `${index + 1}. ${hop.method} @ ${hop.file}:${hop.line ?? '?'}`
+                    )
+                    .join('\n')
+                : undefined;
+            const breakNote = breakHop?.reason ? `\n\n${breakHop.reason}` : '';
+            if (input.mode === 'call-chain' && chainLines) {
+              return `调用链分析（问题「${input.question}」）：\n${chainLines}${breakNote}`;
+            }
+            if (chainLines) {
+              return `静态分析（问题「${input.question}」）：识别到入口 ${trace![0].method} 与下游调用：\n${chainLines}${breakNote}`;
+            }
+            return `静态分析（问题「${input.question}」）：未解析到可追踪的调用链。`;
           })();
     const answer = maskSensitiveText(rawAnswer);
     const tokens = answer.match(/\S+(?:\s+)?/g) ?? [answer];
@@ -400,24 +422,63 @@ export class RepoQAWorker {
     };
   }
 
-  private findStartSymbol(question: string, symbols: RepoSymbol[]): RepoSymbol | undefined {
-    const words = question.toLowerCase().match(/[a-z_$][\w$]*/g) ?? [];
-    for (const word of words) {
-      const match = symbols.find(
-        (symbol) => symbol.kind === 'method' && symbol.name.toLowerCase() === word
+  /** Test paths (src/test, test/java) rarely carry the chain the user asked
+   * about — a production method wins over a same-named test helper. */
+  private isTestPath(filePath: string): boolean {
+    const p = filePath.replace(/\\/g, '/').toLowerCase();
+    return p.includes('/test/') || p.includes('/src/test') || p.includes('test/java');
+  }
+
+  private findStartSymbol(
+    question: string,
+    symbols: RepoSymbol[],
+    explicitStart?: { name: string; file: string }
+  ): RepoSymbol | undefined {
+    // Explicit start (Top API click) wins: exact file+name first, then a
+    // production-code name match, so the trace never starts from a sibling
+    // symbol in a test class.
+    if (explicitStart?.name && explicitStart.file) {
+      const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+      const exact = symbols.find(
+        (symbol) =>
+          symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
+          norm(symbol.filePath) === norm(explicitStart.file)
       );
-      if (match) return match;
+      if (exact) return exact;
+      const byName = symbols.find(
+        (symbol) =>
+          symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
+          !this.isTestPath(symbol.filePath)
+      );
+      if (byName) return byName;
     }
+    const words = question.toLowerCase().match(/[a-z_$][\w$]*/g) ?? [];
+    const prodSymbols = symbols.filter((symbol) => !this.isTestPath(symbol.filePath));
     // Issue 05: allow tracing from a route/service/repository/class symbol too;
     // resolveCallChain normalizes the type into its first method.
     const typeKinds = new Set(['class', 'interface', 'route', 'service', 'repository']);
+    const find = (list: RepoSymbol[], kinds: Set<string>, word: string) =>
+      list.find((symbol) => kinds.has(symbol.kind) && symbol.name.toLowerCase() === word);
     for (const word of words) {
-      const match = symbols.find(
-        (symbol) => typeKinds.has(symbol.kind) && symbol.name.toLowerCase() === word
-      );
+      const match = find(prodSymbols, new Set(['method']), word);
       if (match) return match;
     }
-    return symbols.find((symbol) => symbol.kind === 'method');
+    for (const word of words) {
+      const match = find(symbols, new Set(['method']), word);
+      if (match) return match;
+    }
+    for (const word of words) {
+      const match = find(prodSymbols, typeKinds, word);
+      if (match) return match;
+    }
+    for (const word of words) {
+      const match = find(symbols, typeKinds, word);
+      if (match) return match;
+    }
+    return (
+      prodSymbols.find((symbol) => symbol.kind === 'method') ??
+      symbols.find((symbol) => symbol.kind === 'method')
+    );
   }
 
   private traceToMermaid(trace: RepoQaTraceHop[], startName: string): string {

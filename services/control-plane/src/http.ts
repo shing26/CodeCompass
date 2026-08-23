@@ -53,6 +53,26 @@ export function createHttpApp(deps: HttpDeps): express.Express {
 
   app.use(express.json());
 
+  // Bug-13: malformed JSON bodies must return a JSON 400, never Express's
+  // default HTML error page (which leaks the SyntaxError stack trace).
+  app.use(
+    (
+      err: unknown,
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
+      if (
+        err instanceof SyntaxError &&
+        (err as { type?: string }).type === 'entity.parse.failed'
+      ) {
+        res.status(400).json({ error: 'invalid JSON body' });
+        return;
+      }
+      next(err);
+    }
+  );
+
   app.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
@@ -287,6 +307,15 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       req.query.mode === 'environment'
         ? req.query.mode
         : undefined;
+    // Explicit trace start from the frontend (Top API click): the clicked
+    // symbol's exact name + file, so findStartSymbol never resolves to a
+    // same-name symbol in another file (e.g. test helpers).
+    const startName =
+      typeof req.query.startName === 'string' ? req.query.startName.trim() : '';
+    const startFile =
+      typeof req.query.startFile === 'string' ? req.query.startFile.trim() : '';
+    const start =
+      startName && startFile ? { name: startName, file: startFile } : undefined;
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -303,7 +332,8 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       for await (const event of deps.worker.queryRepo({
         repoId: repo.id,
         question,
-        mode
+        mode,
+        start
       })) {
         if (closed) return;
         // Issue 07: masking middleware — every SSE payload passes through the
@@ -410,6 +440,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       const body = (req.body ?? {}) as {
         localPath?: unknown;
         branch?: unknown;
+        name?: unknown;
       };
       const localPath =
         typeof body.localPath === 'string' ? body.localPath.trim() : '';
@@ -421,7 +452,13 @@ export function createHttpApp(deps: HttpDeps): express.Express {
         typeof body.branch === 'string' && body.branch.trim() !== ''
           ? body.branch.trim()
           : undefined;
-      const result = await deps.worker.indexRepo({ localPath, branch });
+      // Bug-10: respect the user-supplied display name; empty falls back to
+      // the directory basename inside the worker.
+      const name =
+        typeof body.name === 'string' && body.name.trim() !== ''
+          ? body.name.trim()
+          : undefined;
+      const result = await deps.worker.indexRepo({ localPath, branch, name });
       res.status(result.created ? 201 : 200).json({ repo: result.repo });
     } catch (error) {
       res.status(400).json({

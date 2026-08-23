@@ -134,6 +134,20 @@ describe('QueryStream done payload (ticket 06)', () => {
     );
     stream.close();
   });
+  it('appends startName/startFile when an explicit trace start is given', () => {
+    const stream = new QueryStream('http://api', 'my repo', 'how?', 'call-chain', {
+      name: 'initCreationForm',
+      file: 'src/main/java/org/springframework/samples/petclinic/owner/PetController.java'
+    });
+    stream.connect();
+    const src = FakeEventSource.instances[0];
+    expect(src.url).toContain('question=how%3F');
+    expect(src.url).toContain('mode=call-chain');
+    expect(src.url).toContain(
+      'startName=initCreationForm&startFile=src%2Fmain%2Fjava%2Forg%2Fspringframework%2Fsamples%2Fpetclinic%2Fowner%2FPetController.java'
+    );
+    stream.close();
+  });
 });
 
 describe('QueryStream reconnect (ticket 07)', () => {
@@ -149,7 +163,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('reopens with exponential backoff after a dropped connection and keeps streaming', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
     const events: QueryEvent[] = [];
     const errors: unknown[] = [];
     let done = false;
@@ -186,7 +200,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('emits a permanent error after the reconnect budget is exhausted', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
     const errors: unknown[] = [];
     stream.onError((e) => errors.push(e));
     stream.connect();
@@ -214,7 +228,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('does not reopen after close() during the backoff window', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
     stream.connect();
     FakeEventSource.instances[0].fail();
     stream.close();
@@ -223,7 +237,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('closes the source on done so a late EOF error does not reconnect', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
     const errors: unknown[] = [];
     let done = false;
     stream.onError((e) => errors.push(e));

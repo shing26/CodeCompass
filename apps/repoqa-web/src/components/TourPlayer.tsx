@@ -34,6 +34,28 @@ export function TourPlayer({ tour, onNavigate, onBack }: TourPlayerProps) {
   const stepCount = tour.steps.length;
   const activeStep = tour.steps[Math.min(active, Math.max(stepCount - 1, 0))];
 
+  // A tour with no locatable steps is a dead end; never render a "Step 1 / 0"
+  // player, just offer a way back to the dashboard.
+  if (stepCount === 0) {
+    return (
+      <div data-testid="tour-player" className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <p data-testid="tour-empty" className="text-sm text-slate-500">
+            该 Tour 没有可定位的源码步骤。
+          </p>
+          <button
+            type="button"
+            data-testid="tour-back"
+            onClick={onBack}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:border-accent/40 hover:text-accent"
+          >
+            ← 返回看板
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const go = (index: number) => {
     const next = Math.min(Math.max(index, 0), Math.max(stepCount - 1, 0));
     setActive(next);

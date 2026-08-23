@@ -1041,6 +1041,78 @@ describe('RepoPulse deterministic call-chain query', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('pins the trace start to the exact file via startName/startFile, never a same-name test sibling', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-chain-start-'));
+    try {
+      // Production Controller.hello() plus a SAME-named method in a test
+      // class — reproduces the "Top API click jumped into OwnerControllerTests"
+      // defect: the heuristic start once resolved to whatever symbol the
+      // parser indexed first.
+      await makeJavaRepo(root);
+      await fs.mkdir(path.join(root, 'src', 'test', 'java', 'com', 'demo'), {
+        recursive: true
+      });
+      await fs.writeFile(
+        path.join(root, 'src', 'test', 'java', 'com', 'demo', 'ControllerTests.java'),
+        'package com.demo;\npublic class ControllerTests {\n  public String hello() {\n    return "test";\n  }\n}\n'
+      );
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      // Without an explicit start the heuristic must already prefer the
+      // production method over the test sibling (findStartSymbol now filters
+      // src/test paths first).
+      const plainResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('trace hello')}`
+      );
+      const plainText = await plainResponse.text();
+      const plainDone = plainText
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const plainData = JSON.parse(
+        plainDone!.slice(plainDone!.indexOf('data: ') + 6)
+      ) as { trace?: Array<{ file: string; method: string }> };
+      expect(plainData.trace?.[0]?.file).toBe('src/main/java/com/demo/Controller.java');
+
+      // Explicit start pointing at the production file resolves to it exactly.
+      const prodResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('trace hello')}&startName=hello&startFile=${encodeURIComponent('src/main/java/com/demo/Controller.java')}`
+      );
+      const prodText = await prodResponse.text();
+      const prodDone = prodText
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const prodData = JSON.parse(
+        prodDone!.slice(prodDone!.indexOf('data: ') + 6)
+      ) as {
+        trace?: Array<{ file: string; method: string; line?: number; break?: true }>;
+      };
+      expect(prodData.trace?.[0]?.file).toBe('src/main/java/com/demo/Controller.java');
+      expect(prodData.trace?.[0]?.method).toBe('hello');
+      expect(prodData.trace?.map((hop) => hop.method)).toContain('greet');
+      expect(prodData.trace?.some((hop) => hop.break)).toBe(false);
+
+      // Explicit start pointing at the test file starts there — the pinned
+      // symbol wins over any production-code preference.
+      const testResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('trace hello')}&startName=hello&startFile=${encodeURIComponent('src/test/java/com/demo/ControllerTests.java')}`
+      );
+      const testText = await testResponse.text();
+      const testDone = testText
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const testData = JSON.parse(
+        testDone!.slice(testDone!.indexOf('data: ') + 6)
+      ) as { trace?: Array<{ file: string; method: string }> };
+      expect(testData.trace?.[0]?.file).toBe('src/test/java/com/demo/ControllerTests.java');
+      expect(testData.trace?.[0]?.method).toBe('hello');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('RepoPulse chunks and config evidence', () => {
@@ -1622,7 +1694,11 @@ describe('RepoPulse real LLM adapter', () => {
         events.push(event as { type: string; payload: any });
       }
       const done = events.find((event) => event.type === 'repoqa.query.done');
-      expect(done?.payload.answer).toContain('Static mock answer');
+      // Deterministic fallback answers describe the static analysis result
+      // instead of a generic mock placeholder.
+      expect(done?.payload.answer).toContain('静态分析');
+      expect(done?.payload.answer).toContain('route overview');
+      expect(done?.payload.answer).not.toContain('Static mock answer');
     } finally {
       if (oldUrl === undefined) delete process.env.REPOQA_LLM_URL;
       else process.env.REPOQA_LLM_URL = oldUrl;

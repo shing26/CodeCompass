@@ -7,7 +7,7 @@ interface DashboardViewProps {
   error: string | null;
   onRetry: () => void;
   /** Trigger a call-chain trace from a clicked Top API entry. */
-  onTrace: (question: string) => void;
+  onTrace: (api: TopApiEntry) => void;
   /** code:// navigation to the Inspector (tech stack chips / config keys). */
   onNavigate: (file: string, line: number) => void;
   /** Switch to the Q&A chat view. */
@@ -219,7 +219,7 @@ export function DashboardView({
                   <button
                     type="button"
                     data-testid="api-entry"
-                    onClick={() => onTrace(`${api.name} 的完整调用链是怎样的？`)}
+                    onClick={() => onTrace(api)}
                     className="w-full rounded-md border border-slate-200 px-2.5 py-2 text-left hover:border-accent/40 hover:bg-accent-soft/20"
                   >
                     <div className="flex items-center gap-2">

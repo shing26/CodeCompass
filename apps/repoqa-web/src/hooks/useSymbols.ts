@@ -58,9 +58,9 @@ export function buildSymbolTree(symbols: RepoSymbol[]): Array<{
 }> {
   const byFile = new Map<string, RepoSymbol[]>();
   for (const s of symbols) {
-    const list = byFile.get(s.file_path) ?? [];
+    const list = byFile.get(s.filePath) ?? [];
     list.push(s);
-    byFile.set(s.file_path, list);
+    byFile.set(s.filePath, list);
   }
 
   const tree: Array<{ file: string; types: Array<{ symbol: RepoSymbol; members: RepoSymbol[] }> }> =
@@ -72,12 +72,12 @@ export function buildSymbolTree(symbols: RepoSymbol[]): Array<{
       symbol: typeSymbol,
       members: members.filter(
         (m) =>
-          m.line_start !== null &&
-          typeSymbol.line_start !== null &&
-          typeSymbol.line_end !== null &&
-          m.line_start >= typeSymbol.line_start &&
-          m.line_end !== null &&
-          m.line_end <= typeSymbol.line_end
+          m.lineStart !== null &&
+          typeSymbol.lineStart !== null &&
+          typeSymbol.lineEnd !== null &&
+          m.lineStart >= typeSymbol.lineStart &&
+          m.lineEnd !== null &&
+          m.lineEnd <= typeSymbol.lineEnd
       )
     }));
     // Include routes/services/repositories that are not nested under a class.

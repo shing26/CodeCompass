@@ -153,7 +153,14 @@ describe('DashboardView (issue 13)', () => {
       />
     );
     await user.click(screen.getByTestId('api-entry'));
-    expect(onTrace).toHaveBeenCalledWith('listOrders 的完整调用链是怎样的？');
+    expect(onTrace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'listOrders',
+        controller: 'OrderController',
+        filePath: 'src/main/java/OrderController.java',
+        lineStart: 24
+      })
+    );
   });
 
   it('opens the chat view from the 提问 button', async () => {

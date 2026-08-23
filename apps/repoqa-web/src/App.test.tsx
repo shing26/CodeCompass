@@ -23,14 +23,14 @@ import { downloadTextFile } from './utils/download';
 const readyRepo: Repo = {
   id: 'repo-1',
   name: 'petclinic',
-  repo_url: null as unknown as undefined,
-  local_path: 'C:/projects/spring-petclinic',
+  repoUrl: undefined,
+  localPath: 'C:/projects/spring-petclinic',
   branch: 'main',
   status: 'ready',
-  file_count: 120,
-  symbol_count: 840,
-  created_at: '2026-08-21T00:00:00.000Z',
-  updated_at: '2026-08-21T00:00:00.000Z'
+  fileCount: 120,
+  symbolCount: 840,
+  createdAt: '2026-08-21T00:00:00.000Z',
+  updatedAt: '2026-08-21T00:00:00.000Z'
 };
 
 const roundDashboard: RepoDashboard = {
@@ -237,7 +237,8 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
     expect(client.queryRepo).toHaveBeenCalledWith(
       'repo-1',
       'listOrders 的完整调用链是怎样的？',
-      undefined
+      'call-chain',
+      { name: 'listOrders', file: 'src/main/java/OrderController.java' }
     );
     expect(screen.getByTestId('back-to-dashboard')).toBeInTheDocument();
   });
@@ -257,6 +258,9 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
 describe('Issue 14 ONBOARDING.md export', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Bug-08: selecting a repo persists `?repo=` via history.replaceState;
+    // reset the URL so the deep-link never leaks into the next test.
+    window.history.replaceState(null, '', '/');
   });
 
   it('downloads {repoName}-ONBOARDING.md for the selected repo', async () => {
