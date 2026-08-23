@@ -1,0 +1,134 @@
+import { describe, expect, it } from 'vitest';
+import type { RepoSymbol } from './repoqa-repos';
+import { findFuzzyStartSymbol, fuzzyMatchScore, splitIdentifier } from './repoqa-worker';
+
+const isTest = (filePath: string) => filePath.includes('/test/') || filePath.includes('Test.java');
+
+function symbol(partial: Partial<RepoSymbol>): RepoSymbol {
+  return {
+    id: 0,
+    repoId: 'r1',
+    kind: 'method',
+    name: 'noop',
+    filePath: 'src/main/java/com/demo/App.java',
+    lineStart: 1,
+    lineEnd: 2,
+    ...partial
+  };
+}
+
+describe('splitIdentifier', () => {
+  it('splits camelCase into words', () => {
+    expect(splitIdentifier('createOwner')).toEqual(['create', 'owner']);
+    expect(splitIdentifier('getPetTypes')).toEqual(['get', 'pet', 'types']);
+  });
+
+  it('splits snake_case, kebab-case and mixed', () => {
+    expect(splitIdentifier('get_pet_types')).toEqual(['get', 'pet', 'types']);
+    expect(splitIdentifier('find-owner-by-id')).toEqual(['find', 'owner', 'by', 'id']);
+    expect(splitIdentifier('owner')).toEqual(['owner']);
+  });
+});
+
+describe('fuzzyMatchScore', () => {
+  it('scores exact question matches highest', () => {
+    expect(fuzzyMatchScore('createOwner', 'createOwner')).toBe(100);
+  });
+
+  it('scores a sentence containing the exact symbol name', () => {
+    expect(fuzzyMatchScore('how does createOwner work', 'createOwner')).toBe(90);
+  });
+
+  it('scores a camelCase word from the sentence', () => {
+    expect(fuzzyMatchScore('what creates an owner?', 'createOwner')).toBe(80);
+    expect(fuzzyMatchScore('owner flow', 'createOwner')).toBe(80);
+  });
+
+  it('scores prefixes and substrings lower', () => {
+    expect(fuzzyMatchScore('creat', 'createOwner')).toBe(60);
+    expect(fuzzyMatchScore('creates an owner in the app', 'createOwner')).toBe(80);
+    expect(fuzzyMatchScore('petTypes', 'getPetTypes')).toBe(50); // word is a suffix of the symbol
+    expect(fuzzyMatchScore('reat', 'createOwner')).toBe(40); // plain substring only ('create' → 'reat')
+  });
+
+  it('returns 0 when nothing matches', () => {
+    expect(fuzzyMatchScore('database transaction', 'createOwner')).toBe(0);
+    expect(fuzzyMatchScore('', 'createOwner')).toBe(0);
+  });
+});
+
+describe('findFuzzyStartSymbol', () => {
+  const createOwner = symbol({
+    name: 'createOwner',
+    filePath: 'src/main/java/com/demo/OwnerController.java',
+    kind: 'method'
+  });
+  const testHelper = symbol({
+    name: 'createOwner',
+    filePath: 'src/test/java/com/demo/OwnerControllerTest.java',
+    kind: 'method'
+  });
+  const listOwners = symbol({
+    name: 'listOwners',
+    filePath: 'src/main/java/com/demo/OwnerController.java',
+    kind: 'method'
+  });
+  const ownerService = symbol({
+    name: 'OwnerService',
+    filePath: 'src/main/java/com/demo/OwnerService.java',
+    kind: 'service'
+  });
+
+  it('picks the production method over a same-named test helper', () => {
+    const picked = findFuzzyStartSymbol('which controller creates an owner?', [testHelper, createOwner], isTest);
+    expect(picked).toBe(createOwner);
+  });
+
+  it('falls back to a type/route symbol when no method matches', () => {
+    const picked = findFuzzyStartSymbol('tell me about the owner service', [ownerService, listOwners], isTest);
+    // listOwners scores 0 ('owner' is part of 'owners' → substring length 5 ≥ 4? 'owner'.length=5, name.includes('owner') → 40)
+    // OwnerService scores 80 via the 'owner' word → the type wins.
+    expect(picked).toBe(ownerService);
+  });
+
+  it('returns undefined for an empty symbol list', () => {
+    expect(findFuzzyStartSymbol('anything', [], isTest)).toBeUndefined();
+  });
+
+  it('prefers a method over a type within the 10-point score band', () => {
+    // 'owner' is a whole word in the question → class Owner scores 90; the same
+    // word inside createOwner (a camelCase part) scores 80. For a call-chain
+    // start the method must win even though the type scores one tier higher —
+    // otherwise the type normalizes to an arbitrary first method (getPetsInternal).
+    const ownerClass = symbol({
+      name: 'Owner',
+      filePath: 'src/main/java/com/demo/Owner.java',
+      kind: 'class'
+    });
+    const createOwner = symbol({
+      name: 'createOwner',
+      filePath: 'src/main/java/com/demo/OwnerController.java',
+      kind: 'method'
+    });
+    const picked = findFuzzyStartSymbol('创建 owner 的方法', [ownerClass, createOwner], isTest);
+    expect(picked).toBe(createOwner);
+  });
+
+  it('a weakly matching method still loses to a strongly matching type', () => {
+    // Outside the band the score dominates: listOwners ('owner' is a prefix of
+    // part 'owners' → 60) must not beat OwnerService (both 'owner' and 'service'
+    // are parts → 80).
+    const ownerService = symbol({
+      name: 'OwnerService',
+      filePath: 'src/main/java/com/demo/OwnerService.java',
+      kind: 'service'
+    });
+    const listOwners = symbol({
+      name: 'listOwners',
+      filePath: 'src/main/java/com/demo/OwnerController.java',
+      kind: 'method'
+    });
+    const picked = findFuzzyStartSymbol('tell me about the owner service', [listOwners, ownerService], isTest);
+    expect(picked).toBe(ownerService);
+  });
+});

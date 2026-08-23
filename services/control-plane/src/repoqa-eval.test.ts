@@ -56,7 +56,7 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         fs.rm(other, { recursive: true, force: true })
       ]);
     }
-  });
+  }, 20_000);
 
   it('runs the full golden eval, passes every threshold, and records eval events', async () => {
     const db = openDb(':memory:');

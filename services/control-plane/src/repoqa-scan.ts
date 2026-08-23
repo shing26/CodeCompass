@@ -5,17 +5,34 @@ import { parsePomModules } from './repoqa-parser';
 export const MAX_FILES = 3000;
 export const MAX_LINES = 500_000;
 
+/**
+ * Issue 18 — directories that are never indexed. Matching is case-insensitive
+ * (`Target` ≡ `target`) because the same repo is often checked out on macOS
+ * (exact case) and Windows (case-insensitive filesystem).
+ */
 const IGNORED_DIRS = new Set([
   '.git',
+  '.gradle',
+  '.mvn',
+  '.idea',
+  '.vscode',
+  '.cache',
+  '.next',
+  '.venv',
+  'venv',
+  '__pycache__',
   'node_modules',
   'dist',
   'build',
   'target',
   'out',
-  '.idea',
-  '.vscode',
   'coverage'
 ]);
+
+/** True when a directory entry name must be skipped by the scan. */
+export function isIgnoredDir(name: string): boolean {
+  return IGNORED_DIRS.has(name.toLowerCase());
+}
 
 export interface RepoScanStats {
   fileCount: number;
@@ -119,7 +136,7 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
     for (const entry of entries) {
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (!IGNORED_DIRS.has(entry.name)) stack.push(path.join(dir, entry.name));
+        if (!isIgnoredDir(entry.name)) stack.push(path.join(dir, entry.name));
         continue;
       }
       if (!entry.isFile()) continue;

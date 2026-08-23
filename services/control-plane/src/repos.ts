@@ -18,6 +18,31 @@ export interface Workspace {
   updatedAt: string;
 }
 
+/**
+ * Issue 18 — normalize a user-supplied local path before it is stored.
+ * Users paste paths from shells / docs / chat, so this strips:
+ *  - surrounding whitespace and paired wrapping quotes (`'D:\repo'`, `"D:\repo"`, repeated)
+ *  - doubled backslashes introduced by copy/paste escaping (`D:\\repo` → `D:\repo`)
+ *  - trailing separators (`D:\repo\` → `D:\repo`), while keeping drive roots
+ *    (`C:\`) and UNC roots (`\\host\share`) intact.
+ */
+export function cleanLocalPath(raw: string): string {
+  let p = raw.trim();
+  while (
+    p.length >= 2 &&
+    ((p.startsWith('"') && p.endsWith('"')) || (p.startsWith("'") && p.endsWith("'")))
+  ) {
+    p = p.slice(1, -1).trim();
+  }
+  // Collapse doubled backslashes except the leading pair of UNC paths.
+  p = p.replace(/([^\\])\\(?=\\)/g, '$1');
+  const isRoot = /^[a-zA-Z]:[\\/]?$/.test(p) || /^\\\\[^\\/]+(?:\\[^\\/]+)?[\\/]?$/.test(p);
+  if (!isRoot) {
+    p = p.replace(/[\\/]+$/, '');
+  }
+  return p;
+}
+
 export interface TaskEvent {
   id?: number;
   taskId: string;
@@ -152,16 +177,17 @@ export class Repos {
     rootPath: string;
   }): Workspace {
     const now = new Date().toISOString();
+    const rootPath = cleanLocalPath(input.rootPath);
     this.db
       .prepare(
         `INSERT INTO workspaces (id, name, root_path, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)`
       )
-      .run(input.id, input.name, input.rootPath, now, now);
+      .run(input.id, input.name, rootPath, now, now);
     return {
       id: input.id,
       name: input.name,
-      rootPath: input.rootPath,
+      rootPath,
       createdAt: now,
       updatedAt: now
     };

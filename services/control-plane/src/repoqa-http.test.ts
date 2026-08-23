@@ -996,6 +996,51 @@ describe('RepoPulse deterministic call-chain query', () => {
     }
   });
 
+  it('Issue 18: natural-language fuzzy start wins over an exact type-name word', async () => {
+    // '创建 owner 的方法' contains the word 'owner', which exactly equals the
+    // class name Owner — the exact type lookup would start the trace from class
+    // Owner's first method (getPetsInternal). The fuzzy extraction must instead
+    // start from the real method createOwner.
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-chain-fuzzy-'));
+    try {
+      const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+      await fs.mkdir(pkg, { recursive: true });
+      await fs.writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+      await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
+      await fs.writeFile(
+        path.join(pkg, 'Owner.java'),
+        'package com.demo;\npublic class Owner {\n  public String getPetsInternal() { return "pets"; }\n}\n'
+      );
+      await fs.writeFile(
+        path.join(pkg, 'OwnerResource.java'),
+        'package com.demo;\npublic class OwnerResource {\n  public String createOwner() { return new Owner().getPetsInternal(); }\n}\n'
+      );
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('创建 owner 的方法')}`
+      );
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      const doneBlock = text
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      expect(doneBlock).toBeDefined();
+      const doneData = JSON.parse(
+        doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
+      ) as {
+        trace?: Array<{ file: string; method: string }>;
+      };
+      expect(doneData.trace?.[0].method).toBe('createOwner');
+      expect(doneData.trace?.[0].file).toBe('src/main/java/com/demo/OwnerResource.java');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('flags interface multi-implementation dispatch as a Static Analysis Break in trace, mermaid, and answer', async () => {
     const ctx = await startServer();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-chain-dispatch-'));

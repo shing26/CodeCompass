@@ -34,6 +34,97 @@ function lineNumberAt(source: string, offset: number): number {
   return line;
 }
 
+/**
+ * Issue 18 — split an identifier into its lowercase words so natural-language
+ * questions can match camelCase / snake_case / kebab-case symbol names:
+ * `createOwner` → `['create', 'owner']`, `get_pet_types` → `['get', 'pet', 'types']`.
+ */
+export function splitIdentifier(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * Issue 18 — score how strongly a natural-language sentence mentions a symbol.
+ * 0 = no match; higher = stronger. Exact whole-question matches score highest;
+ * the phrase containing the exact symbol name, a camelCase word, a prefix and a
+ * plain substring rank below in that order. This is a pure helper so the
+ * deterministic static path stays fully unit-testable without LLMs.
+ */
+export function fuzzyMatchScore(question: string, symbolName: string): number {
+  const q = question.toLowerCase();
+  const name = symbolName.toLowerCase();
+  if (!q || !name) return 0;
+  if (q === name) return 100;
+  if (name.length >= 3 && q.includes(name)) return 90;
+  const words = q.match(/[a-z_$][\w$]*/g) ?? [];
+  if (words.length === 0) return 0;
+  const parts = splitIdentifier(symbolName);
+  let best = 0;
+  for (const word of words) {
+    if (parts.includes(word)) {
+      best = Math.max(best, 80);
+      continue;
+    }
+    for (const part of parts) {
+      if (word.length >= 3 && part.startsWith(word)) best = Math.max(best, 60);
+      if (word.length >= 4 && word.startsWith(part)) best = Math.max(best, 50);
+    }
+    if (word.length >= 4 && name.includes(word)) best = Math.max(best, 40);
+  }
+  return best;
+}
+
+/**
+ * Issue 18 — fuzzy start-symbol lookup used when exact matching fails. Scores
+ * are relevance-led: the highest-scoring symbol wins, with production code and
+ * method-kind used to break ties (a weak-scoring method never beats a strongly
+ * matching route/service/class). Within a 10-point band a method is preferred
+ * even over a slightly higher-scoring type, since call-chain traces start at
+ * real methods while types normalize to an arbitrary first method.
+ */
+export function findFuzzyStartSymbol(
+  question: string,
+  symbols: RepoSymbol[],
+  isTestPath: (filePath: string) => boolean
+): RepoSymbol | undefined {
+  const methodKinds = new Set(['method']);
+  const typeKinds = new Set(['class', 'interface', 'route', 'service', 'repository']);
+  const candidates: Array<{ symbol: RepoSymbol; prod: boolean }> = [];
+  for (const symbol of symbols) {
+    if (!methodKinds.has(symbol.kind) && !typeKinds.has(symbol.kind)) continue;
+    candidates.push({ symbol, prod: !isTestPath(symbol.filePath) });
+  }
+  // Relevance-led ranking with a narrow method preference band: a method whose
+  // score is within 10 points of a type/route symbol still wins, because
+  // call-chain traces start at real methods while types normalize to an
+  // arbitrary first method. Outside that band the higher score always wins
+  // (a weak method never beats a strongly matching service/class).
+  const ranked = candidates
+    .map((candidate) => ({
+      candidate,
+      score: fuzzyMatchScore(question, candidate.symbol.name)
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      const prodDiff = (b.candidate.prod ? 1 : 0) - (a.candidate.prod ? 1 : 0);
+      if (prodDiff !== 0) return prodDiff;
+      const aIsMethod = methodKinds.has(a.candidate.symbol.kind);
+      const bIsMethod = methodKinds.has(b.candidate.symbol.kind);
+      if (aIsMethod && !bIsMethod && a.score >= b.score - 10) return -1;
+      if (bIsMethod && !aIsMethod && b.score >= a.score - 10) return 1;
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      return (bIsMethod ? 1 : 0) - (aIsMethod ? 1 : 0);
+    });
+  return ranked[0]?.candidate.symbol;
+}
+
 export class RepoQAWorker {
   private running = new Map<string, AbortController>();
 
@@ -467,6 +558,12 @@ export class RepoQAWorker {
       const match = find(symbols, new Set(['method']), word);
       if (match) return match;
     }
+    // Issue 18: fuzzy extraction runs before the exact type/route lookups so
+    // natural-language phrasing like "创建 owner 的方法" starts from a real
+    // method (createOwner) instead of the type whose name is a word in the
+    // question (class Owner normalizes to an arbitrary first method).
+    const fuzzy = findFuzzyStartSymbol(question, symbols, (filePath) => this.isTestPath(filePath));
+    if (fuzzy) return fuzzy;
     for (const word of words) {
       const match = find(prodSymbols, typeKinds, word);
       if (match) return match;

@@ -16,6 +16,8 @@ interface CanvasProps {
   onRetry: () => void;
   /** code:// deep link routing; wired to the Inspector in ticket 05. */
   onNavigate?: (file: string, line: number) => void;
+  /** Issue 18: pinned "back to dashboard" entry inside the canvas. */
+  onBackToDashboard?: () => void;
 }
 
 /**
@@ -33,7 +35,8 @@ export function Canvas({
   error,
   onSubmit,
   onRetry,
-  onNavigate
+  onNavigate,
+  onBackToDashboard
 }: CanvasProps) {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,6 +62,28 @@ export function Canvas({
       {repo ? (
         <>
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+            {onBackToDashboard && (
+              <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+                <button
+                  type="button"
+                  data-testid="canvas-back-to-dashboard"
+                  onClick={onBackToDashboard}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600 hover:border-accent/40 hover:text-accent"
+                >
+                  ← 返回看板
+                </button>
+              </div>
+            )}
+            <div
+              data-testid="offline-hint"
+              className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500"
+            >
+              <span aria-hidden="true">🧭</span>
+              <span>
+                离线模式：调用链与符号索引来自 AST 确定性分析，不依赖 LLM / API Key；未配置 LLM
+                时静态路径同样可用。
+              </span>
+            </div>
             {messages.length === 0 && (
               <div data-testid="chat-empty" className="mx-auto mt-8 max-w-md text-center">
                 <h2 className="text-base font-semibold text-slate-900">
@@ -118,7 +143,7 @@ export function Canvas({
               data-testid="chat-input"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Ask anything about the repo…"
+              placeholder="例如：createOwner 的调用链？/owners 经过了哪些类？（自然语言即可）"
               disabled={streaming}
               className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-accent disabled:opacity-50"
             />

@@ -172,6 +172,7 @@ export function App({ client: clientProp }: AppProps) {
           onRetryTours={refreshTours}
           onPlayTour={handlePlayTour}
           open={sidebarOpen}
+          onNavigate={inspector.openFile}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {repoId && view !== 'dashboard' && (
@@ -202,6 +203,7 @@ export function App({ client: clientProp }: AppProps) {
               onSubmit={submit}
               onRetry={retry}
               onNavigate={inspector.openFile}
+              onBackToDashboard={view === 'chat' ? showDashboard : undefined}
             />
           ) : view === 'tour' && activeTour ? (
             <TourPlayer
