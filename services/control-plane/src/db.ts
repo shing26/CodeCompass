@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS repo_symbols (
   type_name TEXT,
   interfaces TEXT,
   display_path TEXT,
+  annotations TEXT,
+  param_annotations TEXT,
   FOREIGN KEY (repo_id) REFERENCES repos(id)
 );
 CREATE INDEX IF NOT EXISTS idx_repo_symbols_repo ON repo_symbols(repo_id, kind, name);
@@ -152,7 +154,9 @@ export function openDb(dbPath: string): Database.Database {
     ['parent_type', 'ALTER TABLE repo_symbols ADD COLUMN parent_type TEXT'],
     ['type_name', 'ALTER TABLE repo_symbols ADD COLUMN type_name TEXT'],
     ['interfaces', 'ALTER TABLE repo_symbols ADD COLUMN interfaces TEXT'],
-    ['display_path', 'ALTER TABLE repo_symbols ADD COLUMN display_path TEXT']
+    ['display_path', 'ALTER TABLE repo_symbols ADD COLUMN display_path TEXT'],
+    ['annotations', 'ALTER TABLE repo_symbols ADD COLUMN annotations TEXT'],
+    ['param_annotations', 'ALTER TABLE repo_symbols ADD COLUMN param_annotations TEXT']
   ] as const) {
     if (!symbolColumns.some((existing) => existing.name === column)) {
       db.exec(ddl);

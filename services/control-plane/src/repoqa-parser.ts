@@ -59,6 +59,146 @@ function simpleTypeName(raw: string): string {
   return last.trim();
 }
 
+/* ------------------------------------------------------------------ */
+/* Issue 21 — record declarations (Java 16+)                           */
+/* ------------------------------------------------------------------ */
+
+export interface RecordComponent {
+  name: string;
+  /** Declared component type (raw, generics kept), e.g. `List<OrderItem>`. */
+  type: string;
+  /** Offset of the component *name* inside the original source (unpatched). */
+  nameOffset: number;
+}
+
+export interface RecordDeclarationPatch {
+  name: string;
+  /** Offset of the `record` keyword in the original source. */
+  recordOffset: number;
+  /** Offset of the opening `(` of the component list. */
+  openOffset: number;
+  /** Offset of the closing `)` of the component list. */
+  closeOffset: number;
+  components: RecordComponent[];
+}
+
+/** Split a string on `sep`, ignoring separators inside `(...)`, `<...>` and string literals. */
+function splitTopLevel(text: string, sep: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let inString = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+    if (ch === '"' && text[index - 1] !== '\\') inString = !inString;
+    if (inString) continue;
+    if (ch === '(' || ch === '<') depth += 1;
+    else if (ch === ')' || ch === '>') depth = Math.max(0, depth - 1);
+    else if (ch === sep && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/** Parse `type name` pairs from a record component list body (annotations stripped). */
+export function parseRecordComponents(
+  source: string,
+  componentsText: string,
+  baseOffset: number
+): RecordComponent[] {
+  const components: RecordComponent[] = [];
+  const segments = splitTopLevel(componentsText, ',');
+  let cursor = 0;
+  for (const segment of segments) {
+    const relStart = componentsText.indexOf(segment, cursor);
+    cursor = relStart + segment.length;
+    const nameMatch = /([A-Za-z_$][\w$]*)\s*$/.exec(segment);
+    if (!nameMatch) continue;
+    const name = nameMatch[1];
+    const typeRaw = segment
+      .slice(0, nameMatch.index)
+      .replace(/@[A-Za-z_$][\w$]*(?:\s*\([^)]*\))?/g, ' ')
+      .trim();
+    if (!typeRaw) continue;
+    components.push({
+      name,
+      type: typeRaw,
+      nameOffset: baseOffset + relStart + nameMatch.index
+    });
+  }
+  return components;
+}
+
+/**
+ * Issue 21 — Java `record` declarations are not understood by @lezer/java; on a
+ * real repo a single record DTO aborts parsing of the whole file (it is skipped
+ * by the worker). Patch every top-level `record Name(components) { … }` into an
+ * offset-stable, byte-equal `class` declaration:
+ *
+ *   `record`  → `class `           (6 chars, keeps every later offset stable)
+ *   `(…)`     → same-length blanks (newlines preserved so line numbers survive)
+ *
+ * The rewritten tree yields a normal ClassDeclaration (methods inside the body
+ * still parse), while `RecordDeclarationPatch` enables the caller to emit the
+ * components as read-only field/accessor symbols from the *original* source.
+ */
+export function patchRecordDeclarations(source: string): {
+  source: string;
+  patches: RecordDeclarationPatch[];
+} {
+  const patches: RecordDeclarationPatch[] = [];
+  const recordRe = /\brecord\s+([A-Za-z_$][\w$]*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = recordRe.exec(source)) !== null) {
+    const recordOffset = match.index;
+    const name = match[1];
+    const openOffset = source.indexOf('(', match.index + match[0].length);
+    if (openOffset === -1) continue;
+    let depth = 0;
+    let closeOffset = -1;
+    let inString = false;
+    for (let index = openOffset; index < source.length; index += 1) {
+      const ch = source[index];
+      if (ch === '"' && source[index - 1] !== '\\') inString = !inString;
+      if (inString) continue;
+      if (ch === '(') depth += 1;
+      else if (ch === ')' && --depth === 0) {
+        closeOffset = index;
+        break;
+      }
+    }
+    if (closeOffset === -1) continue;
+    const components = parseRecordComponents(
+      source,
+      source.slice(openOffset + 1, closeOffset),
+      openOffset + 1
+    );
+    patches.push({ name, recordOffset, openOffset, closeOffset, components });
+  }
+
+  let patched = source;
+  for (const patch of patches) {
+    const recordEnd = patch.recordOffset + 'record'.length;
+    patched =
+      patched.slice(0, patch.recordOffset) +
+      'class ' +
+      patched.slice(recordEnd);
+    const body = patched.slice(patch.openOffset, patch.closeOffset + 1);
+    const blanked = body
+      .split('')
+      .map((ch) => (ch === '\n' ? '\n' : ' '))
+      .join('');
+    patched =
+      patched.slice(0, patch.openOffset) +
+      blanked +
+      patched.slice(patch.closeOffset + 1);
+  }
+  return { source: patched, patches };
+}
+
 /**
  * Dogfooding discovery (Issue 17): @lezer/java does not understand the widely
  * used `Type.class` class-literal expression (it is only valid in annotation
@@ -317,7 +457,12 @@ export async function parseJavaFile(
 ): Promise<RepoSymbol[]> {
   const source = await fs.readFile(filePath, 'utf8');
   const relativePath = path.relative(root, filePath).split(path.sep).join('/');
-  const { source: parseSource } = recoverParseableSource(source);
+  // Issue 21: Java 16+ records are not understood by @lezer/java — patch them
+  // into offset-stable class declarations first, then run the existing
+  // class-literal recovery. Both passes keep every source offset byte-equal, so
+  // line numbers below stay exact.
+  const { source: recordPatched, patches } = patchRecordDeclarations(source);
+  const { source: parseSource } = recoverParseableSource(recordPatched);
   const tree = parser.parse(parseSource);
   const symbols: RepoSymbol[] = [];
   const methodStack: RepoSymbol[] = [];
@@ -327,6 +472,9 @@ export async function parseJavaFile(
   const routeClassPrefix = new Map<string, string | undefined>();
   const routeFirstMethodPath = new Map<string, string>();
   const routeSymbolStack: number[] = [];
+  // Issue 21: record declarations consumed in source order as their patched
+  // ClassDeclaration siblings are visited (both traversals are pre-order).
+  const recordQueue = [...patches].sort((a, b) => a.recordOffset - b.recordOffset);
 
   tree.iterate({
     enter(ref) {
@@ -354,13 +502,53 @@ export async function parseJavaFile(
             lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
             signature: textOf(node, source).split(/\r?\n/, 1)[0],
             interfaces: interfaceNames(node, source),
-            displayPath: classPath
+            displayPath: classPath,
+            // Issue 21: class-level annotations feed Spring bean disambiguation
+            // (@Primary, @Service("name"), @Component("name"), …).
+            annotations: annotationTexts
           });
           if (kind === 'route') {
             routeClassPrefix.set(name, classPath);
             routeSymbolStack.push(symbols.length - 1);
           }
           typeStack.push({ name, kind, fields: new Map() });
+
+          // Issue 21: a record patched into a class carries its components —
+          // emit each as a read-only field plus its canonical accessor method.
+          const pendingRecord =
+            recordQueue.length > 0 && recordQueue[0].name === name
+              ? recordQueue[0]
+              : undefined;
+          if (pendingRecord) {
+            recordQueue.shift();
+            for (const component of pendingRecord.components) {
+              const componentLine = lineAt(source, component.nameOffset);
+              const componentType = simpleTypeName(component.type);
+              symbols.push({
+                repoId,
+                kind: 'field',
+                name: component.name,
+                filePath: relativePath,
+                lineStart: componentLine,
+                lineEnd: componentLine,
+                parentType: name,
+                type: componentType
+              });
+              symbols.push({
+                repoId,
+                kind: 'method',
+                name: component.name,
+                filePath: relativePath,
+                lineStart: componentLine,
+                lineEnd: componentLine,
+                parentType: name,
+                signature: `${componentType} ${component.name}()`,
+                calls: []
+              });
+              const record = typeStack[typeStack.length - 1];
+              record?.fields.set(component.name, componentType);
+            }
+          }
           return;
         }
 
@@ -370,6 +558,9 @@ export async function parseJavaFile(
             ? simpleTypeName(textOf(typeNode, source))
             : undefined;
           const parentType = typeStack[typeStack.length - 1]?.name;
+          // Issue 21: field-level annotations (@Autowired, @Qualifier("x"),
+          // @Resource(name=…)) drive Spring bean disambiguation.
+          const fieldAnnotations = directAnnotationTexts(node, source);
           for (const declarator of node.getChildren('VariableDeclarator')) {
             const definition = declarator.getChild('Definition');
             if (!definition) continue;
@@ -382,7 +573,8 @@ export async function parseJavaFile(
               lineStart: lineAt(source, definition.from),
               lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
               parentType,
-              type: typeName
+              type: typeName,
+              annotations: fieldAnnotations
             });
             if (parentType && typeName) {
               const record = typeStack[typeStack.length - 1];
@@ -424,10 +616,15 @@ export async function parseJavaFile(
               }
             }
           }
+          // Issue 21: method-level annotations (kept for completeness;
+          // @Primary/bean-name annotations matter on classes, injection
+          // annotations on fields/parameters).
+          symbol.annotations = directAnnotationTexts(node, source);
           symbols.push(symbol);
           methodStack.push(symbol);
           const scope: MethodScope = { params: new Map(), locals: new Map() };
           const formalParameters = node.getChild('FormalParameters');
+          let paramAnnotations: Record<string, string[]> | undefined;
           if (formalParameters) {
             let child = formalParameters.firstChild;
             while (child) {
@@ -435,15 +632,24 @@ export async function parseJavaFile(
                 const typeNode = child.getChild('TypeName');
                 const paramDef = child.getChild('Definition');
                 if (typeNode && paramDef) {
+                  const paramName = textOf(paramDef, source);
                   scope.params.set(
-                    textOf(paramDef, source),
+                    paramName,
                     simpleTypeName(textOf(typeNode, source))
                   );
+                  // Issue 21: constructor/setter injection points — @Qualifier/
+                  // @Resource on a parameter disambiguates interface targets.
+                  const paramAnnos = directAnnotationTexts(child, source);
+                  if (paramAnnos.length > 0) {
+                    paramAnnotations ??= {};
+                    paramAnnotations[paramName] = paramAnnos;
+                  }
                 }
               }
               child = child.nextSibling;
             }
           }
+          if (paramAnnotations) symbol.paramAnnotations = paramAnnotations;
           scopeStack.push(scope);
           return;
         }

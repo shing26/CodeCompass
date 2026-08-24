@@ -31,9 +31,19 @@ interface TypeInfo {
   symbol: RepoSymbol;
   /** method name → declared method symbols of this type. */
   methods: Map<string, RepoSymbol[]>;
-  /** field name → declared type name. */
-  fields: Map<string, string>;
+  /** field name → declared type + injection annotations (Issue 21). */
+  fields: Map<string, FieldInfo>;
   interfaces: string[];
+  /** Issue 21: Spring bean name of this type (explicit annotation name or default). */
+  beanName?: string;
+  /** Issue 21: class-level @Primary marker. */
+  isPrimary: boolean;
+}
+
+interface FieldInfo {
+  type: string;
+  /** Raw annotation texts of the field declaration, e.g. `@Autowired @Qualifier("x")`. */
+  annotations: string[];
 }
 
 interface SymbolIndex {
@@ -50,6 +60,120 @@ function identity(symbol: RepoSymbol): string {
   return `${symbol.filePath}:${symbol.lineStart ?? 0}:${symbol.name}`;
 }
 
+/* ------------------------------------------------------------------ */
+/* Issue 21 — Spring bean descriptors derived from annotations         */
+/* ------------------------------------------------------------------ */
+
+/** Annotations that can carry an explicit bean name on a type declaration. */
+const BEAN_NAME_ANNOTATIONS =
+  'Service|Component|Repository|RestController|Controller|Configuration';
+
+/** `@Service("customName")` style explicit bean name, if present. */
+function explicitBeanName(annotations: string[] | undefined): string | undefined {
+  if (!annotations) return undefined;
+  for (const annotation of annotations) {
+    const match = new RegExp(
+      `@(?:${BEAN_NAME_ANNOTATIONS})\\s*\\(\\s*["']([^"']+)["']\\s*\\)`
+    ).exec(annotation);
+    if (match && match[1].trim()) return match[1].trim();
+  }
+  return undefined;
+}
+
+/**
+ * Spring's default bean name for a class: decapitalize the first character
+ * unless the first *two* characters are both uppercase (URL-style names like
+ * `URLConnection` keep their case).
+ */
+function defaultBeanName(className: string): string {
+  if (className.length === 0) return className;
+  const first = className[0];
+  if (first >= 'A' && first <= 'Z') {
+    const second = className[1];
+    if (className.length === 1 || !(second >= 'A' && second <= 'Z')) {
+      return first.toLowerCase() + className.slice(1);
+    }
+  }
+  return className;
+}
+
+/** Explicit annotation name, falling back to the Spring default bean name. */
+function beanNameOf(className: string, annotations: string[] | undefined): string {
+  return explicitBeanName(annotations) ?? defaultBeanName(className);
+}
+
+function isPrimaryAnnotated(annotations: string[] | undefined): boolean {
+  return Boolean(annotations?.some((annotation) => /\bPrimary\b/.test(annotation)));
+}
+
+/** `@Qualifier("x")` value or `@Resource(name="y")` value on an injection point. */
+function explicitInjectionBean(annotations: string[] | undefined): string | undefined {
+  if (!annotations) return undefined;
+  for (const annotation of annotations) {
+    const qualifier = /@Qualifier\s*\(\s*["']([^"']+)["']\s*\)/.exec(annotation);
+    if (qualifier && qualifier[1].trim()) return qualifier[1].trim();
+    const resource = /@Resource\s*\(\s*name\s*=\s*["']([^"']+)["']\s*\)/.exec(annotation);
+    if (resource && resource[1].trim()) return resource[1].trim();
+  }
+  return undefined;
+}
+
+/** `@Autowired` / `@Resource` / `@Inject` family: injection by field/param name. */
+function isAutowiredFamily(annotations: string[] | undefined): boolean {
+  return Boolean(
+    annotations?.some((annotation) => /@(?:Autowired|Resource|Inject)\b/.test(annotation))
+  );
+}
+
+/**
+ * Bean name requested by an *explicit* injection annotation on the receiver's
+ * injection point: `@Qualifier("x")` / `@Resource(name="y")`. Matching follows
+ * Spring's semantics: an explicit qualifier pins the exact bean and does not
+ * fall back to @Primary.
+ */
+function explicitInjectionBeanName(
+  index: SymbolIndex,
+  caller: RepoSymbol,
+  call: RepoSymbolCall
+): string | undefined {
+  const receiver = call.receiver;
+  if (!receiver) return undefined;
+  const paramAnnotations = (caller.paramAnnotations ?? {})[receiver];
+  if (paramAnnotations) {
+    const explicit = explicitInjectionBean(paramAnnotations);
+    if (explicit) return explicit;
+  }
+  if (caller.parentType) {
+    const field = index.types.get(caller.parentType)?.fields.get(receiver);
+    if (field) {
+      const explicit = explicitInjectionBean(field.annotations);
+      if (explicit) return explicit;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Bean-name fallback for an autowired field/parameter (`@Autowired`, bare
+ * `@Resource`, `@Inject`): Spring resolves byType and, when several candidates
+ * remain after @Primary, by the variable name — `wechatGateway` → bean
+ * `wechatGateway`.
+ */
+function autowiredNameBean(
+  index: SymbolIndex,
+  caller: RepoSymbol,
+  call: RepoSymbolCall
+): string | undefined {
+  const receiver = call.receiver;
+  if (!receiver) return undefined;
+  if (isAutowiredFamily((caller.paramAnnotations ?? {})[receiver])) return receiver;
+  if (caller.parentType) {
+    const field = index.types.get(caller.parentType)?.fields.get(receiver);
+    if (field && isAutowiredFamily(field.annotations)) return receiver;
+  }
+  return undefined;
+}
+
 function buildIndex(symbols: RepoSymbol[]): SymbolIndex {
   const types = new Map<string, TypeInfo>();
   const implsOfInterface = new Map<string, string[]>();
@@ -62,7 +186,9 @@ function buildIndex(symbols: RepoSymbol[]): SymbolIndex {
         symbol,
         methods: new Map(),
         fields: new Map(),
-        interfaces: symbol.interfaces ?? []
+        interfaces: symbol.interfaces ?? [],
+        beanName: beanNameOf(symbol.name, symbol.annotations),
+        isPrimary: isPrimaryAnnotated(symbol.annotations)
       };
       types.set(symbol.name, info);
       for (const iface of info.interfaces) {
@@ -94,7 +220,12 @@ function buildIndex(symbols: RepoSymbol[]): SymbolIndex {
       methodsByName.set(symbol.name, globalList);
     } else if (symbol.kind === 'field' && symbol.parentType && symbol.type) {
       const info = types.get(symbol.parentType);
-      if (info) info.fields.set(symbol.name, symbol.type);
+      if (info) {
+        info.fields.set(symbol.name, {
+          type: symbol.type,
+          annotations: symbol.annotations ?? []
+        });
+      }
     }
   }
 
@@ -136,7 +267,7 @@ function candidateTypes(
     // Legacy calls without a parse-time receiverType: recover the field type
     // from the caller's enclosing type, and treat the receiver as a static type.
     if (caller.parentType) {
-      const fieldType = index.types.get(caller.parentType)?.fields.get(call.receiver);
+      const fieldType = index.types.get(caller.parentType)?.fields.get(call.receiver)?.type;
       if (fieldType) out.push(fieldType);
     }
     if (index.types.has(call.receiver)) out.push(call.receiver);
@@ -156,6 +287,19 @@ function pickOverload(candidates: RepoSymbol[], callerFile: string): RepoSymbol 
 
 type ResolveResult = { target: RepoSymbol } | { reason: string };
 
+/** Resolve a call against an implementation type (interface dispatch target). */
+function resolveImpl(
+  index: SymbolIndex,
+  implName: string,
+  caller: RepoSymbol,
+  call: RepoSymbolCall
+): ResolveResult {
+  const implInfo = index.types.get(implName);
+  const methods = implInfo?.methods.get(call.method) ?? [];
+  if (methods.length === 0) return { reason: STATIC_ANALYSIS_BREAK_UNRESOLVED };
+  return { target: pickOverload(methods, caller.filePath) };
+}
+
 function resolveCall(
   index: SymbolIndex,
   caller: RepoSymbol,
@@ -168,14 +312,41 @@ function resolveCall(
 
     if (info.symbol.kind === 'interface') {
       const impls = index.implsOfInterface.get(typeName) ?? [];
-      if (impls.length !== 1) {
-        // 0 impls (external/RPC) or multiple impls → cannot bind deterministically.
+      if (impls.length === 1) {
+        return resolveImpl(index, impls[0], caller, call);
+      }
+      if (impls.length === 0) {
+        // No impl in this repo (external/RPC) → cannot bind deterministically.
         return { reason: STATIC_ANALYSIS_BREAK_DYNAMIC };
       }
-      const implInfo = index.types.get(impls[0]);
-      const methods = implInfo?.methods.get(call.method) ?? [];
-      if (methods.length === 0) return { reason: STATIC_ANALYSIS_BREAK_UNRESOLVED };
-      return { target: pickOverload(methods, caller.filePath) };
+      // Issue 21 — Spring bean disambiguation for multiple implementations,
+      // mirroring DefaultListableBeanFactory.determineAutowireCandidate:
+      // 1. explicit injection-point hint (@Qualifier("x") / @Resource(name="y"))
+      //    pins the bean — no fallback;
+      // 2. a single @Primary candidate;
+      // 3. the autowired field/parameter variable name matching a bean name;
+      // only when all fail do we emit the Static Analysis Break.
+      const explicit = explicitInjectionBeanName(index, caller, call);
+      if (explicit) {
+        const matched = impls.filter(
+          (implName) => index.types.get(implName)?.beanName === explicit
+        );
+        if (matched.length === 1) return resolveImpl(index, matched[0], caller, call);
+        // Explicit bean name matches none/several → too ambiguous to guess.
+        return { reason: STATIC_ANALYSIS_BREAK_DYNAMIC };
+      }
+      const primaries = impls.filter(
+        (implName) => index.types.get(implName)?.isPrimary === true
+      );
+      if (primaries.length === 1) return resolveImpl(index, primaries[0], caller, call);
+      const nameBean = autowiredNameBean(index, caller, call);
+      if (nameBean) {
+        const matched = impls.filter(
+          (implName) => index.types.get(implName)?.beanName === nameBean
+        );
+        if (matched.length === 1) return resolveImpl(index, matched[0], caller, call);
+      }
+      return { reason: STATIC_ANALYSIS_BREAK_DYNAMIC };
     }
 
     const methods = info.methods.get(call.method) ?? [];

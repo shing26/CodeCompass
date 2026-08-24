@@ -49,6 +49,16 @@ export interface RepoSymbol {
   interfaces?: string[];
   /** Bug-09: URL path rendered for routing symbols (e.g. `/api/owners`). */
   displayPath?: string;
+  /**
+   * Issue 21: raw annotation texts of the declaration itself (class-level
+   * `@Primary` / `@Service("name")`, field `@Autowired` / `@Qualifier("x")` /
+   * `@Resource(name=...)`, method-level annotations). Never descends into
+   * method bodies. Used for Spring bean disambiguation during call-chain
+   * resolution.
+   */
+  annotations?: string[];
+  /** Issue 21: method parameter name → annotation texts (constructor/setter injection points). */
+  paramAnnotations?: Record<string, string[]>;
   calls?: RepoSymbolCall[];
 }
 
@@ -115,6 +125,27 @@ function sanitizePaging(
     return fallback;
   }
   return Math.min(value, max);
+}
+
+/** Map a repo_symbols row (incl. Issue 21 annotation columns) to a RepoSymbol. */
+function mapSymbolRow(row: any): RepoSymbol {
+  return {
+    id: row.id,
+    repoId: row.repo_id,
+    kind: row.kind,
+    name: row.name,
+    filePath: row.file_path,
+    lineStart: row.line_start ?? undefined,
+    lineEnd: row.line_end ?? undefined,
+    signature: row.signature ?? undefined,
+    parentType: row.parent_type ?? undefined,
+    type: row.type_name ?? undefined,
+    interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
+    displayPath: row.display_path ?? undefined,
+    annotations: row.annotations ? JSON.parse(row.annotations) : undefined,
+    paramAnnotations: row.param_annotations ? JSON.parse(row.param_annotations) : undefined,
+    calls: row.calls ? JSON.parse(row.calls) : undefined
+  };
 }
 
 function mapRepo(row: {
@@ -382,8 +413,8 @@ export class RepoQARepos {
   upsertSymbols(symbols: RepoSymbol[]): void {
     if (symbols.length === 0) return;
     const insert = this.db.prepare(
-      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces, display_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces, display_path, annotations, param_annotations)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const del = this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?');
     const tx = this.db.transaction(() => {
@@ -401,7 +432,9 @@ export class RepoQARepos {
           s.parentType ?? null,
           s.type ?? null,
           s.interfaces ? JSON.stringify(s.interfaces) : null,
-          s.displayPath ?? null
+          s.displayPath ?? null,
+          s.annotations ? JSON.stringify(s.annotations) : null,
+          s.paramAnnotations ? JSON.stringify(s.paramAnnotations) : null
         );
       }
     });
@@ -415,21 +448,7 @@ export class RepoQARepos {
       sql += ' AND kind = ?';
       params.push(kind);
     }
-    return this.db.prepare(sql).all(...params).map((row: any) => ({
-      id: row.id,
-      repoId: row.repo_id,
-      kind: row.kind,
-      name: row.name,
-      filePath: row.file_path,
-      lineStart: row.line_start ?? undefined,
-      lineEnd: row.line_end ?? undefined,
-      signature: row.signature ?? undefined,
-      parentType: row.parent_type ?? undefined,
-      type: row.type_name ?? undefined,
-      interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
-      displayPath: row.display_path ?? undefined,
-      calls: row.calls ? JSON.parse(row.calls) : undefined
-    }));
+    return this.db.prepare(sql).all(...params).map(mapSymbolRow);
   }
 
   upsertChunks(chunks: RepoChunk[]): void {
@@ -469,21 +488,7 @@ export class RepoQARepos {
       sql += ' AND kind = ?';
       params.push(kind);
     }
-    return this.db.prepare(sql).all(...params).map((row: any) => ({
-      id: row.id,
-      repoId: row.repo_id,
-      kind: row.kind,
-      name: row.name,
-      filePath: row.file_path,
-      lineStart: row.line_start ?? undefined,
-      lineEnd: row.line_end ?? undefined,
-      signature: row.signature ?? undefined,
-      parentType: row.parent_type ?? undefined,
-      type: row.type_name ?? undefined,
-      interfaces: row.interfaces ? JSON.parse(row.interfaces) : undefined,
-      displayPath: row.display_path ?? undefined,
-      calls: row.calls ? JSON.parse(row.calls) : undefined
-    }));
+    return this.db.prepare(sql).all(...params).map(mapSymbolRow);
   }
 
   getCallChain(

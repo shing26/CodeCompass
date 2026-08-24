@@ -401,6 +401,293 @@ public class MissingController {
   });
 });
 
+describe('resolveCallChain — Spring bean disambiguation (Issue 21)', () => {
+  const PAY = {
+    'src/main/java/com/demo/PaymentGateway.java': `package com.demo;
+
+public interface PaymentGateway {
+  String pay(String orderId);
+}
+`,
+    'src/main/java/com/demo/WechatGateway.java': `package com.demo;
+
+@Service
+public class WechatGateway implements PaymentGateway {
+  public String pay(String orderId) {
+    return "wechat";
+  }
+}
+`,
+    'src/main/java/com/demo/AlipayGateway.java': `package com.demo;
+
+@Service
+public class AlipayGateway implements PaymentGateway {
+  public String pay(String orderId) {
+    return "alipay";
+  }
+}
+`
+  };
+
+  it('resolves @Qualifier("wechatGateway") on an autowired field to the matching impl', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/QualifierController.java': `package com.demo;
+
+@RestController
+public class QualifierController {
+  @Autowired
+  @Qualifier("wechatGateway")
+  private PaymentGateway gateway;
+
+  public String pay() {
+    return gateway.pay("o1");
+  }
+}
+`
+    });
+    const pay = symbols.find((s) => s.name === 'pay' && s.parentType === 'QualifierController')!;
+    const trace = resolveCallChain(symbols, pay);
+    expect(trace.map((hop) => hop.method)).toEqual(['pay', 'pay']);
+    expect(trace[1].file).toBe('src/main/java/com/demo/WechatGateway.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('resolves @Resource(name = "alipayGateway") on a field to the matching impl', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/ResourceController.java': `package com.demo;
+
+@RestController
+public class ResourceController {
+  @Resource(name = "alipayGateway")
+  private PaymentGateway gateway;
+
+  public String pay() {
+    return gateway.pay("o2");
+  }
+}
+`
+    });
+    const pay = symbols.find((s) => s.name === 'pay' && s.parentType === 'ResourceController')!;
+    const trace = resolveCallChain(symbols, pay);
+    expect(trace[1].file).toBe('src/main/java/com/demo/AlipayGateway.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('resolves an @Autowired field by variable name when it matches a bean name', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/NameController.java': `package com.demo;
+
+@RestController
+public class NameController {
+  @Autowired
+  private PaymentGateway wechatGateway;
+
+  public String pay() {
+    return wechatGateway.pay("o3");
+  }
+}
+`
+    });
+    const pay = symbols.find((s) => s.name === 'pay' && s.parentType === 'NameController')!;
+    const trace = resolveCallChain(symbols, pay);
+    expect(trace[1].file).toBe('src/main/java/com/demo/WechatGateway.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('resolves a single @Primary implementation even when the field name matches nothing', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/AlipayGateway.java': `package com.demo;
+
+@Service
+@Primary
+public class AlipayGateway implements PaymentGateway {
+  public String pay(String orderId) {
+    return "alipay";
+  }
+}
+`,
+      'src/main/java/com/demo/PrimaryController.java': `package com.demo;
+
+@RestController
+public class PrimaryController {
+  @Autowired
+  private PaymentGateway gateway;
+
+  public String pay() {
+    return gateway.pay("o4");
+  }
+}
+`
+    });
+    const pay = symbols.find((s) => s.name === 'pay' && s.parentType === 'PrimaryController')!;
+    const trace = resolveCallChain(symbols, pay);
+    expect(trace[1].file).toBe('src/main/java/com/demo/AlipayGateway.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('lets @Primary win over a non-matching autowired field name', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/AlipayGateway.java': `package com.demo;
+
+@Service
+@Primary
+public class AlipayGateway implements PaymentGateway {
+  public String pay(String orderId) {
+    return "alipay";
+  }
+}
+`,
+      'src/main/java/com/demo/PrimaryNameController.java': `package com.demo;
+
+@RestController
+public class PrimaryNameController {
+  @Autowired
+  private PaymentGateway otherGateway;
+
+  public String pay() {
+    return otherGateway.pay("o4b");
+  }
+}
+`
+    });
+    const pay = symbols.find((s) => s.name === 'pay' && s.parentType === 'PrimaryNameController')!;
+    const trace = resolveCallChain(symbols, pay);
+    expect(trace[1].file).toBe('src/main/java/com/demo/AlipayGateway.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('resolves @Qualifier on a method parameter for a direct in-body call', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/ParamController.java': `package com.demo;
+
+@RestController
+public class ParamController {
+  public String doPay(@Qualifier("wechatGateway") PaymentGateway gateway) {
+    return gateway.pay("o5");
+  }
+}
+`
+    });
+    const doPay = symbols.find((s) => s.name === 'doPay')!;
+    const trace = resolveCallChain(symbols, doPay);
+    expect(trace.map((hop) => hop.method)).toEqual(['doPay', 'pay']);
+    expect(trace[1].file).toBe('src/main/java/com/demo/WechatGateway.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('keeps the Static Analysis Break when multiple impls carry no hint', async () => {
+    const symbols = await parseTree({
+      ...PAY,
+      'src/main/java/com/demo/PlainController.java': `package com.demo;
+
+@RestController
+public class PlainController {
+  private PaymentGateway gateway = new WechatGateway();
+
+  public String pay() {
+    return gateway.pay("o6");
+  }
+}
+`
+    });
+    const pay = symbols.find((s) => s.name === 'pay' && s.parentType === 'PlainController')!;
+    const trace = resolveCallChain(symbols, pay);
+    expect(trace[1]).toEqual(
+      expect.objectContaining({
+        break: true,
+        reason: STATIC_ANALYSIS_BREAK_DYNAMIC
+      })
+    );
+  });
+});
+
+describe('resolveCallChain — Java records & text blocks (Issue 21)', () => {
+  it('turns record components into read-only field and accessor method symbols', async () => {
+    const symbols = await parseTree({
+      'src/main/java/com/demo/OrderResult.java': `package com.demo;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+public record OrderResult(long orderId, String status, BigDecimal total, List<OrderItem> items) {
+  public String describe() {
+    return "order-" + orderId;
+  }
+}
+`,
+      'src/main/java/com/demo/OrderItem.java': `package com.demo;
+
+public record OrderItem(long sku, int quantity) {}
+`
+    });
+    const orderResult = symbols.find((s) => s.kind === 'class' && s.name === 'OrderResult');
+    expect(orderResult).toBeDefined();
+    const recordFields = symbols
+      .filter((s) => s.kind === 'field' && s.parentType === 'OrderResult')
+      .map((s) => s.name)
+      .sort();
+    expect(recordFields).toEqual(['items', 'orderId', 'status', 'total']);
+    const recordMethods = symbols
+      .filter((s) => s.kind === 'method' && s.parentType === 'OrderResult')
+      .map((s) => s.name)
+      .sort();
+    expect(recordMethods).toEqual(['describe', 'items', 'orderId', 'status', 'total']);
+    const orderId = symbols.find((s) => s.kind === 'method' && s.name === 'orderId')!;
+    expect(orderId.signature).toBe('long orderId()');
+  });
+
+  it('resolves record accessor calls in a call chain', async () => {
+    const symbols = await parseTree({
+      'src/main/java/com/demo/OrderResult.java': `package com.demo;
+
+public record OrderResult(long orderId, String status) {}
+`,
+      'src/main/java/com/demo/AccessorController.java': `package com.demo;
+
+@RestController
+public class AccessorController {
+  public String show(OrderResult result) {
+    return "id=" + result.orderId() + " status=" + result.status();
+  }
+}
+`
+    });
+    const show = symbols.find((s) => s.name === 'show')!;
+    const trace = resolveCallChain(symbols, show);
+    expect(trace.map((hop) => hop.method)).toEqual(['show', 'orderId']);
+    expect(trace[1].file).toBe('src/main/java/com/demo/OrderResult.java');
+    expect(trace.some((hop) => hop.break)).toBe(false);
+  });
+
+  it('parses a file with a Java text block instead of skipping it', async () => {
+    const symbols = await parseTree({
+      'src/main/java/com/demo/GreetingService.java': `package com.demo;
+
+@Service
+public class GreetingService {
+  public String greet(String name) {
+    return """
+      Hello, %s!
+      Welcome to Demo.
+      """.formatted(name).trim();
+  }
+}
+`
+    });
+    const greet = symbols.find((s) => s.kind === 'method' && s.name === 'greet');
+    expect(greet).toBeDefined();
+    expect(greet?.filePath).toBe('src/main/java/com/demo/GreetingService.java');
+    const service = symbols.find((s) => s.kind === 'service' && s.name === 'GreetingService');
+    expect(service).toBeDefined();
+  });
+});
+
 describe('resolveCallChain — legacy format, cycles and depth', () => {
   const base: RepoSymbol[] = [
     { repoId: 'r', kind: 'route', name: 'Controller', filePath: 'Controller.java', lineStart: 1, lineEnd: 10 },
