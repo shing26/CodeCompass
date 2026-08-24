@@ -513,6 +513,16 @@ export class RepoQAWorker {
     };
   }
 
+  /**
+   * Issue 20 — public deterministic start-symbol lookup for the MCP tools and
+   * other non-HTTP consumers: resolves a method/route/service/class name (or a
+   * natural-language phrase) to the symbol a call-chain trace should start from.
+   */
+  findStartSymbolForQuery(repoId: string, query: string): RepoSymbol | undefined {
+    const symbols = this.repoqa.listSymbols(repoId);
+    return this.findStartSymbol(query, symbols);
+  }
+
   /** Test paths (src/test, test/java) rarely carry the chain the user asked
    * about — a production method wins over a same-named test helper. */
   private isTestPath(filePath: string): boolean {

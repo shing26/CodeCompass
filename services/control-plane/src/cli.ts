@@ -1,10 +1,16 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { startServer, type RunningServer } from './server';
+import {
+  runMcpServer,
+  type McpTransportFactory
+} from './repoqa-mcp';
 
 export const VERSION = '0.2.0-beta';
 
 export interface CliArgs {
+  /** Subcommand (`mcp` starts the stdio MCP server). */
+  command?: 'mcp';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   port?: number;
@@ -22,6 +28,13 @@ export const USAGE = `codecompass v${VERSION} — one-process full-stack CodeCom
 
 Usage:
   codecompass [options] [path]
+  codecompass mcp [options] <path>
+
+Subcommands:
+  mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
+                        repository at <path> is indexed first; Agent clients
+                        then call /api-style tools over JSON-RPC (tools/list,
+                        tools/call) without any HTTP listener.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -100,6 +113,10 @@ export function parseArgs(argv: string[]): ParseResult {
     if (arg.startsWith('-')) {
       return { ok: false, error: `Unknown option: ${arg}` };
     }
+    if (args.command === undefined && args.targetPath === undefined && arg === 'mcp') {
+      args.command = 'mcp';
+      continue;
+    }
     if (args.targetPath !== undefined) {
       return { ok: false, error: `Unexpected extra argument: ${arg}` };
     }
@@ -135,6 +152,8 @@ export interface CliContext {
   openBrowser?: (url: string) => void;
   /** Log output; defaults to console.log. */
   log?: (line: string) => void;
+  /** Injectable MCP transport for tests; defaults to stdio. */
+  mcpTransport?: McpTransportFactory;
 }
 
 export interface CliRunResult {
@@ -164,6 +183,24 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
   }
   if (args.version) {
     log(VERSION);
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'mcp') {
+    // Issue 20: `codecompass mcp <path>` — index the target repo, then serve
+    // the MCP protocol on stdio until the Agent client disconnects. No HTTP
+    // listener is started; its lifecycle is fully owned by runMcpServer.
+    const mcpEnv = { ...(ctx.env ?? process.env) };
+    if (args.dataDir) mcpEnv.MHW_DATA_DIR = args.dataDir;
+    // Stdio carries the MCP protocol itself; production progress logs go to
+    // stderr so stdout stays a pure newline-delimited JSON message stream.
+    const mcpLog = ctx.log ?? ((line: string) => console.error(line));
+    await runMcpServer({
+      targetPath: args.targetPath,
+      env: mcpEnv,
+      log: mcpLog,
+      transportFactory: ctx.mcpTransport
+    });
     return { server: null, cockpitUrl: null };
   }
 
