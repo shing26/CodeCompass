@@ -60,6 +60,15 @@ function identity(symbol: RepoSymbol): string {
   return `${symbol.filePath}:${symbol.lineStart ?? 0}:${symbol.name}`;
 }
 
+/**
+ * Issue 22 — public identity of a symbol for cross-module matching. Shared with
+ * `codecompass diff` reverse reachability so a modified symbol can be matched
+ * against the caller graph by the same key the chain resolver uses.
+ */
+export function symbolIdentity(symbol: RepoSymbol): string {
+  return identity(symbol);
+}
+
 /* ------------------------------------------------------------------ */
 /* Issue 21 — Spring bean descriptors derived from annotations         */
 /* ------------------------------------------------------------------ */
@@ -439,4 +448,30 @@ export function resolveCallChain(
   }
 
   return trace;
+}
+
+/* ------------------------------------------------------------------ */
+/* Issue 22 — single-edge resolution for reverse reachability          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Deterministic single-edge call resolver used by `codecompass diff` reverse
+ * reachability. Builds the same symbol index as resolveCallChain once and
+ * reuses it, so resolving every call edge of a repo is O(symbols + edges)
+ * instead of O(symbols × edges).
+ */
+export class CallResolver {
+  private readonly index: SymbolIndex;
+
+  constructor(symbols: RepoSymbol[]) {
+    this.index = buildIndex(symbols);
+  }
+
+  /** Resolve one call to its statically bound target, or a break reason. */
+  resolve(
+    caller: RepoSymbol,
+    call: RepoSymbolCall
+  ): { target: RepoSymbol } | { reason: string } {
+    return resolveCall(this.index, caller, call);
+  }
 }

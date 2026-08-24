@@ -1,18 +1,28 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { startServer, type RunningServer } from './server';
 import {
   runMcpServer,
   type McpTransportFactory
 } from './repoqa-mcp';
+import { analyzeDiff, renderMarkdown } from './repoqa-diff';
 
 export const VERSION = '0.2.0-beta';
 
 export interface CliArgs {
-  /** Subcommand (`mcp` starts the stdio MCP server). */
-  command?: 'mcp';
+  /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
+  command?: 'mcp' | 'diff';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
+  /** `codecompass diff <base> <head> [repoPath]` — base git ref. */
+  diffBase?: string;
+  /** `codecompass diff <base> <head> [repoPath]` — head git ref. */
+  diffHead?: string;
+  /** Diff report format; default markdown. */
+  diffOutput?: 'markdown' | 'json';
+  /** Write the diff report to a file instead of stdout. */
+  diffFile?: string;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -29,12 +39,21 @@ export const USAGE = `codecompass v${VERSION} — one-process full-stack CodeCom
 Usage:
   codecompass [options] [path]
   codecompass mcp [options] <path>
+  codecompass diff [options] <base> <head> [repoPath]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
                         repository at <path> is indexed first; Agent clients
                         then call /api-style tools over JSON-RPC (tools/list,
                         tools/call) without any HTTP listener.
+  diff <base> <head>    Analyze a PR's architecture impact: which Java classes
+                        and methods changed, which @RestController API entries
+                        are affected (reverse reachability), and which config
+                        keys changed. Prints a Markdown report; use
+                        --output=json for structured JSON and --file=report.md
+                        to write it to disk. [repoPath] defaults to the
+                        current directory. Read-only: never touches the
+                        working tree or .git metadata.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -44,6 +63,8 @@ Options:
   --port <number>       HTTP port (default: MHW_CP_PORT or 43110)
   --data-dir <dir>      Data directory (default: MHW_DATA_DIR or ~/.mhw)
   --no-browser          Do not auto-open the browser
+  --output <fmt>        Diff report format: markdown | json (default: markdown)
+  --file <path>         Write the diff report to a file instead of stdout
   --help, -h            Show this help
   --version, -v         Print version
 `;
@@ -59,13 +80,35 @@ export function parseArgs(argv: string[]): ParseResult {
     return { value, next: i + 1 };
   };
 
+  /** Assign one positional of `codecompass diff <base> <head> [repoPath]`. */
+  const assignDiffPositional = (arg: string): boolean => {
+    if (args.diffBase === undefined) {
+      args.diffBase = arg;
+      return true;
+    }
+    if (args.diffHead === undefined) {
+      args.diffHead = arg;
+      return true;
+    }
+    if (args.targetPath === undefined) {
+      args.targetPath = arg;
+      return true;
+    }
+    return false;
+  };
+
   let positionalOnly = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
 
     if (positionalOnly) {
-      if (args.targetPath !== undefined) return { ok: false, error: `Unexpected extra argument: ${arg}` };
-      args.targetPath = arg;
+      if (args.command === 'diff') {
+        if (!assignDiffPositional(arg)) return { ok: false, error: `Unexpected extra argument: ${arg}` };
+      } else if (args.targetPath !== undefined) {
+        return { ok: false, error: `Unexpected extra argument: ${arg}` };
+      } else {
+        args.targetPath = arg;
+      }
       continue;
     }
     if (arg === '--') {
@@ -110,11 +153,39 @@ export function parseArgs(argv: string[]): ParseResult {
       args.dataDir = value;
       continue;
     }
+    if (flag === '--output') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value !== 'markdown' && value !== 'json') {
+        return { ok: false, error: '--output expects "markdown" or "json"' };
+      }
+      args.diffOutput = value;
+      continue;
+    }
+    if (flag === '--file') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || value === '') {
+        return { ok: false, error: '--file expects a report file path' };
+      }
+      args.diffFile = value;
+      continue;
+    }
     if (arg.startsWith('-')) {
       return { ok: false, error: `Unknown option: ${arg}` };
     }
     if (args.command === undefined && args.targetPath === undefined && arg === 'mcp') {
       args.command = 'mcp';
+      continue;
+    }
+    if (args.command === undefined && args.targetPath === undefined && arg === 'diff') {
+      args.command = 'diff';
+      continue;
+    }
+    if (args.command === 'diff') {
+      if (!assignDiffPositional(arg)) {
+        return { ok: false, error: `Unexpected extra argument: ${arg}` };
+      }
       continue;
     }
     if (args.targetPath !== undefined) {
@@ -183,6 +254,30 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
   }
   if (args.version) {
     log(VERSION);
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'diff') {
+    // Issue 22: `codecompass diff <base> <head> [repoPath]` — PR 架构影响面
+    // 透视。纯只读分析（git 对象），不启动 HTTP server。
+    if (!args.diffBase || !args.diffHead) {
+      throw new Error(`codecompass diff requires <base> and <head>\n\n${USAGE}`);
+    }
+    const repoPath = path.resolve(args.targetPath ?? process.cwd());
+    const report = await analyzeDiff({
+      repoPath,
+      base: args.diffBase,
+      head: args.diffHead
+    });
+    const rendered =
+      args.diffOutput === 'json' ? JSON.stringify(report, null, 2) : renderMarkdown(report);
+    if (args.diffFile) {
+      const outPath = path.resolve(args.diffFile);
+      await fs.writeFile(outPath, rendered, 'utf8');
+      log(`Impact report written to ${outPath}`);
+    } else {
+      log(rendered);
+    }
     return { server: null, cockpitUrl: null };
   }
 

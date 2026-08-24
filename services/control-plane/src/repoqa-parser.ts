@@ -414,10 +414,12 @@ function receiverOf(
   node: SyntaxNode,
   source: string
 ): { receiver?: string; dynamic: boolean } {
-  const methodName = node.getChild('MethodName');
   let child = node.firstChild;
   if (!child) return { dynamic: true };
-  if (child === methodName) return { receiver: 'this', dynamic: false };
+  // Compare by node name, not identity: @lezer may hand back distinct wrapper
+  // instances for the same tree position, so `child === methodName` is not
+  // reliable and would mislabel bare calls (`findCached(id)`) as dynamic.
+  if (child.name === 'MethodName') return { receiver: 'this', dynamic: false };
   if (child.name === 'Identifier') return { receiver: textOf(child, source), dynamic: false };
   // Explicit `this` / `super` keywords.
   if (child.name === 'this' || child.name === 'super') {
@@ -457,6 +459,20 @@ export async function parseJavaFile(
 ): Promise<RepoSymbol[]> {
   const source = await fs.readFile(filePath, 'utf8');
   const relativePath = path.relative(root, filePath).split(path.sep).join('/');
+  return parseJavaSource(source, relativePath, repoId);
+}
+
+/**
+ * Issue 22 — parse Java source already in memory (git objects read by the
+ * `codecompass diff` impact analysis) into the same symbol table as
+ * parseJavaFile. `relativePath` is the repo-root-relative path used for
+ * cross-file call resolution.
+ */
+export function parseJavaSource(
+  source: string,
+  relativePath: string,
+  repoId: string
+): RepoSymbol[] {
   // Issue 21: Java 16+ records are not understood by @lezer/java — patch them
   // into offset-stable class declarations first, then run the existing
   // class-literal recovery. Both passes keep every source offset byte-equal, so
