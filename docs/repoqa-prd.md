@@ -253,6 +253,15 @@ User question
 
 **Gate**: Re-open cached repo < 200ms; export offline-readable Markdown; golden tests pass.
 
+### Phase 4 — Post-Release Extension Batch (iterative)
+- MVP usability & UX hotfixes based on dogfooding (Bug-01~13)
+- Repository Ingestion Hub: local visual picker + GitHub shallow clone
+- MCP server export (`codecompass mcp <path>`, 4 read-only stdio tools)
+- Java record parsing + Spring Bean static disambiguation
+- PR architecture impact diff CLI (`codecompass diff <base> <head>`)
+
+**Gate**: 13 dogfooding defects fixed; backend/frontend test suites pass; `codecompass diff` reports affected APIs and config keys without leaking values.
+
 ## 13. Risks & Mitigations
 
 | Risk | Mitigation |

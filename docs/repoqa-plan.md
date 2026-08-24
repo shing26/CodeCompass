@@ -346,7 +346,19 @@ Thresholds:
 - Commit-hash cache for instant re-open
 - Golden dataset CI regression gate
 
-## 14. Quick Start (Developer)
+## 14. Phase 4 Extension Notes
+
+Phase 4 is an iterative post-release batch driven by dogfooding feedback and agent rollout. It extends the deterministic Read-Only closed loop without relaxing the "zero-LLM for call-chain/tours/dashboard/diff" rule.
+
+- **Usability & UX hotfixes (Issue 18)**: `cleanLocalPath`, scan ignore expansion, Sidebar symbol-tree navigation, Chinese fuzzy start matching, offline empty-state guidance.
+- **Repository Ingestion Hub (Issue 19)**: local visual catalog picker + safe GitHub shallow clone (`--depth 1`, 60s timeout, traversal guards).
+- **MCP server export (Issue 20)**: `codecompass mcp <path>` stdio server with 4 tools, NDJSON framing, logs on stderr.
+- **Record + Spring Bean disambiguation (Issue 21)**: etc-length record patch, component read-only field/accessor symbols, Bean ambiguity resolved by `@Qualifier/@Resource(name)` → `@Primary` → field/parameter name match → Static Analysis Break.
+- **PR impact diff CLI (Issue 22)**: `codecompass diff <base> <head> [repoPath]` performs read-only git analysis, reverse BFS from affected symbols to `@RestController`, config key change detection, Mermaid impact graph, and Markdown/JSON output.
+
+**Phase 4 verification**: backend test suite (`268/268`), frontend test suite (`120/120` with forks pool), golden eval (`50/50`), and Issue 22 diff CLI manual demo all pass in local testing.
+
+## 15. Quick Start (Developer)
 
 ```bash
 # 1. Clone MHW and install
