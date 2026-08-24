@@ -194,18 +194,29 @@ export class RepoQARepos {
     name: string;
     localPath: string;
     branch?: string;
+    /** Issue 19: remote URL for cloned repos; local imports omit it. */
+    repoUrl?: string;
   }): { repo: Repo; created: boolean } {
     const existing = this.findByLocalPath(input.localPath);
     if (existing) {
       const now = new Date().toISOString();
       // Bug-10: re-importing the same path refreshes the display name too
       // (the worker computes the final name before calling this method).
+      // Issue 19: COALESCE keeps the recorded remote URL when a later
+      // re-import (e.g. the worker's own upsert) does not carry one.
       this.db
         .prepare(
-          `UPDATE repos SET name = ?, branch = ?, local_path = ?, updated_at = ?
+          `UPDATE repos SET name = ?, branch = ?, local_path = ?, repo_url = COALESCE(?, repo_url), updated_at = ?
            WHERE id = ?`
         )
-        .run(input.name, input.branch ?? existing.branch, input.localPath, now, existing.id);
+        .run(
+          input.name,
+          input.branch ?? existing.branch,
+          input.localPath,
+          input.repoUrl ?? null,
+          now,
+          existing.id
+        );
       return { repo: this.getRepo(existing.id)!, created: false };
     }
     const id = `repo-${randomUUID()}`;
@@ -213,9 +224,17 @@ export class RepoQARepos {
     this.db
       .prepare(
         `INSERT INTO repos (id, name, repo_url, local_path, branch, status, file_count, symbol_count, created_at, updated_at)
-         VALUES (?, ?, NULL, ?, ?, 'idle', 0, 0, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, 'idle', 0, 0, ?, ?)`
       )
-      .run(id, input.name, input.localPath, input.branch ?? 'main', now, now);
+      .run(
+        id,
+        input.name,
+        input.repoUrl ?? null,
+        input.localPath,
+        input.branch ?? 'main',
+        now,
+        now
+      );
     return { repo: this.getRepo(id)!, created: true };
   }
 

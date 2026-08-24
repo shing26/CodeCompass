@@ -10,6 +10,12 @@ import type { RepoQARepos } from './repoqa-repos';
 import type { RepoQAWorker } from './repoqa-worker';
 import { exportWorkspace, importWorkspace } from './workspace-export';
 import { maskSensitiveText, maskEventPayload } from './repoqa-masking';
+import {
+  cloneGitRepo,
+  deriveCloneName,
+  validateGitBranch,
+  validateGitUrl
+} from './git-importer';
 import { buildTours } from './repoqa-tours';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-export';
@@ -460,6 +466,66 @@ export function createHttpApp(deps: HttpDeps): express.Express {
           : undefined;
       const result = await deps.worker.indexRepo({ localPath, branch, name });
       res.status(result.created ? 201 : 200).json({ repo: result.repo });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Issue 19: remote repo ingestion — validated shallow clone, then async
+  // indexing. The clone runs synchronously (frontend shows a "cloning" phase);
+  // the index runs fire-and-forget so the frontend can poll the repo status
+  // and show a second "indexing" phase until the catalog flips to ready.
+  app.post('/api/repos/clone', async (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { url?: unknown; branch?: unknown };
+      const url = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!url) {
+        res.status(400).json({ error: 'url is required' });
+        return;
+      }
+      const urlCheck = validateGitUrl(url);
+      if (!urlCheck.ok) {
+        res.status(400).json({ error: urlCheck.error });
+        return;
+      }
+      let branch: string | undefined;
+      try {
+        branch = validateGitBranch(
+          typeof body.branch === 'string' && body.branch.trim() !== ''
+            ? body.branch
+            : undefined
+        );
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return;
+      }
+      const name = deriveCloneName(url);
+      const targetDir = path.join(
+        deps.dataDir,
+        'clones',
+        `${name}-${Date.now()}`
+      );
+      await cloneGitRepo({ url, branch, targetDir });
+
+      const upsert = deps.repoqa.upsertByLocalPath({
+        name,
+        localPath: targetDir,
+        branch,
+        repoUrl: url
+      });
+      // The worker re-upserts (idempotent) and manages idle/indexing/ready
+      // itself; marking indexing here keeps the 202 response consistent with
+      // the state the catalog poll will observe.
+      deps.repoqa.updateRepoStatus(upsert.repo.id, 'indexing');
+      deps.worker.indexRepo({ localPath: targetDir, branch, name }).catch(() => {
+        // indexRepo never rejects — failures are recorded as status='error'
+        // on the repo. The catch only satisfies no-floating-promises.
+      });
+      res.status(202).json({ repo: deps.repoqa.getRepo(upsert.repo.id)! });
     } catch (error) {
       res.status(400).json({
         error: error instanceof Error ? error.message : String(error)

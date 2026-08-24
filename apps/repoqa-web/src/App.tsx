@@ -13,7 +13,7 @@ import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
 import { TourPlayer } from './components/TourPlayer';
-import type { RepoTour, TopApiEntry } from './types';
+import type { Repo, RepoTour, TopApiEntry } from './types';
 
 export interface AppProps {
   /** Dependency injection seam for tests; defaults to the real client. */
@@ -38,7 +38,7 @@ export function App({ client: clientProp }: AppProps) {
       return null;
     }
   }, []);
-  const { repos, currentRepo, loading, error, selectRepo, importRepo } = useRepoCatalog(
+  const { repos, currentRepo, loading, error, selectRepo, importRepo, refresh } = useRepoCatalog(
     client,
     initialRepoId
   );
@@ -104,10 +104,22 @@ export function App({ client: clientProp }: AppProps) {
     return () => window.removeEventListener('popstate', onPopState);
   }, [currentRepo?.id, selectRepo]);
 
-  const handleImport = async (name: string, localPath: string) => {
+  const handleImportLocal = async (name: string, localPath: string) => {
     await importRepo(name, localPath);
     setActiveTour(null);
     setView('dashboard');
+  };
+
+  // Issue 19: remote clone — POST /api/repos/clone returns once the clone
+  // lands (repo status `indexing`), then the catalog poll takes over and the
+  // import dialog auto-closes when the repo flips to `ready`.
+  const handleCloneRemote = async (url: string, branch?: string): Promise<Repo> => {
+    const repo = await client.cloneRepo(url, branch);
+    await refresh();
+    selectRepo(repo.id);
+    setActiveTour(null);
+    setView('dashboard');
+    return repo;
   };
 
   const handlePlayTour = (tour: RepoTour) => {
@@ -141,7 +153,8 @@ export function App({ client: clientProp }: AppProps) {
         loading={loading}
         error={error}
         onSelectRepo={handleSelectRepo}
-        onImport={handleImport}
+        onImportLocal={handleImportLocal}
+        onCloneRemote={handleCloneRemote}
         onExport={handleExport}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}

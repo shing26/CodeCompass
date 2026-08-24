@@ -32,7 +32,8 @@ function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
     loading: false,
     error: null,
     onSelectRepo: vi.fn(),
-    onImport: vi.fn(),
+    onImportLocal: vi.fn(),
+    onCloneRemote: vi.fn().mockResolvedValue(readyRepo),
     onExport: vi.fn(),
     onToggleSidebar: vi.fn(),
     sidebarOpen: false,
@@ -70,11 +71,11 @@ describe('TopBar import dialog', () => {
     const pending = new Promise<Repo>((resolve) => {
       release = resolve;
     });
-    const onImport = vi.fn().mockReturnValue(pending);
+    const onImportLocal = vi.fn().mockReturnValue(pending);
 
     render(
       <TopBar
-        {...baseProps({ onImport, importingRepo: indexingRepo })}
+        {...baseProps({ onImportLocal, importingRepo: indexingRepo })}
       />
     );
     await user.click(screen.getByTestId('open-import'));
@@ -107,7 +108,7 @@ describe('TopBar import dialog', () => {
     render(
       <TopBar
         {...baseProps({
-          onImport: vi.fn().mockReturnValue(pending),
+          onImportLocal: vi.fn().mockReturnValue(pending),
           importingRepo: null
         })}
       />

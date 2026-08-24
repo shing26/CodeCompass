@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -236,6 +238,120 @@ async function importRepo(baseUrl: string, repoPath: string, branch?: string) {
   return { status: response.status, body };
 }
 
+/* ------------------------------------------------------------------ */
+/* Issue 19: helpers for the remote-clone HTTP tests (real git daemon)  */
+/* ------------------------------------------------------------------ */
+
+async function gitRun(args: string[], cwd: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile('git', args, { cwd, windowsHide: true }, (err) =>
+      err ? reject(new Error(`git ${args[0]} failed: ${err.message}`)) : resolve()
+    );
+  });
+}
+
+async function freePort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo;
+      const port = address.port;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+/** Start `git daemon` serving bare repos under basePath on 127.0.0.1:port. */
+function runGitDaemon(basePath: string, port: number): { close: () => void } {
+  const child = spawn(
+    'git',
+    [
+      'daemon',
+      '--reuseaddr',
+      `--base-path=${basePath.split(path.sep).join('/')}`,
+      '--export-all',
+      `--port=${port}`,
+      '--listen=127.0.0.1'
+    ],
+    { windowsHide: true, stdio: 'ignore' }
+  );
+  return {
+    close: () => {
+      try {
+        child.kill();
+      } catch {
+        // already dead
+      }
+    }
+  };
+}
+
+/** Create a bare repo with one Java commit, pushed to a `main` branch. */
+async function seedBareRepo(parent: string, name: string): Promise<string> {
+  const bare = path.join(parent, `${name}.git`);
+  await gitRun(['init', '--bare', bare], parent);
+  const work = path.join(parent, `seed-${name}`);
+  await fs.mkdir(path.join(work, 'src', 'main', 'java', 'com', 'demo'), {
+    recursive: true
+  });
+  await fs.writeFile(path.join(work, 'pom.xml'), '<project/>\n');
+  await fs.writeFile(path.join(work, 'README.md'), '# Demo\n');
+  await fs.writeFile(
+    path.join(work, 'src', 'main', 'java', 'com', 'demo', 'App.java'),
+    'package com.demo;\npublic class App {\n  public static void main(String[] args) {\n    new Controller().hello();\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(work, 'src', 'main', 'java', 'com', 'demo', 'Controller.java'),
+    'package com.demo;\npublic class Controller {\n  public String hello() { return "hi"; }\n}\n'
+  );
+  await gitRun(['init'], work);
+  await gitRun(['config', 'user.email', 'test@example.com'], work);
+  await gitRun(['config', 'user.name', 'RepoPulse Test'], work);
+  await gitRun(['add', '.'], work);
+  await gitRun(['commit', '-m', 'init'], work);
+  await gitRun(['remote', 'add', 'origin', bare], work);
+  await gitRun(['push', 'origin', 'HEAD:main'], work);
+  return bare;
+}
+
+async function waitForGitDaemon(url: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await gitRun(['ls-remote', url], os.tmpdir());
+      return;
+    } catch {
+      if (Date.now() > deadline) {
+        throw new Error(`git daemon did not serve ${url} within ${timeoutMs}ms`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+}
+
+async function waitForRepoStatus(
+  ctx: ServerContext,
+  repoId: string,
+  expected: string,
+  timeoutMs = 20_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await fetch(`${ctx.baseUrl}/api/repos/${repoId}`);
+    const body = (await res.json()) as {
+      repo?: { status: string; error?: string };
+    };
+    if (body.repo?.status === expected) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `repo ${repoId} did not reach "${expected}" in ${timeoutMs}ms (last=${body.repo?.status}, error=${body.repo?.error ?? 'none'})`
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 describe('RepoPulse secret masking util', () => {
   it('masks passwords, tokens, API, AK/SK, and private keys', () => {
     const text = [
@@ -450,6 +566,124 @@ describe('RepoPulse repo import HTTP API', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+});
+
+describe('RepoPulse remote clone HTTP API (Issue 19)', () => {
+  it('rejects missing/invalid URLs and unsafe branches before spawning git', async () => {
+    const ctx = await startServer();
+    try {
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/clone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      expect(missing.status).toBe(400);
+      expect((await missing.json()) as { error: string }).toMatchObject({
+        error: 'url is required'
+      });
+
+      const unsupported = await fetch(`${ctx.baseUrl}/api/repos/clone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'file:///etc/passwd' })
+      });
+      expect(unsupported.status).toBe(400);
+      expect(
+        ((await unsupported.json()) as { error: string }).error
+      ).toContain('unsupported scheme');
+
+      const creds = await fetch(`${ctx.baseUrl}/api/repos/clone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'https://user:secret@github.com/org/repo.git' })
+      });
+      expect(creds.status).toBe(400);
+      expect(((await creds.json()) as { error: string }).error).toContain(
+        'credentials'
+      );
+
+      const badBranch = await fetch(`${ctx.baseUrl}/api/repos/clone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://github.com/org/repo.git',
+          branch: '--upload-pack=x'
+        })
+      });
+      expect(badBranch.status).toBe(400);
+      expect(((await badBranch.json()) as { error: string }).error).toContain(
+        'branch'
+      );
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it('clones a real git:// repo and indexes it asynchronously (202 → ready)', async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-daemon-'));
+    const port = await freePort();
+    const daemon = runGitDaemon(parent, port);
+    const ctx = await startServer();
+    try {
+      await seedBareRepo(parent, 'demo');
+      const url = `git://127.0.0.1:${port}/demo.git`;
+      await waitForGitDaemon(url);
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/clone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url, branch: 'main' })
+      });
+      expect(response.status).toBe(202);
+      const body = (await response.json()) as {
+        repo?: {
+          id: string;
+          status: string;
+          name: string;
+          repoUrl?: string;
+          localPath: string;
+          branch: string;
+        };
+        error?: string;
+      };
+      expect(body.repo).toBeDefined();
+      expect(body.repo!.status).toBe('indexing');
+      expect(body.repo!.name).toBe('demo');
+      expect(body.repo!.repoUrl).toBe(url);
+      expect(body.repo!.branch).toBe('main');
+      expect(body.repo!.localPath).toContain(path.join('clones', 'demo-'));
+
+      // Async index completes and flips the repo to ready.
+      await waitForRepoStatus(ctx, body.repo!.id, 'ready');
+      const done = (await (
+        await fetch(`${ctx.baseUrl}/api/repos/${body.repo!.id}`)
+      ).json()) as {
+        repo: { status: string; fileCount: number; symbolCount: number };
+      };
+      expect(done.repo.fileCount).toBeGreaterThan(0);
+      expect(done.repo.symbolCount).toBeGreaterThan(0);
+    } finally {
+      await ctx.close();
+      daemon.close();
+      await fs.rm(parent, { recursive: true, force: true }).catch(() => {});
+    }
+  }, 60_000);
+
+  it('returns a 400 with the git stderr when the clone fails', async () => {
+    const ctx = await startServer();
+    try {
+      const response = await fetch(`${ctx.baseUrl}/api/repos/clone`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url: 'git://127.0.0.1:1/nowhere.git' })
+      });
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain('git clone failed');
+    } finally {
+      await ctx.close();
+    }
+  }, 30_000);
 });
 
 describe('RepoPulse symbol extraction HTTP API', () => {

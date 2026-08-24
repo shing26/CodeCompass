@@ -105,6 +105,7 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
     importRepo: vi.fn().mockResolvedValue(readyRepo),
+    cloneRepo: vi.fn().mockResolvedValue(readyRepo),
     getRepo: vi.fn(),
     listSymbols: vi.fn().mockResolvedValue([]),
     getFileRaw: vi.fn(),
@@ -158,6 +159,49 @@ describe('App scaffold and repo connect', () => {
     await waitFor(() => expect(client.importRepo).toHaveBeenCalledWith({ name: 'petclinic', localPath: 'C:/projects/spring-petclinic' }));
     // The shared mock list returns the same repo; selector gets the imported one.
     await waitFor(() => expect(screen.getByTestId('repo-select')).toHaveValue('repo-1'));
+  });
+
+  it('clones a remote repo through the GitHub tab and selects it (Issue 19)', async () => {
+    const client = makeClient({
+      cloneRepo: vi.fn().mockResolvedValue(readyRepo),
+      listRepos: vi.fn().mockResolvedValue([readyRepo])
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await waitFor(() => expect(screen.getByTestId('open-import')).toBeInTheDocument());
+
+    await user.click(screen.getByTestId('open-import'));
+    await user.click(screen.getByTestId('import-tab-remote'));
+    await user.type(screen.getByTestId('import-url'), 'https://github.com/org/petclinic.git');
+    await user.type(screen.getByTestId('import-branch'), 'main');
+    await user.click(screen.getByTestId('import-clone-submit'));
+
+    await waitFor(() =>
+      expect(client.cloneRepo).toHaveBeenCalledWith(
+        'https://github.com/org/petclinic.git',
+        'main'
+      )
+    );
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toHaveValue('repo-1'));
+  });
+
+  it('surfaces a clone failure without closing the dialog (Issue 19)', async () => {
+    const client = makeClient({
+      cloneRepo: vi.fn().mockRejectedValue(new Error('clone failed'))
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await waitFor(() => expect(screen.getByTestId('open-import')).toBeInTheDocument());
+
+    await user.click(screen.getByTestId('open-import'));
+    await user.click(screen.getByTestId('import-tab-remote'));
+    await user.type(screen.getByTestId('import-url'), 'https://github.com/org/nope.git');
+    await user.click(screen.getByTestId('import-clone-submit'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('import-dialog')).toHaveTextContent('clone failed')
+    );
+    expect(screen.getByTestId('import-dialog')).toBeInTheDocument();
   });
 
   it('shows the ready status stepper once a repo is selected', async () => {

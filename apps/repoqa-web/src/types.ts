@@ -13,6 +13,8 @@ export interface Repo {
   symbolCount: number;
   createdAt: string;
   updatedAt: string;
+  /** Set when indexing failed; the backend answers every 4xx with it too. */
+  error?: string;
 }
 
 export type SymbolKind =

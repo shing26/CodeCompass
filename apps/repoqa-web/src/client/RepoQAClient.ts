@@ -74,6 +74,34 @@ export class RepoQAClient {
     return body.repo;
   }
 
+  /**
+   * Issue 19: clone a remote repo on the server (safe shallow clone) and kick
+   * off async indexing. Resolves as soon as the clone lands (202), while the
+   * repo status remains `indexing` until the catalog poll sees `ready`.
+   */
+  async cloneRepo(url: string, branch?: string): Promise<Repo> {
+    const res = await this.fetcher(`${this.baseUrl}/api/repos/clone`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url, ...(branch ? { branch } : {}) })
+    });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`cloneRepo failed: ${res.status}${detail}`);
+    }
+    const body = (await res.json()) as { repo?: Repo };
+    if (!body.repo) throw new Error('cloneRepo failed: missing repo in response');
+    return body.repo;
+  }
+
   async listSymbols(repoId: string, kind?: SymbolKind): Promise<RepoSymbol[]> {
     const params = kind ? `?kind=${encodeURIComponent(kind)}` : '';
     const res = await this.fetcher(
