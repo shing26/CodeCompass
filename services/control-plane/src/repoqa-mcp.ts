@@ -34,7 +34,7 @@ import { analyzeDiff } from './repoqa-diff';
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.3.5';
+export const MCP_SERVER_VERSION = '0.4.0';
 
 /** Dependencies required to serve MCP tools (subset of the control-plane stack). */
 export interface McpDeps {

@@ -1,0 +1,41 @@
+name: 'CodeCompass Architecture Diff'
+description: 'Run codecompass pr-summary and expose the rendered Markdown impact report.'
+
+inputs:
+  base:
+    description: 'Base git ref to analyze from.'
+    required: true
+  head:
+    description: 'Head git ref to analyze against base.'
+    required: true
+  repo-path:
+    description: 'Repository path to analyze. Defaults to the workspace checkout.'
+    required: false
+    default: '.'
+  fail-on-impact:
+    description: 'Exit non-zero when impacted APIs/config changes are found.'
+    required: false
+    default: 'false'
+
+outputs:
+  markdown:
+    description: 'Rendered CodeCompass architecture impact report (Markdown).'
+    value: ${{ steps.summary.outputs.markdown }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run CodeCompass PR summary
+      id: summary
+      shell: bash
+      run: |
+        set -euo pipefail
+        args=()
+        if [[ "${{ inputs.fail-on-impact }}" == "true" ]]; then
+          args+=(--fail-on-impact)
+        fi
+        report="$(npx --yes codecompass pr-summary "${args[@]}" "${{ inputs.base }}" "${{ inputs.head }}" "${{ inputs.repo-path }}")"
+        delimiter="$(openssl rand -hex 16)"
+        echo "markdown<<${delimiter}" >> "${GITHUB_OUTPUT}"
+        printf '%s' "${report}" >> "${GITHUB_OUTPUT}"
+        echo "${delimiter}" >> "${GITHUB_OUTPUT}"

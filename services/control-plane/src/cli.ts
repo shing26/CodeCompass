@@ -8,7 +8,7 @@ import {
 } from './repoqa-mcp';
 import { analyzeDiff, renderMarkdown } from './repoqa-diff';
 
-export const VERSION = '0.3.5';
+export const VERSION = '0.4.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
