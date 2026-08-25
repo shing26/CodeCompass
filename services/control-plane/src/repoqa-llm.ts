@@ -21,12 +21,21 @@ export interface ReActLLMResult {
   anchors?: Array<{ file: string; line: number; symbol: string }>;
   suggestedAction?: string;
   firstTokenMs?: number;
+  /** Provider-reported or estimated token usage for this query. */
+  usage?: LlmTokenUsage;
   tool?: {
     name: string;
     args: Record<string, unknown>;
   };
   /** Issue 10: true when no LLM is configured — caller should fall back. */
   fallback?: boolean;
+}
+
+export interface LlmTokenUsage {
+  input: number;
+  output: number;
+  total: number;
+  source: 'provider' | 'estimate';
 }
 
 export const PROMPT_TOKEN_CAP = 8192;
@@ -118,6 +127,109 @@ export function chatCompletionsEndpoint(env: NodeJS.ProcessEnv = process.env): s
   if (config.url) return config.url;
   if (config.baseUrl) return `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`;
   return undefined;
+}
+
+/** Character-based token estimate: 4 chars ≈ 1 token (OpenAI convention). */
+export function estimateTokenCount(text: string): number {
+  return Math.ceil((text?.length ?? 0) / 4);
+}
+
+export function buildTokenUsage(
+  input: number,
+  output: number,
+  source: LlmTokenUsage['source']
+): LlmTokenUsage {
+  return { input, output, total: input + output, source };
+}
+
+export function mergeTokenUsage(
+  left: LlmTokenUsage | undefined,
+  right: LlmTokenUsage | undefined
+): LlmTokenUsage | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return {
+    input: left.input + right.input,
+    output: left.output + right.output,
+    total: left.total + right.total,
+    source: left.source === 'provider' && right.source === 'provider' ? 'provider' : 'estimate'
+  };
+}
+
+/** Read `usage` from a non-streamed OpenAI-compatible JSON response. */
+export function parseProviderUsage(
+  data: Record<string, any> | undefined
+): { input: number; output: number; total: number } | undefined {
+  const usage = data?.usage;
+  if (!usage || typeof usage !== 'object') return undefined;
+  const input = Number(usage.prompt_tokens);
+  const output = Number(usage.completion_tokens);
+  const total = Number(usage.total_tokens);
+  if (!Number.isFinite(input) || !Number.isFinite(output)) return undefined;
+  return {
+    input: Math.max(0, input),
+    output: Math.max(0, output),
+    total: Number.isFinite(total) && total > 0 ? total : Math.max(0, input + output)
+  };
+}
+
+/** Extract the last `usage` object from a streamed OpenAI response. */
+function parseStreamedUsage(raw: string): { input: number; output: number; total: number } | undefined {
+  let usage: { input: number; output: number; total: number } | undefined;
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try {
+      const parsed = JSON.parse(payload) as Record<string, any>;
+      const next = parseProviderUsage(parsed);
+      if (next) usage = next;
+    } catch {
+      // Ignore malformed keep-alive lines.
+    }
+  }
+  return usage;
+}
+
+/**
+ * Classify the configured LLM for Local-First UI: no config, loopback host
+ * (Ollama/vLLM on localhost), or a remote endpoint. The hostname is returned
+ * separately so callers can mask it before it reaches the browser.
+ */
+export function llmRuntimeInfo(
+  env: NodeJS.ProcessEnv = process.env
+): { mode: 'none' | 'local' | 'remote'; host?: string } {
+  const endpoint = chatCompletionsEndpoint(env);
+  if (!endpoint) return { mode: 'none' };
+  try {
+    const hostname = new URL(endpoint).hostname.toLowerCase();
+    const isLoopback =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      hostname === '0.0.0.0';
+    return { mode: isLoopback ? 'local' : 'remote', host: hostname };
+  } catch {
+    return { mode: 'remote' };
+  }
+}
+
+/** True for IPv4 / bracketed or unbracketed IPv6 literals. */
+function isIpLiteral(hostname: string): boolean {
+  const bare = hostname.replace(/^\[|\]$/g, '');
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(bare)) return true;
+  return bare.includes(':');
+}
+
+/** Keep the first and last hostname labels, masking every middle label. */
+export function maskHostname(hostname: string): string {
+  if (isIpLiteral(hostname)) return hostname;
+  const labels = hostname.split('.').filter(Boolean);
+  if (labels.length <= 2) return hostname;
+  return labels
+    .map((label, index) => (index === 0 || index === labels.length - 1 ? label : '***'))
+    .join('.');
 }
 
 /* ------------------------------------------------------------------ *
@@ -221,6 +333,12 @@ export async function completeReAct(
   let parsedJson: Record<string, any> | undefined = trimmed.startsWith('{')
     ? (JSON.parse(trimmed) as Record<string, any>)
     : undefined;
+  const providerUsage = parsedJson
+    ? parseProviderUsage(parsedJson)
+    : parseStreamedUsage(raw);
+  const usage = providerUsage
+    ? { ...providerUsage, source: 'provider' as const }
+    : undefined;
   let rawContent =
     parsedJson !== undefined
       ? contentFromMessage(parsedJson)
@@ -240,12 +358,12 @@ export async function completeReAct(
   const answerText = rawContent.trim();
   if (answerText.startsWith('{')) {
     try {
-      return { ...(JSON.parse(answerText) as ReActLLMResult), firstTokenMs };
+      return { ...(JSON.parse(answerText) as ReActLLMResult), firstTokenMs, usage };
     } catch {
       // Fall through to a plain text answer.
     }
   }
-  return { answer: answerText, firstTokenMs };
+  return { answer: answerText, firstTokenMs, usage };
 }
 
 /* ------------------------------------------------------------------ *
@@ -293,6 +411,7 @@ export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLL
   const maxSteps = options.maxSteps ?? MAX_AGENT_STEPS;
   const budget = options.budgetTokens ?? PROMPT_TOKEN_CAP;
   const toolHistory: string[] = [];
+  let accumulatedUsage: LlmTokenUsage | undefined;
 
   for (let step = 0; step < maxSteps; step += 1) {
     const prompt = maskSensitiveText(
@@ -312,8 +431,23 @@ export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLL
       throw error;
     }
     if (result.firstTokenMs !== undefined) options.onFirstToken?.(result.firstTokenMs);
-    if (result.answer) return finalizeAgentResult(result);
-    if (!result.tool) return finalizeAgentResult({ answer: 'LLM did not provide an answer.' });
+    accumulatedUsage = mergeTokenUsage(accumulatedUsage, result.usage);
+    if (result.answer) {
+      const usage =
+        accumulatedUsage ??
+        buildTokenUsage(
+          estimateTokenCount(prompt + toolHistory.join('')),
+          estimateTokenCount(result.answer),
+          'estimate'
+        );
+      return finalizeAgentResult({ ...result, usage });
+    }
+    if (!result.tool) {
+      const usage =
+        accumulatedUsage ??
+        buildTokenUsage(estimateTokenCount(prompt), estimateTokenCount('LLM did not provide an answer.'), 'estimate');
+      return finalizeAgentResult({ answer: 'LLM did not provide an answer.', usage });
+    }
 
     const tool = options.tools.find((candidate) => candidate.name === result.tool!.name);
     const executed = tool
@@ -326,8 +460,16 @@ export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLL
       )
     );
   }
+  const usage =
+    accumulatedUsage ??
+    buildTokenUsage(
+      estimateTokenCount(toolHistory.join('')),
+      estimateTokenCount('LLM did not converge to an answer after tool calls.'),
+      'estimate'
+    );
   return finalizeAgentResult({
-    answer: 'LLM did not converge to an answer after tool calls.'
+    answer: 'LLM did not converge to an answer after tool calls.',
+    usage
   });
 }
 

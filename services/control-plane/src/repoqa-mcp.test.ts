@@ -124,10 +124,12 @@ interface TestHarness {
 }
 
 /** Boot an isolated control-plane stack (no HTTP listener) and index a Spring repo. */
-async function setupIndexedRepo(): Promise<TestHarness> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-'));
+async function setupIndexedRepo(repoRoot?: string): Promise<TestHarness> {
+  const dir = repoRoot
+    ? path.dirname(repoRoot)
+    : await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-'));
   const dataDir = path.join(dir, 'data');
-  const repoDir = path.join(dir, 'repo');
+  const repoDir = repoRoot ?? path.join(dir, 'repo');
   await fs.mkdir(dataDir, { recursive: true });
   await makeSpringRepo(repoDir);
 
@@ -225,22 +227,33 @@ async function rawCallTool(
 }
 
 describe('Issue 20 MCP tool metadata', () => {
-  it('exposes the four required tools with JSON Schema input contracts', () => {
+  it('exposes the seven required tools with JSON Schema input contracts', () => {
     expect(MCP_TOOLS.map((tool) => tool.name).sort()).toEqual([
       'codecompass_get_config_evidence',
       'codecompass_get_dashboard',
       'codecompass_get_pr_impact',
       'codecompass_get_tours',
+      'codecompass_list_repos',
+      'codecompass_reverse_deps',
       'codecompass_trace_call_chain'
     ]);
     for (const tool of MCP_TOOLS) {
       expect(tool.description.length).toBeGreaterThan(10);
       expect(tool.inputSchema.type).toBe('object');
-      if (tool.name === 'codecompass_get_pr_impact') continue;
+      if (
+        tool.name === 'codecompass_get_pr_impact' ||
+        tool.name === 'codecompass_list_repos'
+      ) {
+        continue;
+      }
       expect(tool.inputSchema.required).toContain('repoId');
       const props = Object.keys(tool.inputSchema.properties);
       expect(props.length).toBeGreaterThan(0);
     }
+    const list = MCP_TOOLS.find((tool) => tool.name === 'codecompass_list_repos')!;
+    expect(list.inputSchema.required).toEqual([]);
+    const reverse = MCP_TOOLS.find((tool) => tool.name === 'codecompass_reverse_deps')!;
+    expect(reverse.inputSchema.required).toEqual(['repoId', 'symbolOrMethod']);
     const trace = MCP_TOOLS.find((tool) => tool.name === 'codecompass_trace_call_chain')!;
     expect(trace.inputSchema.required).toEqual(['repoId', 'symbolOrMethod']);
     const config = MCP_TOOLS.find((tool) => tool.name === 'codecompass_get_config_evidence')!;
@@ -270,11 +283,18 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
         'codecompass_get_tours',
+        'codecompass_list_repos',
+        'codecompass_reverse_deps',
         'codecompass_trace_call_chain'
       ]);
       for (const tool of list.result.tools) {
         expect(tool.inputSchema.type).toBe('object');
-        if (tool.name === 'codecompass_get_pr_impact') continue;
+        if (
+          tool.name === 'codecompass_get_pr_impact' ||
+          tool.name === 'codecompass_list_repos'
+        ) {
+          continue;
+        }
         expect(tool.inputSchema.required).toContain('repoId');
       }
     } finally {
@@ -282,7 +302,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
     }
   });
 
-  it('tools/list via the SDK Client exposes the same four tools', async () => {
+  it('tools/list via the SDK Client exposes the same seven tools', async () => {
     const { deps } = await setupIndexedRepo();
     const { server, clientTransport } = await startServerPair(deps);
     try {
@@ -294,10 +314,52 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
         'codecompass_get_tours',
+        'codecompass_list_repos',
+        'codecompass_reverse_deps',
         'codecompass_trace_call_chain'
       ]);
       const trace = tools.tools.find((tool) => tool.name === 'codecompass_trace_call_chain')!;
       expect((trace.inputSchema as any).required).toEqual(['repoId', 'symbolOrMethod']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_list_repos lists indexed repos for agent discovery', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text } = await rawCallTool(clientTransport, 'codecompass_list_repos', {});
+      const body = JSON.parse(text) as { repos: Array<{ id: string; name: string; status: string; fileCount: number }> };
+      expect(body.repos).toContainEqual({
+        id: repo.id,
+        name: repo.name,
+        status: 'ready',
+        fileCount: repo.fileCount
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_reverse_deps returns deterministic who-uses callers', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text } = await rawCallTool(clientTransport, 'codecompass_reverse_deps', {
+        repoId: repo.id,
+        symbolOrMethod: 'findAll'
+      });
+      const body = JSON.parse(text) as {
+        target: { name: string };
+        callers: Array<{ method: string }>;
+        count: number;
+      };
+      expect(body.target.name).toBe('findAll');
+      expect(body.count).toBeGreaterThan(0);
+      expect(body.callers.map((caller) => caller.method)).toContain('findOrders');
     } finally {
       await server.close();
     }
@@ -449,18 +511,17 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
 });
 
 describe('Phase 5 MCP PR impact', () => {
-  it('tools/call codecompass_get_pr_impact returns a schemaVersion report for any local git repo', async () => {
+  it('tools/call codecompass_get_pr_impact only runs inside an indexed repo', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-pr-'));
     const repoDir = path.join(dir, 'repo');
     const { base, head } = await makePrFixtureRepo(repoDir);
-    registerCleanup(async () => fs.rm(dir, { recursive: true, force: true }));
 
-    const { deps } = await setupIndexedRepo();
+    const { deps, repo } = await setupIndexedRepo(repoDir);
     const { server, clientTransport } = await startServerPair(deps);
     try {
       await rawInitialize(clientTransport);
       const { text } = await rawCallTool(clientTransport, 'codecompass_get_pr_impact', {
-        repoPath: repoDir,
+        repoPath: repo.localPath,
         base,
         head
       });
@@ -468,10 +529,21 @@ describe('Phase 5 MCP PR impact', () => {
       expect(parsed.schemaVersion).toBe(1);
       expect(parsed.repoName).toBe('repo');
       expect(parsed.affectedApis.length).toBeGreaterThan(0);
+
+      const outside = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_get_pr_impact',
+        arguments: {
+          repoPath: path.join(dir, 'outside'),
+          base,
+          head
+        }
+      });
+      expect(outside.result.isError).toBe(true);
+      expect(outside.result.content[0].text).toContain('outside the indexed repos');
     } finally {
       await server.close();
     }
-  });
+  }, 30_000);
 });
 
 describe('Issue 20 MCP CLI wiring', () => {

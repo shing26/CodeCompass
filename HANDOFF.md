@@ -2,7 +2,7 @@
 
 > 生成时间：2026-08-25
 > 生成目的：**转交给其他 agent 接手** —— 本文档覆盖项目从 0 到当前的全部改动，fresh agent 读完后应能跑通、看懂、敢改
-> 实测验证（本会话）：后端 286/286 + `tsc --noEmit` 通过；前端 136/136（`--pool=forks --maxWorkers=2`）
+> 实测验证（本会话）：后端 293/293 + `tsc --noEmit` 通过；前端 139/139（`--pool=forks --maxWorkers=2`）
 > 历史基线：golden eval 50/50 在 Phase 1~3 与 Issue 18 会话均通过（完全确定性，零 LLM，可随时重跑）
 > 历史文档：`docs/handoff-2026-08-21-archived.md`（旧 Phase 2 视角，仅参考）；`docs/reports/产品体验报告/`（dogfooding 产物归档）
 
@@ -99,6 +99,12 @@
 - **仓库生命周期**：`DELETE /api/repos/:id` 只删索引、保留源文件与克隆目录；`POST /api/repos/:id/reindex` 用存储的 localPath 后台重建；`indexing` 期间两者返回 409；TopBar 增加“重新索引 / 删除”入口。
 - **SQLite 启动前自动备份**：`db.ts` 新增 `backupDb()`，在 `openDb()` 前用 better-sqlite3 online backup 生成 `mhw.db.backup-<时间戳>`，数据目录保留最近 5 份；`startServer` 与 `runMcpServer` 均接入。
 
+### 3.7 Issue 24 — 侧边栏即时检索 + MyBatis XML 数据层穿透
+
+- **MyBatis XML 解析**：`repoqa-mapper.ts` 新增 `parseMapperXml()` / `extractMapperSymbols()`，提取 mapper namespace、`select/insert/update/delete` 的 id、行号区间与归一化 SQL 摘要；XML 资源纳入 `scanRepo` / `previewRepo` 的 `xmlFileCount`。
+- **调用链穿透**：`repoqa-callchain.ts` 对无 Java 实现的 Mapper 接口按 `简单接口名 + 方法名` 匹配唯一 XML statement，生成指向 XML 文件的 `code://` 锚点；多个匹配仍保持 Static Analysis Break。
+- **Sidebar 即时过滤**：`Sidebar.tsx` 顶部新增搜索框，按名称/displayPath/文件路径/parentType/signature 即时过滤 Routes 与 Symbols 树，搜索时自动展开命中节点；Mapper XML 以 `mapper` + `sql` 两类符号进入符号树。
+
 ## 4. 当前工作区状态（未提交内容明细）
 
 ```
@@ -171,7 +177,7 @@ node dist/cli.js diff --output=json 4560c54 93b5581 D:/CodeCompass/.scratch/issu
 # 预期：3 个受影响 API（listOrders/getOrder/recentOrders）+ 反向 Mermaid（🔴/🗑）+ 配置键值不泄露
 ```
 
-测试数量演进（后端/前端）：101/56（P1）→ 153/91（P2）→ 183/93（v0.2.0-beta）→ 184/100（13-bug）→ 211/108（I18）→ 229/120（I19）→ 241（I20）→ 252（I21）→ 268/120（I22）→ **286/136（v0.3.0-beta）**。E2E/Playwright：Phase 2 gate、Issue 14 导出、Issue 19 git daemon、Issue 20 NDJSON 26 项、13-bug 浏览器 13/13 均通过过。
+测试数量演进（后端/前端）：101/56（P1）→ 153/91（P2）→ 183/93（v0.2.0-beta）→ 184/100（13-bug）→ 211/108（I18）→ 229/120（I19）→ 241（I20）→ 252（I21）→ 268/120（I22）→ 286/136（v0.3.0-beta）→ **293/139（Issue 24）**。E2E/Playwright：Phase 2 gate、Issue 14 导出、Issue 19 git daemon、Issue 20 NDJSON 26 项、13-bug 浏览器 13/13 均通过过。
 
 ## 7. 接手必读 —— 关键设计决策（跨 Issue 累积）
 

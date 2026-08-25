@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import type { ChatMessage } from '../hooks/useChat';
-import type { QueryMode, Repo } from '../types';
+import type { QueryMode, Repo, TokenUsage } from '../types';
 import { Markdown } from './Markdown';
 import { MermaidDiagram } from './MermaidDiagram';
 import { SourceTraceDrawer } from './SourceTraceDrawer';
@@ -12,6 +12,7 @@ interface CanvasProps {
   reconnecting: boolean;
   recovered: boolean;
   error: string | null;
+  totalUsage: TokenUsage;
   onSubmit: (question: string, mode?: QueryMode) => void;
   /** Manual retry after permanent reconnect failure (ticket 07). */
   onRetry: () => void;
@@ -35,6 +36,7 @@ export function Canvas({
   reconnecting,
   recovered,
   error,
+  totalUsage,
   onSubmit,
   onRetry,
   onNavigate,
@@ -113,6 +115,11 @@ export function Canvas({
                 />
               ))}
             </div>
+            {totalUsage.total > 0 && (
+              <p data-testid="session-usage" className="mt-3 text-right text-xs text-slate-400">
+                本次会话累计 {totalUsage.total} tokens
+              </p>
+            )}
             {streaming && (
               <p data-testid="streaming-indicator" className="mt-2 text-xs text-slate-400">
                 Streaming…
@@ -255,6 +262,27 @@ function MessageBubble({
         {message.anchors && (
           <SourceTraceDrawer anchors={message.anchors} onNavigate={onNavigate} />
         )}
+        {message.status === 'done' &&
+          (message.provenance || message.lowConfidence || message.usage) && (
+            <div
+              data-testid="message-meta"
+              className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-2 text-[11px] text-slate-500"
+            >
+              {message.provenance && (
+                <span data-testid="provenance-badge">
+                  {message.provenance === 'static' ? '静态图谱' : '模型推理'}
+                </span>
+              )}
+              {message.lowConfidence && (
+                <span data-testid="low-confidence" className="text-amber-600">
+                  低置信度
+                </span>
+              )}
+              {message.usage && (
+                <span data-testid="message-usage">本次 {message.usage.total} tokens</span>
+              )}
+            </div>
+          )}
         {message.status === 'done' && (
           <TraceOutcome
             message={message}

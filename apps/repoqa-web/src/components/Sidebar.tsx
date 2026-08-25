@@ -1,7 +1,37 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RepoSymbol, RepoTour } from '../types';
 import { buildSymbolTree, filterByKind } from '../hooks/useSymbols';
 import { QuickTours } from './QuickTours';
+
+function matchesSymbol(symbol: RepoSymbol, query: string): boolean {
+  return [
+    symbol.name,
+    symbol.displayPath,
+    symbol.filePath,
+    symbol.parentType,
+    symbol.signature
+  ].some((value) => typeof value === 'string' && value.toLowerCase().includes(query));
+}
+
+function filterSymbolTree(
+  tree: ReturnType<typeof buildSymbolTree>,
+  query: string
+): ReturnType<typeof buildSymbolTree> {
+  if (!query) return tree;
+  return tree.flatMap((fileNode) => {
+    const fileMatches = fileNode.file.toLowerCase().includes(query);
+    const types = fileNode.types.flatMap((typeNode) => {
+      const typeMatches = matchesSymbol(typeNode.symbol, query);
+      const members = typeMatches
+        ? typeNode.members
+        : typeNode.members.filter((member) => matchesSymbol(member, query));
+      if (!typeMatches && members.length === 0) return [];
+      return [{ symbol: typeNode.symbol, members }];
+    });
+    if (!fileMatches && types.length === 0) return [];
+    return [{ file: fileNode.file, types }];
+  });
+}
 
 interface SidebarProps {
   repoName: string | null;
@@ -36,9 +66,38 @@ export function Sidebar({
   onNavigate
 }: SidebarProps) {
   const [symbolsExpanded, setSymbolsExpanded] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/' || !searchRef.current) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      searchRef.current.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const routes = filterByKind(symbols, 'route');
   const tree = buildSymbolTree(symbols);
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleRoutes = normalizedQuery
+    ? routes.filter((route) => matchesSymbol(route, normalizedQuery))
+    : routes;
+  const visibleTree = filterSymbolTree(tree, normalizedQuery);
+  const symbolsVisible = normalizedQuery !== '' || symbolsExpanded;
+  const routeItems = visibleRoutes.slice(0, normalizedQuery ? 50 : 20);
+  const symbolItems = visibleTree.slice(0, normalizedQuery ? 100 : 30);
 
   const openAt = (file: string, line: number | null | undefined) => {
     onNavigate?.(file, line ?? 1);
@@ -51,6 +110,19 @@ export function Sidebar({
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
+      <section className="border-b border-slate-200 p-3">
+        <input
+          ref={searchRef}
+          data-testid="sidebar-search"
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="过滤路由与符号"
+          aria-label="过滤路由与符号"
+          className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-accent"
+        />
+      </section>
+
       <section className="border-b border-slate-200 p-3">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Quick Tours
@@ -76,9 +148,11 @@ export function Sidebar({
           Routes ({routes.length})
         </h2>
         {loading && <p className="text-xs text-slate-400">Loading…</p>}
-        {!loading && routes.length === 0 && <p className="text-xs text-slate-400">—</p>}
+        {!loading && routeItems.length === 0 && (
+          <p className="text-xs text-slate-400">—</p>
+        )}
         <ul className="space-y-1">
-          {routes.slice(0, 20).map((r) => (
+          {routeItems.map((r) => (
             <li key={r.id}>
               <button
                 type="button"
@@ -91,7 +165,7 @@ export function Sidebar({
               </button>
             </li>
           ))}
-          {routes.length > 20 && (
+          {routes.length > 20 && !normalizedQuery && (
             <li className="text-xs text-slate-400">+{routes.length - 20} more</li>
           )}
         </ul>
@@ -106,16 +180,19 @@ export function Sidebar({
             onClick={() => setSymbolsExpanded((v) => !v)}
             className="text-xs text-accent hover:underline"
           >
-            {symbolsExpanded ? 'Collapse' : 'Expand'}
+            {symbolsVisible ? 'Collapse' : 'Expand'}
           </button>
         </div>
         {loading && <p className="text-xs text-slate-400">Loading…</p>}
-        {!loading && !symbolsExpanded && (
+        {!loading && !symbolsVisible && (
           <p className="text-xs text-slate-400">{tree.length} files — expand to browse</p>
         )}
-        {!loading && symbolsExpanded && (
+        {!loading && symbolsVisible && symbolItems.length === 0 && (
+          <p className="text-xs text-slate-400">无匹配符号</p>
+        )}
+        {!loading && symbolsVisible && (
           <ul className="space-y-1.5">
-            {tree.slice(0, 30).map((fileNode) => (
+            {symbolItems.map((fileNode) => (
               <li key={fileNode.file}>
                 <button
                   type="button"

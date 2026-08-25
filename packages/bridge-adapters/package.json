@@ -1,6 +1,6 @@
 {
   "name": "@mhw/bridge-adapters",
-  "version": "0.3.0-beta",
+  "version": "0.3.5",
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",

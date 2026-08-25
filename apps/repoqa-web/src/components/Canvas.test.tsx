@@ -29,6 +29,7 @@ function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]> = {}) {
       reconnecting={false}
       recovered={false}
       error={null}
+      totalUsage={{ input: 0, output: 0, total: 0, source: 'estimate' }}
       onSubmit={() => {}}
       onRetry={() => {}}
       {...props}

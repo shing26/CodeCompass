@@ -257,6 +257,18 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 });
 describe('RepoQAClient dashboard/tours (issue 13)', () => {
+  it('unwraps the runtime LLM classification payload', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ llm: { mode: 'remote', host: 'api.***.com' } })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.getRuntime()).resolves.toEqual({
+      llm: { mode: 'remote', host: 'api.***.com' }
+    });
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/runtime');
+  });
+
   it('unwraps the { dashboard } payload and URL-encodes the repo id', async () => {
     const fetcher = vi.fn().mockResolvedValue({
       ok: true,
@@ -297,6 +309,7 @@ describe('RepoQAClient pre-import preview (Round 2 B4)', () => {
           path: 'C:/petclinic',
           fileCount: 47,
           javaFileCount: 9,
+          xmlFileCount: 2,
           skippedDirCount: 2,
           skippedDirs: ['.git', 'node_modules']
         }

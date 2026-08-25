@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS repos (
   error TEXT,
   file_count INTEGER NOT NULL DEFAULT 0,
   symbol_count INTEGER NOT NULL DEFAULT 0,
+  index_parsed INTEGER NOT NULL DEFAULT 0,
+  index_total INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -209,6 +211,12 @@ export function openDb(dbPath: string): Database.Database {
     .all() as Array<{ name: string }>;
   if (!repoColumns.some((column) => column.name === 'error')) {
     db.exec('ALTER TABLE repos ADD COLUMN error TEXT');
+  }
+  if (!repoColumns.some((column) => column.name === 'index_parsed')) {
+    db.exec('ALTER TABLE repos ADD COLUMN index_parsed INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!repoColumns.some((column) => column.name === 'index_total')) {
+    db.exec('ALTER TABLE repos ADD COLUMN index_total INTEGER NOT NULL DEFAULT 0');
   }
   // Issue 05: richer symbol metadata for deterministic call chains.
   const symbolColumns = db

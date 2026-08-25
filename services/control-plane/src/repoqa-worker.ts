@@ -10,12 +10,15 @@ import type {
 import { MAX_FILES, MAX_LINES, scanRepo, detectMavenModules, mavenSourceRoots } from './repoqa-scan';
 import { parseJavaFile } from './repoqa-parser';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
-import { resolveCallChain } from './repoqa-callchain';
+import { extractMapperSymbols } from './repoqa-mapper';
+import { buildCallIndex, resolveCallChain, type SymbolIndex } from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
 import {
   capPrompt,
   runReActAgent,
   isLlmConfigured,
+  buildTokenUsage,
+  estimateTokenCount,
   type AgentTool,
   type ReActLLMResult
 } from './repoqa-llm';
@@ -24,6 +27,14 @@ export type IndexProgressPayload = {
   repoId: string;
   phase: 'cloning' | 'parsing' | 'ready' | 'error';
   detail?: string;
+  parsedCount?: number;
+  totalFiles?: number;
+};
+
+export type StartSymbolResolution = {
+  symbol: RepoSymbol;
+  fallback: boolean;
+  confidence: number;
 };
 
 function lineNumberAt(source: string, offset: number): number {
@@ -127,11 +138,30 @@ export function findFuzzyStartSymbol(
 
 export class RepoQAWorker {
   private running = new Map<string, AbortController>();
+  private readonly symbolCache = new Map<string, { symbols: RepoSymbol[]; index: SymbolIndex }>();
 
   constructor(
     private repoqa: RepoQARepos,
     private eventBus: EventBus
   ) {}
+
+  /** In-memory symbols + call index; avoids repeated SQLite scans per query. */
+  getSymbolGraph(repoId: string): { symbols: RepoSymbol[]; index: SymbolIndex } {
+    const cached = this.symbolCache.get(repoId);
+    if (cached) return cached;
+    const symbols = this.repoqa.listSymbols(repoId);
+    const graph = { symbols, index: buildCallIndex(symbols) };
+    this.symbolCache.set(repoId, graph);
+    return graph;
+  }
+
+  invalidate(repoId: string): void {
+    this.symbolCache.delete(repoId);
+  }
+
+  private setSymbolGraph(repoId: string, symbols: RepoSymbol[]): void {
+    this.symbolCache.set(repoId, { symbols, index: buildCallIndex(symbols) });
+  }
 
   async indexRepo(input: {
     localPath: string;
@@ -153,6 +183,7 @@ export class RepoQAWorker {
       branch: input.branch
     });
     const repoId = upsert.repo.id;
+    this.invalidate(repoId);
     const taskId = `index-${repoId}`;
     const controller = new AbortController();
     this.running.set(taskId, controller);
@@ -167,7 +198,10 @@ export class RepoQAWorker {
         type: 'repoqa.index.progress',
         payload: { repoId, phase: 'parsing', detail: 'Resolving local repo...' }
       } as any);
-      this.repoqa.updateRepoStatus(repoId, 'indexing');
+      this.repoqa.updateRepoStatus(repoId, 'indexing', undefined, undefined, undefined, {
+        parsed: 0,
+        total: 0
+      });
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
         payload: { repoId, phase: 'parsing', detail: 'Scanning files and counting lines...' }
@@ -200,17 +234,22 @@ export class RepoQAWorker {
         repoId,
         localPath,
         stats.files,
-        (parsed) => {
+        (parsed, total) => {
           // Bug-R2-04: surface a live AST parsing count so large imports never
           // look stuck on the scan phase. fileCount is transient here and is
           // overwritten with the real total when the repo flips to ready.
-          this.repoqa.updateRepoStatus(repoId, 'indexing', parsed);
+          this.repoqa.updateRepoStatus(repoId, 'indexing', parsed, undefined, undefined, {
+            parsed,
+            total
+          });
           this.broadcast(taskId, {
             type: 'repoqa.index.progress',
             payload: {
               repoId,
               phase: 'parsing',
-              detail: `Parsing AST... ${parsed} files`
+              detail: `Parsing AST... ${parsed} files`,
+              parsedCount: parsed,
+              totalFiles: total
             }
           } as any);
         }
@@ -226,11 +265,17 @@ export class RepoQAWorker {
         });
       }
       const configSymbols = await extractConfigSymbols(repoId, localPath, stats.files);
+      const mapperSymbols = await extractMapperSymbols(
+        repoId,
+        localPath,
+        stats.files
+      );
       const chunks = await this.extractChunks(repoId, localPath, stats.files);
-      const allSymbols = [...symbols, ...configSymbols];
+      const allSymbols = [...symbols, ...configSymbols, ...mapperSymbols];
       this.repoqa.upsertSymbols(allSymbols);
       this.repoqa.upsertChunks(chunks);
       this.repoqa.updateRepoStatus(repoId, 'ready', stats.fileCount, allSymbols.length);
+      this.setSymbolGraph(repoId, allSymbols);
       if (modules.length > 0) {
         const sourceRoots = await mavenSourceRoots(localPath, modules);
         this.repoqa.recordEvent({
@@ -297,7 +342,7 @@ export class RepoQAWorker {
       queryStartAt
     });
 
-    const symbols = this.repoqa.listSymbols(repo.id);
+    const { symbols } = this.getSymbolGraph(repo.id);
     // Issue 10: configuration can come from process.env or a local `.env`
     // (REPOQA_LLM_BASE / REPOQA_LLM_URL / REPOQA_LLM_API_KEY / REPOQA_LLM_MODEL).
     const llmConfigured = isLlmConfigured(process.env);
@@ -334,6 +379,9 @@ export class RepoQAWorker {
         if (await this.isValidAnchor(repo, anchor)) anchors.push(anchor);
       }
       const answer = maskSensitiveText(real.answer ?? 'No answer from LLM.');
+      const usage =
+        real.usage ??
+        buildTokenUsage(estimateTokenCount(input.question), estimateTokenCount(answer), 'estimate');
       const routeForAction =
         symbols.find((symbol) => symbol.kind === 'route') ??
         symbols.find((symbol) => symbol.kind === 'method') ??
@@ -367,7 +415,11 @@ export class RepoQAWorker {
           answer,
           mermaid: real.mermaid,
           anchors,
-          suggestedAction
+          suggestedAction,
+          confidence: undefined,
+          lowConfidence: false,
+          provenance: 'llm',
+          usage
         }
       };
       return;
@@ -382,6 +434,7 @@ export class RepoQAWorker {
     let mermaid: string | undefined;
     let route: RepoSymbol | undefined;
     let startFallback = false;
+    let startConfidence: number | undefined;
     let environmentKeyCount = 0;
     let environmentChunkCount = 0;
     let environmentEvidence: string[] = [];
@@ -390,9 +443,10 @@ export class RepoQAWorker {
       const resolution = this.resolveStartSymbol(input.question, symbols, input.start);
       const start = resolution?.symbol;
       startFallback = resolution?.fallback ?? false;
+      startConfidence = resolution?.confidence;
       if (start) {
         route = start;
-        trace = resolveCallChain(symbols, start);
+        trace = resolveCallChain(symbols, start, 4, this.getSymbolGraph(repo.id).index);
         candidateAnchors = trace
           .filter((hop) => !hop.break && hop.line)
           .map((hop) => ({
@@ -457,7 +511,7 @@ export class RepoQAWorker {
             // call-chain queries never look like silent success.
             const breakHop = trace?.find((hop) => hop.break);
             const fallbackPrefix = startFallback
-              ? '未找到相关符号，以下为仓库默认入口供参考。\n\n'
+              ? '未在工程中定位到精确对应符号，以下基于默认入口推导供参考。\n\n'
               : '';
             const chainLines =
               trace && trace.length > 0
@@ -478,6 +532,7 @@ export class RepoQAWorker {
             return `${fallbackPrefix}静态分析（问题「${input.question}」）：未解析到可追踪的调用链。`;
           })();
     const answer = maskSensitiveText(rawAnswer);
+    const usage = buildTokenUsage(estimateTokenCount(input.question), estimateTokenCount(answer), 'estimate');
     const tokens = answer.match(/\S+(?:\s+)?/g) ?? [answer];
 
     for (const token of tokens) {
@@ -504,7 +559,11 @@ export class RepoQAWorker {
         mermaid,
         anchors,
         trace,
-        suggestedAction
+        suggestedAction,
+        confidence: startConfidence,
+        lowConfidence: startFallback || (startConfidence !== undefined && startConfidence < 0.6),
+        provenance: 'static',
+        usage
       }
     };
   }
@@ -514,9 +573,17 @@ export class RepoQAWorker {
    * other non-HTTP consumers: resolves a method/route/service/class name (or a
    * natural-language phrase) to the symbol a call-chain trace should start from.
    */
+  resolveStartSymbolForQuery(
+    repoId: string,
+    query: string,
+    explicitStart?: { name: string; file: string }
+  ): StartSymbolResolution | undefined {
+    const { symbols } = this.getSymbolGraph(repoId);
+    return this.resolveStartSymbol(query, symbols, explicitStart);
+  }
+
   findStartSymbolForQuery(repoId: string, query: string): RepoSymbol | undefined {
-    const symbols = this.repoqa.listSymbols(repoId);
-    return this.findStartSymbol(query, symbols);
+    return this.resolveStartSymbolForQuery(repoId, query)?.symbol;
   }
 
   /** Test paths (src/test, test/java) rarely carry the chain the user asked
@@ -530,7 +597,7 @@ export class RepoQAWorker {
     question: string,
     symbols: RepoSymbol[],
     explicitStart?: { name: string; file: string }
-  ): { symbol: RepoSymbol; fallback: boolean } | undefined {
+  ): StartSymbolResolution | undefined {
     // Explicit start (Top API click) wins: exact file+name first, then a
     // production-code name match, so the trace never starts from a sibling
     // symbol in a test class.
@@ -541,13 +608,13 @@ export class RepoQAWorker {
           symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
           norm(symbol.filePath) === norm(explicitStart.file)
       );
-      if (exact) return { symbol: exact, fallback: false };
+      if (exact) return { symbol: exact, fallback: false, confidence: 1 };
       const byName = symbols.find(
         (symbol) =>
           symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
           !this.isTestPath(symbol.filePath)
       );
-      if (byName) return { symbol: byName, fallback: false };
+      if (byName) return { symbol: byName, fallback: false, confidence: 1 };
     }
     const words = question.toLowerCase().match(/[a-z_$][\w$]*/g) ?? [];
     const prodSymbols = symbols.filter((symbol) => !this.isTestPath(symbol.filePath));
@@ -558,30 +625,34 @@ export class RepoQAWorker {
       list.find((symbol) => kinds.has(symbol.kind) && symbol.name.toLowerCase() === word);
     for (const word of words) {
       const match = find(prodSymbols, new Set(['method']), word);
-      if (match) return { symbol: match, fallback: false };
+      if (match) return { symbol: match, fallback: false, confidence: 1 };
     }
     for (const word of words) {
       const match = find(symbols, new Set(['method']), word);
-      if (match) return { symbol: match, fallback: false };
+      if (match) return { symbol: match, fallback: false, confidence: 1 };
     }
     // Issue 18: fuzzy extraction runs before the exact type/route lookups so
     // natural-language phrasing like "创建 owner 的方法" starts from a real
     // method (createOwner) instead of the type whose name is a word in the
     // question (class Owner normalizes to an arbitrary first method).
     const fuzzy = findFuzzyStartSymbol(question, symbols, (filePath) => this.isTestPath(filePath));
-    if (fuzzy) return { symbol: fuzzy, fallback: false };
+    if (fuzzy) {
+      const score = fuzzyMatchScore(question, fuzzy.name);
+      const confidence = Number((0.6 + (score / 100) * 0.39).toFixed(2));
+      return { symbol: fuzzy, fallback: false, confidence };
+    }
     for (const word of words) {
       const match = find(prodSymbols, typeKinds, word);
-      if (match) return { symbol: match, fallback: false };
+      if (match) return { symbol: match, fallback: false, confidence: 1 };
     }
     for (const word of words) {
       const match = find(symbols, typeKinds, word);
-      if (match) return { symbol: match, fallback: false };
+      if (match) return { symbol: match, fallback: false, confidence: 1 };
     }
     const fallback =
       prodSymbols.find((symbol) => symbol.kind === 'method') ??
       symbols.find((symbol) => symbol.kind === 'method');
-    return fallback ? { symbol: fallback, fallback: true } : undefined;
+    return fallback ? { symbol: fallback, fallback: true, confidence: 0.2 } : undefined;
   }
 
   private findStartSymbol(
@@ -716,28 +787,30 @@ export class RepoQAWorker {
     repoId: string,
     root: string,
     files: string[],
-    onProgress?: (parsed: number) => void
+    onProgress?: (parsed: number, total: number) => void
   ): Promise<{ symbols: RepoSymbol[]; skipped: Array<{ file: string; error: string }> }> {
     const symbols: RepoSymbol[] = [];
     const skipped: Array<{ file: string; error: string }> = [];
-    const javaFiles = files.filter((file) => file.endsWith('.java'));
+    const total = files.length;
     let parsed = 0;
-    for (const filePath of javaFiles) {
-      try {
-        symbols.push(...(await parseJavaFile(filePath, repoId, root)));
-      } catch (error) {
-        // Dogfooding (Issue 17): real-world Java repos routinely contain edge
-        // syntax our parser cannot cover (e.g. class literals inside annotation
-        // arguments). A single unparseable file must not abort the whole import —
-        // skip it, surface a warning event, and keep the rest of the repo.
-        const relative = path.relative(root, filePath).split(path.sep).join('/');
-        const detail = error instanceof Error ? error.message : String(error);
-        skipped.push({ file: relative, error: detail });
+    for (const filePath of files) {
+      if (filePath.endsWith('.java')) {
+        try {
+          symbols.push(...(await parseJavaFile(filePath, repoId, root)));
+        } catch (error) {
+          // Dogfooding (Issue 17): real-world Java repos routinely contain edge
+          // syntax our parser cannot cover (e.g. class literals inside annotation
+          // arguments). A single unparseable file must not abort the whole import —
+          // skip it, surface a warning event, and keep the rest of the repo.
+          const relative = path.relative(root, filePath).split(path.sep).join('/');
+          const detail = error instanceof Error ? error.message : String(error);
+          skipped.push({ file: relative, error: detail });
+        }
       }
       parsed += 1;
-      if (parsed % 50 === 0) onProgress?.(parsed);
+      if (parsed % 50 === 0) onProgress?.(parsed, total);
     }
-    if (javaFiles.length > 0) onProgress?.(javaFiles.length);
+    if (total > 0) onProgress?.(total, total);
     return { symbols, skipped };
   }
 

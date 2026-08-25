@@ -51,11 +51,14 @@ const symbols: RepoSymbol[] = [
   })
 ];
 
-function renderSidebar(onNavigate?: (file: string, line: number) => void) {
+function renderSidebar(
+  onNavigate?: (file: string, line: number) => void,
+  customSymbols: RepoSymbol[] = symbols
+) {
   return render(
     <Sidebar
       repoName="petclinic"
-      symbols={symbols}
+      symbols={customSymbols}
       loading={false}
       tours={[]}
       toursLoading={false}
@@ -115,5 +118,83 @@ describe('Sidebar source browsing (Issue 18)', () => {
     await user.click(screen.getByTestId('symbol-member'));
     // renders without throwing
     expect(screen.getByTestId('sidebar')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar instant search (Issue 24)', () => {
+  const searchableSymbols: RepoSymbol[] = [
+    ...symbols,
+    symbol({
+      id: 4,
+      kind: 'route',
+      name: '/pets',
+      displayPath: '/pets',
+      filePath: 'src/main/java/com/demo/PetController.java',
+      lineStart: 10,
+      lineEnd: 14
+    }),
+    symbol({
+      id: 5,
+      kind: 'method',
+      name: 'listPets',
+      filePath: 'src/main/java/com/demo/PetController.java',
+      lineStart: 11,
+      lineEnd: 13
+    })
+  ];
+
+  it('filters routes and symbols while auto-expanding matched nodes', async () => {
+    const user = userEvent.setup();
+    renderSidebar(undefined, searchableSymbols);
+
+    await user.type(screen.getByTestId('sidebar-search'), 'owner');
+
+    expect(screen.getByText('/owners')).toBeInTheDocument();
+    expect(screen.queryByText('/pets')).not.toBeInTheDocument();
+    // The symbol tree is expanded by the search, without clicking the toggle.
+    expect(screen.getByText('createOwner')).toBeInTheDocument();
+    expect(screen.queryByText('listPets')).not.toBeInTheDocument();
+  });
+
+  it('filters symbols by parent type and file path', async () => {
+    const user = userEvent.setup();
+    renderSidebar(undefined, searchableSymbols);
+
+    await user.type(screen.getByTestId('sidebar-search'), 'OwnerController');
+
+    expect(screen.getByText('OwnerController')).toBeInTheDocument();
+    expect(screen.getByText('createOwner')).toBeInTheDocument();
+    expect(screen.queryByText('listPets')).not.toBeInTheDocument();
+  });
+
+  it('shows an empty state for unmatched searches and restores on clear', async () => {
+    const user = userEvent.setup();
+    renderSidebar(undefined, searchableSymbols);
+
+    await user.type(screen.getByTestId('sidebar-search'), 'zzzz-no-match');
+    expect(screen.getByText('无匹配符号')).toBeInTheDocument();
+
+    await user.clear(screen.getByTestId('sidebar-search'));
+    expect(screen.getByText('2 files — expand to browse')).toBeInTheDocument();
+  });
+});
+
+describe('Sidebar / shortcut (Sprint 2)', () => {
+  it('focuses the search box from outside any text field', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    expect(screen.getByTestId('sidebar-search')).not.toHaveFocus();
+
+    await user.keyboard('/');
+    expect(screen.getByTestId('sidebar-search')).toHaveFocus();
+  });
+
+  it('lets / type normally when the search box already has focus', async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(screen.getByTestId('sidebar-search'));
+
+    await user.keyboard('/');
+    expect(screen.getByTestId('sidebar-search')).toHaveValue('/');
   });
 });

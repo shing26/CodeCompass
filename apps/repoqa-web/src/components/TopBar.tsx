@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import type { Repo, RepoPreview } from '../types';
+import type { LlmRuntimeMode, Repo, RepoPreview } from '../types';
 import { StatusStepper } from './StatusStepper';
 import { ImportRepoModal } from './ImportRepoModal';
+import { PrivacyPill } from './PrivacyPill';
 
 interface TopBarProps {
   repos: Repo[];
@@ -27,6 +28,8 @@ interface TopBarProps {
   /** Bug-12: repo currently being indexed (from catalog polling) — lets the
    * import dialog show live phase feedback while POST /api/repos is pending. */
   importingRepo?: Repo | null;
+  llmMode: LlmRuntimeMode;
+  llmHost?: string;
 }
 
 /**
@@ -48,7 +51,9 @@ export function TopBar({
   onDelete,
   onToggleSidebar,
   sidebarOpen,
-  importingRepo
+  importingRepo,
+  llmMode,
+  llmHost
 }: TopBarProps) {
   const [showImport, setShowImport] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -153,6 +158,7 @@ export function TopBar({
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         {error && <span className="hidden text-xs text-red-600 sm:inline">{error}</span>}
         {exportError && <span className="hidden text-xs text-red-600 sm:inline">{exportError}</span>}
+        <PrivacyPill mode={llmMode} host={llmHost} />
         {currentRepo ? (
           <>
             <div className="hidden sm:block">

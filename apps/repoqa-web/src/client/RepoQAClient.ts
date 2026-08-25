@@ -9,6 +9,7 @@ import type {
   RepoPreview,
   RepoSymbol,
   RepoTour,
+  RuntimeInfo,
   SymbolKind
 } from '../types';
 
@@ -37,6 +38,12 @@ export class RepoQAClient {
     if (!res.ok) throw new Error(`listRepos failed: ${res.status}`);
     const body = (await res.json()) as { repos?: Repo[] };
     return body.repos ?? [];
+  }
+
+  async getRuntime(): Promise<RuntimeInfo> {
+    const res = await this.fetcher(`${this.baseUrl}/api/runtime`);
+    if (!res.ok) throw new Error(`getRuntime failed: ${res.status}`);
+    return (await res.json()) as RuntimeInfo;
   }
 
   async getRepo(id: string): Promise<Repo | null> {

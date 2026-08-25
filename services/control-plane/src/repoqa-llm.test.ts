@@ -6,12 +6,18 @@ import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import {
   bindAnchorsToMermaid,
+  buildTokenUsage,
   capPrompt,
   chatCompletionsEndpoint,
   CODE_LINK_MMERMAID_GUIDE,
   completeReAct,
+  estimateTokenCount,
   extractCodeLinkBindings,
   isLlmConfigured,
+  llmRuntimeInfo,
+  maskHostname,
+  mergeTokenUsage,
+  parseProviderUsage,
   parseDotEnv,
   PROMPT_TOKEN_CAP,
   readDotEnvFile,
@@ -120,6 +126,116 @@ REPOQA_LLM_MODEL='gpt-4o-mini'
       expect(sent.messages[0].content).toContain('ping');
     } finally {
       (stub as any).close();
+    }
+  });
+});
+
+describe('Sprint 1 token usage and runtime classification', () => {
+  it('estimates tokens as ceil(chars / 4) and builds usage totals', () => {
+    expect(estimateTokenCount('')).toBe(0);
+    expect(estimateTokenCount('abcd')).toBe(1);
+    expect(estimateTokenCount('abcde')).toBe(2);
+    expect(buildTokenUsage(10, 20, 'provider')).toEqual({
+      input: 10,
+      output: 20,
+      total: 30,
+      source: 'provider'
+    });
+  });
+
+  it('merges provider usage across ReAct steps and downgrades to estimate', () => {
+    const provider = buildTokenUsage(10, 20, 'provider');
+    const estimate = buildTokenUsage(5, 5, 'estimate');
+    expect(mergeTokenUsage(provider, provider)).toEqual({
+      input: 20,
+      output: 40,
+      total: 60,
+      source: 'provider'
+    });
+    expect(mergeTokenUsage(provider, estimate)?.source).toBe('estimate');
+    expect(mergeTokenUsage(provider, undefined)).toBe(provider);
+    expect(mergeTokenUsage(undefined, estimate)).toBe(estimate);
+  });
+
+  it('parses provider usage with fallback totals', () => {
+    expect(
+      parseProviderUsage({
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 30 }
+      })
+    ).toEqual({ input: 12, output: 8, total: 30 });
+    expect(
+      parseProviderUsage({
+        usage: { prompt_tokens: 12, completion_tokens: 8 }
+      })
+    ).toEqual({ input: 12, output: 8, total: 20 });
+    expect(parseProviderUsage({})).toBeUndefined();
+    expect(parseProviderUsage(undefined)).toBeUndefined();
+  });
+
+  it('classifies LLM endpoints as none/local/remote', () => {
+    expect(llmRuntimeInfo({})).toEqual({ mode: 'none' });
+    expect(llmRuntimeInfo({ REPOQA_LLM_URL: 'http://localhost:11434/v1' })).toEqual({
+      mode: 'local',
+      host: 'localhost'
+    });
+    expect(llmRuntimeInfo({ REPOQA_LLM_URL: 'http://[::1]:8080/v1' })).toEqual({
+      mode: 'local',
+      host: '[::1]'
+    });
+    expect(
+      llmRuntimeInfo({ REPOQA_LLM_URL: 'https://api.example.com/v1/chat/completions' })
+    ).toEqual({ mode: 'remote', host: 'api.example.com' });
+  });
+
+  it('masks middle hostname labels while keeping the first and TLD', () => {
+    expect(maskHostname('api.openai.com')).toBe('api.***.com');
+    expect(maskHostname('my.proxy.internal.example.com')).toBe(
+      'my.***.***.***.com'
+    );
+    expect(maskHostname('127.0.0.1')).toBe('127.0.0.1');
+    expect(maskHostname('[::1]')).toBe('[::1]');
+  });
+
+  it('reads provider usage from a non-streamed completion response', async () => {
+    const stub = await stubChatCompletions(() =>
+      JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ answer: 'done' }) } }],
+        usage: { prompt_tokens: 14, completion_tokens: 9, total_tokens: 23 }
+      })
+    );
+    try {
+      const result = await completeReAct('ping', {
+        REPOQA_LLM_BASE: stub.url,
+        REPOQA_LLM_MODEL: 'test-model'
+      });
+      expect(result.answer).toBe('done');
+      expect(result.usage).toEqual({ input: 14, output: 9, total: 23, source: 'provider' });
+    } finally {
+      (stub as any).close();
+    }
+  });
+
+  it('reads provider usage from a streamed completion response', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: {"choices":[{"delta":{"content":"hel"}}]}\n\n');
+      res.write('data: {"choices":[{"delta":{"content":"lo"}}]}\n\n');
+      res.write(
+        'data: {"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}\n\n'
+      );
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address() as AddressInfo;
+    try {
+      const result = await completeReAct('say hello', {
+        REPOQA_LLM_URL: `http://127.0.0.1:${address.port}`
+      });
+      expect(result.answer).toBe('hello');
+      expect(result.usage).toEqual({ input: 7, output: 5, total: 12, source: 'provider' });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 });

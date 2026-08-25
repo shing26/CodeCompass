@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Anchor, QueryMode, QueryStart } from '../types';
+import type { Anchor, QueryMode, QueryStart, TokenUsage } from '../types';
 import type { QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
 
 export interface ChatMessage {
@@ -14,6 +14,12 @@ export interface ChatMessage {
   status?: 'streaming' | 'done';
   /** True when this trace hit a Static Analysis Break (see ticket 06). */
   break?: boolean;
+  /** 静态图谱 vs 模型推理 provenance, from the done SSE payload. */
+  provenance?: 'static' | 'llm';
+  lowConfidence?: boolean;
+  confidence?: number;
+  /** Provider or estimated token usage for this single message. */
+  usage?: TokenUsage;
 }
 
 let nextId = 1;
@@ -33,6 +39,32 @@ export interface UseChatResult {
   /** Manually re-run the last question after permanent reconnect failure (07). */
   retry: () => void;
   reset: () => void;
+  /** Cumulative token usage for the current repo conversation. */
+  totalUsage: TokenUsage;
+}
+
+function zeroUsage(): TokenUsage {
+  return { input: 0, output: 0, total: 0, source: 'estimate' };
+}
+
+function isTokenUsage(value: unknown): value is TokenUsage {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<TokenUsage>;
+  return (
+    typeof candidate.input === 'number' &&
+    typeof candidate.output === 'number' &&
+    typeof candidate.total === 'number' &&
+    (candidate.source === 'provider' || candidate.source === 'estimate')
+  );
+}
+
+function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
+  return {
+    input: left.input + right.input,
+    output: left.output + right.output,
+    total: left.total + right.total,
+    source: left.source === 'provider' && right.source === 'provider' ? 'provider' : 'estimate'
+  };
 }
 
 /**
@@ -47,13 +79,16 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   const [reconnecting, setReconnecting] = useState(false);
   const [recovered, setRecovered] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalUsage, setTotalUsage] = useState<TokenUsage>(zeroUsage());
   const streamRef = useRef<QueryStreamLike | null>(null);
   const assistantIdRef = useRef<string | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
   const lastModeRef = useRef<QueryMode | undefined>(undefined);
   const lastStartRef = useRef<QueryStart | undefined>(undefined);
   const historyByRepo = useRef(new Map<string, ChatMessage[]>());
+  const usageByRepo = useRef(new Map<string, TokenUsage>());
   const lastRepoRef = useRef<string | null>(null);
+  const repoIdRef = useRef<string | null>(repoId);
   const messagesRef = useRef<ChatMessage[]>([]);
   const reconnectingRef = useRef(false);
   const recoveredTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,6 +96,10 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    repoIdRef.current = repoId;
+  }, [repoId]);
 
   useEffect(() => {
     reconnectingRef.current = reconnecting;
@@ -83,6 +122,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     lastRepoRef.current = repoId;
     cancel();
     setMessages(repoId ? (historyByRepo.current.get(repoId) ?? []) : []);
+    setTotalUsage(repoId ? (usageByRepo.current.get(repoId) ?? zeroUsage()) : zeroUsage());
     setStreaming(false);
     setReconnecting(false);
     setRecovered(false);
@@ -130,7 +170,38 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
           typeof event.payload?.suggestedAction === 'string'
             ? event.payload.suggestedAction
             : undefined;
-        if (suggestedAction) withAssistant((m) => ({ ...m, suggestedAction }));
+        const usage = isTokenUsage(event.payload?.usage) ? event.payload.usage : undefined;
+        const provenance =
+          event.payload?.provenance === 'llm' || event.payload?.provenance === 'static'
+            ? event.payload.provenance
+            : undefined;
+        const lowConfidence = event.payload?.lowConfidence === true;
+        const confidence =
+          typeof event.payload?.confidence === 'number' ? event.payload.confidence : undefined;
+        if (
+          suggestedAction ||
+          usage ||
+          provenance !== undefined ||
+          lowConfidence ||
+          confidence !== undefined
+        ) {
+          withAssistant((m) => ({
+            ...m,
+            suggestedAction,
+            usage,
+            provenance,
+            lowConfidence,
+            confidence
+          }));
+        }
+        if (usage) {
+          setTotalUsage((prev) => {
+            const next = addUsage(prev, usage);
+            const key = repoIdRef.current ?? '';
+            usageByRepo.current.set(key, next);
+            return next;
+          });
+        }
       } else if (event.type === 'error') {
         setError(event.error);
         setReconnecting(false);
@@ -243,6 +314,8 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     lastModeRef.current = undefined;
     lastStartRef.current = undefined;
     setMessages([]);
+    usageByRepo.current.delete(repoIdRef.current ?? '');
+    setTotalUsage(zeroUsage());
     setError(null);
     setReconnecting(false);
     setRecovered(false);
@@ -250,5 +323,5 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     setStreaming(false);
   }, [cancel]);
 
-  return { messages, streaming, reconnecting, recovered, error, submit, retry, reset };
+  return { messages, streaming, reconnecting, recovered, error, submit, retry, reset, totalUsage };
 }

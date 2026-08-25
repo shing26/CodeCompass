@@ -70,6 +70,8 @@ export interface RepoQaIndexProgress {
   repoId: string;
   phase: 'cloning' | 'parsing' | 'ready' | 'error';
   detail?: string;
+  parsedCount?: number;
+  totalFiles?: number;
 }
 
 export interface RepoQaIndexDone {
@@ -121,6 +123,17 @@ export interface RepoQaQueryDone {
   mermaid?: string;
   anchors?: RepoQaAnchor[];
   trace?: RepoQaTraceHop[];
+  confidence?: number;
+  lowConfidence: boolean;
+  provenance: 'static' | 'llm';
+  usage: RepoQaTokenUsage;
+}
+
+export interface RepoQaTokenUsage {
+  input: number;
+  output: number;
+  total: number;
+  source: 'provider' | 'estimate';
 }
 
 export interface RepoQaQueryError {

@@ -13,6 +13,9 @@ export interface Repo {
   error?: string;
   fileCount: number;
   symbolCount: number;
+  /** Live AST parsing progress while status is `indexing`. */
+  indexParsed?: number;
+  indexTotal?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,7 +38,18 @@ export interface RepoSymbolCall {
 export interface RepoSymbol {
   id?: number;
   repoId: string;
-  kind: 'class' | 'interface' | 'method' | 'route' | 'service' | 'repository' | 'advice' | 'config' | 'field';
+  kind:
+    | 'class'
+    | 'interface'
+    | 'method'
+    | 'route'
+    | 'service'
+    | 'repository'
+    | 'advice'
+    | 'config'
+    | 'field'
+    | 'mapper'
+    | 'sql';
   name: string;
   filePath: string;
   lineStart?: number;
@@ -158,9 +172,12 @@ function mapRepo(row: {
   error: string | null;
   file_count: number;
   symbol_count: number;
+  index_parsed: number;
+  index_total: number;
   created_at: string;
   updated_at: string;
 }): Repo {
+  const indexing = row.status === 'indexing' && row.index_total > 0;
   return {
     id: row.id,
     name: row.name,
@@ -171,6 +188,9 @@ function mapRepo(row: {
     error: row.error ?? undefined,
     fileCount: row.file_count,
     symbolCount: row.symbol_count,
+    ...(indexing
+      ? { indexParsed: row.index_parsed, indexTotal: row.index_total }
+      : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -274,7 +294,8 @@ export class RepoQARepos {
     status: Repo['status'],
     fileCount?: number,
     symbolCount?: number,
-    error?: string
+    error?: string,
+    progress?: { parsed: number; total: number }
   ): void {
     const now = new Date().toISOString();
     const cur = this.getRepo(id);
@@ -282,7 +303,10 @@ export class RepoQARepos {
     this.db
       .prepare(
         `UPDATE repos SET status = ?, error = ?, file_count = COALESCE(?, file_count),
-          symbol_count = COALESCE(?, symbol_count), updated_at = ?
+          symbol_count = COALESCE(?, symbol_count),
+          index_parsed = COALESCE(?, index_parsed),
+          index_total = COALESCE(?, index_total),
+          updated_at = ?
          WHERE id = ?`
       )
       .run(
@@ -290,6 +314,8 @@ export class RepoQARepos {
         status === 'error' ? (error ?? null) : null,
         fileCount ?? cur.fileCount,
         symbolCount ?? cur.symbolCount,
+        progress?.parsed ?? null,
+        progress?.total ?? null,
         now,
         id
       );

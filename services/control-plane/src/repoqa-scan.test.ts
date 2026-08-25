@@ -81,6 +81,37 @@ describe('scanRepo exclusion', () => {
   });
 });
 
+describe('scanRepo XML resources (Issue 24)', () => {
+  it('counts mapper XML files so MyBatis resources enter the evidence plane', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-scan-xml-'));
+    try {
+      await fs.mkdir(path.join(root, 'src', 'main', 'resources', 'mapper'), {
+        recursive: true
+      });
+      await fs.writeFile(
+        path.join(root, 'src', 'main', 'resources', 'mapper', 'OrderMapper.xml'),
+        '<mapper namespace="com.demo.OrderMapper"></mapper>\n'
+      );
+      await fs.mkdir(path.join(root, 'src', 'main', 'java'), { recursive: true });
+      await fs.writeFile(
+        path.join(root, 'src', 'main', 'java', 'App.java'),
+        'class App {}\n'
+      );
+
+      const stats = await scanRepo(root);
+      expect(stats.fileCount).toBe(2);
+      expect(stats.xmlFileCount).toBe(1);
+      expect(stats.files.some((file) => file.endsWith('OrderMapper.xml'))).toBe(true);
+
+      const preview = await previewRepo(root);
+      expect(preview.fileCount).toBe(2);
+      expect(preview.xmlFileCount).toBe(1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('previewRepo (Round 2 B4)', () => {
   it('counts indexable files, Java files, and ignored dirs before import', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-'));

@@ -312,7 +312,11 @@ export function ImportRepoModal({
               >
                 将索引 <span className="font-semibold text-slate-800">{preview.fileCount}</span> 个文件
                 {preview.javaFileCount > 0
-                  ? `（含 ${preview.javaFileCount} 个 Java 文件）`
+                  ? `（含 ${preview.javaFileCount} 个 Java 文件${
+                      preview.xmlFileCount > 0
+                        ? `、${preview.xmlFileCount} 个 XML 资源`
+                        : ''
+                    }）`
                   : ''}
                 ，跳过{' '}
                 <span className="font-semibold text-slate-800">
@@ -340,7 +344,9 @@ export function ImportRepoModal({
                   className="mb-2 flex items-center gap-2 rounded-md border border-accent-soft bg-accent-soft/40 px-2 py-1.5 text-xs text-accent"
                 >
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                  {importingRepo.fileCount > 0
+                  {importingRepo.indexTotal && importingRepo.indexTotal > 0
+                    ? `正在解析 AST…（${importingRepo.indexParsed ?? 0}/${importingRepo.indexTotal}）`
+                    : importingRepo.fileCount > 0
                     ? `正在解析 AST…（${importingRepo.fileCount} 个文件）`
                     : '正在扫描仓库…（索引中）'}
                 </div>
@@ -412,9 +418,11 @@ export function ImportRepoModal({
               >
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                 正在索引并分析…
-                {remoteRepo && remoteRepo.fileCount > 0
-                  ? `（${remoteRepo.fileCount} 个文件）`
-                  : ''}
+                {remoteRepo && remoteRepo.indexTotal && remoteRepo.indexTotal > 0
+                  ? `（${remoteRepo.indexParsed ?? 0}/${remoteRepo.indexTotal}）`
+                  : remoteRepo && remoteRepo.fileCount > 0
+                    ? `（${remoteRepo.fileCount} 个文件）`
+                    : ''}
               </div>
             )}
             <div className="flex justify-end gap-2">

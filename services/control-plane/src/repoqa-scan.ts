@@ -42,6 +42,8 @@ export interface RepoScanStats {
   fileCount: number;
   lineCount: number;
   files: string[];
+  /** Issue 24: XML resources are indexed for MyBatis mapper extraction. */
+  xmlFileCount: number;
 }
 
 /**
@@ -125,6 +127,7 @@ function countLines(content: string): number {
 export async function scanRepo(root: string): Promise<RepoScanStats> {
   let fileCount = 0;
   let lineCount = 0;
+  let xmlFileCount = 0;
   const files: string[] = [];
   const stack = [root];
 
@@ -148,7 +151,10 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
       fileCount += 1;
       const filePath = path.join(dir, entry.name);
       files.push(filePath);
-      if (fileCount > MAX_FILES) return { fileCount, lineCount, files };
+      if (entry.name.toLowerCase().endsWith('.xml')) xmlFileCount += 1;
+      if (fileCount > MAX_FILES) {
+        return { fileCount, lineCount, files, xmlFileCount };
+      }
 
       try {
         const content = await fs.readFile(filePath, 'utf8');
@@ -156,16 +162,19 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
       } catch {
         // Unreadable files still count toward the index limit.
       }
-      if (lineCount > MAX_LINES) return { fileCount, lineCount, files };
+      if (lineCount > MAX_LINES) {
+        return { fileCount, lineCount, files, xmlFileCount };
+      }
     }
   }
 
-  return { fileCount, lineCount, files };
+  return { fileCount, lineCount, files, xmlFileCount };
 }
 
 export interface RepoPreviewStats {
   fileCount: number;
   javaFileCount: number;
+  xmlFileCount: number;
   skippedDirCount: number;
   skippedDirs: string[];
 }
@@ -184,6 +193,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
 
   let fileCount = 0;
   let javaFileCount = 0;
+  let xmlFileCount = 0;
   let skippedDirCount = 0;
   const skippedDirs = new Set<string>();
   const stack = [root];
@@ -212,10 +222,12 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
 
       fileCount += 1;
       if (entry.name.toLowerCase().endsWith('.java')) javaFileCount += 1;
+      if (entry.name.toLowerCase().endsWith('.xml')) xmlFileCount += 1;
       if (fileCount > MAX_FILES) {
         return {
           fileCount,
           javaFileCount,
+          xmlFileCount,
           skippedDirCount,
           skippedDirs: [...skippedDirs].sort()
         };
@@ -226,6 +238,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
   return {
     fileCount,
     javaFileCount,
+    xmlFileCount,
     skippedDirCount,
     skippedDirs: [...skippedDirs].sort()
   };

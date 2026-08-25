@@ -41,6 +41,7 @@ function baseProps(overrides: Partial<Parameters<typeof ImportRepoModal>[0]> = {
       path: 'C:/projects/spring-petclinic',
       fileCount: 47,
       javaFileCount: 9,
+      xmlFileCount: 2,
       skippedDirCount: 2,
       skippedDirs: ['.git', 'node_modules']
     }),
@@ -128,6 +129,48 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  it('shows live parsed/total AST progress when the backend reports counts', async () => {
+    const user = userEvent.setup();
+    let release: (value: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    const onImportLocal = vi.fn().mockReturnValue(pending);
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <ImportRepoModal
+        {...baseProps({ onImportLocal, onClose, importingRepo: null })}
+      />
+    );
+
+    await user.type(screen.getByTestId('import-name'), 'big-repo');
+    await user.type(screen.getByTestId('import-path'), 'C:/projects/big-repo');
+    await user.click(screen.getByTestId('import-submit'));
+
+    rerender(
+      <ImportRepoModal
+        {...baseProps({
+          onImportLocal,
+          onClose,
+          importingRepo: {
+            ...indexingRepo,
+            fileCount: 0,
+            indexParsed: 45,
+            indexTotal: 120
+          }
+        })}
+      />
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('import-progress')).toHaveTextContent(
+        '正在解析 AST…（45/120）'
+      )
+    );
+
+    release(undefined);
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
   it('pre-fills the name from the picked folder and asks for its path', async () => {
     render(<ImportRepoModal {...baseProps()} />);
     fireEvent.change(screen.getByTestId('import-folder'), {
@@ -147,6 +190,7 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
       path: 'C:/projects/spring-petclinic',
       fileCount: 47,
       javaFileCount: 9,
+      xmlFileCount: 3,
       skippedDirCount: 2,
       skippedDirs: ['.git', 'node_modules']
     });
@@ -160,7 +204,9 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('import-preview')).toHaveTextContent('将索引 47 个文件')
     );
-    expect(screen.getByTestId('import-preview')).toHaveTextContent('含 9 个 Java 文件');
+    expect(screen.getByTestId('import-preview')).toHaveTextContent(
+      '含 9 个 Java 文件、3 个 XML 资源'
+    );
     expect(screen.getByTestId('import-preview')).toHaveTextContent('跳过 2 个目录');
     expect(screen.getByTestId('import-preview')).toHaveTextContent('.git');
     expect(screen.getByTestId('import-preview')).toHaveTextContent('node_modules');

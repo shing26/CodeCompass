@@ -46,10 +46,12 @@ interface FieldInfo {
   annotations: string[];
 }
 
-interface SymbolIndex {
+export interface SymbolIndex {
   types: Map<string, TypeInfo>;
   /** interface name → class type names that implement it. */
   implsOfInterface: Map<string, string[]>;
+  /** Issue 24: `<simple-interface>.<statement-id>` → MyBatis XML SQL nodes. */
+  mapperStatements: Map<string, RepoSymbol[]>;
   /** file → method name → method symbols (legacy same-file resolution). */
   methodsByFile: Map<string, Map<string, RepoSymbol[]>>;
   /** method name → method symbols (legacy global resolution). */
@@ -183,9 +185,10 @@ function autowiredNameBean(
   return undefined;
 }
 
-function buildIndex(symbols: RepoSymbol[]): SymbolIndex {
+export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
   const types = new Map<string, TypeInfo>();
   const implsOfInterface = new Map<string, string[]>();
+  const mapperStatements = new Map<string, RepoSymbol[]>();
   const methodsByFile = new Map<string, Map<string, RepoSymbol[]>>();
   const methodsByName = new Map<string, RepoSymbol[]>();
 
@@ -235,10 +238,21 @@ function buildIndex(symbols: RepoSymbol[]): SymbolIndex {
           annotations: symbol.annotations ?? []
         });
       }
+    } else if (symbol.kind === 'sql' && symbol.parentType) {
+      const key = `${symbol.parentType}.${symbol.name}`;
+      const list = mapperStatements.get(key) ?? [];
+      list.push(symbol);
+      mapperStatements.set(key, list);
     }
   }
 
-  return { types, implsOfInterface, methodsByFile, methodsByName };
+  return {
+    types,
+    implsOfInterface,
+    mapperStatements,
+    methodsByFile,
+    methodsByName
+  };
 }
 
 /** Return the method symbol the trace actually starts from. */
@@ -325,7 +339,11 @@ function resolveCall(
         return resolveImpl(index, impls[0], caller, call);
       }
       if (impls.length === 0) {
-        // No impl in this repo (external/RPC) → cannot bind deterministically.
+        // Issue 24: a Mapper interface without a Java impl is backed by XML.
+        // A single namespace+id match is a deterministic data-layer hop.
+        const mapper = index.mapperStatements.get(`${typeName}.${call.method}`) ?? [];
+        if (mapper.length === 1) return { target: mapper[0] };
+        // No impl and no/ambiguous XML mapper → cannot bind deterministically.
         return { reason: STATIC_ANALYSIS_BREAK_DYNAMIC };
       }
       // Issue 21 — Spring bean disambiguation for multiple implementations,
@@ -389,10 +407,11 @@ function resolveCall(
 export function resolveCallChain(
   symbols: RepoSymbol[],
   start: RepoSymbol,
-  depth = 4
+  depth = 4,
+  index?: SymbolIndex
 ): RepoQaTraceHop[] {
-  const index = buildIndex(symbols);
-  const started = effectiveStart(symbols, start, index);
+  const resolvedIndex = index ?? buildCallIndex(symbols);
+  const started = effectiveStart(symbols, start, resolvedIndex);
   if (!started) return [];
 
   const trace: RepoQaTraceHop[] = [
@@ -413,7 +432,7 @@ export function resolveCallChain(
 
     let progressed = false;
     for (const call of calls) {
-      const result = resolveCall(index, current, call);
+      const result = resolveCall(resolvedIndex, current, call);
       if ('reason' in result) {
         const reason = result.reason;
         trace.push({
@@ -450,6 +469,13 @@ export function resolveCallChain(
   return trace;
 }
 
+export interface ReverseCaller {
+  file: string;
+  method: string;
+  line: number;
+  callLine: number | null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Issue 22 — single-edge resolution for reverse reachability          */
 /* ------------------------------------------------------------------ */
@@ -462,9 +488,27 @@ export function resolveCallChain(
  */
 export class CallResolver {
   private readonly index: SymbolIndex;
+  private readonly callersById: Map<string, ReverseCaller[]>;
 
-  constructor(symbols: RepoSymbol[]) {
-    this.index = buildIndex(symbols);
+  constructor(symbols: RepoSymbol[], index?: SymbolIndex) {
+    this.index = index ?? buildCallIndex(symbols);
+    this.callersById = new Map();
+    for (const caller of symbols) {
+      if (caller.kind !== 'method') continue;
+      for (const call of caller.calls ?? []) {
+        const resolved = this.resolve(caller, call);
+        if (!('target' in resolved) || !resolved.target) continue;
+        const id = symbolIdentity(resolved.target);
+        const list = this.callersById.get(id) ?? [];
+        list.push({
+          file: caller.filePath,
+          method: caller.name,
+          line: caller.lineStart ?? 1,
+          callLine: call.line ?? null
+        });
+        this.callersById.set(id, list);
+      }
+    }
   }
 
   /** Resolve one call to its statically bound target, or a break reason. */
@@ -473,5 +517,16 @@ export class CallResolver {
     call: RepoSymbolCall
   ): { target: RepoSymbol } | { reason: string } {
     return resolveCall(this.index, caller, call);
+  }
+
+  /** Deterministic callers of a target symbol, sorted by file then line. */
+  reverseCallers(target: RepoSymbol): ReverseCaller[] {
+    const list = this.callersById.get(symbolIdentity(target)) ?? [];
+    return [...list].sort(
+      (a, b) =>
+        a.file.localeCompare(b.file) ||
+        a.line - b.line ||
+        a.method.localeCompare(b.method)
+    );
   }
 }

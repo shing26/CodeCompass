@@ -20,6 +20,7 @@ import { buildTours } from './repoqa-tours';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-export';
 import { previewRepo } from './repoqa-scan';
+import { llmRuntimeInfo, maskHostname } from './repoqa-llm';
 
 export interface HttpDeps {
   repos: Repos;
@@ -86,6 +87,16 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       version: deps.version,
       port: deps.port,
       dataDir: deps.dataDir
+    });
+  });
+
+  app.get('/api/runtime', (_req, res) => {
+    const runtime = llmRuntimeInfo(process.env);
+    res.json({
+      llm: {
+        mode: runtime.mode,
+        host: runtime.host ? maskHostname(runtime.host) : undefined
+      }
     });
   });
 
@@ -239,7 +250,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(404).json({ error: 'Repo not found' });
       return;
     }
-    const symbols = deps.repoqa.listSymbols(repo.id);
+    const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols });
     const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
     const selected = type === '' ? tours : tours.filter((tour) => tour.id === type);
@@ -256,7 +267,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(404).json({ error: 'Repo not found' });
       return;
     }
-    const symbols = deps.repoqa.listSymbols(repo.id);
+    const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const dashboard = buildDashboard({ repoId: repo.id, repoName: repo.name, symbols });
     res.json({ dashboard: maskEventPayload(dashboard) });
   });
@@ -270,7 +281,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(404).json({ error: 'Repo not found' });
       return;
     }
-    const symbols = deps.repoqa.listSymbols(repo.id);
+    const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const markdown = buildOnboardingMarkdown({
       repoId: repo.id,
       repoName: repo.name,
@@ -511,6 +522,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
       return;
     }
+    deps.worker.invalidate(repo.id);
     deps.repoqa.deleteRepo(repo.id);
     res.status(204).send();
   });
@@ -528,6 +540,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
       return;
     }
+    deps.worker.invalidate(repo.id);
     deps.repoqa.updateRepoStatus(repo.id, 'indexing');
     deps.worker
       .indexRepo({

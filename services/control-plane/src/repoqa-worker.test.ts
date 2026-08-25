@@ -160,10 +160,12 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
     const repoqa = new RepoQARepos(db);
     const eventBus = new EventBus();
     const details: string[] = [];
+    const progressPayloads: Array<{ parsedCount?: number; totalFiles?: number }> = [];
     eventBus.on((event) => {
       if (event.type === 'repoqa.index.progress') {
         const payload = event.payload as { detail?: string };
         if (payload.detail) details.push(payload.detail);
+        progressPayloads.push(event.payload as { parsedCount?: number; totalFiles?: number });
       }
     });
     const worker = new RepoQAWorker(repoqa, eventBus);
@@ -173,6 +175,54 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
       expect(result.repo.fileCount).toBe(60);
       expect(details.some((detail) => detail.includes('Parsing AST... 50 files'))).toBe(true);
       expect(details.some((detail) => detail.includes('Parsing AST... 60 files'))).toBe(true);
+      expect(
+        progressPayloads.some(
+          (payload) => payload.parsedCount === 50 && payload.totalFiles === 60
+        )
+      ).toBe(true);
+      expect(
+        progressPayloads.some(
+          (payload) => payload.parsedCount === 60 && payload.totalFiles === 60
+        )
+      ).toBe(true);
+    } finally {
+      db.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it('returns exact-symbol confidence 1 and default-entry fallback 0.2', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-worker-confidence-'));
+    const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+    await fs.mkdir(pkg, { recursive: true });
+    await fs.writeFile(
+      path.join(pkg, 'App.java'),
+      'package com.demo;\npublic class App {\n  public static void main(String[] args) { new Controller().hello(); }\n}\n'
+    );
+    await fs.writeFile(
+      path.join(pkg, 'Controller.java'),
+      'package com.demo;\npublic class Controller {\n  public String hello() { return "hi"; }\n}\n'
+    );
+
+    const db = openDb(':memory:');
+    const repoqa = new RepoQARepos(db);
+    const worker = new RepoQAWorker(repoqa, new EventBus());
+    try {
+      const result = await worker.indexRepo({ localPath: root, name: 'conf' });
+      expect(result.repo.status).toBe('ready');
+
+      const exact = worker.resolveStartSymbolForQuery(result.repo.id, 'hello');
+      expect(exact?.symbol.name).toBe('hello');
+      expect(exact?.fallback).toBe(false);
+      expect(exact?.confidence).toBe(1);
+
+      const fallback = worker.resolveStartSymbolForQuery(result.repo.id, 'zzzz不存在符号');
+      expect(fallback?.fallback).toBe(true);
+      expect(fallback?.confidence).toBe(0.2);
+      expect(fallback?.symbol.kind).toBe('method');
+
+      // Compatibility wrapper still resolves the same symbol.
+      expect(worker.findStartSymbolForQuery(result.repo.id, 'hello')?.name).toBe('hello');
     } finally {
       db.close();
       await fs.rm(root, { recursive: true, force: true });

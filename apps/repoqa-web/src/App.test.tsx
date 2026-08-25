@@ -101,14 +101,31 @@ const noopStream = {
   close: () => undefined
 };
 
+/** Stream that immediately marks the query done so the input re-enables. */
+function autoDoneStream() {
+  let done = () => {};
+  return {
+    onEvent: () => () => undefined,
+    onError: () => () => undefined,
+    onDone: (fn: () => void) => {
+      done = fn;
+      return () => undefined;
+    },
+    connect: () => done(),
+    close: () => undefined
+  };
+}
+
 function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
+    getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'none' } }),
     importRepo: vi.fn().mockResolvedValue(readyRepo),
     previewRepo: vi.fn().mockResolvedValue({
       path: 'C:/projects/spring-petclinic',
       fileCount: 120,
       javaFileCount: 30,
+      xmlFileCount: 1,
       skippedDirCount: 2,
       skippedDirs: ['.git', 'node_modules']
     }),
@@ -404,5 +421,69 @@ describe('Bug-R2-02 browser history', () => {
     window.history.forward();
     await waitFor(() => expect(window.location.search).toContain('repo=repo-2'));
     expect(screen.getByTestId('repo-select')).toHaveValue('repo-2');
+  });
+});
+
+describe('Sprint 1 remote LLM privacy consent', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('asks once per page session before the first remote question', async () => {
+    const client = makeClient({
+      getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'remote', host: 'api.***.com' } }),
+      queryRepo: vi.fn().mockReturnValue(autoDoneStream())
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型')
+    );
+    await selectRepo(user);
+    await user.click(screen.getByTestId('open-chat'));
+
+    await user.type(screen.getByTestId('chat-input'), 'architecture overview');
+    await user.click(screen.getByTestId('chat-submit'));
+    expect(client.queryRepo).not.toHaveBeenCalled();
+    expect(screen.getByTestId('consent-modal')).toHaveTextContent('api.***.com');
+
+    await user.click(screen.getByTestId('consent-confirm'));
+    await waitFor(() => expect(client.queryRepo).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
+
+    // The consent is in-memory for the session: the second question submits
+    // without reopening the modal.
+    await user.type(screen.getByTestId('chat-input'), 'second question');
+    await user.click(screen.getByTestId('chat-submit'));
+    await waitFor(() => expect(client.queryRepo).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
+  });
+
+  it('keeps the question unsent when consent is cancelled', async () => {
+    const client = makeClient({
+      getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'remote', host: 'api.***.com' } }),
+      queryRepo: vi.fn().mockReturnValue(autoDoneStream())
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型')
+    );
+    await selectRepo(user);
+    await user.click(screen.getByTestId('open-chat'));
+
+    await user.type(screen.getByTestId('chat-input'), 'architecture overview');
+    await user.click(screen.getByTestId('chat-submit'));
+    expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('consent-cancel'));
+    expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
+    expect(client.queryRepo).not.toHaveBeenCalled();
+
+    // Asking again reopens the consent; it is still not permanently granted.
+    await user.type(screen.getByTestId('chat-input'), 'another question');
+    await user.click(screen.getByTestId('chat-submit'));
+    expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
+    expect(client.queryRepo).not.toHaveBeenCalled();
   });
 });

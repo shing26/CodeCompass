@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -9,7 +10,7 @@ import { EventBus } from './events';
 import type { Repo } from './repoqa-repos';
 import { RepoQARepos, type RepoSymbol } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
-import { resolveCallChain } from './repoqa-callchain';
+import { CallResolver, resolveCallChain } from './repoqa-callchain';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildTours } from './repoqa-tours';
 import { matchConfigSymbols } from './repoqa-config';
@@ -33,7 +34,7 @@ import { analyzeDiff } from './repoqa-diff';
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.3.0-beta';
+export const MCP_SERVER_VERSION = '0.3.5';
 
 /** Dependencies required to serve MCP tools (subset of the control-plane stack). */
 export interface McpDeps {
@@ -63,6 +64,17 @@ export interface McpToolMeta {
 }
 
 export const MCP_TOOLS: McpToolMeta[] = [
+  {
+    name: 'codecompass_list_repos',
+    description:
+      'List every indexed repo with its id, display name, status and file count. ' +
+      'Use this first instead of guessing a repo id.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: []
+    }
+  },
   {
     name: 'codecompass_trace_call_chain',
     description:
@@ -118,6 +130,20 @@ export const MCP_TOOLS: McpToolMeta[] = [
     }
   },
   {
+    name: 'codecompass_reverse_deps',
+    description:
+      'Find which methods call a target method/route/class (who-uses). Returns deterministic callers ' +
+      'with file, method, line and call-site line, sorted by source location.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name' },
+        symbolOrMethod: { type: 'string', description: 'Target symbol, e.g. "findOrders"' }
+      },
+      required: ['repoId', 'symbolOrMethod']
+    }
+  },
+  {
     name: 'codecompass_get_pr_impact',
     description:
       'Analyze a base→head PR in a local git repo and return the deterministic architecture impact: ' +
@@ -157,6 +183,17 @@ function requireReady(repo: Repo): Repo {
   return repo;
 }
 
+export function mcpListRepos(deps: McpDeps): { repos: Array<{ id: string; name: string; status: Repo['status']; fileCount: number }> } {
+  return {
+    repos: deps.repoqa.listRepos().map((repo) => ({
+      id: repo.id,
+      name: repo.name,
+      status: repo.status,
+      fileCount: repo.fileCount
+    }))
+  };
+}
+
 export function mcpTraceCallChain(
   deps: McpDeps,
   args: McpToolHandlerArgs
@@ -174,7 +211,8 @@ export function mcpTraceCallChain(
   if (!symbolOrMethod) throw new Error('symbolOrMethod is required');
   const start = deps.worker.findStartSymbolForQuery(repo.id, symbolOrMethod);
   if (!start) throw new Error(`Start symbol not found: ${symbolOrMethod}`);
-  const trace = resolveCallChain(deps.repoqa.listSymbols(repo.id), start);
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const trace = resolveCallChain(graph.symbols, start, 4, graph.index);
   return trace.map((hop) => ({
     file: hop.file,
     method: hop.method,
@@ -188,7 +226,7 @@ export function mcpTraceCallChain(
 
 export function mcpGetDashboard(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
-  const symbols = deps.repoqa.listSymbols(repo.id);
+  const { symbols } = deps.worker.getSymbolGraph(repo.id);
   return buildDashboard({ repoId: repo.id, repoName: repo.name, symbols }) as unknown as Record<string, unknown>;
 }
 
@@ -219,16 +257,69 @@ export function mcpGetConfigEvidence(
 
 export function mcpGetTours(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
-  const symbols = deps.repoqa.listSymbols(repo.id);
+  const { symbols } = deps.worker.getSymbolGraph(repo.id);
   return { tours: buildTours({ repoId: repo.id, repoName: repo.name, symbols }) } as unknown as Record<string, unknown>;
 }
 
-export async function mcpGetPrImpact(args: McpToolHandlerArgs): Promise<Record<string, unknown>> {
+export function mcpReverseDeps(
+  deps: McpDeps,
+  args: McpToolHandlerArgs
+): {
+  repoId: string;
+  target: { name: string; file: string; line: number };
+  callers: Array<{ file: string; method: string; line: number; callLine: number | null }>;
+  count: number;
+  fallback: boolean;
+} {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const symbolOrMethod = String(args.symbolOrMethod ?? '').trim();
+  if (!symbolOrMethod) throw new Error('symbolOrMethod is required');
+  const resolution = deps.worker.resolveStartSymbolForQuery(repo.id, symbolOrMethod);
+  if (!resolution) throw new Error(`Start symbol not found: ${symbolOrMethod}`);
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const callers = new CallResolver(graph.symbols, graph.index).reverseCallers(resolution.symbol);
+  return {
+    repoId: repo.id,
+    target: {
+      name: resolution.symbol.name,
+      file: resolution.symbol.filePath,
+      line: resolution.symbol.lineStart ?? 1
+    },
+    callers,
+    count: callers.length,
+    fallback: resolution.fallback
+  };
+}
+
+async function realpathOrResolve(candidate: string): Promise<string> {
+  try {
+    return await fs.realpath(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+/** PR impact only runs against local paths already owned by an indexed repo. */
+export async function isTrustedRepoPath(deps: McpDeps, repoPath: string): Promise<boolean> {
+  const target = await realpathOrResolve(repoPath);
+  const roots = await Promise.all(
+    deps.repoqa.listRepos().map((repo) => realpathOrResolve(repo.localPath))
+  );
+  return roots.some((root) => {
+    const relative = path.relative(root, target);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  });
+}
+
+export async function mcpGetPrImpact(deps: McpDeps, args: McpToolHandlerArgs): Promise<Record<string, unknown>> {
   const repoPath = String(args.repoPath ?? '').trim();
   const base = String(args.base ?? '').trim();
   const head = String(args.head ?? '').trim();
   if (!repoPath || !base || !head) {
     throw new Error('repoPath, base and head are required');
+  }
+  if (!(await isTrustedRepoPath(deps, repoPath))) {
+    throw new Error('repoPath is outside the indexed repos; import the repository first');
   }
   return (await analyzeDiff({ repoPath, base, head })) as unknown as Record<string, unknown>;
 }
@@ -263,11 +354,13 @@ export function createMcpServer(deps: McpDeps): McpServer {
   );
 
   const handlers: Record<string, (args: McpToolHandlerArgs) => unknown | Promise<unknown>> = {
+    codecompass_list_repos: () => mcpListRepos(deps),
     codecompass_trace_call_chain: (args) => mcpTraceCallChain(deps, args),
     codecompass_get_dashboard: (args) => mcpGetDashboard(deps, args),
     codecompass_get_config_evidence: (args) => mcpGetConfigEvidence(deps, args),
     codecompass_get_tours: (args) => mcpGetTours(deps, args),
-    codecompass_get_pr_impact: (args) => mcpGetPrImpact(args)
+    codecompass_reverse_deps: (args) => mcpReverseDeps(deps, args),
+    codecompass_get_pr_impact: (args) => mcpGetPrImpact(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a

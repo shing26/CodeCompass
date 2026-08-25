@@ -11,6 +11,9 @@ export interface Repo {
   status: RepoStatus;
   fileCount: number;
   symbolCount: number;
+  /** Live AST parsing progress while status is `indexing`. */
+  indexParsed?: number;
+  indexTotal?: number;
   createdAt: string;
   updatedAt: string;
   /** Set when indexing failed; the backend answers every 4xx with it too. */
@@ -25,7 +28,9 @@ export type SymbolKind =
   | 'route'
   | 'service'
   | 'repository'
-  | 'advice';
+  | 'advice'
+  | 'mapper'
+  | 'sql';
 
 export interface RepoSymbol {
   id: number;
@@ -39,6 +44,8 @@ export interface RepoSymbol {
   calls: string | null;
   /** Bug-09: URL path for routing symbols, e.g. `/api/owners/{id}`. */
   displayPath?: string;
+  /** Issue 21/24: enclosing type for members, or simple mapper interface name. */
+  parentType?: string;
 }
 
 export type QueryMode = 'architecture' | 'call-chain' | 'environment';
@@ -60,6 +67,22 @@ export interface Anchor {
   symbol: string;
 }
 
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+  source: 'provider' | 'estimate';
+}
+
+export type LlmRuntimeMode = 'none' | 'local' | 'remote';
+
+export interface RuntimeInfo {
+  llm: {
+    mode: LlmRuntimeMode;
+    host?: string;
+  };
+}
+
 export type QueryEvent =
   | { type: 'token'; text: string }
   | { type: 'mermaid'; code: string }
@@ -76,6 +99,7 @@ export interface RepoPreview {
   path: string;
   fileCount: number;
   javaFileCount: number;
+  xmlFileCount: number;
   skippedDirCount: number;
   skippedDirs: string[];
 }

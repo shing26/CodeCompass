@@ -47,6 +47,7 @@ function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
     onToggleSidebar: vi.fn(),
     sidebarOpen: false,
     importingRepo: null,
+    llmMode: 'none' as const,
     ...overrides
   };
 }

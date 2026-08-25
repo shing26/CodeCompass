@@ -99,6 +99,7 @@ const emptyDashboard: RepoDashboard = {
 function makeClient(stream?: FakeStream) {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
+    getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'none' } }),
     importRepo: vi.fn().mockResolvedValue(readyRepo),
     getRepo: vi.fn(),
     listSymbols: vi.fn().mockResolvedValue([]),
@@ -534,5 +535,90 @@ describe('SSE reconnect resilience (ticket 07)', () => {
     expect(screen.getByTestId('micro-win')).toBeInTheDocument();
     expect(screen.queryByTestId('break-marker')).not.toBeInTheDocument();
     expect(screen.queryByTestId('chat-error')).not.toBeInTheDocument();
+  });
+});
+
+describe('Sprint 1 provenance and token usage', () => {
+  it('renders provenance, low-confidence and per-message usage from done payload', async () => {
+    const stream = new FakeStream();
+    const user = userEvent.setup();
+    render(<App client={makeClient(stream)} />);
+    await selectRepo(user);
+
+    await user.type(screen.getByTestId('chat-input'), 'trace owner flow');
+    await user.click(screen.getByTestId('chat-submit'));
+    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+
+    await act(async () => {
+      stream.event?.({ type: 'token', text: 'static analysis ' });
+      stream.event?.({
+        type: 'anchors',
+        anchors: [{ file: 'A.java', line: 1, symbol: 'A' }]
+      });
+      stream.event?.({
+        type: 'done',
+        payload: {
+          provenance: 'static',
+          lowConfidence: true,
+          confidence: 0.2,
+          usage: { input: 10, output: 20, total: 30, source: 'estimate' }
+        }
+      });
+      stream.done?.();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('provenance-badge')).toHaveTextContent('静态图谱')
+    );
+    expect(screen.getByTestId('low-confidence')).toHaveTextContent('低置信度');
+    expect(screen.getByTestId('message-usage')).toHaveTextContent('本次 30 tokens');
+    expect(screen.getByTestId('session-usage')).toHaveTextContent('本次会话累计 30 tokens');
+  });
+
+  it('restores cumulative usage when switching back to a repo', async () => {
+    const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
+    const stream = new FakeStream();
+    const client = makeClient();
+    (client as { listRepos: unknown }).listRepos = vi
+      .fn()
+      .mockResolvedValue([readyRepo, repo2]);
+    (client as { queryRepo: unknown }).queryRepo = vi.fn().mockReturnValue(stream);
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.type(screen.getByTestId('chat-input'), 'usage question');
+    await user.click(screen.getByTestId('chat-submit'));
+    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    await act(async () => {
+      stream.event?.({ type: 'token', text: 'answer ' });
+      stream.event?.({
+        type: 'anchors',
+        anchors: [{ file: 'A.java', line: 1, symbol: 'A' }]
+      });
+      stream.event?.({
+        type: 'done',
+        payload: {
+          usage: { input: 12, output: 18, total: 30, source: 'estimate' }
+        }
+      });
+      stream.done?.();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('session-usage')).toHaveTextContent('累计 30 tokens')
+    );
+
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
+    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
+    await user.click(screen.getByTestId('open-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+    expect(screen.queryByTestId('session-usage')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
+    await user.click(screen.getByTestId('open-chat'));
+    await waitFor(() =>
+      expect(screen.getByTestId('session-usage')).toHaveTextContent('累计 30 tokens')
+    );
   });
 });

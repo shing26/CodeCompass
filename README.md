@@ -96,4 +96,4 @@ docker-compose.yml          # 本地容器开发（只读挂载）
 
 ## 版本
 
-当前版本：`v0.3.0-beta`。API 与 CLI 参数在 beta 阶段可能调整，语义化版本规则见 `docs/adr/`。
+当前版本：`v0.3.5`。API 与 CLI 参数在 0.4 之前可能调整，语义化版本规则见 `docs/adr/`。

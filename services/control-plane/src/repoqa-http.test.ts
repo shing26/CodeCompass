@@ -417,6 +417,13 @@ describe('RepoPulse repo import HTTP API', () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-http-'));
     try {
       await makeJavaRepo(root);
+      await fs.mkdir(path.join(root, 'src', 'main', 'resources', 'mapper'), {
+        recursive: true
+      });
+      await fs.writeFile(
+        path.join(root, 'src', 'main', 'resources', 'mapper', 'OrderMapper.xml'),
+        '<mapper namespace="com.demo.OrderMapper"></mapper>\n'
+      );
       const response = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -429,13 +436,16 @@ describe('RepoPulse repo import HTTP API', () => {
           path: string;
           fileCount: number;
           javaFileCount: number;
+          xmlFileCount: number;
           skippedDirCount: number;
           skippedDirs: string[];
         };
       };
       expect(body.preview.path).toBe(root);
-      expect(body.preview.fileCount).toBe(5);
+      expect(body.preview.fileCount).toBe(6);
       expect(body.preview.javaFileCount).toBe(3);
+      // pom.xml + the mapper XML are both indexed as XML resources.
+      expect(body.preview.xmlFileCount).toBe(2);
       expect(body.preview.skippedDirCount).toBe(2);
       expect(body.preview.skippedDirs).toContain('.git');
       expect(body.preview.skippedDirs).toContain('node_modules');
@@ -751,6 +761,49 @@ describe('RepoPulse repo import HTTP API', () => {
   });
 });
 
+describe('RepoPulse runtime and API 404 plane', () => {
+  it('reports a pure-local runtime when no LLM is configured', async () => {
+    const ctx = await startServer();
+    try {
+      const response = await fetch(`${ctx.baseUrl}/api/runtime`);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ llm: { mode: 'none' } });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  it('classifies loopback LLM endpoints as local and masks remote hosts', async () => {
+    const oldUrl = process.env.REPOQA_LLM_URL;
+    const ctx = await startServer();
+    try {
+      process.env.REPOQA_LLM_URL = 'http://127.0.0.1:11434/v1/chat/completions';
+      const local = await fetch(`${ctx.baseUrl}/api/runtime`);
+      expect(await local.json()).toEqual({ llm: { mode: 'local', host: '127.0.0.1' } });
+
+      process.env.REPOQA_LLM_URL = 'https://api.openai.com/v1/chat/completions';
+      const remote = await fetch(`${ctx.baseUrl}/api/runtime`);
+      expect(await remote.json()).toEqual({ llm: { mode: 'remote', host: 'api.***.com' } });
+    } finally {
+      if (oldUrl === undefined) delete process.env.REPOQA_LLM_URL;
+      else process.env.REPOQA_LLM_URL = oldUrl;
+      await ctx.close();
+    }
+  });
+
+  it('answers unknown /api routes with JSON 404 (Bug-R2-05)', async () => {
+    const ctx = await startServer();
+    try {
+      const response = await fetch(`${ctx.baseUrl}/api/nonexistent`);
+      expect(response.status).toBe(404);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(await response.json()).toEqual({ error: 'not found' });
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
 describe('RepoPulse remote clone HTTP API (Issue 19)', () => {
   it('rejects missing/invalid URLs and unsafe branches before spawning git', async () => {
     const ctx = await startServer();
@@ -898,6 +951,55 @@ describe('RepoPulse symbol extraction HTTP API', () => {
       };
       expect(routes.symbols.length).toBeGreaterThan(0);
       expect(routes.symbols.every((symbol) => symbol.kind === 'route')).toBe(true);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('indexes MyBatis mapper XML as mapper and sql symbols', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mapper-http-'));
+    try {
+      await makeJavaRepo(root);
+      const mapperDir = path.join(root, 'src', 'main', 'resources', 'mapper');
+      await fs.mkdir(mapperDir, { recursive: true });
+      await fs.writeFile(
+        path.join(mapperDir, 'OrderMapper.xml'),
+        [
+          '<mapper namespace="com.demo.OrderMapper">',
+          '  <select id="findAll" resultType="com.demo.Order">',
+          '    SELECT id, amount FROM orders',
+          '  </select>',
+          '</mapper>'
+        ].join('\n')
+      );
+
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.status).toBe(201);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/symbols`);
+      const body = (await response.json()) as {
+        symbols: Array<{ kind: string; name: string; filePath: string }>;
+      };
+      expect(
+        body.symbols.some(
+          (symbol) =>
+            symbol.kind === 'mapper' &&
+            symbol.name === 'OrderMapper' &&
+            symbol.filePath === 'src/main/resources/mapper/OrderMapper.xml'
+        )
+      ).toBe(true);
+      expect(
+        body.symbols.some(
+          (symbol) =>
+            symbol.kind === 'sql' &&
+            symbol.name === 'findAll' &&
+            symbol.filePath === 'src/main/resources/mapper/OrderMapper.xml'
+        )
+      ).toBe(true);
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
@@ -1337,6 +1439,9 @@ describe('RepoPulse deterministic call-chain query', () => {
           20,
           JSON.stringify([{ file: 'src/main/java/com/demo/Controller.java', method: 'missingMethod' }])
         );
+      // The worker keeps an in-memory symbol graph; a test-time DB insert must
+      // invalidate it so the query observes the new symbol.
+      ctx.worker.invalidate(repoId);
 
       const response = await fetch(
         `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('trace brokenFlow')}`
@@ -1627,8 +1732,57 @@ describe('RepoPulse architecture question resolution (Round 2)', () => {
         const doneData = JSON.parse(
           doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
         ) as { answer: string };
-        expect(doneData.answer).toContain('未找到相关符号，以下为仓库默认入口供参考');
+        expect(doneData.answer).toContain(
+          '未在工程中定位到精确对应符号，以下基于默认入口推导供参考。'
+        );
       }
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('done payload carries confidence, provenance and token usage (Sprint 1)', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-architecture-meta-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const exactResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('hello')}`
+      );
+      const exactText = await exactResponse.text();
+      const exactBlock = exactText
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const exactData = JSON.parse(
+        exactBlock!.slice(exactBlock!.indexOf('data: ') + 6)
+      ) as {
+        confidence: number;
+        lowConfidence: boolean;
+        provenance: 'static' | 'llm';
+        usage: { input: number; output: number; total: number; source: string };
+      };
+      expect(exactData.confidence).toBe(1);
+      expect(exactData.lowConfidence).toBe(false);
+      expect(exactData.provenance).toBe('static');
+      expect(exactData.usage.total).toBeGreaterThan(0);
+      expect(exactData.usage.source).toBe('estimate');
+
+      const fallbackResponse = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=call-chain&question=${encodeURIComponent('zzzz不存在符号')}`
+      );
+      const fallbackText = await fallbackResponse.text();
+      const fallbackBlock = fallbackText
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const fallbackData = JSON.parse(
+        fallbackBlock!.slice(fallbackBlock!.indexOf('data: ') + 6)
+      ) as { confidence: number; lowConfidence: boolean };
+      expect(fallbackData.confidence).toBe(0.2);
+      expect(fallbackData.lowConfidence).toBe(true);
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });

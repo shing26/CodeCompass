@@ -13,7 +13,8 @@ import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
 import { TourPlayer } from './components/TourPlayer';
-import type { Repo, RepoTour, TopApiEntry } from './types';
+import { PrivacyConsentModal } from './components/PrivacyConsentModal';
+import type { QueryMode, Repo, RepoTour, RuntimeInfo, TopApiEntry } from './types';
 
 export interface AppProps {
   /** Dependency injection seam for tests; defaults to the real client. */
@@ -50,8 +51,25 @@ export function App({ client: clientProp }: AppProps) {
     recovered,
     error: chatError,
     submit,
-    retry
+    retry,
+    totalUsage
   } = useChat(client, repoId);
+  const [runtime, setRuntime] = useState<RuntimeInfo>({ llm: { mode: 'none' } });
+  const [llmConsented, setLlmConsented] = useState(false);
+  const [consentPending, setConsentPending] = useState<{
+    question: string;
+    mode?: QueryMode;
+    start?: { name: string; file: string };
+  } | null>(null);
+
+  useEffect(() => {
+    client
+      .getRuntime()
+      .then(setRuntime)
+      .catch(() => {
+        // Runtime metadata is best-effort; the app still works without it.
+      });
+  }, [client]);
   const { symbols, loading: symbolsLoading } = useSymbols(client, repoId);
   const inspector = useInspector(client, repoId);
   const { tours, loading: toursLoading, error: toursError, refresh: refreshTours } = useTours(client, repoId);
@@ -141,10 +159,24 @@ export function App({ client: clientProp }: AppProps) {
     // Pass the clicked entry as structured input and force the deterministic
     // call-chain mode so the trace starts from THIS exact symbol (name + file),
     // never from a same-name sibling in another file (e.g. a test helper).
-    submit(`${api.name} 的完整调用链是怎样的？`, 'call-chain', {
+    handleSubmit(`${api.name} 的完整调用链是怎样的？`, 'call-chain', {
       name: api.name,
       file: api.filePath
     });
+  };
+
+  const handleSubmit: typeof submit = (question, mode, start) => {
+    if (runtime.llm.mode === 'remote' && !llmConsented) {
+      setConsentPending({ question, mode, start });
+      return;
+    }
+    submit(question, mode, start);
+  };
+
+  const confirmConsent = () => {
+    setLlmConsented(true);
+    if (consentPending) submit(consentPending.question, consentPending.mode, consentPending.start);
+    setConsentPending(null);
   };
 
   // Issue 14: fetch the handover document and trigger `{repoName}-ONBOARDING.md`.
@@ -197,7 +229,16 @@ export function App({ client: clientProp }: AppProps) {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
+        llmMode={runtime.llm.mode}
+        llmHost={runtime.llm.host}
       />
+      {consentPending && (
+        <PrivacyConsentModal
+          host={runtime.llm.host}
+          onConfirm={confirmConsent}
+          onCancel={() => setConsentPending(null)}
+        />
+      )}
       <div className="relative flex min-h-0 flex-1">
         {sidebarOpen && (
           <div
@@ -252,7 +293,8 @@ export function App({ client: clientProp }: AppProps) {
               reconnecting={reconnecting}
               recovered={recovered}
               error={chatError}
-              onSubmit={submit}
+              totalUsage={totalUsage}
+              onSubmit={handleSubmit}
               onRetry={retry}
               onNavigate={inspector.openFile}
               onBackToDashboard={view === 'chat' ? showDashboard : undefined}

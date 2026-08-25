@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import type { RepoSymbol } from './repoqa-repos';
 import { parseJavaFile } from './repoqa-parser';
 import {
+  buildCallIndex,
+  CallResolver,
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
   resolveCallChain
@@ -305,6 +307,68 @@ public class AlipayGateway implements PaymentGateway {
     expect(trace.some((hop) => hop.break)).toBe(false);
     expect(trace.map((hop) => hop.method)).toEqual(['checkout', 'pay']);
     expect(trace[1].file).toBe('src/main/java/com/demo/AlipayGateway.java');
+  });
+
+  it('resolves a Mapper interface with no Java impl to its XML SQL node', () => {
+    const symbols: RepoSymbol[] = [
+      {
+        repoId: 'r',
+        kind: 'method',
+        name: 'findOrders',
+        filePath: 'src/main/java/com/demo/OrderService.java',
+        lineStart: 4,
+        lineEnd: 6,
+        parentType: 'OrderService',
+        calls: [
+          {
+            file: 'src/main/java/com/demo/OrderService.java',
+            method: 'findAll',
+            line: 5,
+            receiver: 'orderMapper',
+            receiverType: 'OrderMapper'
+          }
+        ]
+      },
+      {
+        repoId: 'r',
+        kind: 'interface',
+        name: 'OrderMapper',
+        filePath: 'src/main/java/com/demo/OrderMapper.java',
+        lineStart: 1,
+        lineEnd: 3
+      },
+      {
+        repoId: 'r',
+        kind: 'mapper',
+        name: 'OrderMapper',
+        filePath: 'src/main/resources/mapper/OrderMapper.xml',
+        lineStart: 1,
+        lineEnd: 5,
+        displayPath: 'com.demo.OrderMapper'
+      },
+      {
+        repoId: 'r',
+        kind: 'sql',
+        name: 'findAll',
+        parentType: 'OrderMapper',
+        filePath: 'src/main/resources/mapper/OrderMapper.xml',
+        lineStart: 2,
+        lineEnd: 4,
+        displayPath: 'com.demo.OrderMapper#findAll'
+      }
+    ];
+
+    const start = symbols[0];
+    const trace = resolveCallChain(symbols, start);
+
+    expect(trace.some((hop) => hop.break)).toBe(false);
+    expect(trace.map((hop) => hop.method)).toEqual(['findOrders', 'findAll']);
+    expect(trace[1]).toMatchObject({
+      file: 'src/main/resources/mapper/OrderMapper.xml',
+      method: 'findAll',
+      line: 2,
+      callLine: 5
+    });
   });
 
   it('marks interface multi-implementation as a Static Analysis Break: Dynamic/RPC Dispatch', async () => {
@@ -793,6 +857,39 @@ describe('resolveCallChain — legacy format, cycles and depth', () => {
       'm2',
       'm3',
       'm4'
+    ]);
+  });
+});
+
+describe('CallResolver reverse callers (Sprint 1)', () => {
+  it('returns deterministic who-uses callers for a target method', async () => {
+    const symbols = await parseTree(SAMPLE_JAVA);
+    const findAll = symbols.find((s) => s.name === 'findAll')!;
+    const callers = new CallResolver(symbols).reverseCallers(findAll);
+
+    expect(callers).toContainEqual(
+      expect.objectContaining({
+        file: 'src/main/java/com/demo/OrderService.java',
+        method: 'findOrders'
+      })
+    );
+    expect(callers).toHaveLength(1);
+  });
+
+  it('reuses a prebuilt call index for repeated resolution', async () => {
+    const symbols = await parseTree(SAMPLE_JAVA);
+    const index = buildCallIndex(symbols);
+    const start = symbols.find((s) => s.name === 'listOrders')!;
+    const findAll = symbols.find((s) => s.name === 'findAll')!;
+
+    const first = resolveCallChain(symbols, start, 4, index);
+    const second = resolveCallChain(symbols, start, 4, index);
+    expect(first.map((hop) => hop.method)).toEqual(['listOrders', 'findOrders', 'findAll']);
+    expect(second).toEqual(first);
+
+    const resolver = new CallResolver(symbols, index);
+    expect(resolver.reverseCallers(findAll).map((caller) => caller.method)).toEqual([
+      'findOrders'
     ]);
   });
 });

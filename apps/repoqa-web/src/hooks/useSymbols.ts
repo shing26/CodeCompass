@@ -66,8 +66,16 @@ export function buildSymbolTree(symbols: RepoSymbol[]): Array<{
   const tree: Array<{ file: string; types: Array<{ symbol: RepoSymbol; members: RepoSymbol[] }> }> =
     [];
   for (const [file, list] of byFile) {
-    const types = list.filter((s) => s.kind === 'class' || s.kind === 'interface');
-    const members = list.filter((s) => s.kind === 'method' || s.kind === 'field' || s.kind === 'route');
+    const types = list.filter(
+      (s) => s.kind === 'class' || s.kind === 'interface' || s.kind === 'mapper'
+    );
+    const members = list.filter(
+      (s) =>
+        s.kind === 'method' ||
+        s.kind === 'field' ||
+        s.kind === 'route' ||
+        s.kind === 'sql'
+    );
     const typeNodes = types.map((typeSymbol) => ({
       symbol: typeSymbol,
       members: members.filter(
