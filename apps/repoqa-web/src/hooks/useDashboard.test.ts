@@ -29,7 +29,7 @@ const dashboard: RepoDashboard = {
     services: 1,
     repositories: 1,
     advices: 1,
-    classes: 2,
+    plainClasses: 2,
     interfaces: 1,
     methods: 4,
     fields: 2,

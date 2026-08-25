@@ -9,8 +9,14 @@ import { Inspector, type InspectorProps } from './Inspector';
 const editorProbe = vi.hoisted(() => {
   const collection = { clear: vi.fn(), dispose: vi.fn() };
   let currentPath = '';
+  let simulateDelay = false;
+  const modelListeners: Array<() => void> = [];
   return {
     revealLineInCenter: vi.fn(),
+    onDidChangeModel: vi.fn((fn: () => void) => {
+      modelListeners.push(fn);
+      return { dispose: vi.fn() };
+    }),
     getModel: vi.fn(() => ({
       uri: { path: currentPath },
       getLineMaxColumn: vi.fn(() => 120)
@@ -18,13 +24,22 @@ const editorProbe = vi.hoisted(() => {
     createDecorationsCollection: vi.fn(() => collection),
     lastCollection: () => collection,
     setPath: (p: string) => {
-      currentPath = p;
+      if (!simulateDelay) currentPath = p;
+    },
+    setDelayed: (v: boolean) => {
+      simulateDelay = v;
+    },
+    emitModelChange: () => {
+      for (const listener of [...modelListeners]) listener();
     },
     clearAll: () => {
       currentPath = '';
+      simulateDelay = false;
+      modelListeners.length = 0;
       editorProbe.revealLineInCenter.mockClear();
       editorProbe.getModel.mockClear();
       editorProbe.createDecorationsCollection.mockClear();
+      editorProbe.onDidChangeModel.mockClear();
       collection.clear.mockClear();
       collection.dispose.mockClear();
     }
@@ -176,6 +191,70 @@ describe('Inspector (ticket 05)', () => {
       vi.advanceTimersByTime(0);
     });
     expect(editorProbe.revealLineInCenter).toHaveBeenCalledWith(99);
+  });
+
+  it('Bug-R2-03: delayed Monaco model swap still glows once the model changes', () => {
+    vi.useFakeTimers();
+    editorProbe.setDelayed(true);
+    render(
+      <Inspector
+        {...baseProps({ file: 'B.java', text: 'more', glow: { line: 99 } })}
+      />
+    );
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(editorProbe.revealLineInCenter).not.toHaveBeenCalled();
+
+    editorProbe.setDelayed(false);
+    editorProbe.setPath('B.java');
+    act(() => {
+      editorProbe.emitModelChange();
+    });
+    expect(editorProbe.revealLineInCenter).toHaveBeenCalledWith(99);
+    expect(editorProbe.createDecorationsCollection).toHaveBeenCalledTimes(1);
+  });
+
+  it('Bug-R2-03: matches Monaco model paths that carry a leading slash', () => {
+    vi.useFakeTimers();
+    editorProbe.setDelayed(true);
+    render(
+      <Inspector
+        {...baseProps({ file: 'B.java', text: 'more', glow: { line: 99 } })}
+      />
+    );
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(editorProbe.revealLineInCenter).not.toHaveBeenCalled();
+
+    editorProbe.setDelayed(false);
+    editorProbe.setPath('/B.java');
+    act(() => {
+      editorProbe.emitModelChange();
+    });
+    expect(editorProbe.revealLineInCenter).toHaveBeenCalledWith(99);
+    expect(editorProbe.createDecorationsCollection).toHaveBeenCalledTimes(1);
+  });
+
+  it('Bug-R2-03: bounded timer still glows when the model path never matches', () => {
+    vi.useFakeTimers();
+    editorProbe.setDelayed(true);
+    render(
+      <Inspector
+        {...baseProps({ file: 'B.java', text: 'more', glow: { line: 99 } })}
+      />
+    );
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+    expect(editorProbe.revealLineInCenter).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(editorProbe.revealLineInCenter).toHaveBeenCalledWith(99);
+    expect(editorProbe.createDecorationsCollection).toHaveBeenCalledTimes(1);
   });
 
   it('routes back/forward clicks and disables buttons by stack position', () => {

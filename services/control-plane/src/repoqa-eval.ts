@@ -118,7 +118,12 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
     fixture: index < 6 ? 'repo-a' : index < 11 ? 'repo-b' : 'repo-c',
     mode: 'config' as const,
     question: index < 6 ? 'spring datasource password' : index < 11 ? 'order datasource url' : 'app name',
-    expected: index < 6 ? ['spring', 'password'] : index < 11 ? ['order', 'url'] : ['app.name']
+    expected:
+      index < 6
+        ? ['spring.datasource.password']
+        : index < 11
+          ? ['order.datasource.url']
+          : ['app.name']
   })),
   ...Array.from({ length: 15 }, (_, index) => ({
     id: `architecture-${index + 1}`,

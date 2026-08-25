@@ -19,6 +19,7 @@ import {
 import { buildTours } from './repoqa-tours';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-export';
+import { previewRepo } from './repoqa-scan';
 
 export interface HttpDeps {
   repos: Repos;
@@ -241,7 +242,10 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     const symbols = deps.repoqa.listSymbols(repo.id);
     const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols });
     const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
-    res.json({ tours: type === '' ? tours : tours.filter((tour) => tour.id === type) });
+    const selected = type === '' ? tours : tours.filter((tour) => tour.id === type);
+    // Round 2 (Vibe): a 0-step tour is not playable; keep the API and the UI
+    // on the same data contract by filtering empty tours server-side too.
+    res.json({ tours: selected.filter((tour) => tour.steps.length > 0) });
   });
 
   // Issue 12: zero-prompt dashboard aggregation. Config values are never
@@ -473,6 +477,70 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     }
   });
 
+  // Round 2 B4: read-only pre-import preview. The frontend calls this while
+  // the user types a local path so they can see exactly what will be indexed
+  // (and which ignored dirs will be skipped) before committing to an import.
+  app.post('/api/repos/preview', async (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { localPath?: unknown };
+      const localPath =
+        typeof body.localPath === 'string' ? body.localPath.trim() : '';
+      if (!localPath) {
+        res.status(400).json({ error: 'localPath is required' });
+        return;
+      }
+      const stats = await previewRepo(localPath);
+      res.json({ preview: { path: localPath, ...stats } });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Personal-use lifecycle: remove the index from the catalog. Source files
+  // and local clones are intentionally left on disk — the user can re-import
+  // the same path later.
+  app.delete('/api/repos/:id', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    if (repo.status === 'indexing') {
+      res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
+      return;
+    }
+    deps.repoqa.deleteRepo(repo.id);
+    res.status(204).send();
+  });
+
+  // Personal-use lifecycle: rebuild the index from the stored local path
+  // without opening the import dialog. Returns 202; the catalog poll follows
+  // indexing → ready/error like a fresh import.
+  app.post('/api/repos/:id/reindex', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    if (repo.status === 'indexing') {
+      res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
+      return;
+    }
+    deps.repoqa.updateRepoStatus(repo.id, 'indexing');
+    deps.worker
+      .indexRepo({
+        localPath: repo.localPath,
+        branch: repo.branch,
+        name: repo.name
+      })
+      .catch(() => {
+        // indexRepo never rejects — failures are recorded on the repo row.
+      });
+    res.status(202).json({ repo: deps.repoqa.getRepo(repo.id)! });
+  });
+
   // Issue 19: remote repo ingestion — validated shallow clone, then async
   // indexing. The clone runs synchronously (frontend shows a "cloning" phase);
   // the index runs fire-and-forget so the frontend can poll the repo status
@@ -577,6 +645,12 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     } catch {
       res.status(404).json({ error: 'File not found' });
     }
+  });
+
+  // Bug-R2-05: unknown /api routes must answer JSON, never Express's default
+  // HTML 404 (which also breaks JSON-only API clients).
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'not found' });
   });
 
   // Issue 16: single-process production hosting. Mounted after every API/WS

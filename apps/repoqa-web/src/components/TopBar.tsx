@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Repo } from '../types';
+import type { Repo, RepoPreview } from '../types';
 import { StatusStepper } from './StatusStepper';
 import { ImportRepoModal } from './ImportRepoModal';
 
@@ -11,10 +11,16 @@ interface TopBarProps {
   onSelectRepo: (id: string) => void;
   /** Issue 19: local ingestion — name + local path (double-tab import dialog). */
   onImportLocal: (name: string, localPath: string) => Promise<void>;
+  /** Round 2 B4: read-only pre-import preview for the local-path tab. */
+  onPreviewLocal: (localPath: string) => Promise<RepoPreview>;
   /** Issue 19: remote ingestion — clone URL + optional branch. */
   onCloneRemote: (url: string, branch?: string) => Promise<Repo>;
   /** Issue 14: fetch the ONBOARDING.md handover doc and trigger the download. */
   onExport: () => Promise<void>;
+  /** Personal-use lifecycle: rebuild the selected repo's index. */
+  onReindex: (repo: Repo) => void;
+  /** Personal-use lifecycle: remove the selected repo's index (source kept). */
+  onDelete: (repo: Repo) => void;
   /** Bug-04: hamburger toggle for the mobile sidebar drawer. */
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
@@ -35,8 +41,11 @@ export function TopBar({
   error,
   onSelectRepo,
   onImportLocal,
+  onPreviewLocal,
   onCloneRemote,
   onExport,
+  onReindex,
+  onDelete,
   onToggleSidebar,
   sidebarOpen,
   importingRepo
@@ -117,6 +126,28 @@ export function TopBar({
             )}
           </button>
         )}
+        {currentRepo && (
+          <button
+            type="button"
+            data-testid="reindex-repo"
+            onClick={() => onReindex(currentRepo)}
+            disabled={currentRepo.status === 'indexing'}
+            className="h-8 shrink-0 rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            重新索引
+          </button>
+        )}
+        {currentRepo && (
+          <button
+            type="button"
+            data-testid="delete-repo"
+            onClick={() => onDelete(currentRepo)}
+            disabled={currentRepo.status === 'indexing'}
+            className="h-8 shrink-0 rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:border-red-400 hover:text-red-600 disabled:opacity-50"
+          >
+            删除
+          </button>
+        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
@@ -139,6 +170,7 @@ export function TopBar({
           open
           onClose={() => setShowImport(false)}
           onImportLocal={onImportLocal}
+          onPreviewLocal={onPreviewLocal}
           onCloneRemote={onCloneRemote}
           repos={repos}
           importingRepo={importingRepo}

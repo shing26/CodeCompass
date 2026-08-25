@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isIgnoredDir, scanRepo } from './repoqa-scan';
+import { isIgnoredDir, previewRepo, scanRepo } from './repoqa-scan';
 
 async function makeTree(root: string, dirs: string[]): Promise<void> {
   for (const dir of dirs) {
@@ -24,8 +24,12 @@ describe('isIgnoredDir', () => {
       '.gradle',
       '.mvn',
       '.vscode',
+      '.scratch',
+      '.penguin',
+      '.tmp',
       'coverage',
-      '__pycache__'
+      '__pycache__',
+      'test-results'
     ]) {
       expect(isIgnoredDir(name)).toBe(true);
     }
@@ -47,7 +51,15 @@ describe('isIgnoredDir', () => {
 describe('scanRepo exclusion', () => {
   it('skips nested build/config directories when counting files', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-scan-'));
-    await makeTree(root, ['target/classes', 'build/libs', '.idea', 'node_modules/dep']);
+    await makeTree(root, [
+      'target/classes',
+      'build/libs',
+      '.idea',
+      'node_modules/dep',
+      '.scratch/issue22-demo',
+      '.penguin/cache',
+      'test-results/playwright'
+    ]);
     await fs.mkdir(path.join(root, 'src', 'main', 'java'), { recursive: true });
     await fs.writeFile(path.join(root, 'src', 'main', 'java', 'App.java'), 'class App {}\n');
 
@@ -66,5 +78,33 @@ describe('scanRepo exclusion', () => {
     const stats = await scanRepo(root);
     expect(stats.fileCount).toBe(1);
     expect(stats.files.some((f) => f.includes('App.java'))).toBe(true);
+  });
+});
+
+describe('previewRepo (Round 2 B4)', () => {
+  it('counts indexable files, Java files, and ignored dirs before import', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-'));
+    await makeTree(root, [
+      '.git/objects',
+      'node_modules/dep',
+      '.scratch/demo',
+      'target/classes'
+    ]);
+    await fs.mkdir(path.join(root, 'src', 'main', 'java'), { recursive: true });
+    await fs.writeFile(path.join(root, 'src', 'main', 'java', 'App.java'), 'class App {}\n');
+    await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
+
+    const preview = await previewRepo(root);
+    expect(preview.fileCount).toBe(2);
+    expect(preview.javaFileCount).toBe(1);
+    expect(preview.skippedDirCount).toBe(4);
+    expect(preview.skippedDirs).toEqual(['.git', '.scratch', 'node_modules', 'target']);
+  });
+
+  it('rejects paths that are not a directory', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-missing-'));
+    await expect(previewRepo(path.join(root, 'missing'))).rejects.toThrow(
+      /not a directory/
+    );
   });
 });

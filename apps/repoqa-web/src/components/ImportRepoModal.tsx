@@ -1,17 +1,20 @@
 import {
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
   type InputHTMLAttributes
 } from 'react';
-import type { Repo } from '../types';
+import type { Repo, RepoPreview } from '../types';
 
 interface ImportRepoModalProps {
   /** Issue 19: standalone import dialog (was inline in TopBar). */
   open: boolean;
   onClose: () => void;
   onImportLocal: (name: string, localPath: string) => Promise<void>;
+  /** Round 2 B4: read-only preview of what a local import will index. */
+  onPreviewLocal: (localPath: string) => Promise<RepoPreview>;
   /** Resolves with the newly created repo once the server-side clone landed
    * (202); indexing continues in the background until the catalog says ready. */
   onCloneRemote: (url: string, branch?: string) => Promise<Repo>;
@@ -37,6 +40,7 @@ export function ImportRepoModal({
   open,
   onClose,
   onImportLocal,
+  onPreviewLocal,
   onCloneRemote,
   repos,
   importingRepo
@@ -46,12 +50,17 @@ export function ImportRepoModal({
   const [localPath, setLocalPath] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<RepoPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [folderHint, setFolderHint] = useState<string | null>(null);
   const [url, setUrl] = useState('');
   const [branch, setBranch] = useState('');
   const [remotePhase, setRemotePhase] = useState<RemotePhase>('idle');
   const [remoteError, setRemoteError] = useState<string | null>(null);
   const [clonedRepoId, setClonedRepoId] = useState<string | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewSeq = useRef(0);
 
   // Bug-11: standard dialog behavior — Escape closes, and the listener lives
   // only while the dialog is mounted (never leaks to other components).
@@ -68,12 +77,52 @@ export function ImportRepoModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  useEffect(
+    () => () => {
+      if (previewTimer.current) clearTimeout(previewTimer.current);
+      previewSeq.current += 1;
+    },
+    []
+  );
+
+  const runPreview = (rawPath: string) => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    const path = rawPath.trim();
+    const seq = ++previewSeq.current;
+    if (!path) {
+      setPreview(null);
+      setPreviewLoading(false);
+      setPreviewError(null);
+      return;
+    }
+    setPreview(null);
+    setPreviewError(null);
+    setPreviewLoading(true);
+    previewTimer.current = setTimeout(async () => {
+      try {
+        const result = await onPreviewLocal(path);
+        if (seq !== previewSeq.current) return;
+        setPreview(result);
+      } catch (error) {
+        if (seq !== previewSeq.current) return;
+        setPreviewError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (seq === previewSeq.current) setPreviewLoading(false);
+      }
+    }, 350);
+  };
+
   const reset = () => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewSeq.current += 1;
     setTab('local');
     setName('');
     setLocalPath('');
     setLocalBusy(false);
     setLocalError(null);
+    setPreview(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
     setFolderHint(null);
     setUrl('');
     setBranch('');
@@ -224,7 +273,10 @@ export function ImportRepoModal({
               <input
                 data-testid="import-path"
                 value={localPath}
-                onChange={(e) => setLocalPath(e.target.value)}
+                onChange={(e) => {
+                  setLocalPath(e.target.value);
+                  runPreview(e.target.value);
+                }}
                 placeholder="C:/projects/spring-petclinic"
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-accent"
               />
@@ -243,6 +295,41 @@ export function ImportRepoModal({
             {folderHint && (
               <p data-testid="import-folder-hint" className="mb-2 text-xs text-amber-600">
                 {folderHint}
+              </p>
+            )}
+            {previewLoading && (
+              <p
+                data-testid="import-preview-loading"
+                className="mb-2 text-xs text-slate-400"
+              >
+                正在扫描目录…
+              </p>
+            )}
+            {preview && !previewLoading && (
+              <div
+                data-testid="import-preview"
+                className="mb-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-600"
+              >
+                将索引 <span className="font-semibold text-slate-800">{preview.fileCount}</span> 个文件
+                {preview.javaFileCount > 0
+                  ? `（含 ${preview.javaFileCount} 个 Java 文件）`
+                  : ''}
+                ，跳过{' '}
+                <span className="font-semibold text-slate-800">
+                  {preview.skippedDirCount}
+                </span>{' '}
+                个目录
+                {preview.skippedDirs.length > 0
+                  ? `：${preview.skippedDirs.slice(0, 6).join(', ')}${preview.skippedDirs.length > 6 ? ' 等' : ''}`
+                  : ''}
+              </div>
+            )}
+            {previewError && (
+              <p
+                data-testid="import-preview-error"
+                className="mb-2 text-xs text-amber-600"
+              >
+                {previewError}
               </p>
             )}
             {localError && <p className="mb-2 text-xs text-red-600">{localError}</p>}

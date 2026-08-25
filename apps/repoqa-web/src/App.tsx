@@ -43,7 +43,15 @@ export function App({ client: clientProp }: AppProps) {
     initialRepoId
   );
   const repoId = currentRepo?.id ?? null;
-  const { messages, streaming, reconnecting, error: chatError, submit, retry } = useChat(client, repoId);
+  const {
+    messages,
+    streaming,
+    reconnecting,
+    recovered,
+    error: chatError,
+    submit,
+    retry
+  } = useChat(client, repoId);
   const { symbols, loading: symbolsLoading } = useSymbols(client, repoId);
   const inspector = useInspector(client, repoId);
   const { tours, loading: toursLoading, error: toursError, refresh: refreshTours } = useTours(client, repoId);
@@ -74,16 +82,17 @@ export function App({ client: clientProp }: AppProps) {
 
   const handleSelectRepo = (id: string) => {
     selectRepo(id);
-    // Persist the selection into the URL so browser refresh and
-    // back/forward restore the same repo instead of dropping back to the
-    // onboarding state (Bug-08). The catalog's initialRepoId deep-link logic
-    // then re-applies the same id on reload.
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.set('repo', id);
-      window.history.replaceState(null, '', url.toString());
-    } catch {
-      // history/URL unavailable (rare test env) — selection still works locally
+    // Bug-R2-02: pushState (not replaceState) so switching repos creates a
+    // history entry and browser back returns to the previous repo instead of
+    // escaping to about:blank. F5 still restores ?repo= via initialRepoId.
+    if (id !== currentRepo?.id) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('repo', id);
+        window.history.pushState(null, '', url.toString());
+      } catch {
+        // history/URL unavailable (rare test env) — selection still works locally
+      }
     }
     setActiveTour(null);
     setView('dashboard');
@@ -145,6 +154,32 @@ export function App({ client: clientProp }: AppProps) {
     downloadTextFile(`${currentRepo.name}-ONBOARDING.md`, markdown);
   };
 
+  const handleReindex = async (repo: Repo) => {
+    if (!window.confirm(`重新索引「${repo.name}」？现有索引会被重建。`)) return;
+    try {
+      await client.reindexRepo(repo.id);
+      await refresh();
+      selectRepo(repo.id);
+      setActiveTour(null);
+      setView('dashboard');
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDelete = async (repo: Repo) => {
+    if (!window.confirm(`删除「${repo.name}」的索引？源文件不会被删除。`)) return;
+    try {
+      await client.deleteRepo(repo.id);
+      await refresh();
+      selectRepo('');
+      setActiveTour(null);
+      setView('dashboard');
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-x-hidden bg-white text-slate-900">
       <TopBar
@@ -154,8 +189,11 @@ export function App({ client: clientProp }: AppProps) {
         error={error}
         onSelectRepo={handleSelectRepo}
         onImportLocal={handleImportLocal}
+        onPreviewLocal={(path) => client.previewRepo(path)}
         onCloneRemote={handleCloneRemote}
         onExport={handleExport}
+        onReindex={handleReindex}
+        onDelete={handleDelete}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
@@ -212,6 +250,7 @@ export function App({ client: clientProp }: AppProps) {
               messages={messages}
               streaming={streaming}
               reconnecting={reconnecting}
+              recovered={recovered}
               error={chatError}
               onSubmit={submit}
               onRetry={retry}

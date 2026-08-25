@@ -113,8 +113,9 @@ describe('Issue 16 static hosting + SPA fallback', () => {
 
     const missingApi = await fetch(`${ctx.baseUrl}/api/nonexistent`);
     expect(missingApi.status).toBe(404);
-    const missingText = await missingApi.text();
-    expect(missingText).not.toContain('CC-STATIC');
+    expect((missingApi.headers.get('content-type') ?? '').includes('application/json')).toBe(true);
+    const missingBody = (await missingApi.json()) as { error: string };
+    expect(missingBody.error).toBe('not found');
 
     await ctx.close();
   });

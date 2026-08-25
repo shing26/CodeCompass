@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3';
 import { WebSocketServer, WebSocket } from 'ws';
 import type express from 'express';
 import { loadConfig, type Config } from './config';
-import { openDb, ensureDefaultWorkspace } from './db';
+import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { Repos } from './repos';
 import { Orchestrator } from './orchestrator';
 import { HarnessManager } from './harness-manager';
@@ -75,6 +75,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     staticDir: options.staticDir ?? loaded.staticDir ?? resolveWebDist() ?? undefined
   };
 
+  await backupDb(config.dbPath);
   const db = openDb(config.dbPath);
   ensureDefaultWorkspace(db, config.dataDir);
 
@@ -94,7 +95,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     repoqa,
     worker,
     eventBus,
-    version: '0.2.0-beta',
+    version: '0.3.0-beta',
     dataDir: config.dataDir,
     port: config.port,
     exportDir: path.join(config.dataDir, 'exports'),

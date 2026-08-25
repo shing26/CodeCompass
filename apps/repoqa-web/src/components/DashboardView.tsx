@@ -19,7 +19,7 @@ const SCALE_ORDER: Array<{ key: keyof RepoDashboard['scale']; label: string }> =
   { key: 'services', label: 'Services' },
   { key: 'repositories', label: 'Repositories' },
   { key: 'advices', label: 'Advices' },
-  { key: 'classes', label: 'Classes' },
+  { key: 'plainClasses', label: 'Plain Classes' },
   { key: 'interfaces', label: 'Interfaces' },
   { key: 'methods', label: 'Methods' },
   { key: 'fields', label: 'Fields' },
@@ -118,30 +118,36 @@ export function DashboardView({
             Tech Stack
           </h3>
           <div data-testid="tech-stack" className="space-y-3">
-            {dashboard.techStack.summary.map((group) => (
-              <div key={group.category} data-testid="tech-category">
-                <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-600">
-                  <span>{group.label}</span>
-                  <span className="rounded bg-slate-100 px-1.5 text-slate-400">{group.count}</span>
-                </div>
-                {group.items.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {group.items.map((item, idx) => (
-                      <button
-                        type="button"
-                        key={`${item.name}-${idx}`}
-                        data-testid="tech-chip"
-                        onClick={() => onNavigate(item.filePath, item.lineStart ?? 1)}
-                        className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700 hover:border-accent/40 hover:text-accent"
-                        title={item.filePath}
-                      >
-                        {item.name}
-                      </button>
-                    ))}
+            {dashboard.techStack.summary.length === 0 ? (
+              <p data-testid="tech-stack-empty" className="text-xs text-slate-400">
+                未检测到构建元数据，仅展示源码分析结果
+              </p>
+            ) : (
+              dashboard.techStack.summary.map((group) => (
+                <div key={group.category} data-testid="tech-category">
+                  <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-600">
+                    <span>{group.label}</span>
+                    <span className="rounded bg-slate-100 px-1.5 text-slate-400">{group.count}</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {group.items.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.items.map((item, idx) => (
+                        <button
+                          type="button"
+                          key={`${item.name}-${idx}`}
+                          data-testid="tech-chip"
+                          onClick={() => onNavigate(item.filePath, item.lineStart ?? 1)}
+                          className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700 hover:border-accent/40 hover:text-accent"
+                          title={item.filePath}
+                        >
+                          {item.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </section>
 

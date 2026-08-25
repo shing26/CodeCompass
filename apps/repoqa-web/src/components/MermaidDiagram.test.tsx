@@ -71,6 +71,25 @@ describe('MermaidDiagram', () => {
     expect(onNavigate).toHaveBeenCalledWith('src/OwnerController.java', 42);
   });
 
+  it('Bug-R2-08: prevents the browser default code:// navigation', async () => {
+    const preventDefault = vi.spyOn(MouseEvent.prototype, 'preventDefault');
+    const onNavigate = vi.fn();
+    const code = [
+      'flowchart LR',
+      '  OwnerController --> OwnerRepository',
+      '  click OwnerController "code://src/OwnerController.java#42-60"'
+    ].join('\n');
+    const user = userEvent.setup();
+    render(<MermaidDiagram code={code} onNavigate={onNavigate} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    try {
+      await user.click(screen.getByText('OwnerController'));
+      expect(preventDefault).toHaveBeenCalled();
+    } finally {
+      preventDefault.mockRestore();
+    }
+  });
+
   it('does not navigate for a node without a binding', async () => {
     const onNavigate = vi.fn();
     const user = userEvent.setup();

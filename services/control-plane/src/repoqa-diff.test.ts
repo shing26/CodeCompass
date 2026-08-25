@@ -362,6 +362,14 @@ describe('Issue 22 report rendering', () => {
 
   it('renders markdown sections with the impact table', () => {
     const report = {
+      schemaVersion: 1,
+      summary: {
+        changedFiles: 2,
+        modifiedSymbols: 1,
+        affectedApis: 1,
+        configChanges: 1,
+        uncovered: 0
+      },
       repoPath: 'C:/repo',
       repoName: 'repo',
       base: 'base',
@@ -411,6 +419,14 @@ describe('Issue 22 analyzeDiff end-to-end', () => {
     async () => {
       const { root, base, head } = await makeFixtureRepo();
       const report = await analyzeDiff({ repoPath: root, base, head });
+      expect(report.schemaVersion).toBe(1);
+      expect(report.summary).toEqual({
+        changedFiles: report.changedFiles.length,
+        modifiedSymbols: report.modifiedSymbols.length,
+        affectedApis: report.affectedApis.length,
+        configChanges: report.configChanges.length,
+        uncovered: report.uncovered.length
+      });
 
       // 修改符号：head 侧 findAll/findById，base 侧删除的 findCached。
       const names = report.modifiedSymbols.map((entry) => entry.name).sort();
@@ -511,6 +527,22 @@ describe('Issue 22 codecompass diff CLI', () => {
     expect(parseArgs(['diff', '--output', 'html', 'a', 'b']).ok).toBe(false);
   });
 
+  it('parses pr-summary args with fail-on-impact', () => {
+    expect(
+      parseArgs(['pr-summary', '--fail-on-impact', '--output=json', 'main', 'HEAD', 'C:/repos/petclinic'])
+    ).toMatchObject({
+      ok: true,
+      args: {
+        command: 'pr-summary',
+        diffBase: 'main',
+        diffHead: 'HEAD',
+        targetPath: 'C:/repos/petclinic',
+        diffOutput: 'json',
+        failOnImpact: true
+      }
+    });
+  });
+
   it('rejects missing base/head with the usage message', async () => {
     await expect(runCli(['diff', 'only-base'], { log: () => undefined })).rejects.toThrow(
       /requires <base> and <head>/
@@ -545,12 +577,70 @@ describe('Issue 22 codecompass diff CLI', () => {
 
       const written = await fs.readFile(reportPath, 'utf8');
       const parsed = JSON.parse(written) as DiffReport;
+      expect(parsed.schemaVersion).toBe(1);
+      expect(parsed.summary.affectedApis).toBe(2);
+      expect(parsed.summary.configChanges).toBeGreaterThan(0);
       expect(parsed.affectedApis.map((api) => api.routeMethod).sort()).toEqual([
         'getOrder',
         'listOrders'
       ]);
       expect(parsed.baseSha).toBeDefined();
       expect(parsed.headSha).toBeDefined();
+    },
+    120_000
+  );
+
+  it(
+    'pr-summary emits JSON and exits 2 with --fail-on-impact when impact is detected',
+    async () => {
+      const { root, base, head } = await makeFixtureRepo();
+      const lines: string[] = [];
+      const result = await runCli(
+        ['pr-summary', '--fail-on-impact', '--output=json', base, head, root],
+        { log: (line) => lines.push(line) }
+      );
+      expect(result.server).toBeNull();
+      expect(result.exitCode).toBe(2);
+      const parsed = JSON.parse(lines.join('\n')) as DiffReport;
+      expect(parsed.schemaVersion).toBe(1);
+      expect(parsed.affectedApis.length).toBeGreaterThan(0);
+    },
+    120_000
+  );
+
+  it(
+    'pr-summary exits 0 with --fail-on-impact when the head only touches docs',
+    async () => {
+      const { root, base, head } = await makeFixtureRepo();
+      const docsHead = await commitMore(root, { 'README.md': '# docs only\n' }, 'docs');
+      const lines: string[] = [];
+      const result = await runCli(
+        ['pr-summary', '--fail-on-impact', head, docsHead, root],
+        { log: (line) => lines.push(line) }
+      );
+      expect(result.exitCode).toBe(0);
+      expect(lines.join('\n')).toContain('# PR 架构影响面分析');
+    },
+    120_000
+  );
+
+  it(
+    'CI gate keeps pr-summary and diff JSON aligned on the same repo',
+    async () => {
+      const { root, base, head } = await makeFixtureRepo();
+      const collectJson = async (command: string): Promise<DiffReport> => {
+        const lines: string[] = [];
+        await runCli([command, '--output=json', base, head, root], {
+          log: (line) => lines.push(line)
+        });
+        return JSON.parse(lines.join('\n')) as DiffReport;
+      };
+      const diff = await collectJson('diff');
+      const summary = await collectJson('pr-summary');
+      expect(summary.affectedApis).toEqual(diff.affectedApis);
+      expect(summary.configChanges).toEqual(diff.configChanges);
+      expect(summary.modifiedSymbols).toEqual(diff.modifiedSymbols);
+      expect(summary.schemaVersion).toBe(diff.schemaVersion);
     },
     120_000
   );

@@ -288,6 +288,97 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
   });
 });
 
+describe('RepoQAClient pre-import preview (Round 2 B4)', () => {
+  it('posts the local path and unwraps the preview payload', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        preview: {
+          path: 'C:/petclinic',
+          fileCount: 47,
+          javaFileCount: 9,
+          skippedDirCount: 2,
+          skippedDirs: ['.git', 'node_modules']
+        }
+      })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.previewRepo('C:/petclinic')).resolves.toMatchObject({
+      fileCount: 47,
+      skippedDirCount: 2
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://api/api/repos/preview',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ localPath: 'C:/petclinic' })
+      })
+    );
+  });
+
+  it('surfaces backend errors on non-ok responses', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'local path is not a directory' })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.previewRepo('C:/nope')).rejects.toThrow(
+      'previewRepo failed: 400: local path is not a directory'
+    );
+  });
+});
+
+describe('RepoQAClient personal lifecycle', () => {
+  it('deletes a repo index and reindexes an existing repo', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 204 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ repo: { id: 'repo-1' } })
+      });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+
+    await expect(client.deleteRepo('r 1')).resolves.toBeUndefined();
+    await expect(client.reindexRepo('r 1')).resolves.toEqual({ id: 'repo-1' });
+
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      'http://api/api/repos/r%201',
+      { method: 'DELETE' }
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      'http://api/api/repos/r%201/reindex',
+      { method: 'POST' }
+    );
+  });
+
+  it('surfaces backend errors for delete and reindex', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: 'repo is still indexing' })
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'Repo not found' })
+      });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+
+    await expect(client.deleteRepo('repo-1')).rejects.toThrow(
+      'deleteRepo failed: 409: repo is still indexing'
+    );
+    await expect(client.reindexRepo('missing')).rejects.toThrow(
+      'reindexRepo failed: 404: Repo not found'
+    );
+  });
+});
+
 describe('RepoQAClient onboarding export (issue 14)', () => {
   it('returns the ONBOARDING.md text and URL-encodes the repo id', async () => {
     const fetcher = vi.fn().mockResolvedValue({

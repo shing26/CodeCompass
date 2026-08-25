@@ -72,6 +72,14 @@ export interface ImportRepoInput {
   localPath: string;
 }
 
+export interface RepoPreview {
+  path: string;
+  fileCount: number;
+  javaFileCount: number;
+  skippedDirCount: number;
+  skippedDirs: string[];
+}
+
 /* ------------------------------------------------------------------ */
 /* Issue 12/13: zero-prompt dashboard + guided tours                    */
 /* ------------------------------------------------------------------ */
@@ -140,7 +148,7 @@ export interface RepoDashboard {
     services: number;
     repositories: number;
     advices: number;
-    classes: number;
+    plainClasses: number;
     interfaces: number;
     methods: number;
     fields: number;

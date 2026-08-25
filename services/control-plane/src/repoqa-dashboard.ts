@@ -74,7 +74,7 @@ export interface RepoDashboard {
     services: number;
     repositories: number;
     advices: number;
-    classes: number;
+    plainClasses: number;
     interfaces: number;
     methods: number;
     fields: number;
@@ -295,36 +295,58 @@ function buildTechStack(symbols: RepoSymbol[]): RepoDashboard['techStack'] {
     const label = CATEGORY_RULES.find((rule) => rule.category === category)!.label;
     summary.push({ category, label, count: grouped.length, items: grouped });
   }
+  const hasJavaSource = symbols.some((symbol) => symbol.filePath.endsWith('.java'));
+  if (summary.length === 0 && hasJavaSource) {
+    const firstJava = symbols.find((symbol) => symbol.filePath.endsWith('.java'))!;
+    summary.push({
+      category: 'other',
+      label: 'Java (Source Only)',
+      count: 1,
+      items: [
+        {
+          name: 'Java (Source Only)',
+          category: 'other',
+          filePath: firstJava.filePath,
+          lineStart: firstJava.lineStart
+        }
+      ]
+    });
+    return { summary, highlights: ['Java (Source Only)'] };
+  }
   return { summary, highlights: highlightLabels(items) };
 }
 
 function buildConfigTopology(symbols: RepoSymbol[]): ConfigTopologyItem[] {
-  return symbols
+  const configSymbols = symbols
     .filter((symbol) => symbol.kind === 'config' && !symbol.name.includes(':'))
     .sort((a, b) =>
       byLocation(a, b) !== 0 ? byLocation(a, b) : a.name.localeCompare(b.name)
-    )
-    .map((symbol) => ({
+    );
+  const allKeys = configSymbols.map((symbol) => symbol.name);
+  const visible = configSymbols.filter(
+    (symbol) => !allKeys.some((other) => other !== symbol.name && other.startsWith(`${symbol.name}.`))
+  );
+  return visible.map((symbol) => ({
       key: symbol.name,
       filePath: symbol.filePath,
       lineStart: symbol.lineStart,
       group: classifyConfigKey(symbol.name),
       sensitive: isSensitiveConfigKey(symbol.name)
-    }));
+  }));
 }
 
-function buildScale(symbols: RepoSymbol[]): RepoDashboard['scale'] {
+function buildScale(symbols: RepoSymbol[], configKeys?: number): RepoDashboard['scale'] {
   const count = (kind: RepoSymbol['kind']) => symbols.filter((s) => s.kind === kind).length;
   return {
     routes: count('route'),
     services: count('service'),
     repositories: count('repository'),
     advices: count('advice'),
-    classes: count('class'),
+    plainClasses: count('class'),
     interfaces: count('interface'),
     methods: count('method'),
     fields: count('field'),
-    configKeys: count('config'),
+    configKeys: configKeys ?? count('config'),
     files: new Set(symbols.map((s) => s.filePath)).size
   };
 }
@@ -332,12 +354,13 @@ function buildScale(symbols: RepoSymbol[]): RepoDashboard['scale'] {
 export function buildDashboard(options: BuildDashboardOptions): RepoDashboard {
   const maxDepth = Math.max(1, Math.min(options.maxDepth ?? 5, 20));
   const topLimit = options.topLimit ?? 10;
+  const configTopology = buildConfigTopology(options.symbols);
   return {
     repoId: options.repoId,
     repoName: options.repoName,
     techStack: buildTechStack(options.symbols),
-    config: { topology: buildConfigTopology(options.symbols), maskedValues: true },
-    scale: buildScale(options.symbols),
+    config: { topology: configTopology, maskedValues: true },
+    scale: buildScale(options.symbols, configTopology.length),
     topApis: pickTopApis(options.symbols, maxDepth, topLimit)
   };
 }

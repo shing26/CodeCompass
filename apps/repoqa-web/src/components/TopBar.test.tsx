@@ -33,8 +33,17 @@ function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
     error: null,
     onSelectRepo: vi.fn(),
     onImportLocal: vi.fn(),
+    onPreviewLocal: vi.fn().mockResolvedValue({
+      path: 'C:/petclinic',
+      fileCount: 47,
+      javaFileCount: 9,
+      skippedDirCount: 2,
+      skippedDirs: ['.git', 'node_modules']
+    }),
     onCloneRemote: vi.fn().mockResolvedValue(readyRepo),
     onExport: vi.fn(),
+    onReindex: vi.fn(),
+    onDelete: vi.fn(),
     onToggleSidebar: vi.fn(),
     sidebarOpen: false,
     importingRepo: null,
@@ -129,5 +138,26 @@ describe('TopBar import dialog', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('import-dialog')).not.toBeInTheDocument()
     );
+  });
+
+  it('exposes reindex and delete actions for the selected repo', async () => {
+    const user = userEvent.setup();
+    const onReindex = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <TopBar
+        {...baseProps({
+          currentRepo: readyRepo,
+          onReindex,
+          onDelete
+        })}
+      />
+    );
+
+    await user.click(screen.getByTestId('reindex-repo'));
+    expect(onReindex).toHaveBeenCalledWith(readyRepo);
+
+    await user.click(screen.getByTestId('delete-repo'));
+    expect(onDelete).toHaveBeenCalledWith(readyRepo);
   });
 });

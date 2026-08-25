@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadConfig } from './config';
-import { openDb, ensureDefaultWorkspace } from './db';
+import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { EventBus } from './events';
 import type { Repo } from './repoqa-repos';
 import { RepoQARepos, type RepoSymbol } from './repoqa-repos';
@@ -13,6 +13,7 @@ import { resolveCallChain } from './repoqa-callchain';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildTours } from './repoqa-tours';
 import { matchConfigSymbols } from './repoqa-config';
+import { analyzeDiff } from './repoqa-diff';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -32,7 +33,7 @@ import { matchConfigSymbols } from './repoqa-config';
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.2.0-beta';
+export const MCP_SERVER_VERSION = '0.3.0-beta';
 
 /** Dependencies required to serve MCP tools (subset of the control-plane stack). */
 export interface McpDeps {
@@ -45,6 +46,9 @@ export interface McpToolHandlerArgs {
   repoId?: unknown;
   symbolOrMethod?: unknown;
   query?: unknown;
+  base?: unknown;
+  head?: unknown;
+  repoPath?: unknown;
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,6 +115,22 @@ export const MCP_TOOLS: McpToolMeta[] = [
         repoId: { type: 'string', description: 'Repo id or name' }
       },
       required: ['repoId']
+    }
+  },
+  {
+    name: 'codecompass_get_pr_impact',
+    description:
+      'Analyze a base→head PR in a local git repo and return the deterministic architecture impact: ' +
+      'changed Java symbols, affected @RestController APIs, config key changes, uncovered methods and Mermaid graph. ' +
+      'Reads git objects only; configuration values are never included.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoPath: { type: 'string', description: 'Local git repository directory to analyze' },
+        base: { type: 'string', description: 'Base git ref (branch, tag or commit)' },
+        head: { type: 'string', description: 'Head git ref (branch, tag or commit)' }
+      },
+      required: ['repoPath', 'base', 'head']
     }
   }
 ];
@@ -203,6 +223,16 @@ export function mcpGetTours(deps: McpDeps, args: McpToolHandlerArgs): Record<str
   return { tours: buildTours({ repoId: repo.id, repoName: repo.name, symbols }) } as unknown as Record<string, unknown>;
 }
 
+export async function mcpGetPrImpact(args: McpToolHandlerArgs): Promise<Record<string, unknown>> {
+  const repoPath = String(args.repoPath ?? '').trim();
+  const base = String(args.base ?? '').trim();
+  const head = String(args.head ?? '').trim();
+  if (!repoPath || !base || !head) {
+    throw new Error('repoPath, base and head are required');
+  }
+  return (await analyzeDiff({ repoPath, base, head })) as unknown as Record<string, unknown>;
+}
+
 /* ------------------------------------------------------------------ */
 /* MCP server (SDK)                                                    */
 /* ------------------------------------------------------------------ */
@@ -232,23 +262,24 @@ export function createMcpServer(deps: McpDeps): McpServer {
     { capabilities: { tools: {} } }
   );
 
-  const handlers: Record<string, (args: McpToolHandlerArgs) => unknown> = {
+  const handlers: Record<string, (args: McpToolHandlerArgs) => unknown | Promise<unknown>> = {
     codecompass_trace_call_chain: (args) => mcpTraceCallChain(deps, args),
     codecompass_get_dashboard: (args) => mcpGetDashboard(deps, args),
     codecompass_get_config_evidence: (args) => mcpGetConfigEvidence(deps, args),
-    codecompass_get_tours: (args) => mcpGetTours(deps, args)
+    codecompass_get_tours: (args) => mcpGetTours(deps, args),
+    codecompass_get_pr_impact: (args) => mcpGetPrImpact(args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a
   // thin helper that treats the zod shape as opaque so typecheck stays shallow.
   const registerPlain = (
     meta: McpToolMeta,
-    handler: (args: McpToolHandlerArgs) => unknown
+    handler: (args: McpToolHandlerArgs) => unknown | Promise<unknown>
   ) => {
     (server.registerTool as any)(
       meta.name,
       { description: meta.description, inputSchema: zodShapeFor(meta) },
-      (args: McpToolHandlerArgs) => textResult(handler(args))
+      async (args: McpToolHandlerArgs) => textResult(await handler(args))
     );
   };
 
@@ -291,6 +322,7 @@ export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<v
   if (options.dataDir) env.MHW_DATA_DIR = options.dataDir;
   const config = loadConfig(env);
 
+  await backupDb(config.dbPath);
   const db = openDb(config.dbPath);
   ensureDefaultWorkspace(db, config.dataDir);
   const repoqa = new RepoQARepos(db);

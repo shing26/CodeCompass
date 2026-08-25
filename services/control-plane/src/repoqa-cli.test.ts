@@ -24,7 +24,8 @@ describe('Issue 16 CLI arg parsing', () => {
         dataDir: undefined,
         noBrowser: false,
         help: false,
-        version: false
+        version: false,
+        failOnImpact: false
       }
     });
   });

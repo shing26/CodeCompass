@@ -27,6 +27,7 @@ function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]> = {}) {
       messages={[]}
       streaming={false}
       reconnecting={false}
+      recovered={false}
       error={null}
       onSubmit={() => {}}
       onRetry={() => {}}
@@ -61,5 +62,34 @@ describe('Canvas offline UX (Issue 18)', () => {
   it('does not show the hint before a repo is connected', () => {
     renderCanvas({ repo: null });
     expect(screen.queryByTestId('offline-hint')).not.toBeInTheDocument();
+  });
+
+  it('defaults free questions to the call-chain mode (Round 2)', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderCanvas({ onSubmit });
+    expect(screen.getByTestId('chat-mode-call-chain')).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    await user.type(screen.getByTestId('chat-input'), 'createOwner 的调用链');
+    await user.click(screen.getByTestId('chat-submit'));
+    expect(onSubmit).toHaveBeenCalledWith('createOwner 的调用链', 'call-chain');
+  });
+
+  it('switches free questions to the architecture mode (Round 2)', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    renderCanvas({ onSubmit });
+    await user.click(screen.getByTestId('chat-mode-architecture'));
+    expect(screen.getByTestId('chat-mode-architecture')).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    await user.type(screen.getByTestId('chat-input'), 'owner 相关架构');
+    await user.click(screen.getByTestId('chat-submit'));
+    expect(onSubmit).toHaveBeenCalledWith('owner 相关架构', 'architecture');
   });
 });

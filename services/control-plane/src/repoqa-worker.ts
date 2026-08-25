@@ -196,7 +196,25 @@ export class RepoQAWorker {
           : '';
 
       this.repoqa.saveFiles(repoId, localPath, stats.files);
-      const { symbols, skipped } = await this.parseRepo(repoId, localPath, stats.files);
+      const { symbols, skipped } = await this.parseRepo(
+        repoId,
+        localPath,
+        stats.files,
+        (parsed) => {
+          // Bug-R2-04: surface a live AST parsing count so large imports never
+          // look stuck on the scan phase. fileCount is transient here and is
+          // overwritten with the real total when the repo flips to ready.
+          this.repoqa.updateRepoStatus(repoId, 'indexing', parsed);
+          this.broadcast(taskId, {
+            type: 'repoqa.index.progress',
+            payload: {
+              repoId,
+              phase: 'parsing',
+              detail: `Parsing AST... ${parsed} files`
+            }
+          } as any);
+        }
+      );
       if (skipped.length > 0) {
         this.repoqa.recordEvent({
           repoId,
@@ -355,18 +373,25 @@ export class RepoQAWorker {
       return;
     }
 
-    const isCallChain = input.mode === 'call-chain';
+    const usesSymbolResolution =
+      input.mode === 'call-chain' ||
+      input.mode === 'architecture' ||
+      input.mode === undefined;
     let trace: RepoQaTraceHop[] | undefined = [];
     let candidateAnchors: RepoQaAnchor[] = [];
     let mermaid: string | undefined;
     let route: RepoSymbol | undefined;
+    let startFallback = false;
     let environmentKeyCount = 0;
     let environmentChunkCount = 0;
     let environmentEvidence: string[] = [];
 
-    if (isCallChain) {
-      const start = this.findStartSymbol(input.question, symbols, input.start);
+    if (usesSymbolResolution) {
+      const resolution = this.resolveStartSymbol(input.question, symbols, input.start);
+      const start = resolution?.symbol;
+      startFallback = resolution?.fallback ?? false;
       if (start) {
+        route = start;
         trace = resolveCallChain(symbols, start);
         candidateAnchors = trace
           .filter((hop) => !hop.break && hop.line)
@@ -376,12 +401,20 @@ export class RepoQAWorker {
             symbol: hop.method
           }));
         mermaid = this.traceToMermaid(trace, start.name);
+        if (startFallback) {
+          this.repoqa.recordEvent({
+            repoId: repo.id,
+            eventType: 'tool.miss',
+            intent: input.mode ?? 'architecture',
+            toolMiss: `${input.mode ?? 'architecture'} start symbol not found`
+          });
+        }
       } else {
         this.repoqa.recordEvent({
           repoId: repo.id,
           eventType: 'tool.miss',
-          intent: input.mode,
-          toolMiss: 'call-chain start symbol not found'
+          intent: input.mode ?? 'architecture',
+          toolMiss: `${input.mode ?? 'architecture'} start symbol not found`
         });
       }
     } else if (input.mode === 'environment') {
@@ -404,46 +437,6 @@ export class RepoQAWorker {
       route = configs[0];
       trace = undefined;
       mermaid = undefined;
-    } else {
-      route =
-        symbols.find((symbol) => symbol.kind === 'route') ??
-        symbols.find((symbol) => symbol.kind === 'method') ??
-        symbols[0];
-      const method = symbols.find(
-        (symbol) => symbol.kind === 'method' && symbol.name !== route?.name
-      );
-      candidateAnchors = [route, method]
-        .filter((symbol): symbol is RepoSymbol => Boolean(symbol))
-        .map((symbol) => ({
-          file: symbol.filePath,
-          line: symbol.lineStart ?? 1,
-          symbol: symbol.name
-        }));
-      mermaid =
-        route && method
-          ? (() => {
-              const routeLine = typeof route.lineStart === 'number' ? route.lineStart : 1;
-              const methodLine = typeof method.lineStart === 'number' ? method.lineStart : 1;
-              // Issue 10: the frontend matches clicked label text to the click
-              // binding key, so node IDs must equal their labels (as in
-              // traceToMermaid) for code:// deep links to work.
-              return [
-                'flowchart LR',
-                `  ${route.name}[${route.name}]`,
-                `  ${method.name}[${method.name}]`,
-                `  ${route.name} --> ${method.name}`,
-                `click ${route.name} "code://${route.filePath}#${routeLine}"`,
-                `click ${method.name} "code://${method.filePath}#${methodLine}"`
-              ].join('\n');
-            })()
-          : undefined;
-      trace =
-        route && method
-          ? [
-              { file: route.filePath, method: route.name, line: route.lineStart ?? 1 },
-              { file: method.filePath, method: method.name, line: method.lineStart ?? 1 }
-            ]
-          : undefined;
     }
 
     const anchors: RepoQaAnchor[] = [];
@@ -463,6 +456,9 @@ export class RepoQAWorker {
             // Issue 05: surface the break marker textually so deterministic
             // call-chain queries never look like silent success.
             const breakHop = trace?.find((hop) => hop.break);
+            const fallbackPrefix = startFallback
+              ? '未找到相关符号，以下为仓库默认入口供参考。\n\n'
+              : '';
             const chainLines =
               trace && trace.length > 0
                 ? trace
@@ -474,12 +470,12 @@ export class RepoQAWorker {
                 : undefined;
             const breakNote = breakHop?.reason ? `\n\n${breakHop.reason}` : '';
             if (input.mode === 'call-chain' && chainLines) {
-              return `调用链分析（问题「${input.question}」）：\n${chainLines}${breakNote}`;
+              return `${fallbackPrefix}调用链分析（问题「${input.question}」）：\n${chainLines}${breakNote}`;
             }
             if (chainLines) {
-              return `静态分析（问题「${input.question}」）：识别到入口 ${trace![0].method} 与下游调用：\n${chainLines}${breakNote}`;
+              return `${fallbackPrefix}静态分析（问题「${input.question}」）：识别到入口 ${trace![0].method} 与下游调用：\n${chainLines}${breakNote}`;
             }
-            return `静态分析（问题「${input.question}」）：未解析到可追踪的调用链。`;
+            return `${fallbackPrefix}静态分析（问题「${input.question}」）：未解析到可追踪的调用链。`;
           })();
     const answer = maskSensitiveText(rawAnswer);
     const tokens = answer.match(/\S+(?:\s+)?/g) ?? [answer];
@@ -530,11 +526,11 @@ export class RepoQAWorker {
     return p.includes('/test/') || p.includes('/src/test') || p.includes('test/java');
   }
 
-  private findStartSymbol(
+  private resolveStartSymbol(
     question: string,
     symbols: RepoSymbol[],
     explicitStart?: { name: string; file: string }
-  ): RepoSymbol | undefined {
+  ): { symbol: RepoSymbol; fallback: boolean } | undefined {
     // Explicit start (Top API click) wins: exact file+name first, then a
     // production-code name match, so the trace never starts from a sibling
     // symbol in a test class.
@@ -545,13 +541,13 @@ export class RepoQAWorker {
           symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
           norm(symbol.filePath) === norm(explicitStart.file)
       );
-      if (exact) return exact;
+      if (exact) return { symbol: exact, fallback: false };
       const byName = symbols.find(
         (symbol) =>
           symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
           !this.isTestPath(symbol.filePath)
       );
-      if (byName) return byName;
+      if (byName) return { symbol: byName, fallback: false };
     }
     const words = question.toLowerCase().match(/[a-z_$][\w$]*/g) ?? [];
     const prodSymbols = symbols.filter((symbol) => !this.isTestPath(symbol.filePath));
@@ -562,30 +558,38 @@ export class RepoQAWorker {
       list.find((symbol) => kinds.has(symbol.kind) && symbol.name.toLowerCase() === word);
     for (const word of words) {
       const match = find(prodSymbols, new Set(['method']), word);
-      if (match) return match;
+      if (match) return { symbol: match, fallback: false };
     }
     for (const word of words) {
       const match = find(symbols, new Set(['method']), word);
-      if (match) return match;
+      if (match) return { symbol: match, fallback: false };
     }
     // Issue 18: fuzzy extraction runs before the exact type/route lookups so
     // natural-language phrasing like "创建 owner 的方法" starts from a real
     // method (createOwner) instead of the type whose name is a word in the
     // question (class Owner normalizes to an arbitrary first method).
     const fuzzy = findFuzzyStartSymbol(question, symbols, (filePath) => this.isTestPath(filePath));
-    if (fuzzy) return fuzzy;
+    if (fuzzy) return { symbol: fuzzy, fallback: false };
     for (const word of words) {
       const match = find(prodSymbols, typeKinds, word);
-      if (match) return match;
+      if (match) return { symbol: match, fallback: false };
     }
     for (const word of words) {
       const match = find(symbols, typeKinds, word);
-      if (match) return match;
+      if (match) return { symbol: match, fallback: false };
     }
-    return (
+    const fallback =
       prodSymbols.find((symbol) => symbol.kind === 'method') ??
-      symbols.find((symbol) => symbol.kind === 'method')
-    );
+      symbols.find((symbol) => symbol.kind === 'method');
+    return fallback ? { symbol: fallback, fallback: true } : undefined;
+  }
+
+  private findStartSymbol(
+    question: string,
+    symbols: RepoSymbol[],
+    explicitStart?: { name: string; file: string }
+  ): RepoSymbol | undefined {
+    return this.resolveStartSymbol(question, symbols, explicitStart)?.symbol;
   }
 
   private traceToMermaid(trace: RepoQaTraceHop[], startName: string): string {
@@ -711,11 +715,14 @@ export class RepoQAWorker {
   private async parseRepo(
     repoId: string,
     root: string,
-    files: string[]
+    files: string[],
+    onProgress?: (parsed: number) => void
   ): Promise<{ symbols: RepoSymbol[]; skipped: Array<{ file: string; error: string }> }> {
     const symbols: RepoSymbol[] = [];
     const skipped: Array<{ file: string; error: string }> = [];
-    for (const filePath of files.filter((file) => file.endsWith('.java'))) {
+    const javaFiles = files.filter((file) => file.endsWith('.java'));
+    let parsed = 0;
+    for (const filePath of javaFiles) {
       try {
         symbols.push(...(await parseJavaFile(filePath, repoId, root)));
       } catch (error) {
@@ -727,7 +734,10 @@ export class RepoQAWorker {
         const detail = error instanceof Error ? error.message : String(error);
         skipped.push({ file: relative, error: detail });
       }
+      parsed += 1;
+      if (parsed % 50 === 0) onProgress?.(parsed);
     }
+    if (javaFiles.length > 0) onProgress?.(javaFiles.length);
     return { symbols, skipped };
   }
 

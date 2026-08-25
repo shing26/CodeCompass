@@ -263,11 +263,11 @@ describe('buildDashboard — full-featured Spring repo', () => {
       services: 2,
       repositories: 1,
       advices: 1,
-      classes: 1,
+      plainClasses: 1,
       interfaces: 0,
       methods: 10,
       fields: 3,
-      configKeys: 24,
+      configKeys: 6,
       files: 9
     });
   });
@@ -275,6 +275,10 @@ describe('buildDashboard — full-featured Spring repo', () => {
   it('builds a value-free, masked config topology with groups', () => {
     expect(dashboard.config.maskedValues).toBe(true);
     const topology = dashboard.config.topology;
+    const keys = topology.map((item) => item.key);
+    for (const key of keys) {
+      expect(keys.some((other) => other !== key && other.startsWith(`${key}.`))).toBe(false);
+    }
     const serverPort = topology.find((item) => item.key === 'server.port')!;
     expect(serverPort).toMatchObject({
       filePath: 'src/main/resources/application.yml',
@@ -352,7 +356,7 @@ describe('buildDashboard — full-featured Spring repo', () => {
 });
 
 describe('buildDashboard — library repo with nothing to aggregate', () => {
-  it('returns zeroed scale and empty sections without crashing', async () => {
+  it('returns zeroed scale and a source-only tech stack without crashing', async () => {
     const dashboard = buildDashboard({
       repoId: 'repo-2',
       repoName: 'lib',
@@ -363,15 +367,29 @@ describe('buildDashboard — library repo with nothing to aggregate', () => {
       services: 0,
       repositories: 0,
       advices: 0,
-      classes: 1,
+      plainClasses: 1,
       interfaces: 0,
       methods: 1,
       fields: 0,
       configKeys: 0,
       files: 1
     });
-    expect(dashboard.techStack.summary).toEqual([]);
-    expect(dashboard.techStack.highlights).toEqual([]);
+    expect(dashboard.techStack.summary).toEqual([
+      {
+        category: 'other',
+        label: 'Java (Source Only)',
+        count: 1,
+        items: [
+          {
+            category: 'other',
+            name: 'Java (Source Only)',
+            filePath: 'src/main/java/com/lib/Calculator.java',
+            lineStart: 3
+          }
+        ]
+      }
+    ]);
+    expect(dashboard.techStack.highlights).toEqual(['Java (Source Only)']);
     expect(dashboard.config.topology).toEqual([]);
     expect(dashboard.config.maskedValues).toBe(true);
     expect(dashboard.topApis).toEqual([]);

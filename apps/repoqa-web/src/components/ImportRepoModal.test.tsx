@@ -37,6 +37,13 @@ function baseProps(overrides: Partial<Parameters<typeof ImportRepoModal>[0]> = {
     open: true,
     onClose: vi.fn(),
     onImportLocal: vi.fn().mockResolvedValue(undefined),
+    onPreviewLocal: vi.fn().mockResolvedValue({
+      path: 'C:/projects/spring-petclinic',
+      fileCount: 47,
+      javaFileCount: 9,
+      skippedDirCount: 2,
+      skippedDirs: ['.git', 'node_modules']
+    }),
     onCloneRemote: vi.fn().mockResolvedValue(indexingRepo),
     repos: [] as Repo[],
     importingRepo: null,
@@ -132,6 +139,48 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
       '已选择文件夹「demo」'
     );
     expect(screen.getByTestId('import-folder-hint')).toHaveTextContent('完整路径');
+  });
+
+  it('shows a pre-import preview with file and skipped-dir counts (Round 2 B4)', async () => {
+    const user = userEvent.setup();
+    const onPreviewLocal = vi.fn().mockResolvedValue({
+      path: 'C:/projects/spring-petclinic',
+      fileCount: 47,
+      javaFileCount: 9,
+      skippedDirCount: 2,
+      skippedDirs: ['.git', 'node_modules']
+    });
+    render(<ImportRepoModal {...baseProps({ onPreviewLocal })} />);
+
+    await user.type(
+      screen.getByTestId('import-path'),
+      'C:/projects/spring-petclinic'
+    );
+    await waitFor(() => expect(onPreviewLocal).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByTestId('import-preview')).toHaveTextContent('将索引 47 个文件')
+    );
+    expect(screen.getByTestId('import-preview')).toHaveTextContent('含 9 个 Java 文件');
+    expect(screen.getByTestId('import-preview')).toHaveTextContent('跳过 2 个目录');
+    expect(screen.getByTestId('import-preview')).toHaveTextContent('.git');
+    expect(screen.getByTestId('import-preview')).toHaveTextContent('node_modules');
+  });
+
+  it('surfaces a preview failure without blocking the local import flow', async () => {
+    const user = userEvent.setup();
+    const onPreviewLocal = vi
+      .fn()
+      .mockRejectedValue(new Error('local path is not a directory'));
+    render(<ImportRepoModal {...baseProps({ onPreviewLocal })} />);
+
+    await user.type(screen.getByTestId('import-name'), 'demo');
+    await user.type(screen.getByTestId('import-path'), 'C:/nope');
+    await waitFor(() =>
+      expect(screen.getByTestId('import-preview-error')).toHaveTextContent(
+        'local path is not a directory'
+      )
+    );
+    expect(screen.getByTestId('import-submit')).toBeEnabled();
   });
 
   it('clones a remote repo with url + branch (cloning → indexing → auto-close)', async () => {

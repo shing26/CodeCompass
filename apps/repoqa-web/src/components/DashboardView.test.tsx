@@ -51,7 +51,7 @@ const dashboard: RepoDashboard = {
     services: 2,
     repositories: 1,
     advices: 1,
-    classes: 5,
+    plainClasses: 5,
     interfaces: 2,
     methods: 12,
     fields: 8,
@@ -216,5 +216,23 @@ describe('DashboardView (issue 13)', () => {
     expect(screen.getByTestId('dashboard-error')).toHaveTextContent('dashboard failed');
     await user.click(screen.getByTestId('dashboard-retry'));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a hint when the tech stack has no build metadata', () => {
+    render(
+      <DashboardView
+        repoName="petclinic"
+        dashboard={{ ...dashboard, techStack: { summary: [], highlights: [] } }}
+        loading={false}
+        error={null}
+        onRetry={noop}
+        onTrace={noop}
+        onNavigate={noop}
+        onOpenChat={noop}
+      />
+    );
+    expect(screen.getByTestId('tech-stack-empty')).toHaveTextContent(
+      '未检测到构建元数据，仅展示源码分析结果'
+    );
   });
 });

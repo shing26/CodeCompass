@@ -43,7 +43,7 @@ const roundDashboard: RepoDashboard = {
     services: 1,
     repositories: 1,
     advices: 1,
-    classes: 4,
+    plainClasses: 4,
     interfaces: 2,
     methods: 10,
     fields: 6,
@@ -105,6 +105,15 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
     importRepo: vi.fn().mockResolvedValue(readyRepo),
+    previewRepo: vi.fn().mockResolvedValue({
+      path: 'C:/projects/spring-petclinic',
+      fileCount: 120,
+      javaFileCount: 30,
+      skippedDirCount: 2,
+      skippedDirs: ['.git', 'node_modules']
+    }),
+    deleteRepo: vi.fn().mockResolvedValue(undefined),
+    reindexRepo: vi.fn().mockResolvedValue(readyRepo),
     cloneRepo: vi.fn().mockResolvedValue(readyRepo),
     getRepo: vi.fn(),
     listSymbols: vi.fn().mockResolvedValue([]),
@@ -302,7 +311,7 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
 describe('Issue 14 ONBOARDING.md export', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    // Bug-08: selecting a repo persists `?repo=` via history.replaceState;
+    // Bug-R2-02: selecting a repo persists `?repo=` via history.pushState;
     // reset the URL so the deep-link never leaks into the next test.
     window.history.replaceState(null, '', '/');
   });
@@ -364,5 +373,36 @@ describe('Issue 16 cockpit deep link (?repo=<id>)', () => {
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
     expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+  });
+});
+
+describe('Bug-R2-02 browser history', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('restores the previous repo on back and the current repo on forward', async () => {
+    const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
+    const client = makeClient({
+      listRepos: vi.fn().mockResolvedValue([readyRepo, repo2]),
+      getDashboard: vi.fn().mockResolvedValue(roundDashboard)
+    });
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/');
+    render(<App client={client} />);
+
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(window.location.search).toContain('repo=repo-1'));
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
+    await waitFor(() => expect(window.location.search).toContain('repo=repo-2'));
+
+    window.history.back();
+    await waitFor(() => expect(window.location.search).toContain('repo=repo-1'));
+    expect(screen.getByTestId('repo-select')).toHaveValue('repo-1');
+
+    window.history.forward();
+    await waitFor(() => expect(window.location.search).toContain('repo=repo-2'));
+    expect(screen.getByTestId('repo-select')).toHaveValue('repo-2');
   });
 });

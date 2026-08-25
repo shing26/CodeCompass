@@ -29,7 +29,7 @@ export function scanYaml(source: string): ScannedKey[] {
     const raw = lines[index];
     if (!raw.trim() || raw.trim().startsWith('#')) continue;
     const indent = raw.match(/^\s*/)![0].length;
-    // Mapping key `name:` — keep the key side and ignore the value/comment tail.
+    // Mapping key `name:` — emit only full dot-paths that carry an explicit value.
     const match = /^\s*([A-Za-z0-9._-]+):/.exec(raw);
     if (!match) continue;
 
@@ -38,11 +38,10 @@ export function scanYaml(source: string): ScannedKey[] {
     }
     const key = match[1];
     const fullPath = [...stack.map((entry) => entry.name), key].join('.');
-    keys.push({ name: fullPath, lineStart: index + 1 });
-    if (stack.length > 0) {
-      // Backward-compatible bare leaf key for nested entries, so historical
-      // short-key consumers (and the golden dataset) keep resolving.
-      keys.push({ name: key, lineStart: index + 1 });
+    const valuePart = (raw.slice(match[0].length) || '').trim();
+    const hasValue = valuePart.length > 0 && !valuePart.startsWith('#');
+    if (hasValue) {
+      keys.push({ name: fullPath, lineStart: index + 1 });
     }
     stack.push({ name: key, indent });
   }

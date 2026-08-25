@@ -19,8 +19,12 @@ const IGNORED_DIRS = new Set([
   '.cache',
   '.next',
   '.venv',
+  '.scratch',
+  '.penguin',
+  '.tmp',
   'venv',
   '__pycache__',
+  'test-results',
   'node_modules',
   'dist',
   'build',
@@ -157,4 +161,72 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
   }
 
   return { fileCount, lineCount, files };
+}
+
+export interface RepoPreviewStats {
+  fileCount: number;
+  javaFileCount: number;
+  skippedDirCount: number;
+  skippedDirs: string[];
+}
+
+/**
+ * Issue 24 (Round 2 B4) — read-only pre-import preview: count what the real
+ * scan would index and which ignored directories it would skip, without
+ * reading file contents. This gives the import dialog a fast "N files /
+ * M dirs skipped" answer before a full index starts.
+ */
+export async function previewRepo(root: string): Promise<RepoPreviewStats> {
+  const stat = await fs.stat(root).catch(() => null);
+  if (!stat?.isDirectory()) {
+    throw new Error(`local path is not a directory: ${root}`);
+  }
+
+  let fileCount = 0;
+  let javaFileCount = 0;
+  let skippedDirCount = 0;
+  const skippedDirs = new Set<string>();
+  const stack = [root];
+
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        if (isIgnoredDir(entry.name)) {
+          skippedDirCount += 1;
+          skippedDirs.add(entry.name.toLowerCase());
+        } else {
+          stack.push(path.join(dir, entry.name));
+        }
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      fileCount += 1;
+      if (entry.name.toLowerCase().endsWith('.java')) javaFileCount += 1;
+      if (fileCount > MAX_FILES) {
+        return {
+          fileCount,
+          javaFileCount,
+          skippedDirCount,
+          skippedDirs: [...skippedDirs].sort()
+        };
+      }
+    }
+  }
+
+  return {
+    fileCount,
+    javaFileCount,
+    skippedDirCount,
+    skippedDirs: [...skippedDirs].sort()
+  };
 }

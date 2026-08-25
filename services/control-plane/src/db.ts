@@ -134,6 +134,70 @@ CREATE INDEX IF NOT EXISTS idx_repoqa_events_repo ON repoqa_events(repo_id);
 CREATE INDEX IF NOT EXISTS idx_repoqa_events_type ON repoqa_events(event_type);
 `;
 
+function backupTimestamp(): string {
+  const now = new Date();
+  const pad = (value: number, width = 2) => String(value).padStart(width, '0');
+  return (
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-` +
+    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}-` +
+    `${pad(now.getMilliseconds(), 3)}`
+  );
+}
+
+function listDbBackups(dbPath: string): Array<{ name: string; mtimeMs: number }> {
+  const backupDir = path.dirname(dbPath);
+  const prefix = `${path.basename(dbPath)}.backup-`;
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(backupDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+    .map((entry) => {
+      const stat = fs.statSync(path.join(backupDir, entry.name));
+      return { name: entry.name, mtimeMs: stat.mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name));
+}
+
+/**
+ * Personal-use safety net: take a consistent SQLite backup before the app
+ * opens the live database, keeping the newest `maxBackups` copies. Uses
+ * better-sqlite3's online backup API so a WAL-mode database is captured
+ * without copying the main file and WAL separately.
+ */
+export async function backupDb(
+  dbPath: string,
+  maxBackups = 5
+): Promise<string | null> {
+  if (dbPath === ':memory:' || !fs.existsSync(dbPath)) return null;
+
+  const backupDir = path.dirname(dbPath);
+  fs.mkdirSync(backupDir, { recursive: true });
+  const base = `${path.basename(dbPath)}.backup-`;
+  let backupPath = path.join(backupDir, `${base}${backupTimestamp()}`);
+  let suffix = 1;
+  while (fs.existsSync(backupPath)) {
+    backupPath = path.join(backupDir, `${base}${backupTimestamp()}-${suffix}`);
+    suffix += 1;
+  }
+
+  const source = new Database(dbPath, { readonly: true, fileMustExist: true });
+  try {
+    await source.backup(backupPath);
+  } finally {
+    source.close();
+  }
+
+  const backups = listDbBackups(dbPath);
+  for (const stale of backups.slice(maxBackups)) {
+    fs.rmSync(path.join(backupDir, stale.name), { force: true });
+  }
+  return backupPath;
+}
+
 export function openDb(dbPath: string): Database.Database {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);

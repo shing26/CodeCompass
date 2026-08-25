@@ -42,7 +42,7 @@ const SCALE_LABELS: Array<[keyof RepoDashboard['scale'], string]> = [
   ['services', 'Services'],
   ['repositories', 'Repositories'],
   ['advices', 'Advices'],
-  ['classes', 'Classes'],
+  ['plainClasses', 'Plain Classes'],
   ['interfaces', 'Interfaces'],
   ['methods', 'Methods'],
   ['fields', 'Fields'],

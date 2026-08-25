@@ -16,3 +16,18 @@ body,
 .inspector-glow-gutter {
   border-left: 3px solid rgb(245, 158, 11);
 }
+
+/* Round 2 (Vibe): a short pulse confirms the clicked Mermaid node routed
+ * into the Inspector instead of leaving the browser to navigate code://. */
+.mermaid-node-flash {
+  animation: mermaid-node-flash 200ms ease-out;
+}
+
+@keyframes mermaid-node-flash {
+  0% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 1;
+  }
+}

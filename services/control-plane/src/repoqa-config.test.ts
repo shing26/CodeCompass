@@ -29,16 +29,9 @@ describe('scanYaml — deterministic flattened keys with line numbers', () => {
 
   it('flattens nested mappings into dot-paths and records the mapping line', () => {
     expect(scanYaml(source)).toEqual([
-      { name: 'server', lineStart: 1 },
       { name: 'server.port', lineStart: 2 },
-      { name: 'port', lineStart: 2 },
-      { name: 'spring', lineStart: 3 },
-      { name: 'spring.datasource', lineStart: 4 },
-      { name: 'datasource', lineStart: 4 },
       { name: 'spring.datasource.url', lineStart: 5 },
-      { name: 'url', lineStart: 5 },
       { name: 'spring.datasource.password', lineStart: 6 },
-      { name: 'password', lineStart: 6 },
       { name: 'logging.level.root', lineStart: 8 }
     ]);
   });
@@ -52,11 +45,8 @@ describe('scanYaml — deterministic flattened keys with line numbers', () => {
     expect(
       scanYaml('a:\n    b: 1\n  - c: 2\n    d: 3')
     ).toEqual([
-      { name: 'a', lineStart: 1 },
       { name: 'a.b', lineStart: 2 },
-      { name: 'b', lineStart: 2 },
-      { name: 'a.d', lineStart: 4 },
-      { name: 'd', lineStart: 4 }
+      { name: 'a.d', lineStart: 4 }
     ]);
   });
 });

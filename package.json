@@ -1,6 +1,6 @@
 {
   "name": "multi-harness-workbench",
-  "version": "0.2.0-beta",
+  "version": "0.3.0-beta",
   "private": true,
   "description": "Multi-Harness coordination workbench for full-stack AI R&D",
   "bin": {

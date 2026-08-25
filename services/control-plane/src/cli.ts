@@ -8,11 +8,11 @@ import {
 } from './repoqa-mcp';
 import { analyzeDiff, renderMarkdown } from './repoqa-diff';
 
-export const VERSION = '0.2.0-beta';
+export const VERSION = '0.3.0-beta';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
-  command?: 'mcp' | 'diff';
+  command?: 'mcp' | 'diff' | 'pr-summary';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass diff <base> <head> [repoPath]` — base git ref. */
@@ -23,6 +23,8 @@ export interface CliArgs {
   diffOutput?: 'markdown' | 'json';
   /** Write the diff report to a file instead of stdout. */
   diffFile?: string;
+  /** Exit 2 from `pr-summary` when PR impact is detected. */
+  failOnImpact: boolean;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -40,6 +42,7 @@ Usage:
   codecompass [options] [path]
   codecompass mcp [options] <path>
   codecompass diff [options] <base> <head> [repoPath]
+  codecompass pr-summary [options] <base> <head> [repoPath]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
@@ -54,6 +57,10 @@ Subcommands:
                         to write it to disk. [repoPath] defaults to the
                         current directory. Read-only: never touches the
                         working tree or .git metadata.
+  pr-summary <base> <head>
+                        Same read-only PR impact analysis as diff, shaped
+                        for CI consumption: supports --fail-on-impact to exit
+                        non-zero when affected APIs/config changes are found.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -65,13 +72,14 @@ Options:
   --no-browser          Do not auto-open the browser
   --output <fmt>        Diff report format: markdown | json (default: markdown)
   --file <path>         Write the diff report to a file instead of stdout
+  --fail-on-impact      With pr-summary, exit 2 when impact is detected
   --help, -h            Show this help
   --version, -v         Print version
 `;
 
 /** Parse argv (node-style, no binary name). Unknown flags → error. */
 export function parseArgs(argv: string[]): ParseResult {
-  const args: CliArgs = { noBrowser: false, help: false, version: false };
+  const args: CliArgs = { noBrowser: false, help: false, version: false, failOnImpact: false };
 
   const nextValue = (i: number, flag: string, inline?: string): { value?: string; next: number } => {
     if (inline !== undefined) return { value: inline, next: i };
@@ -102,7 +110,7 @@ export function parseArgs(argv: string[]): ParseResult {
     const arg = argv[i];
 
     if (positionalOnly) {
-      if (args.command === 'diff') {
+      if (args.command === 'diff' || args.command === 'pr-summary') {
         if (!assignDiffPositional(arg)) return { ok: false, error: `Unexpected extra argument: ${arg}` };
       } else if (args.targetPath !== undefined) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
@@ -121,6 +129,10 @@ export function parseArgs(argv: string[]): ParseResult {
     }
     if (arg === '--version' || arg === '-v') {
       args.version = true;
+      continue;
+    }
+    if (arg === '--fail-on-impact') {
+      args.failOnImpact = true;
       continue;
     }
     if (arg === '--no-browser') {
@@ -174,15 +186,15 @@ export function parseArgs(argv: string[]): ParseResult {
     if (arg.startsWith('-')) {
       return { ok: false, error: `Unknown option: ${arg}` };
     }
-    if (args.command === undefined && args.targetPath === undefined && arg === 'mcp') {
-      args.command = 'mcp';
+    if (
+      args.command === undefined &&
+      args.targetPath === undefined &&
+      (arg === 'mcp' || arg === 'diff' || arg === 'pr-summary')
+    ) {
+      args.command = arg;
       continue;
     }
-    if (args.command === undefined && args.targetPath === undefined && arg === 'diff') {
-      args.command = 'diff';
-      continue;
-    }
-    if (args.command === 'diff') {
+    if (args.command === 'diff' || args.command === 'pr-summary') {
       if (!assignDiffPositional(arg)) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       }
@@ -231,6 +243,8 @@ export interface CliRunResult {
   server: RunningServer | null;
   /** URL that would have been opened (null when no browser launch needed). */
   cockpitUrl: string | null;
+  /** Optional process exit code for non-server CLI commands (e.g. pr-summary). */
+  exitCode?: number;
 }
 
 /**
@@ -257,11 +271,12 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     return { server: null, cockpitUrl: null };
   }
 
-  if (args.command === 'diff') {
-    // Issue 22: `codecompass diff <base> <head> [repoPath]` — PR 架构影响面
-    // 透视。纯只读分析（git 对象），不启动 HTTP server。
+  if (args.command === 'diff' || args.command === 'pr-summary') {
+    // Issue 22/Phase 5: `codecompass diff` / `codecompass pr-summary` — PR 架构
+    // 影响面透视。纯只读分析（git 对象），不启动 HTTP server。
     if (!args.diffBase || !args.diffHead) {
-      throw new Error(`codecompass diff requires <base> and <head>\n\n${USAGE}`);
+      const commandName = args.command === 'diff' ? 'diff' : 'pr-summary';
+      throw new Error(`codecompass ${commandName} requires <base> and <head>\n\n${USAGE}`);
     }
     const repoPath = path.resolve(args.targetPath ?? process.cwd());
     const report = await analyzeDiff({
@@ -277,6 +292,17 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       log(`Impact report written to ${outPath}`);
     } else {
       log(rendered);
+    }
+    if (args.command === 'pr-summary') {
+      const hasImpact =
+        report.affectedApis.length > 0 ||
+        report.configChanges.length > 0 ||
+        report.uncovered.length > 0;
+      return {
+        server: null,
+        cockpitUrl: null,
+        exitCode: args.failOnImpact && hasImpact ? 2 : 0
+      };
     }
     return { server: null, cockpitUrl: null };
   }
@@ -349,6 +375,7 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
 
 export async function main(argv = process.argv.slice(2), ctx: CliContext = {}): Promise<void> {
   const result = await runCli(argv, ctx);
+  if (result.exitCode) process.exitCode = result.exitCode;
   if (!result.server) return;
   const shutdown = async () => {
     await result.server!.close();

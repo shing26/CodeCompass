@@ -2,7 +2,7 @@
 
 > 生成时间：2026-08-25
 > 生成目的：**转交给其他 agent 接手** —— 本文档覆盖项目从 0 到当前的全部改动，fresh agent 读完后应能跑通、看懂、敢改
-> 实测验证（本会话）：后端 268/268 + `tsc --noEmit` 通过；前端 120/120（`--pool=forks --maxWorkers=2`）
+> 实测验证（本会话）：后端 286/286 + `tsc --noEmit` 通过；前端 136/136（`--pool=forks --maxWorkers=2`）
 > 历史基线：golden eval 50/50 在 Phase 1~3 与 Issue 18 会话均通过（完全确定性，零 LLM，可随时重跑）
 > 历史文档：`docs/handoff-2026-08-21-archived.md`（旧 Phase 2 视角，仅参考）；`docs/reports/产品体验报告/`（dogfooding 产物归档）
 
@@ -12,8 +12,8 @@
 - **仓库**：`git@github.com:shing26/CodeCompass.git`（本地 `D:/CodeCompass`，branch `master`）
 - **形态**：单进程全栈 —— Node + Express + SQLite + @lezer/java（后端）+ React 19 + Vite + Tailwind（前端）+ esbuild CLI 打包；无外部数据库、无构建期服务
 - **核心信条**：AST（@lezer CST）→ 确定性调用图 → 零 Prompt 驾驶舱；call-chain / tours / dashboard / diff / eval **全部确定性、不调用 LLM**（LLM 仅用于 query/chat，且受门禁）
-- **版本**：`0.2.0-beta`（CLI `VERSION` 常量；Issue 22 后未 bump）
-- **分支状态**：`master` 领先 `origin/master` 5 个提交（Issue 18~22 已提交未 push）；另有文档/归档工作区改动待提交
+- **版本**：`0.3.0-beta`（CLI `VERSION` 常量；含个人使用收口：删除/重导 + 启动前自动备份）
+- **分支状态**：`master` 领先 `origin/master` 5 个提交（Issue 18~22 已提交未 push）；另有 v0.3.0-beta 收口提交待 push
 
 ## 2. 历史总览（一条时间线）
 
@@ -93,6 +93,12 @@
   - 配套：`parseJavaSource(source, relPath, repoId)` 从内存解析（parser.ts）；`symbolIdentity` + `CallResolver`（callchain.ts 导出，O(symbols+edges) 反向遍历）
   - **关键 bug 修复**：`receiverOf` 的 `child === methodName` 引用比较不可靠（@lezer 同一树位可能返回不同包装实例）→ 改 `child.name === 'MethodName'`；此修复影响所有裸调用解析，**勿回退**（268/268 无回归）
 
+### 3.6 v0.3.0-beta 个人使用收口（随本次提交）
+
+- **版本 bump**：`0.2.0-beta` → `0.3.0-beta`（5 个 `package.json` + 3 个 lock + `cli.ts VERSION` / `repoqa-mcp.ts MCP_SERVER_VERSION` / `server.ts version`）。
+- **仓库生命周期**：`DELETE /api/repos/:id` 只删索引、保留源文件与克隆目录；`POST /api/repos/:id/reindex` 用存储的 localPath 后台重建；`indexing` 期间两者返回 409；TopBar 增加“重新索引 / 删除”入口。
+- **SQLite 启动前自动备份**：`db.ts` 新增 `backupDb()`，在 `openDb()` 前用 better-sqlite3 online backup 生成 `mhw.db.backup-<时间戳>`，数据目录保留最近 5 份；`startServer` 与 `runMcpServer` 均接入。
+
 ## 4. 当前工作区状态（未提交内容明细）
 
 ```
@@ -104,13 +110,13 @@
 ?? docs/reports/产品体验报告/                      # dogfooding 产物归档（onboarding.md + ui-shots/ + 产品体验报告.md）
 ```
 
-**待办**：push 5 个已提交 + 本次文档/归档提交 → bump 版本（0.3.0-beta，同步 package.json/cli/server）。
+**待办**：push 5 个已提交 + 本次 v0.3.0-beta 收口提交。
 
 ## 5. 当前产品能力全景（代码库地图）
 
 ```
 services/control-plane/src/
-  cli.ts              # CLI 入口：start | mcp | diff；USAGE/parseArgs/runCli（VERSION='0.2.0-beta'）
+  cli.ts              # CLI 入口：start | mcp | diff；USAGE/parseArgs/runCli（VERSION='0.3.0-beta'）
   index.ts, server.ts # 单进程启动（HTTP + SSE + WS + 静态托管 + SPA 回退）；EADDRINUSE 双 error 监听
   repoqa-parser.ts    # @lezer/java AST → RepoSymbol[]；record 等长补丁；parseJavaSource；receiverOf 修复
   repoqa-callchain.ts # 确定性调用边 + CallResolver + bean 消歧；symbolIdentity
@@ -165,7 +171,7 @@ node dist/cli.js diff --output=json 4560c54 93b5581 D:/CodeCompass/.scratch/issu
 # 预期：3 个受影响 API（listOrders/getOrder/recentOrders）+ 反向 Mermaid（🔴/🗑）+ 配置键值不泄露
 ```
 
-测试数量演进（后端/前端）：101/56（P1）→ 153/91（P2）→ 183/93（v0.2.0-beta）→ 184/100（13-bug）→ 211/108（I18）→ 229/120（I19）→ 241（I20）→ 252（I21）→ **268/120（I22，今天实测）**。E2E/Playwright：Phase 2 gate、Issue 14 导出、Issue 19 git daemon、Issue 20 NDJSON 26 项、13-bug 浏览器 13/13 均通过过。
+测试数量演进（后端/前端）：101/56（P1）→ 153/91（P2）→ 183/93（v0.2.0-beta）→ 184/100（13-bug）→ 211/108（I18）→ 229/120（I19）→ 241（I20）→ 252（I21）→ 268/120（I22）→ **286/136（v0.3.0-beta）**。E2E/Playwright：Phase 2 gate、Issue 14 导出、Issue 19 git daemon、Issue 20 NDJSON 26 项、13-bug 浏览器 13/13 均通过过。
 
 ## 7. 接手必读 —— 关键设计决策（跨 Issue 累积）
 
@@ -198,10 +204,8 @@ node dist/cli.js diff --output=json 4560c54 93b5581 D:/CodeCompass/.scratch/issu
 
 ## 9. 下一步建议
 
-1. **push**：确认后推送 5 个领先提交。
-2. **bump 版本**：0.2.0-beta → 0.3.0-beta（root + 4 个 package.json + 2 lock + cli.ts VERSION + server.ts version 常量）。
-3. 后续方向：`codecompass diff --output=json` 可直接供 CI/PR 机器人消费；MCP 工具可扩展；roadmap 剩余路线按 PRD 继续。
-5. 后续方向：`docs/repoqa-prd.md` 剩余路线；`codecompass diff --output=json` 可直接供 CI/PR 机器人消费；MCP 工具可扩展。
+1. **push**：确认后推送 5 个已提交 + v0.3.0-beta 收口提交。
+2. 后续方向：`codecompass diff --output=json` 可直接供 CI/PR 机器人消费；MCP 工具可扩展；roadmap 剩余路线按 PRD 继续。
 
 ## 10. 引用文档与记忆索引
 

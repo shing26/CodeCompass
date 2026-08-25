@@ -6,6 +6,7 @@ import type {
   QueryStart,
   Repo,
   RepoDashboard,
+  RepoPreview,
   RepoSymbol,
   RepoTour,
   SymbolKind
@@ -71,6 +72,73 @@ export class RepoQAClient {
     }
     const body = (await res.json()) as { repo?: Repo };
     if (!body.repo) throw new Error('importRepo failed: missing repo in response');
+    return body.repo;
+  }
+
+  /** Round 2 B4: read-only pre-import preview of file/dir counts. */
+  async previewRepo(localPath: string): Promise<RepoPreview> {
+    const res = await this.fetcher(`${this.baseUrl}/api/repos/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ localPath })
+    });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`previewRepo failed: ${res.status}${detail}`);
+    }
+    const body = (await res.json()) as { preview?: RepoPreview };
+    if (!body.preview) throw new Error('previewRepo failed: missing preview in response');
+    return body.preview;
+  }
+
+  /** Personal-use lifecycle: remove a repo index (source files stay on disk). */
+  async deleteRepo(repoId: string): Promise<void> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`deleteRepo failed: ${res.status}${detail}`);
+    }
+  }
+
+  /** Personal-use lifecycle: rebuild the stored repo's index in the background. */
+  async reindexRepo(repoId: string): Promise<Repo> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/reindex`,
+      { method: 'POST' }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`reindexRepo failed: ${res.status}${detail}`);
+    }
+    const body = (await res.json()) as { repo?: Repo };
+    if (!body.repo) throw new Error('reindexRepo failed: missing repo in response');
     return body.repo;
   }
 

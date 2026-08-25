@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import type { ChatMessage } from '../hooks/useChat';
-import type { Repo } from '../types';
+import type { QueryMode, Repo } from '../types';
 import { Markdown } from './Markdown';
 import { MermaidDiagram } from './MermaidDiagram';
 import { SourceTraceDrawer } from './SourceTraceDrawer';
@@ -10,8 +10,9 @@ interface CanvasProps {
   messages: ChatMessage[];
   streaming: boolean;
   reconnecting: boolean;
+  recovered: boolean;
   error: string | null;
-  onSubmit: (question: string) => void;
+  onSubmit: (question: string, mode?: QueryMode) => void;
   /** Manual retry after permanent reconnect failure (ticket 07). */
   onRetry: () => void;
   /** code:// deep link routing; wired to the Inspector in ticket 05. */
@@ -32,6 +33,7 @@ export function Canvas({
   messages,
   streaming,
   reconnecting,
+  recovered,
   error,
   onSubmit,
   onRetry,
@@ -39,6 +41,7 @@ export function Canvas({
   onBackToDashboard
 }: CanvasProps) {
   const [draft, setDraft] = useState('');
+  const [mode, setMode] = useState<QueryMode>('call-chain');
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -46,7 +49,7 @@ export function Canvas({
     e.preventDefault();
     const q = draft.trim();
     if (!q || !repo || streaming) return;
-    onSubmit(q);
+    onSubmit(q, mode);
     setDraft('');
   };
 
@@ -120,6 +123,11 @@ export function Canvas({
                 连接中断，正在自动重连…
               </p>
             )}
+            {recovered && !reconnecting && (
+              <p data-testid="reconnect-toast" className="mt-2 text-xs text-emerald-600">
+                已恢复连接
+              </p>
+            )}
             {!streaming && error && messages.length > 0 && (
               <div data-testid="chat-error" className="mt-2 flex items-center gap-2 text-xs text-red-600">
                 <span>{error}</span>
@@ -138,6 +146,39 @@ export function Canvas({
             onSubmit={submit}
             className="flex items-center gap-2 border-t border-slate-200 bg-white p-3"
           >
+            <div
+              data-testid="chat-mode-switcher"
+              className="flex shrink-0 rounded-md border border-slate-200 bg-slate-50 p-0.5"
+            >
+              <button
+                type="button"
+                data-testid="chat-mode-architecture"
+                aria-pressed={mode === 'architecture'}
+                onClick={() => setMode('architecture')}
+                disabled={streaming}
+                className={`h-7 rounded px-2 text-xs font-medium ${
+                  mode === 'architecture'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                架构分析
+              </button>
+              <button
+                type="button"
+                data-testid="chat-mode-call-chain"
+                aria-pressed={mode === 'call-chain'}
+                onClick={() => setMode('call-chain')}
+                disabled={streaming}
+                className={`h-7 rounded px-2 text-xs font-medium ${
+                  mode === 'call-chain'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                调用链
+              </button>
+            </div>
             <input
               ref={inputRef}
               data-testid="chat-input"

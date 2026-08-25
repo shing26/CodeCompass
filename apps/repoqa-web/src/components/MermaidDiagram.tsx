@@ -78,7 +78,13 @@ export function MermaidDiagram({ code, onNavigate }: MermaidDiagramProps) {
       const url = bindings.current.get(name);
       if (!url) return;
       const deepLink = parseDeepLink(url);
-      if (deepLink) onNavigate?.(deepLink.file, deepLink.line);
+      if (deepLink) {
+        ev.preventDefault();
+        const label = labelEl as Element;
+        label.classList.add('mermaid-node-flash');
+        window.setTimeout(() => label.classList.remove('mermaid-node-flash'), 200);
+        onNavigate?.(deepLink.file, deepLink.line);
+      }
     };
     el.addEventListener('click', onClick);
     return () => el.removeEventListener('click', onClick);

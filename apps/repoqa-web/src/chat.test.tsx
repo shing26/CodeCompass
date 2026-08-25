@@ -86,7 +86,7 @@ const emptyDashboard: RepoDashboard = {
     services: 0,
     repositories: 0,
     advices: 0,
-    classes: 0,
+    plainClasses: 0,
     interfaces: 0,
     methods: 0,
     fields: 0,
@@ -240,6 +240,45 @@ describe('chat stream (ticket 02)', () => {
       'java'
     );
     expect(screen.getByTestId('inspector-file')).toHaveTextContent('OwnerController.java');
+  });
+});
+
+describe('Round 2 chat history per repo', () => {
+  it('restores completed chat when switching back to a repo', async () => {
+    const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
+    const stream = new FakeStream();
+    const client = makeClient();
+    (client as { listRepos: unknown }).listRepos = vi
+      .fn()
+      .mockResolvedValue([readyRepo, repo2]);
+    (client as { queryRepo: unknown }).queryRepo = vi.fn().mockReturnValue(stream);
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.type(screen.getByTestId('chat-input'), 'initCreationForm 的调用链');
+    await user.click(screen.getByTestId('chat-submit'));
+    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    await act(async () => {
+      stream.event?.({ type: 'token', text: 'PetController 的链路' });
+      stream.event?.({ type: 'done', payload: {} });
+      stream.done?.();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-message')).toHaveTextContent('initCreationForm 的调用链')
+    );
+
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
+    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
+    await user.click(screen.getByTestId('open-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+    expect(screen.queryByTestId('user-message')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
+    await user.click(screen.getByTestId('open-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+    expect(screen.getByTestId('user-message')).toHaveTextContent('initCreationForm 的调用链');
   });
 });
 
@@ -451,6 +490,7 @@ describe('SSE reconnect resilience (ticket 07)', () => {
       stream.done?.();
     });
     await waitFor(() => expect(screen.getByText(/full replay answer/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('reconnect-toast')).toBeInTheDocument());
     expect(screen.queryByTestId('reconnecting-indicator')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('micro-win')).toHaveLength(2);
   });

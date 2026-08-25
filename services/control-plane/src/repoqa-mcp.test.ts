@@ -8,6 +8,7 @@ import { openDb, ensureDefaultWorkspace } from './db';
 import { EventBus } from './events';
 import { RepoQARepos, type Repo } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
+import { git } from './repoqa-diff';
 import {
   createMcpServer,
   resolveMcpRepo,
@@ -79,6 +80,39 @@ async function makeSpringRepo(root: string): Promise<void> {
     path.join(pkg, 'OrderRepository.java'),
     'package com.demo;\n\n@Repository\npublic class OrderRepository {\n  public String findAll() {\n    return "orders";\n  }\n}\n'
   );
+}
+
+/** Create a tiny base→head git repo that has an impacted API after the head commit. */
+async function makePrFixtureRepo(root: string): Promise<{ base: string; head: string }> {
+  const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+  await fs.mkdir(pkg, { recursive: true });
+  await fs.writeFile(path.join(root, 'README.md'), '# PR fixture\n');
+  await fs.writeFile(
+    path.join(pkg, 'OrdersController.java'),
+    'package com.demo;\n\n@RestController\npublic class OrdersController {\n  private final OrderService orderService = new OrderService();\n\n  public String listOrders() {\n    return orderService.findOrders();\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'OrderService.java'),
+    'package com.demo;\n\n@Service\npublic class OrderService {\n  private final OrderRepository orderRepository = new OrderRepository();\n\n  public String findOrders() {\n    return orderRepository.findAll();\n  }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'OrderRepository.java'),
+    'package com.demo;\n\n@Repository\npublic class OrderRepository {\n  public String findAll() {\n    return "orders";\n  }\n}\n'
+  );
+  await git(['init', '-q'], root);
+  await git(['config', 'user.email', 'repoqa@test.local'], root);
+  await git(['config', 'user.name', 'RepoQA Test'], root);
+  await git(['add', '-A'], root);
+  await git(['commit', '-q', '-m', 'base'], root);
+  const base = (await git(['rev-parse', 'HEAD'], root)).trim();
+  await fs.writeFile(
+    path.join(pkg, 'OrderRepository.java'),
+    'package com.demo;\n\n@Repository\npublic class OrderRepository {\n  public String findAll() {\n    return "orders-v2";\n  }\n}\n'
+  );
+  await git(['add', '-A'], root);
+  await git(['commit', '-q', '-m', 'head'], root);
+  const head = (await git(['rev-parse', 'HEAD'], root)).trim();
+  return { base, head };
 }
 
 interface TestHarness {
@@ -195,12 +229,14 @@ describe('Issue 20 MCP tool metadata', () => {
     expect(MCP_TOOLS.map((tool) => tool.name).sort()).toEqual([
       'codecompass_get_config_evidence',
       'codecompass_get_dashboard',
+      'codecompass_get_pr_impact',
       'codecompass_get_tours',
       'codecompass_trace_call_chain'
     ]);
     for (const tool of MCP_TOOLS) {
       expect(tool.description.length).toBeGreaterThan(10);
       expect(tool.inputSchema.type).toBe('object');
+      if (tool.name === 'codecompass_get_pr_impact') continue;
       expect(tool.inputSchema.required).toContain('repoId');
       const props = Object.keys(tool.inputSchema.properties);
       expect(props.length).toBeGreaterThan(0);
@@ -210,6 +246,8 @@ describe('Issue 20 MCP tool metadata', () => {
     const config = MCP_TOOLS.find((tool) => tool.name === 'codecompass_get_config_evidence')!;
     expect(config.inputSchema.required).toEqual(['repoId']);
     expect(config.inputSchema.properties.query).toBeDefined();
+    const prImpact = MCP_TOOLS.find((tool) => tool.name === 'codecompass_get_pr_impact')!;
+    expect(prImpact.inputSchema.required).toEqual(['repoPath', 'base', 'head']);
   });
 
   it('resolves repo ids and falls back to display names', async () => {
@@ -230,11 +268,13 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       expect(list.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual([
         'codecompass_get_config_evidence',
         'codecompass_get_dashboard',
+        'codecompass_get_pr_impact',
         'codecompass_get_tours',
         'codecompass_trace_call_chain'
       ]);
       for (const tool of list.result.tools) {
         expect(tool.inputSchema.type).toBe('object');
+        if (tool.name === 'codecompass_get_pr_impact') continue;
         expect(tool.inputSchema.required).toContain('repoId');
       }
     } finally {
@@ -252,6 +292,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         'codecompass_get_config_evidence',
         'codecompass_get_dashboard',
+        'codecompass_get_pr_impact',
         'codecompass_get_tours',
         'codecompass_trace_call_chain'
       ]);
@@ -407,6 +448,32 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
   });
 });
 
+describe('Phase 5 MCP PR impact', () => {
+  it('tools/call codecompass_get_pr_impact returns a schemaVersion report for any local git repo', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-pr-'));
+    const repoDir = path.join(dir, 'repo');
+    const { base, head } = await makePrFixtureRepo(repoDir);
+    registerCleanup(async () => fs.rm(dir, { recursive: true, force: true }));
+
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text } = await rawCallTool(clientTransport, 'codecompass_get_pr_impact', {
+        repoPath: repoDir,
+        base,
+        head
+      });
+      const parsed = JSON.parse(text) as { schemaVersion: number; repoName: string; affectedApis: unknown[] };
+      expect(parsed.schemaVersion).toBe(1);
+      expect(parsed.repoName).toBe('repo');
+      expect(parsed.affectedApis.length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe('Issue 20 MCP CLI wiring', () => {
   it('parses `codecompass mcp <path>` as the mcp subcommand', () => {
     expect(parseArgs(['mcp', 'C:/repos/demo'])).toEqual({
@@ -418,7 +485,8 @@ describe('Issue 20 MCP CLI wiring', () => {
         dataDir: undefined,
         noBrowser: false,
         help: false,
-        version: false
+        version: false,
+        failOnImpact: false
       }
     });
     expect(parseArgs(['mcp', '--data-dir', 'D:/data', 'C:/repos/demo'])).toMatchObject({

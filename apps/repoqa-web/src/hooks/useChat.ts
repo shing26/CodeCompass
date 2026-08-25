@@ -26,6 +26,8 @@ export interface UseChatResult {
   streaming: boolean;
   /** True while auto-reconnect is retrying a dropped SSE connection (07). */
   reconnecting: boolean;
+  /** True briefly after a reconnect recovers, so the UI can confirm it. */
+  recovered: boolean;
   error: string | null;
   submit: (question: string, mode?: QueryMode, start?: QueryStart) => void;
   /** Manually re-run the last question after permanent reconnect failure (07). */
@@ -43,12 +45,26 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [recovered, setRecovered] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<QueryStreamLike | null>(null);
   const assistantIdRef = useRef<string | null>(null);
   const lastQuestionRef = useRef<string | null>(null);
   const lastModeRef = useRef<QueryMode | undefined>(undefined);
   const lastStartRef = useRef<QueryStart | undefined>(undefined);
+  const historyByRepo = useRef(new Map<string, ChatMessage[]>());
+  const lastRepoRef = useRef<string | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const reconnectingRef = useRef(false);
+  const recoveredTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    reconnectingRef.current = reconnecting;
+  }, [reconnecting]);
 
   const cancel = useCallback(() => {
     streamRef.current?.close();
@@ -57,10 +73,20 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
 
   // Repo switch: cancel stream and reset conversation context.
   useEffect(() => {
+    const previousRepo = lastRepoRef.current;
+    if (previousRepo && previousRepo !== repoId) {
+      historyByRepo.current.set(
+        previousRepo,
+        messagesRef.current.filter((message) => message.status !== 'streaming')
+      );
+    }
+    lastRepoRef.current = repoId;
     cancel();
-    setMessages([]);
+    setMessages(repoId ? (historyByRepo.current.get(repoId) ?? []) : []);
     setStreaming(false);
     setReconnecting(false);
+    setRecovered(false);
+    if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
     setError(null);
   }, [repoId, cancel]);
 
@@ -76,13 +102,30 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
 
     stream.onEvent((event) => {
       if (event.type === 'token') {
-        setReconnecting(false);
+        if (reconnectingRef.current) {
+          setReconnecting(false);
+          setRecovered(true);
+          if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
+          recoveredTimer.current = setTimeout(() => setRecovered(false), 2000);
+        }
         withAssistant((m) => ({ ...m, text: m.text + event.text }));
       } else if (event.type === 'mermaid') {
+        if (reconnectingRef.current) {
+          setReconnecting(false);
+          setRecovered(true);
+          if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
+          recoveredTimer.current = setTimeout(() => setRecovered(false), 2000);
+        }
         withAssistant((m) => ({ ...m, diagram: event.code }));
       } else if (event.type === 'anchors') {
         withAssistant((m) => ({ ...m, anchors: event.anchors }));
       } else if (event.type === 'done') {
+        if (reconnectingRef.current) {
+          setReconnecting(false);
+          setRecovered(true);
+          if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
+          recoveredTimer.current = setTimeout(() => setRecovered(false), 2000);
+        }
         const suggestedAction =
           typeof event.payload?.suggestedAction === 'string'
             ? event.payload.suggestedAction
@@ -91,6 +134,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
       } else if (event.type === 'error') {
         setError(event.error);
         setReconnecting(false);
+        setRecovered(false);
         setStreaming(false);
         setMessages((prev) => {
           const last = prev[prev.length - 1];
@@ -111,11 +155,13 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
       const e = (err ?? {}) as { kind?: 'transient' | 'permanent'; attempt?: number };
       if (e.kind === 'permanent') {
         setReconnecting(false);
+        setRecovered(false);
         setError('连接中断，自动重连失败，请手动重试。');
         setStreaming(false);
         withAssistant((m) => ({ ...m, break: true, status: 'done' }));
       } else {
         setReconnecting(true);
+        setRecovered(false);
         withAssistant((m) => ({ ...m, text: '', diagram: undefined, anchors: [] }));
       }
     });
@@ -148,6 +194,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
       assistantIdRef.current = null;
       setError(null);
       setReconnecting(false);
+      setRecovered(false);
       setStreaming(true);
 
       const userId = uid();
@@ -175,6 +222,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     assistantIdRef.current = null;
     setError(null);
     setReconnecting(false);
+    setRecovered(false);
     setStreaming(true);
 
     const assistantId = uid();
@@ -197,8 +245,10 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     setMessages([]);
     setError(null);
     setReconnecting(false);
+    setRecovered(false);
+    if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
     setStreaming(false);
   }, [cancel]);
 
-  return { messages, streaming, reconnecting, error, submit, retry, reset };
+  return { messages, streaming, reconnecting, recovered, error, submit, retry, reset };
 }

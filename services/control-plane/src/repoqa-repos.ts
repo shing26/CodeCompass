@@ -304,6 +304,17 @@ export class RepoQARepos {
     tx();
   }
 
+  deleteRepo(repoId: string): void {
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM repoqa_events WHERE repo_id = ?').run(repoId);
+      this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
+      this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?').run(repoId);
+      this.db.prepare('DELETE FROM repo_files WHERE repo_id = ?').run(repoId);
+      this.db.prepare('DELETE FROM repos WHERE id = ?').run(repoId);
+    });
+    tx();
+  }
+
   saveFiles(repoId: string, root: string, files: string[]): void {
     if (files.length === 0) return;
     const insert = this.db.prepare(

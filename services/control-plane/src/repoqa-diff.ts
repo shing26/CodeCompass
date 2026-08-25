@@ -24,6 +24,7 @@ import { scanPom, scanProperties, scanYaml, type ScannedKey } from './repoqa-con
 
 export const GIT_TIMEOUT_MS = 60_000;
 const GIT_SHOW_CONCURRENCY = 8;
+export const PR_IMPACT_SCHEMA_VERSION = 1 as const;
 
 /* ------------------------------------------------------------------ */
 /* git plumbing（只读，参数数组传参，绝不拼 shell 字符串）              */
@@ -462,6 +463,14 @@ export interface ConfigChange {
   status: 'added' | 'modified' | 'removed';
 }
 
+export interface DiffImpactSummary {
+  changedFiles: number;
+  modifiedSymbols: number;
+  affectedApis: number;
+  configChanges: number;
+  uncovered: number;
+}
+
 function isConfigFile(file: string): boolean {
   const name = path.basename(file).toLowerCase();
   return (
@@ -586,6 +595,8 @@ export interface AffectedApiEntry {
 }
 
 export interface DiffReport {
+  schemaVersion: typeof PR_IMPACT_SCHEMA_VERSION;
+  summary: DiffImpactSummary;
   repoPath: string;
   repoName: string;
   base: string;
@@ -778,6 +789,14 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
   ].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 
   return {
+    schemaVersion: PR_IMPACT_SCHEMA_VERSION,
+    summary: {
+      changedFiles: statuses.length,
+      modifiedSymbols: modifiedSymbols.length,
+      affectedApis: affectedApis.length,
+      configChanges: configChanges.length,
+      uncovered: uncovered.length
+    },
     repoPath,
     repoName: path.basename(repoPath),
     base: options.base,

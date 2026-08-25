@@ -1,6 +1,17 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { openDb } from './db';
+import { EventBus } from './events';
 import type { RepoSymbol } from './repoqa-repos';
-import { findFuzzyStartSymbol, fuzzyMatchScore, splitIdentifier } from './repoqa-worker';
+import { RepoQARepos } from './repoqa-repos';
+import {
+  findFuzzyStartSymbol,
+  fuzzyMatchScore,
+  splitIdentifier,
+  RepoQAWorker
+} from './repoqa-worker';
 
 const isTest = (filePath: string) => filePath.includes('/test/') || filePath.includes('Test.java');
 
@@ -131,4 +142,40 @@ describe('findFuzzyStartSymbol', () => {
     const picked = findFuzzyStartSymbol('tell me about the owner service', [listOwners, ownerService], isTest);
     expect(picked).toBe(ownerService);
   });
+});
+
+describe('RepoQAWorker index progress (Bug-R2-04)', () => {
+  it('broadcasts live parsed-file counts while parsing many Java files', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-worker-progress-'));
+    const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+    await fs.mkdir(pkg, { recursive: true });
+    for (let index = 0; index < 60; index += 1) {
+      await fs.writeFile(
+        path.join(pkg, `A${index}.java`),
+        `package com.demo;\npublic class A${index} {}\n`
+      );
+    }
+
+    const db = openDb(':memory:');
+    const repoqa = new RepoQARepos(db);
+    const eventBus = new EventBus();
+    const details: string[] = [];
+    eventBus.on((event) => {
+      if (event.type === 'repoqa.index.progress') {
+        const payload = event.payload as { detail?: string };
+        if (payload.detail) details.push(payload.detail);
+      }
+    });
+    const worker = new RepoQAWorker(repoqa, eventBus);
+    try {
+      const result = await worker.indexRepo({ localPath: root, name: 'many' });
+      expect(result.repo.status).toBe('ready');
+      expect(result.repo.fileCount).toBe(60);
+      expect(details.some((detail) => detail.includes('Parsing AST... 50 files'))).toBe(true);
+      expect(details.some((detail) => detail.includes('Parsing AST... 60 files'))).toBe(true);
+    } finally {
+      db.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
 });

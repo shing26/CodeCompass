@@ -90,6 +90,27 @@ async function makeJavaRepo(root: string): Promise<void> {
   await fs.writeFile(path.join(root, 'node_modules', 'dep', 'index.js'), 'ignored\n');
 }
 
+async function makeArchitectureQuestionRepo(root: string): Promise<void> {
+  const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+  await fs.mkdir(pkg, { recursive: true });
+  await fs.writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+  await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
+  // CrashController sorts before PetController so the old fixed route[0] bug
+  // would pick it; the architecture query must resolve initCreationForm instead.
+  await fs.writeFile(
+    path.join(pkg, 'CrashController.java'),
+    'package com.demo;\n@RestController\npublic class CrashController {\n  public String crash() { return "boom"; }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'PetController.java'),
+    'package com.demo;\n@RestController\npublic class PetController {\n  public String initCreationForm() { return new PetService().show(); }\n}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'PetService.java'),
+    'package com.demo;\npublic class PetService {\n  public String show() { return "pet"; }\n}\n'
+  );
+}
+
 async function makeConfigRepo(root: string): Promise<void> {
   await fs.mkdir(path.join(root, 'src', 'main', 'resources'), { recursive: true });
   await fs.writeFile(
@@ -391,6 +412,66 @@ describe('RepoPulse secret masking util', () => {
 });
 
 describe('RepoPulse repo import HTTP API', () => {
+  it('previews file counts and skipped dirs before an import starts (Round 2 B4)', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-http-'));
+    try {
+      await makeJavaRepo(root);
+      const response = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ localPath: root })
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      const body = (await response.json()) as {
+        preview: {
+          path: string;
+          fileCount: number;
+          javaFileCount: number;
+          skippedDirCount: number;
+          skippedDirs: string[];
+        };
+      };
+      expect(body.preview.path).toBe(root);
+      expect(body.preview.fileCount).toBe(5);
+      expect(body.preview.javaFileCount).toBe(3);
+      expect(body.preview.skippedDirCount).toBe(2);
+      expect(body.preview.skippedDirs).toContain('.git');
+      expect(body.preview.skippedDirs).toContain('node_modules');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects preview requests without a path or with a non-directory path', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-bad-'));
+    try {
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      expect(missing.status).toBe(400);
+      expect(await missing.json()).toEqual({ error: 'localPath is required' });
+
+      const invalid = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ localPath: path.join(root, 'missing') })
+      });
+      expect(invalid.status).toBe(400);
+      expect(((await invalid.json()) as { error: string }).error).toContain(
+        'not a directory'
+      );
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('imports a local repo and emits progress while indexing', async () => {
     const ctx = await startServer();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-java-'));
@@ -461,6 +542,108 @@ describe('RepoPulse repo import HTTP API', () => {
       const listResponse = await fetch(`${ctx.baseUrl}/api/repos`);
       const list = (await listResponse.json()) as { repos: Array<{ id: string }> };
       expect(list.repos).toHaveLength(1);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('deletes a repo index while keeping source files on disk', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-delete-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.status).toBe(201);
+      const repoId = result.body.repo!.id;
+      const sourceFile = path.join(
+        root,
+        'src',
+        'main',
+        'java',
+        'com',
+        'demo',
+        'App.java'
+      );
+
+      const del = await fetch(`${ctx.baseUrl}/api/repos/${repoId}`, {
+        method: 'DELETE'
+      });
+      expect(del.status).toBe(204);
+
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/${repoId}`);
+      expect(missing.status).toBe(404);
+      expect(await fs.stat(sourceFile)).toBeTruthy();
+
+      const listResponse = await fetch(`${ctx.baseUrl}/api/repos`);
+      const list = (await listResponse.json()) as { repos: Array<{ id: string }> };
+      expect(list.repos).toHaveLength(0);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reindexes an existing repo from its stored local path', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-reindex-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.status).toBe(201);
+      const repoId = result.body.repo!.id;
+      const before = result.body.repo!;
+
+      await fs.writeFile(
+        path.join(root, 'src', 'main', 'java', 'com', 'demo', 'NewController.java'),
+        'package com.demo;\n@RestController\npublic class NewController {\n  public String ping() { return "pong"; }\n}\n'
+      );
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/reindex`, {
+        method: 'POST'
+      });
+      expect(response.status).toBe(202);
+      const body = (await response.json()) as { repo?: { id: string } };
+      expect(body.repo?.id).toBe(repoId);
+
+      await waitForRepoStatus(ctx, repoId, 'ready');
+      const currentResponse = await fetch(`${ctx.baseUrl}/api/repos/${repoId}`);
+      const current = (await currentResponse.json()) as {
+        repo: { fileCount: number; symbolCount: number };
+      };
+      expect(current.repo.fileCount).toBeGreaterThan(before.fileCount);
+      expect(current.repo.symbolCount).toBeGreaterThan(before.symbolCount);
+      expect(
+        ctx.db
+          .prepare('SELECT name FROM repo_symbols WHERE repo_id = ? AND name = ?')
+          .get(repoId, 'NewController')
+      ).toBeTruthy();
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects delete and reindex while the repo is indexing', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-indexing-lock-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+      ctx.db
+        .prepare('UPDATE repos SET status = ? WHERE id = ?')
+        .run('indexing', repoId);
+
+      const del = await fetch(`${ctx.baseUrl}/api/repos/${repoId}`, {
+        method: 'DELETE'
+      });
+      expect(del.status).toBe(409);
+
+      const reindex = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/reindex`, {
+        method: 'POST'
+      });
+      expect(reindex.status).toBe(409);
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
@@ -755,7 +938,7 @@ describe('RepoPulse symbol extraction HTTP API', () => {
 });
 
 describe('RepoPulse onboarding tours HTTP API', () => {
-  it('returns three deterministic onboarding tours from the symbol table', async () => {
+  it('returns only playable onboarding tours from the symbol table', async () => {
     const ctx = await startServer();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-tours-http-'));
     try {
@@ -781,11 +964,7 @@ describe('RepoPulse onboarding tours HTTP API', () => {
           mermaid: string;
         }>;
       };
-      expect(body.tours.map((tour) => tour.id)).toEqual([
-        'auth-chain',
-        'main-flow',
-        'error-handling'
-      ]);
+      expect(body.tours.map((tour) => tour.id)).toEqual(['auth-chain', 'main-flow']);
       for (const tour of body.tours) {
         expect(tour.title).toBeTruthy();
         expect(tour.description).toBeTruthy();
@@ -810,9 +989,7 @@ describe('RepoPulse onboarding tours HTTP API', () => {
       expect(authChain.steps.map((step) => step.step)).toEqual([
         '1. Controller.hello（受保护端点）'
       ]);
-      const errorHandling = body.tours.find((tour) => tour.id === 'error-handling')!;
-      expect(errorHandling.steps).toEqual([]);
-      expect(errorHandling.mermaid).toContain('暂无匹配代码');
+      expect(body.tours.some((tour) => tour.id === 'error-handling')).toBe(false);
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
@@ -834,6 +1011,12 @@ describe('RepoPulse onboarding tours HTTP API', () => {
       const filteredBody = (await filtered.json()) as { tours: Array<{ id: string }> };
       expect(filteredBody.tours).toHaveLength(1);
       expect(filteredBody.tours[0].id).toBe('auth-chain');
+
+      const emptyTour = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/tours?type=error-handling`
+      );
+      const emptyBody = (await emptyTour.json()) as { tours: Array<{ id: string }> };
+      expect(emptyBody.tours).toEqual([]);
 
       const missing = await fetch(`${ctx.baseUrl}/api/repos/missing-repo/tours`);
       expect(missing.status).toBe(404);
@@ -904,7 +1087,7 @@ describe('RepoPulse dashboard HTTP API', () => {
         services: 1,
         repositories: 1,
         advices: 0,
-        configKeys: 11
+        configKeys: 2
       });
 
       expect(dashboard.config.maskedValues).toBe(true);
@@ -1009,7 +1192,7 @@ describe('RepoPulse SSE query skeleton', () => {
       const repoId = result.body.repo!.id;
 
       const response = await fetch(
-        `${ctx.baseUrl}/api/repos/${repoId}/query?question=${encodeURIComponent('trace the route')}`
+        `${ctx.baseUrl}/api/repos/${repoId}/query?question=${encodeURIComponent('trace hello')}`
       );
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('text/event-stream');
@@ -1044,9 +1227,9 @@ describe('RepoPulse SSE query skeleton', () => {
       const mermaidData = JSON.parse(
         mermaidBlock.slice(mermaidBlock.indexOf('data: ') + 6)
       ) as { mermaid: string };
-      expect(mermaidData.mermaid).toContain('Controller[Controller]');
+      expect(mermaidData.mermaid).toContain('hello[hello]');
       expect(mermaidData.mermaid).toContain(
-        'click Controller "code://src/main/java/com/demo/Controller.java#3"'
+        'click hello "code://src/main/java/com/demo/Controller.java#5"'
       );
       expect(mermaidData.mermaid).toContain(
         'click greet "code://src/main/java/com/demo/DemoService.java#4"'
@@ -1056,7 +1239,7 @@ describe('RepoPulse SSE query skeleton', () => {
       const doneData = JSON.parse(
         doneBlock.slice(doneBlock.indexOf('data: ') + 6)
       ) as { answer: string; suggestedAction?: string };
-      expect(doneData.answer).toContain('trace the route');
+      expect(doneData.answer).toContain('trace hello');
       expect(doneData.suggestedAction).toBeTruthy();
     } finally {
       await ctx.close();
@@ -1080,7 +1263,7 @@ describe('RepoPulse SSE query skeleton', () => {
       const events = [];
       for await (const event of ctx.worker.queryRepo({
         repoId,
-        question: 'trace the route'
+        question: 'trace hello'
       })) {
         events.push(event);
       }
@@ -1394,6 +1577,65 @@ describe('RepoPulse deterministic call-chain query', () => {
   });
 });
 
+describe('RepoPulse architecture question resolution (Round 2)', () => {
+  it('Bug-R2-01: resolves the question symbol instead of fixed route[0]+method[0]', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-architecture-q-'));
+    try {
+      await makeArchitectureQuestionRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?question=${encodeURIComponent('initCreationForm 是在哪个类实现的？')}`
+      );
+      const text = await response.text();
+      const doneBlock = text
+        .split('\n\n')
+        .find((block) => block.startsWith('event: repoqa.query.done'));
+      const doneData = JSON.parse(
+        doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
+      ) as {
+        answer: string;
+        trace?: Array<{ file: string; method: string }>;
+      };
+      expect(doneData.trace?.[0]?.method).toBe('initCreationForm');
+      expect(doneData.trace?.[0]?.file).toContain('PetController.java');
+      expect(doneData.answer).not.toContain('CrashController');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('Bug-R2-06: no-match answers carry a visible default-entry hint', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-architecture-fallback-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      for (const mode of ['call-chain', 'architecture']) {
+        const response = await fetch(
+          `${ctx.baseUrl}/api/repos/${repoId}/query?mode=${mode}&question=${encodeURIComponent('zzzz不存在符号')}`
+        );
+        const text = await response.text();
+        const doneBlock = text
+          .split('\n\n')
+          .find((block) => block.startsWith('event: repoqa.query.done'));
+        const doneData = JSON.parse(
+          doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
+        ) as { answer: string };
+        expect(doneData.answer).toContain('未找到相关符号，以下为仓库默认入口供参考');
+      }
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('RepoPulse chunks and config evidence', () => {
   it('indexes config keys and chunks without leaking values', async () => {
     const ctx = await startServer();
@@ -1415,7 +1657,9 @@ describe('RepoPulse chunks and config evidence', () => {
         symbols: Array<{ name: string; filePath: string }>;
       };
       expect(configBody.symbols.length).toBeGreaterThan(0);
-      expect(configBody.symbols.some((symbol) => symbol.name === 'spring')).toBe(true);
+      expect(configBody.symbols.some((symbol) => symbol.name === 'spring.datasource.password')).toBe(
+        true
+      );
       expect(
         configBody.symbols.some((symbol) =>
           /8080|secret|com\.demo/.test(symbol.name)

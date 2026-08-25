@@ -62,10 +62,12 @@ export function Inspector({
   const language = useMemo(() => (file ? languageFor(file) : 'plaintext'), [file]);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [editorReady, setEditorReady] = useState(false);
+  const [editorMount, setEditorMount] = useState(0);
 
   const handleMount: OnMount = (monacoEditor) => {
     editorRef.current = monacoEditor;
     setEditorReady(true);
+    setEditorMount((value) => value + 1);
   };
 
   // Glow on every navigation, not just first mount: the Monaco wrapper mounts
@@ -78,35 +80,37 @@ export function Inspector({
     if (!glow || !editorReady || !editorRef.current) return;
     const ed = editorRef.current;
     const target = file;
-    let attempts = 0;
-    const maxAttempts = 8;
-    const intervalMs = 50;
     let finished = false;
     const apply = () => {
       if (finished) return;
       const model = ed.getModel();
-      if (model && target !== null && model.uri?.path === target) {
+      const modelPath = model?.uri?.path;
+      const pathMatches =
+        target !== null &&
+        (modelPath === target || (target.startsWith('/') ? modelPath === target : modelPath === `/${target}`));
+      if (model && pathMatches) {
         finished = true;
-        clearInterval(timer);
+        clearTimeout(timer);
         revealAndGlow(ed, glow.line, glow.lineEnd);
         return;
       }
-      attempts += 1;
-      if (attempts >= maxAttempts) {
-        // Model never matched (path normalization edge case) — still reveal on
-        // whatever model is present so the navigation is never a silent miss.
-        finished = true;
-        clearInterval(timer);
-        revealAndGlow(ed, glow.line, glow.lineEnd);
-      }
     };
-    const timer = setInterval(apply, intervalMs);
+    const modelListener = ed.onDidChangeModel?.(apply);
+    const timer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      modelListener?.dispose();
+      // Bounded safety net: even if the model path never matches exactly, the
+      // navigation should still reveal and glow instead of staying silent.
+      revealAndGlow(ed, glow.line, glow.lineEnd);
+    }, 2000);
     apply();
     return () => {
       finished = true;
-      clearInterval(timer);
+      modelListener?.dispose();
+      clearTimeout(timer);
     };
-  }, [glow, file, editorReady]);
+  }, [glow, file, editorReady, editorMount]);
 
   return (
     <aside
