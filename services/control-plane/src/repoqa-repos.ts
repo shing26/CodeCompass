@@ -323,6 +323,15 @@ export class RepoQARepos {
       );
   }
 
+  /** Issue 30: update live file/symbol counters without touching status. */
+  updateRepoCounts(repoId: string, fileCount: number, symbolCount: number): void {
+    this.db
+      .prepare(
+        `UPDATE repos SET file_count = ?, symbol_count = ?, updated_at = ? WHERE id = ?`
+      )
+      .run(fileCount, symbolCount, new Date().toISOString(), repoId);
+  }
+
   clearRepoData(repoId: string): void {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
@@ -355,6 +364,32 @@ export class RepoQARepos {
       }
     });
     tx();
+  }
+
+  addRepoFile(repoId: string, filePath: string): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO repo_files (repo_id, path) VALUES (?, ?)')
+      .run(repoId, filePath);
+  }
+
+  removeRepoFile(repoId: string, filePath: string): void {
+    this.db
+      .prepare('DELETE FROM repo_files WHERE repo_id = ? AND path = ?')
+      .run(repoId, filePath);
+  }
+
+  countFiles(repoId: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS count FROM repo_files WHERE repo_id = ?')
+      .get(repoId) as { count: number };
+    return row.count;
+  }
+
+  countSymbols(repoId: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS count FROM repo_symbols WHERE repo_id = ?')
+      .get(repoId) as { count: number };
+    return row.count;
   }
 
   isFileIndexed(repoId: string, filePath: string): boolean {
@@ -451,33 +486,53 @@ export class RepoQARepos {
 
   upsertSymbols(symbols: RepoSymbol[]): void {
     if (symbols.length === 0) return;
+    const del = this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?');
+    const tx = this.db.transaction(() => {
+      del.run(symbols[0].repoId);
+      this.insertSymbolRows(symbols);
+    });
+    tx();
+  }
+
+  /** Issue 30: replace only one file's symbols during a hot reload. */
+  replaceFileSymbols(repoId: string, filePath: string, symbols: RepoSymbol[]): void {
+    const tx = this.db.transaction(() => {
+      this.deleteSymbolsForFile(repoId, filePath);
+      this.insertSymbolRows(symbols);
+    });
+    tx();
+  }
+
+  deleteSymbolsForFile(repoId: string, filePath: string): void {
+    this.db
+      .prepare('DELETE FROM repo_symbols WHERE repo_id = ? AND file_path = ?')
+      .run(repoId, filePath);
+  }
+
+  private insertSymbolRows(symbols: RepoSymbol[]): void {
+    if (symbols.length === 0) return;
     const insert = this.db.prepare(
       `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces, display_path, annotations, param_annotations)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    const del = this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?');
-    const tx = this.db.transaction(() => {
-      del.run(symbols[0].repoId);
-      for (const s of symbols) {
-        insert.run(
-          s.repoId,
-          s.kind,
-          s.name,
-          s.filePath,
-          s.lineStart ?? null,
-          s.lineEnd ?? null,
-          s.signature ?? null,
-          s.calls ? JSON.stringify(s.calls) : null,
-          s.parentType ?? null,
-          s.type ?? null,
-          s.interfaces ? JSON.stringify(s.interfaces) : null,
-          s.displayPath ?? null,
-          s.annotations ? JSON.stringify(s.annotations) : null,
-          s.paramAnnotations ? JSON.stringify(s.paramAnnotations) : null
-        );
-      }
-    });
-    tx();
+    for (const s of symbols) {
+      insert.run(
+        s.repoId,
+        s.kind,
+        s.name,
+        s.filePath,
+        s.lineStart ?? null,
+        s.lineEnd ?? null,
+        s.signature ?? null,
+        s.calls ? JSON.stringify(s.calls) : null,
+        s.parentType ?? null,
+        s.type ?? null,
+        s.interfaces ? JSON.stringify(s.interfaces) : null,
+        s.displayPath ?? null,
+        s.annotations ? JSON.stringify(s.annotations) : null,
+        s.paramAnnotations ? JSON.stringify(s.paramAnnotations) : null
+      );
+    }
   }
 
   listSymbols(repoId: string, kind?: string): RepoSymbol[] {
@@ -492,18 +547,38 @@ export class RepoQARepos {
 
   upsertChunks(chunks: RepoChunk[]): void {
     if (chunks.length === 0) return;
+    const del = this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?');
+    const tx = this.db.transaction(() => {
+      del.run(chunks[0].repoId);
+      this.insertChunkRows(chunks);
+    });
+    tx();
+  }
+
+  /** Issue 30: replace only one file's chunks during a hot reload. */
+  replaceFileChunks(repoId: string, filePath: string, chunks: RepoChunk[]): void {
+    const tx = this.db.transaction(() => {
+      this.deleteChunksForFile(repoId, filePath);
+      this.insertChunkRows(chunks);
+    });
+    tx();
+  }
+
+  deleteChunksForFile(repoId: string, filePath: string): void {
+    this.db
+      .prepare('DELETE FROM repo_chunks WHERE repo_id = ? AND file_path = ?')
+      .run(repoId, filePath);
+  }
+
+  private insertChunkRows(chunks: RepoChunk[]): void {
+    if (chunks.length === 0) return;
     const insert = this.db.prepare(
       `INSERT INTO repo_chunks (repo_id, chunk_type, content, file_path, line_start)
        VALUES (?, ?, ?, ?, ?)`
     );
-    const del = this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?');
-    const tx = this.db.transaction(() => {
-      del.run(chunks[0].repoId);
-      for (const c of chunks) {
-        insert.run(c.repoId, c.chunkType, c.content, c.filePath ?? null, c.lineStart ?? null);
-      }
-    });
-    tx();
+    for (const c of chunks) {
+      insert.run(c.repoId, c.chunkType, c.content, c.filePath ?? null, c.lineStart ?? null);
+    }
   }
 
   searchChunks(repoId: string, query: string, limit = 20): RepoChunk[] {

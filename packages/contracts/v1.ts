@@ -140,6 +140,13 @@ export interface RepoQaQueryError {
   error: string;
 }
 
+export interface RepoUpdated {
+  repoId: string;
+  files: string[];
+  action: 'update' | 'remove';
+  ts: number;
+}
+
 // WebSocket event envelope
 export type ServerEvent =
   | { type: 'task.created'; payload: Task }
@@ -157,4 +164,5 @@ export type ServerEvent =
   | { type: 'repoqa.query.mermaid'; payload: RepoQaQueryMermaid }
   | { type: 'repoqa.query.anchors'; payload: RepoQaQueryAnchors }
   | { type: 'repoqa.query.done'; payload: RepoQaQueryDone }
-  | { type: 'repoqa.query.error'; payload: RepoQaQueryError };
+  | { type: 'repoqa.query.error'; payload: RepoQaQueryError }
+  | { type: 'repo_updated'; payload: RepoUpdated };

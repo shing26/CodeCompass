@@ -23,6 +23,7 @@ describe('Issue 16 CLI arg parsing', () => {
         port: undefined,
         dataDir: undefined,
         noBrowser: false,
+        noWatch: false,
         help: false,
         version: false,
         failOnImpact: false
@@ -46,6 +47,11 @@ describe('Issue 16 CLI arg parsing', () => {
   it('supports --flag=value syntax', () => {
     const result = parseArgs(['--port=43999', '/repo']);
     expect(result).toMatchObject({ ok: true, args: { port: 43999, targetPath: '/repo' } });
+  });
+
+  it('parses --no-watch as an opt-out of hot reload', () => {
+    const result = parseArgs(['--no-watch', '/repo']);
+    expect(result).toMatchObject({ ok: true, args: { noWatch: true, targetPath: '/repo' } });
   });
 
   it('parses the context command with a query and optional repo path', () => {

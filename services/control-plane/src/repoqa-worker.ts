@@ -37,6 +37,12 @@ export type StartSymbolResolution = {
   confidence: number;
 };
 
+export type FileRefreshResult = {
+  repoId: string;
+  file: string;
+  action: 'update' | 'remove';
+};
+
 function lineNumberAt(source: string, offset: number): number {
   let line = 1;
   for (let index = 0; index < offset; index += 1) {
@@ -161,6 +167,83 @@ export class RepoQAWorker {
 
   private setSymbolGraph(repoId: string, symbols: RepoSymbol[]): void {
     this.symbolCache.set(repoId, { symbols, index: buildCallIndex(symbols) });
+  }
+
+  /**
+   * Issue 30 — incremental re-parse of a single changed file. Replaces only
+   * that file's symbols/chunks in SQLite, refreshes the in-memory call graph
+   * and keeps the repo counters live. A missing file falls through to
+   * `removeFile` so rename/delete events converge on the same code path.
+   */
+  async reparseFile(repoId: string, filePath: string): Promise<FileRefreshResult> {
+    const repo = this.repoqa.getRepo(repoId);
+    if (!repo) throw new Error(`Repo not found: ${repoId}`);
+    const root = path.resolve(repo.localPath);
+    const absolute = path.resolve(filePath);
+    const relative = this.toRepoRelativePath(root, absolute);
+    let isFile = false;
+    try {
+      isFile = (await fs.stat(absolute)).isFile();
+    } catch {
+      isFile = false;
+    }
+    if (!isFile) return this.removeFile(repoId, absolute);
+
+    const symbols: RepoSymbol[] = [];
+    const adapter = adapterFor(absolute);
+    if (adapter) {
+      try {
+        symbols.push(...(await adapter.parseFile(absolute, repoId, root)));
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.repoqa.recordEvent({
+          repoId,
+          eventType: 'repoqa.index.warning',
+          feedback: JSON.stringify({
+            skippedFiles: 1,
+            files: [{ file: relative, error: detail }]
+          })
+        });
+      }
+    }
+    const configSymbols = await extractConfigSymbols(repoId, root, [absolute]);
+    const mapperSymbols = await extractMapperSymbols(repoId, root, [absolute]);
+    const chunks = await this.extractChunks(repoId, root, [absolute]);
+    const allSymbols = [...symbols, ...configSymbols, ...mapperSymbols];
+    this.repoqa.replaceFileSymbols(repoId, relative, allSymbols);
+    this.repoqa.replaceFileChunks(repoId, relative, chunks);
+    this.repoqa.addRepoFile(repoId, relative);
+    this.rebuildRepoCounts(repoId);
+    return { repoId, file: relative, action: 'update' };
+  }
+
+  /** Issue 30 — drop one file's symbols/chunks and refresh counters/graph. */
+  async removeFile(repoId: string, filePath: string): Promise<FileRefreshResult> {
+    const repo = this.repoqa.getRepo(repoId);
+    if (!repo) throw new Error(`Repo not found: ${repoId}`);
+    const root = path.resolve(repo.localPath);
+    const absolute = path.resolve(filePath);
+    const relative = this.toRepoRelativePath(root, absolute);
+    this.repoqa.deleteSymbolsForFile(repoId, relative);
+    this.repoqa.deleteChunksForFile(repoId, relative);
+    this.repoqa.removeRepoFile(repoId, relative);
+    this.rebuildRepoCounts(repoId);
+    return { repoId, file: relative, action: 'remove' };
+  }
+
+  private toRepoRelativePath(root: string, absolute: string): string {
+    const relative = path.relative(root, absolute).split(path.sep).join('/');
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new Error(`File outside repo root: ${absolute}`);
+    }
+    return relative;
+  }
+
+  private rebuildRepoCounts(repoId: string): void {
+    const fileCount = this.repoqa.countFiles(repoId);
+    const symbolCount = this.repoqa.countSymbols(repoId);
+    this.repoqa.updateRepoCounts(repoId, fileCount, symbolCount);
+    this.setSymbolGraph(repoId, this.repoqa.listSymbols(repoId));
   }
 
   async indexRepo(input: {

@@ -52,4 +52,5 @@ export type ServerEvent =
   | { type: 'repoqa.index.done'; payload: { repoId: string; status: string; fileCount: number; symbolCount: number } }
   | { type: 'repoqa.index.error'; payload: { error: string } }
   | { type: 'repoqa.query.done'; payload: Record<string, unknown> }
-  | { type: 'repoqa.query.error'; payload: { error: string } };
+  | { type: 'repoqa.query.error'; payload: { error: string } }
+  | { type: 'repo_updated'; payload: { repoId: string; files: string[]; action: 'update' | 'remove'; ts: number } };

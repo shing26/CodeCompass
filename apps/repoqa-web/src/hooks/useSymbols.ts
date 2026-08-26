@@ -6,6 +6,8 @@ export interface UseSymbolsResult {
   symbols: RepoSymbol[];
   loading: boolean;
   refresh: () => Promise<void>;
+  /** Issue 30: refresh without flipping loading so WS-driven updates stay silent. */
+  refreshSilent: () => Promise<void>;
 }
 
 /**
@@ -18,20 +20,20 @@ export function useSymbols(client: RepoQAClient, repoId: string | null): UseSymb
   const [loading, setLoading] = useState(false);
   const requestSeq = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!repoId) {
       setSymbols([]);
       return;
     }
     const seq = ++requestSeq.current;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const list = await client.listSymbols(repoId);
       if (seq === requestSeq.current) setSymbols(list);
     } catch {
       // transient — leave current state; caller may refresh via UI
     } finally {
-      if (seq === requestSeq.current) setLoading(false);
+      if (seq === requestSeq.current && !silent) setLoading(false);
     }
   }, [client, repoId]);
 
@@ -44,7 +46,11 @@ export function useSymbols(client: RepoQAClient, repoId: string | null): UseSymb
     await load();
   }, [load]);
 
-  return { symbols, loading, refresh };
+  const refreshSilent = useCallback(async () => {
+    await load(true);
+  }, [load]);
+
+  return { symbols, loading, refresh, refreshSilent };
 }
 
 export function filterByKind(symbols: RepoSymbol[], kind: SymbolKind): RepoSymbol[] {

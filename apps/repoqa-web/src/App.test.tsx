@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
 import { RepoQAClient } from './client/RepoQAClient';
-import type { Repo, RepoDashboard, RepoTour } from './types';
+import type { Repo, RepoDashboard, RepoSymbol, RepoTour } from './types';
 
 // The Inspector's monaco wiring imports the ESM-only monaco-editor package,
 // which vite-node cannot resolve; tests never create a real editor.
@@ -429,6 +429,72 @@ describe('Bug-R2-02 browser history', () => {
     window.history.forward();
     await waitFor(() => expect(window.location.search).toContain('repo=repo-2'));
     expect(screen.getByTestId('repo-select')).toHaveValue('repo-2');
+  });
+});
+
+describe('Issue 30 repo_updated hot reload', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('silently refreshes symbols and dashboard without leaving the view', async () => {
+    class FakeWebSocket {
+      static instances: FakeWebSocket[] = [];
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readyState = 0;
+      constructor(public url: string) {
+        FakeWebSocket.instances.push(this);
+      }
+      close() {}
+      send() {}
+      dispatch(payload: unknown) {
+        this.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket);
+
+    const hotSymbol: RepoSymbol = {
+      id: 1,
+      repoId: 'repo-1',
+      kind: 'method',
+      name: 'hotReloaded',
+      filePath: 'src/main/java/HotController.java',
+      lineStart: 5,
+      lineEnd: 7,
+      signature: 'hotReloaded()',
+      calls: null
+    };
+    const client = makeClient({
+      listSymbols: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([hotSymbol]),
+      getDashboard: vi
+        .fn()
+        .mockResolvedValueOnce(roundDashboard)
+        .mockResolvedValueOnce({ ...roundDashboard, repoName: 'petclinic-hot' })
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+    expect(client.listSymbols).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+
+    FakeWebSocket.instances[0].dispatch({
+      type: 'repo_updated',
+      payload: {
+        repoId: 'repo-1',
+        files: ['src/main/java/HotController.java'],
+        action: 'update',
+        ts: Date.now()
+      }
+    });
+
+    await waitFor(() => expect(client.listSymbols).toHaveBeenCalledTimes(2));
+    expect(client.getDashboard).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 });
 

@@ -597,6 +597,7 @@ describe('Issue 20 MCP CLI wiring', () => {
         port: undefined,
         dataDir: undefined,
         noBrowser: false,
+        noWatch: false,
         help: false,
         version: false,
         failOnImpact: false

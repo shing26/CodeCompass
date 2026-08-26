@@ -36,6 +36,7 @@ export interface CliArgs {
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
+  noWatch: boolean;
   help: boolean;
   version: boolean;
 }
@@ -83,6 +84,7 @@ Options:
   --port <number>       HTTP port (default: MHW_CP_PORT or 43110)
   --data-dir <dir>      Data directory (default: MHW_DATA_DIR or ~/.mhw)
   --no-browser          Do not auto-open the browser
+  --no-watch            Disable FS watcher hot reload for ready repos
   --output <fmt>        Diff report format: markdown | json (default: markdown)
   --file <path>         Write the diff report to a file instead of stdout
   --fail-on-impact      With pr-summary, exit 2 when impact is detected
@@ -92,7 +94,13 @@ Options:
 
 /** Parse argv (node-style, no binary name). Unknown flags → error. */
 export function parseArgs(argv: string[]): ParseResult {
-  const args: CliArgs = { noBrowser: false, help: false, version: false, failOnImpact: false };
+  const args: CliArgs = {
+    noBrowser: false,
+    noWatch: false,
+    help: false,
+    version: false,
+    failOnImpact: false
+  };
 
   const nextValue = (i: number, flag: string, inline?: string): { value?: string; next: number } => {
     if (inline !== undefined) return { value: inline, next: i };
@@ -165,6 +173,10 @@ export function parseArgs(argv: string[]): ParseResult {
     }
     if (arg === '--no-browser') {
       args.noBrowser = true;
+      continue;
+    }
+    if (arg === '--no-watch') {
+      args.noWatch = true;
       continue;
     }
 
@@ -432,6 +444,7 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     running = await startServer({
       env,
       port: args.port,
+      watch: !args.noWatch,
       onListening: (port) => log(`CodeCompass running on http://localhost:${port}`)
     });
   } catch (err) {

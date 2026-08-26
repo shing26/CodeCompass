@@ -9,8 +9,9 @@ import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { Repos } from './repos';
 import { Orchestrator } from './orchestrator';
 import { HarnessManager } from './harness-manager';
-import { RepoQARepos } from './repoqa-repos';
+import { RepoQARepos, type Repo } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
+import { RepoWatcher } from './repoqa-watcher';
 import { EventBus } from './events';
 import { createHttpApp } from './http';
 import type { ServerEvent } from './types';
@@ -24,6 +25,8 @@ export interface StartOptions {
   staticDir?: string;
   /** Called once the server is listening, with the actual port. */
   onListening?: (port: number) => void;
+  /** Issue 30: enable FS-watcher hot reload for ready repos (default true). */
+  watch?: boolean;
 }
 
 export interface RunningServer {
@@ -39,6 +42,7 @@ export interface RunningServer {
   orchestrator: Orchestrator;
   harnessManager: HarnessManager;
   eventBus: EventBus;
+  watchers: ReadonlyMap<string, RepoWatcher>;
   close(): Promise<void>;
 }
 
@@ -104,6 +108,22 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   const server = http.createServer(app);
   const clients = new Set<WebSocket>();
+  const watchers = new Map<string, RepoWatcher>();
+
+  const stopRepoWatcher = (repoId: string): void => {
+    const watcher = watchers.get(repoId);
+    if (!watcher) return;
+    watcher.close();
+    watchers.delete(repoId);
+  };
+
+  const ensureRepoWatcher = (repo: Repo | undefined): void => {
+    if ((options.watch ?? true) === false) return;
+    if (!repo || repo.status !== 'ready' || watchers.has(repo.id)) return;
+    const watcher = new RepoWatcher(repo, worker, eventBus);
+    watcher.start();
+    watchers.set(repo.id, watcher);
+  };
 
   function broadcast(event: ServerEvent) {
     const msg = JSON.stringify(event);
@@ -161,8 +181,18 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   });
 
   eventBus.on((event) => {
-    if (event.type.startsWith('repoqa.')) broadcast(event as ServerEvent);
+    if (event.type === 'repoqa.index.progress' && event.payload.phase === 'parsing') {
+      stopRepoWatcher(event.payload.repoId);
+    }
+    if (event.type === 'repoqa.index.done' && event.payload.status === 'ready') {
+      ensureRepoWatcher(repoqa.getRepo(event.payload.repoId));
+    }
+    if (event.type.startsWith('repoqa.') || event.type === 'repo_updated') {
+      broadcast(event as ServerEvent);
+    }
   });
+
+  for (const repo of repoqa.listRepos()) ensureRepoWatcher(repo);
 
   let resolved = false;
   const port = await new Promise<number>((resolve, reject) => {
@@ -190,6 +220,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const close = async () => {
     if (closed) return;
     closed = true;
+    for (const watcher of watchers.values()) await watcher.flush();
+    for (const watcher of watchers.values()) watcher.close();
+    watchers.clear();
     wss.close();
     server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -208,6 +241,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     orchestrator,
     harnessManager,
     eventBus,
+    watchers,
     close
   };
 }

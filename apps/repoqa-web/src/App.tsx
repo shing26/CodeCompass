@@ -21,6 +21,15 @@ export interface AppProps {
   client?: RepoQAClient;
 }
 
+/** Issue 30: derive the same-origin WebSocket endpoint from the API base. */
+function repoUpdatedWebSocketUrl(baseUrl: string): string {
+  if (!baseUrl) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}/ws`;
+  }
+  return `${baseUrl.replace(/^http/, 'ws')}/ws`;
+}
+
 /** Main view state: Onboarding Dashboard / guided Tour player / Q&A chat. */
 type MainView = 'dashboard' | 'tour' | 'chat';
 
@@ -70,15 +79,52 @@ export function App({ client: clientProp }: AppProps) {
         // Runtime metadata is best-effort; the app still works without it.
       });
   }, [client]);
-  const { symbols, loading: symbolsLoading } = useSymbols(client, repoId);
+  const {
+    symbols,
+    loading: symbolsLoading,
+    refreshSilent: refreshSymbolsSilent
+  } = useSymbols(client, repoId);
   const inspector = useInspector(client, repoId);
   const { tours, loading: toursLoading, error: toursError, refresh: refreshTours } = useTours(client, repoId);
   const {
     dashboard,
     loading: dashboardLoading,
     error: dashboardError,
-    refresh: refreshDashboard
+    refresh: refreshDashboard,
+    refreshSilent: refreshDashboardSilent
   } = useDashboard(client, repoId);
+
+  // Issue 30: FS watcher hot reload — re-fetch symbols/dashboard on
+  // repo_updated without changing the current view or showing loaders.
+  useEffect(() => {
+    if (!repoId || typeof WebSocket === 'undefined') return;
+    let ws: WebSocket | null = null;
+    let cancelled = false;
+    try {
+      ws = new WebSocket(repoUpdatedWebSocketUrl(client.baseUrl));
+    } catch {
+      return;
+    }
+    ws.onmessage = (event) => {
+      if (cancelled) return;
+      try {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string;
+          payload?: { repoId?: string };
+        };
+        if (message.type === 'repo_updated' && message.payload?.repoId === repoId) {
+          void refreshSymbolsSilent();
+          void refreshDashboardSilent();
+        }
+      } catch {
+        // malformed frame — ignore and keep the connection alive
+      }
+    };
+    return () => {
+      cancelled = true;
+      ws?.close();
+    };
+  }, [client.baseUrl, repoId, refreshSymbolsSilent, refreshDashboardSilent]);
 
   // Issue 13: main-view switcher between dashboard / tour playback / chat.
   const [view, setView] = useState<MainView>('dashboard');
