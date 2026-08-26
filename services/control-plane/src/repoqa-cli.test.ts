@@ -48,6 +48,17 @@ describe('Issue 16 CLI arg parsing', () => {
     expect(result).toMatchObject({ ok: true, args: { port: 43999, targetPath: '/repo' } });
   });
 
+  it('parses the context command with a query and optional repo path', () => {
+    expect(parseArgs(['context', 'listOrders', 'C:/repos/petclinic'])).toMatchObject({
+      ok: true,
+      args: {
+        command: 'context',
+        contextQuery: 'listOrders',
+        targetPath: 'C:/repos/petclinic'
+      }
+    });
+  });
+
   it('honours --help and --version', () => {
     expect(parseArgs(['--help'])).toMatchObject({ ok: true, args: { help: true } });
     expect(parseArgs(['-v'])).toMatchObject({ ok: true, args: { version: true } });
@@ -159,6 +170,25 @@ describe('Issue 16 CLI one-process startup', () => {
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
+  });
+
+  it('extracts a Graph RAG context through the context command without a server', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'codecompass-context-'));
+    const repoDir = path.join(tmp, 'repo');
+    await makeJavaRepo(repoDir);
+    const dataDir = path.join(tmp, 'data');
+    const lines: string[] = [];
+
+    const result = await runCli(
+      ['context', 'hello', '--data-dir', dataDir, repoDir],
+      {
+        env: { ...process.env },
+        log: (line) => lines.push(line)
+      }
+    );
+    expect(result.server).toBeNull();
+    expect(lines.join('\n')).toContain('# Agent Context: hello');
+    expect(lines.join('\n')).toContain('greet');
   });
 
   it('resolves the repo web dist from the standard layout when present', () => {

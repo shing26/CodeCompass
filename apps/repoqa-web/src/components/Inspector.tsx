@@ -13,6 +13,8 @@ export interface InspectorProps extends InspectorState {
   open: boolean;
   /** Close the drawer (mobile); on desktop the close button is hidden. */
   onClose: () => void;
+  /** Issue 28: copy the Graph RAG agent context for the current file. */
+  onCopyAgentContext?: () => void | Promise<void>;
 }
 
 function languageFor(file: string): string {
@@ -57,17 +59,29 @@ export function Inspector({
   canGoBack,
   canGoForward,
   open,
-  onClose
+  onClose,
+  onCopyAgentContext
 }: InspectorProps) {
   const language = useMemo(() => (file ? languageFor(file) : 'plaintext'), [file]);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const [editorMount, setEditorMount] = useState(0);
+  const [copying, setCopying] = useState(false);
 
   const handleMount: OnMount = (monacoEditor) => {
     editorRef.current = monacoEditor;
     setEditorReady(true);
     setEditorMount((value) => value + 1);
+  };
+
+  const handleCopyAgentContext = async () => {
+    if (!file || !onCopyAgentContext || copying) return;
+    setCopying(true);
+    try {
+      await onCopyAgentContext();
+    } finally {
+      setCopying(false);
+    }
   };
 
   // Glow on every navigation, not just first mount: the Monaco wrapper mounts
@@ -145,6 +159,17 @@ export function Inspector({
         <span data-testid="inspector-file" className="min-w-0 truncate font-mono text-xs text-slate-500">
           {file ?? 'No file open'}
         </span>
+        {file && onCopyAgentContext && (
+          <button
+            type="button"
+            data-testid="copy-agent-context"
+            onClick={handleCopyAgentContext}
+            disabled={copying}
+            className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:border-accent/40 hover:text-accent disabled:opacity-60"
+          >
+            {copying ? '复制中…' : '复制 Agent 上下文'}
+          </button>
+        )}
         <button
           type="button"
           data-testid="inspector-close"

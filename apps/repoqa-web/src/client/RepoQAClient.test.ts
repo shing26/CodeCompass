@@ -289,6 +289,28 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
     expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/tours?type=main-flow');
   });
 
+  it('unwraps Issue 28 subgraph context and encodes query + maxTokens', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        context: {
+          start: { name: 'loadOrders', file: 'web/orders.ts', line: 1 },
+          nodes: [],
+          tokenCount: 12,
+          truncated: false,
+          prunedCount: 0,
+          text: '# Agent Context: loadOrders'
+        }
+      })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    const context = await client.getSubgraphContext('repo-1', 'loadOrders', 1200);
+    expect(context.start.name).toBe('loadOrders');
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://api/api/repos/repo-1/subgraph-context?query=loadOrders&maxTokens=1200'
+    );
+  });
+
   it('returns null for a missing dashboard (404) and throws on other failures', async () => {
     const notFound = vi.fn().mockResolvedValue({ ok: false, status: 404 });
     const client404 = new RepoQAClient('http://api', notFound as unknown as typeof fetch);

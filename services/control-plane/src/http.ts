@@ -21,6 +21,7 @@ import { buildDashboard } from './repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-export';
 import { previewRepo } from './repoqa-scan';
 import { llmRuntimeInfo, maskHostname } from './repoqa-llm';
+import { extractSubgraphContext } from './repoqa-graphrag';
 
 export interface HttpDeps {
   repos: Repos;
@@ -270,6 +271,55 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const dashboard = buildDashboard({ repoId: repo.id, repoName: repo.name, symbols });
     res.json({ dashboard: maskEventPayload(dashboard) });
+  });
+
+  // Issue 28: Graph RAG subgraph extraction. Deterministic (no LLM): resolves
+  // the query through the worker, walks callers/callees over the in-memory
+  // symbol graph and returns agent-ready Markdown with credential masking.
+  app.get('/api/repos/:id/subgraph-context', async (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const query =
+      typeof req.query.query === 'string' ? req.query.query.trim() : '';
+    if (!query) {
+      res.status(400).json({ error: 'query query parameter is required' });
+      return;
+    }
+    let maxTokens: number | undefined;
+    if (req.query.maxTokens !== undefined) {
+      const raw = String(req.query.maxTokens).trim();
+      if (!/^\d+$/.test(raw)) {
+        res.status(400).json({ error: 'maxTokens must be a positive integer' });
+        return;
+      }
+      const parsed = Number(raw);
+      if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100_000) {
+        res.status(400).json({ error: 'maxTokens must be a positive integer (1..100000)' });
+        return;
+      }
+      maxTokens = parsed;
+    }
+
+    try {
+      const graph = deps.worker.getSymbolGraph(repo.id);
+      const resolution = deps.worker.resolveStartSymbolForQuery(repo.id, query);
+      if (!resolution) {
+        res.status(404).json({ error: `Start symbol not found: ${query}` });
+        return;
+      }
+      const context = await extractSubgraphContext(graph.symbols, resolution.symbol, {
+        root: repo.localPath,
+        index: graph.index,
+        ...(maxTokens === undefined ? {} : { maxTokens })
+      });
+      res.json({ context: maskEventPayload(context) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
   });
 
   // Issue 14: one-click ONBOARDING.md handover export. Aggregates dashboard +

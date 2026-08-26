@@ -7,14 +7,22 @@ import {
   type McpTransportFactory
 } from './repoqa-mcp';
 import { analyzeDiff, renderMarkdown } from './repoqa-diff';
+import { loadConfig } from './config';
+import { openDb, ensureDefaultWorkspace, backupDb } from './db';
+import { EventBus } from './events';
+import { RepoQARepos } from './repoqa-repos';
+import { RepoQAWorker } from './repoqa-worker';
+import { extractSubgraphContext } from './repoqa-graphrag';
 
 export const VERSION = '0.4.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
-  command?: 'mcp' | 'diff' | 'pr-summary';
+  command?: 'mcp' | 'diff' | 'pr-summary' | 'context';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
+  /** `codecompass context <query> [repoPath]` — start-symbol query. */
+  contextQuery?: string;
   /** `codecompass diff <base> <head> [repoPath]` — base git ref. */
   diffBase?: string;
   /** `codecompass diff <base> <head> [repoPath]` — head git ref. */
@@ -43,6 +51,7 @@ Usage:
   codecompass mcp [options] <path>
   codecompass diff [options] <base> <head> [repoPath]
   codecompass pr-summary [options] <base> <head> [repoPath]
+  codecompass context <query> [repoPath]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
@@ -61,6 +70,10 @@ Subcommands:
                         Same read-only PR impact analysis as diff, shaped
                         for CI consumption: supports --fail-on-impact to exit
                         non-zero when affected APIs/config changes are found.
+  context <query>       Extract a Graph RAG agent context around the resolved
+                        start symbol: 1-hop callers, 1-3 hop callees, class
+                        skeletons, token pruning and credential masking.
+                        [repoPath] defaults to the current directory.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -105,6 +118,19 @@ export function parseArgs(argv: string[]): ParseResult {
     return false;
   };
 
+  /** Assign one positional of `codecompass context <query> [repoPath]`. */
+  const assignContextPositional = (arg: string): boolean => {
+    if (args.contextQuery === undefined) {
+      args.contextQuery = arg;
+      return true;
+    }
+    if (args.targetPath === undefined) {
+      args.targetPath = arg;
+      return true;
+    }
+    return false;
+  };
+
   let positionalOnly = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -112,6 +138,8 @@ export function parseArgs(argv: string[]): ParseResult {
     if (positionalOnly) {
       if (args.command === 'diff' || args.command === 'pr-summary') {
         if (!assignDiffPositional(arg)) return { ok: false, error: `Unexpected extra argument: ${arg}` };
+      } else if (args.command === 'context') {
+        if (!assignContextPositional(arg)) return { ok: false, error: `Unexpected extra argument: ${arg}` };
       } else if (args.targetPath !== undefined) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       } else {
@@ -189,13 +217,19 @@ export function parseArgs(argv: string[]): ParseResult {
     if (
       args.command === undefined &&
       args.targetPath === undefined &&
-      (arg === 'mcp' || arg === 'diff' || arg === 'pr-summary')
+      (arg === 'mcp' || arg === 'diff' || arg === 'pr-summary' || arg === 'context')
     ) {
       args.command = arg;
       continue;
     }
     if (args.command === 'diff' || args.command === 'pr-summary') {
       if (!assignDiffPositional(arg)) {
+        return { ok: false, error: `Unexpected extra argument: ${arg}` };
+      }
+      continue;
+    }
+    if (args.command === 'context') {
+      if (!assignContextPositional(arg)) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       }
       continue;
@@ -245,6 +279,57 @@ export interface CliRunResult {
   cockpitUrl: string | null;
   /** Optional process exit code for non-server CLI commands (e.g. pr-summary). */
   exitCode?: number;
+}
+
+interface ContextCommandOptions {
+  env?: NodeJS.ProcessEnv;
+  dataDir?: string;
+  repoPath: string;
+  query: string;
+  log: (line: string) => void;
+}
+
+/** `codecompass context <query> [repoPath]` — one-shot Graph RAG extraction. */
+async function runContextCommand(options: ContextCommandOptions): Promise<void> {
+  const env = { ...(options.env ?? process.env) };
+  if (options.dataDir) env.MHW_DATA_DIR = options.dataDir;
+  const config = loadConfig(env);
+  await backupDb(config.dbPath);
+  const db = openDb(config.dbPath);
+  ensureDefaultWorkspace(db, config.dataDir);
+  const repoqa = new RepoQARepos(db);
+  repoqa.resetInterrupted();
+  const worker = new RepoQAWorker(repoqa, new EventBus());
+
+  try {
+    const normalizedTarget = path.resolve(options.repoPath);
+    const existing = repoqa.listRepos().find((repo) => {
+      try {
+        return path.resolve(repo.localPath).toLowerCase() === normalizedTarget.toLowerCase();
+      } catch {
+        return false;
+      }
+    });
+    let repo = existing?.status === 'ready' ? existing : undefined;
+    if (!repo) {
+      options.log(`CodeCompass context: indexing ${normalizedTarget}`);
+      const result = await worker.indexRepo({ localPath: normalizedTarget });
+      repo = result.repo;
+    }
+
+    const resolution = worker.resolveStartSymbolForQuery(repo.id, options.query);
+    if (!resolution) {
+      throw new Error(`Start symbol not found: ${options.query}`);
+    }
+    const graph = worker.getSymbolGraph(repo.id);
+    const context = await extractSubgraphContext(graph.symbols, resolution.symbol, {
+      root: repo.localPath,
+      index: graph.index
+    });
+    options.log(context.text);
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -304,6 +389,20 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         exitCode: args.failOnImpact && hasImpact ? 2 : 0
       };
     }
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'context') {
+    if (!args.contextQuery) {
+      throw new Error(`codecompass context requires <query>\n\n${USAGE}`);
+    }
+    await runContextCommand({
+      env: ctx.env,
+      dataDir: args.dataDir,
+      repoPath: args.targetPath ?? process.cwd(),
+      query: args.contextQuery,
+      log
+    });
     return { server: null, cockpitUrl: null };
   }
 

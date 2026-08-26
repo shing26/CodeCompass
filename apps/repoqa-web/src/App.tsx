@@ -186,6 +186,24 @@ export function App({ client: clientProp }: AppProps) {
     downloadTextFile(`${currentRepo.name}-ONBOARDING.md`, markdown);
   };
 
+  const handleCopyAgentContext = async () => {
+    if (!repoId || !inspector.file) return;
+    const query = inspector.file.split(/[\\/]/).pop() ?? inspector.file;
+    const context = await client.getSubgraphContext(repoId, query);
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(context.text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = context.text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  };
+
   const handleReindex = async (repo: Repo) => {
     if (!window.confirm(`重新索引「${repo.name}」？现有索引会被重建。`)) return;
     try {
@@ -331,6 +349,7 @@ export function App({ client: clientProp }: AppProps) {
           canGoForward={inspector.canGoForward}
           open={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
+          onCopyAgentContext={handleCopyAgentContext}
         />
       </div>
     </div>

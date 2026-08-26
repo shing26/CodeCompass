@@ -206,3 +206,28 @@ export interface RepoTour {
   /** Mermaid flowchart; every locatable node carries a code:// click binding. */
   mermaid: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* Issue 28: AST Graph RAG subgraph context                            */
+/* ------------------------------------------------------------------ */
+
+export type SubgraphDirection = 'start' | 'caller' | 'callee';
+
+export interface SubgraphContextNode {
+  name: string;
+  file: string;
+  line: number;
+  distance: number;
+  direction: SubgraphDirection;
+  tokens: number;
+}
+
+export interface SubgraphContextResult {
+  start: { name: string; file: string; line: number };
+  nodes: SubgraphContextNode[];
+  tokenCount: number;
+  truncated: boolean;
+  prunedCount: number;
+  /** Agent-ready Markdown with masked source slices and class skeletons. */
+  text: string;
+}

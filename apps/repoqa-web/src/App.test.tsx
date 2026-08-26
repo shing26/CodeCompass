@@ -138,6 +138,14 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
     queryRepo: vi.fn().mockReturnValue(noopStream),
     getDashboard: vi.fn().mockResolvedValue(roundDashboard),
     getTours: vi.fn().mockResolvedValue(roundTours),
+    getSubgraphContext: vi.fn().mockResolvedValue({
+      start: { name: 'listOrders', file: 'src/main/java/OrderController.java', line: 24 },
+      nodes: [],
+      tokenCount: 120,
+      truncated: false,
+      prunedCount: 0,
+      text: '# Agent Context: listOrders'
+    }),
     exportOnboarding: vi.fn().mockResolvedValue('# petclinic ONBOARDING\n'),
     baseUrl: 'http://localhost:43110',
     ...overrides

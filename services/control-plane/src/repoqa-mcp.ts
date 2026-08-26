@@ -15,6 +15,7 @@ import { buildDashboard } from './repoqa-dashboard';
 import { buildTours } from './repoqa-tours';
 import { matchConfigSymbols } from './repoqa-config';
 import { analyzeDiff } from './repoqa-diff';
+import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-graphrag';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -50,6 +51,7 @@ export interface McpToolHandlerArgs {
   base?: unknown;
   head?: unknown;
   repoPath?: unknown;
+  maxTokens?: unknown;
 }
 
 /* ------------------------------------------------------------------ */
@@ -157,6 +159,22 @@ export const MCP_TOOLS: McpToolMeta[] = [
         head: { type: 'string', description: 'Head git ref (branch, tag or commit)' }
       },
       required: ['repoPath', 'base', 'head']
+    }
+  },
+  {
+    name: 'codecompass_get_subgraph_context',
+    description:
+      'Extract a deterministic Graph RAG subgraph around a resolved start symbol: 1-hop callers, ' +
+      '1-3 hop callees, class skeletons, token pruning and 13-pattern credential masking. ' +
+      'Returns agent-ready Markdown with code:// source anchors.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name' },
+        query: { type: 'string', description: 'Start symbol or natural-language phrase, e.g. "listOrders"' },
+        maxTokens: { type: 'number', description: 'Optional soft output budget in estimated tokens (default 6000)' }
+      },
+      required: ['repoId', 'query']
     }
   }
 ];
@@ -324,6 +342,34 @@ export async function mcpGetPrImpact(deps: McpDeps, args: McpToolHandlerArgs): P
   return (await analyzeDiff({ repoPath, base, head })) as unknown as Record<string, unknown>;
 }
 
+export async function mcpGetSubgraphContext(
+  deps: McpDeps,
+  args: McpToolHandlerArgs
+): Promise<{ context: SubgraphContextResult }> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const query = String(args.query ?? '').trim();
+  if (!query) throw new Error('query is required');
+
+  let maxTokens: number | undefined;
+  if (args.maxTokens !== undefined) {
+    const parsed = Number(args.maxTokens);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100_000) {
+      throw new Error('maxTokens must be a positive integer (1..100000)');
+    }
+    maxTokens = parsed;
+  }
+
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const resolution = deps.worker.resolveStartSymbolForQuery(repo.id, query);
+  if (!resolution) throw new Error(`Start symbol not found: ${query}`);
+  const context = await extractSubgraphContext(graph.symbols, resolution.symbol, {
+    root: repo.localPath,
+    index: graph.index,
+    ...(maxTokens === undefined ? {} : { maxTokens })
+  });
+  return { context };
+}
+
 /* ------------------------------------------------------------------ */
 /* MCP server (SDK)                                                    */
 /* ------------------------------------------------------------------ */
@@ -346,7 +392,7 @@ function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text }] };
 }
 
-/** Build the stdio MCP server with the four CodeCompass tools registered. */
+/** Build the stdio MCP server with all CodeCompass tools registered. */
 export function createMcpServer(deps: McpDeps): McpServer {
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
@@ -360,7 +406,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_get_config_evidence: (args) => mcpGetConfigEvidence(deps, args),
     codecompass_get_tours: (args) => mcpGetTours(deps, args),
     codecompass_reverse_deps: (args) => mcpReverseDeps(deps, args),
-    codecompass_get_pr_impact: (args) => mcpGetPrImpact(deps, args)
+    codecompass_get_pr_impact: (args) => mcpGetPrImpact(deps, args),
+    codecompass_get_subgraph_context: (args) => mcpGetSubgraphContext(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a

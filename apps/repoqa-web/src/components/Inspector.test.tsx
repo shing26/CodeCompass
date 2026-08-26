@@ -275,4 +275,27 @@ describe('Inspector (ticket 05)', () => {
     fireEvent.click(forward);
     expect(onForward).not.toHaveBeenCalled();
   });
+
+  it('Issue 28: copies the agent context through the callback when a file is open', async () => {
+    const onCopyAgentContext = vi.fn().mockResolvedValue(undefined);
+    render(
+      <Inspector
+        {...baseProps({
+          file: 'src/main/java/OrderController.java',
+          text: 'content',
+          onCopyAgentContext
+        })}
+      />
+    );
+    const button = screen.getByTestId('copy-agent-context');
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(onCopyAgentContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('Issue 28: hides the copy button until a file is open', () => {
+    render(<Inspector {...baseProps()} />);
+    expect(screen.queryByTestId('copy-agent-context')).not.toBeInTheDocument();
+  });
 });

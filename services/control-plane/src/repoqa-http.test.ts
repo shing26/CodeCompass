@@ -1226,6 +1226,63 @@ describe('RepoPulse dashboard HTTP API', () => {
   });
 });
 
+describe('Issue 28 subgraph context HTTP API', () => {
+  it('resolves a query into masked Graph RAG agent context', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-subgraph-http-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=${encodeURIComponent('hello')}`
+      );
+      expect(response.status).toBe(200);
+      const body = JSON.parse(await response.text()) as {
+        context: {
+          start: { name: string };
+          nodes: Array<{ name: string; direction: string }>;
+          tokenCount: number;
+          text: string;
+        };
+      };
+      expect(body.context.start.name).toBe('hello');
+      expect(body.context.nodes.map((node) => node.name)).toContain('greet');
+      expect(body.context.text).toContain('Controller');
+      expect(body.context.text).toContain('DemoService');
+      expect(body.context.tokenCount).toBeGreaterThan(0);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects missing queries, bad budgets and unknown start symbols', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-subgraph-http-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const missingQuery = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context`
+      );
+      expect(missingQuery.status).toBe(400);
+
+      const badBudget = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=hello&maxTokens=abc`
+      );
+      expect(badBudget.status).toBe(400);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('RepoPulse onboarding export HTTP API', () => {
   it('serves a value-free ONBOARDING.md with dashboard + tours sections', async () => {
     const ctx = await startServer();

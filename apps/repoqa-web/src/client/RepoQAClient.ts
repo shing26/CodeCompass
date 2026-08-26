@@ -10,6 +10,7 @@ import type {
   RepoSymbol,
   RepoTour,
   RuntimeInfo,
+  SubgraphContextResult,
   SymbolKind
 } from '../types';
 
@@ -217,6 +218,23 @@ export class RepoQAClient {
     if (!res.ok) throw new Error(`getTours failed: ${res.status}`);
     const body = (await res.json()) as { tours?: RepoTour[] };
     return body.tours ?? [];
+  }
+
+  /** Issue 28: deterministic Graph RAG agent context for a start symbol. */
+  async getSubgraphContext(
+    repoId: string,
+    query: string,
+    maxTokens?: number
+  ): Promise<SubgraphContextResult> {
+    const params = new URLSearchParams({ query });
+    if (maxTokens !== undefined) params.set('maxTokens', String(maxTokens));
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/subgraph-context?${params.toString()}`
+    );
+    if (!res.ok) throw new Error(`getSubgraphContext failed: ${res.status}`);
+    const body = (await res.json()) as { context?: SubgraphContextResult };
+    if (!body.context) throw new Error('getSubgraphContext failed: missing context in response');
+    return body.context;
   }
 
   /** Issue 14: fetch the ONBOARDING.md handover document as plain text. */

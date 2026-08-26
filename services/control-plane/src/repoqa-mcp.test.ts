@@ -227,11 +227,12 @@ async function rawCallTool(
 }
 
 describe('Issue 20 MCP tool metadata', () => {
-  it('exposes the seven required tools with JSON Schema input contracts', () => {
+  it('exposes the eight required tools with JSON Schema input contracts', () => {
     expect(MCP_TOOLS.map((tool) => tool.name).sort()).toEqual([
       'codecompass_get_config_evidence',
       'codecompass_get_dashboard',
       'codecompass_get_pr_impact',
+      'codecompass_get_subgraph_context',
       'codecompass_get_tours',
       'codecompass_list_repos',
       'codecompass_reverse_deps',
@@ -261,6 +262,9 @@ describe('Issue 20 MCP tool metadata', () => {
     expect(config.inputSchema.properties.query).toBeDefined();
     const prImpact = MCP_TOOLS.find((tool) => tool.name === 'codecompass_get_pr_impact')!;
     expect(prImpact.inputSchema.required).toEqual(['repoPath', 'base', 'head']);
+    const subgraph = MCP_TOOLS.find((tool) => tool.name === 'codecompass_get_subgraph_context')!;
+    expect(subgraph.inputSchema.required).toEqual(['repoId', 'query']);
+    expect(subgraph.inputSchema.properties.maxTokens).toBeDefined();
   });
 
   it('resolves repo ids and falls back to display names', async () => {
@@ -282,6 +286,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_get_config_evidence',
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
+        'codecompass_get_subgraph_context',
         'codecompass_get_tours',
         'codecompass_list_repos',
         'codecompass_reverse_deps',
@@ -302,7 +307,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
     }
   });
 
-  it('tools/list via the SDK Client exposes the same seven tools', async () => {
+  it('tools/list via the SDK Client exposes the same eight tools', async () => {
     const { deps } = await setupIndexedRepo();
     const { server, clientTransport } = await startServerPair(deps);
     try {
@@ -313,6 +318,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_get_config_evidence',
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
+        'codecompass_get_subgraph_context',
         'codecompass_get_tours',
         'codecompass_list_repos',
         'codecompass_reverse_deps',
@@ -474,6 +480,41 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         symbol: expect.any(String)
       });
       expect(main.mermaid).toContain('flowchart');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_get_subgraph_context extracts masked Graph RAG context', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text } = await rawCallTool(
+        clientTransport,
+        'codecompass_get_subgraph_context',
+        {
+          repoId: repo.id,
+          query: 'listOrders',
+          maxTokens: 2000
+        }
+      );
+      const body = JSON.parse(text) as {
+        context: {
+          start: { name: string };
+          nodes: Array<{ name: string; direction: string }>;
+          tokenCount: number;
+          truncated: boolean;
+          text: string;
+        };
+      };
+      expect(body.context.start.name).toBe('listOrders');
+      expect(body.context.nodes.length).toBeGreaterThan(1);
+      expect(body.context.nodes.map((node) => node.name)).toEqual(
+        expect.arrayContaining(['findOrders', 'findAll'])
+      );
+      expect(body.context.text).toContain('findAll');
+      expect(body.context.tokenCount).toBeGreaterThan(0);
     } finally {
       await server.close();
     }
