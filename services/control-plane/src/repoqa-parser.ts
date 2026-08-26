@@ -3,6 +3,7 @@ import type { LanguageAdapter } from './languages/LanguageAdapter';
 import { JavaAdapter } from './languages/JavaAdapter';
 import { TypeScriptAdapter } from './languages/TypeScriptAdapter';
 import { GoAdapter } from './languages/GoAdapter';
+import { PythonAdapter } from './languages/PythonAdapter';
 
 /**
  * Language adapter dispatcher. The Java implementation moved to
@@ -12,7 +13,7 @@ import { GoAdapter } from './languages/GoAdapter';
  */
 export * from './languages/JavaAdapter';
 
-const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter];
+const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter, PythonAdapter];
 
 /** Return the language adapter owning `filePath`, or undefined. */
 export function adapterFor(filePath: string): LanguageAdapter | undefined {

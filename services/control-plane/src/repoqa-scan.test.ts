@@ -24,6 +24,8 @@ describe('isIgnoredDir', () => {
       '.gradle',
       '.mvn',
       '.vscode',
+      '.venv',
+      'venv',
       '.scratch',
       '.penguin',
       '.tmp',
@@ -128,13 +130,16 @@ describe('previewRepo (Round 2 B4)', () => {
     await fs.writeFile(path.join(root, 'src', 'main', 'web', 'app.jsx'), 'export const y = 2;\n');
     await fs.mkdir(path.join(root, 'src', 'main', 'go'), { recursive: true });
     await fs.writeFile(path.join(root, 'src', 'main', 'go', 'app.go'), 'package main\n');
+    await fs.mkdir(path.join(root, 'src', 'main', 'python'), { recursive: true });
+    await fs.writeFile(path.join(root, 'src', 'main', 'python', 'app.py'), 'def main():\n    pass\n');
     await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
 
     const preview = await previewRepo(root);
-    expect(preview.fileCount).toBe(5);
+    expect(preview.fileCount).toBe(6);
     expect(preview.javaFileCount).toBe(1);
     expect(preview.webFileCount).toBe(2);
     expect(preview.goFileCount).toBe(1);
+    expect(preview.pythonFileCount).toBe(1);
     expect(preview.skippedDirCount).toBe(4);
     expect(preview.skippedDirs).toEqual(['.git', '.scratch', 'node_modules', 'target']);
   });

@@ -11,6 +11,9 @@ export const WEB_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 /** Issue 26: Go source files parsed by the Go adapter. */
 export const GO_FILE_EXTENSIONS = new Set(['.go']);
 
+/** Issue 27: Python source files parsed by the Python adapter. */
+export const PYTHON_FILE_EXTENSIONS = new Set(['.py']);
+
 /**
  * Issue 18 — directories that are never indexed. Matching is case-insensitive
  * (`Target` ≡ `target`) because the same repo is often checked out on macOS
@@ -182,6 +185,7 @@ export interface RepoPreviewStats {
   javaFileCount: number;
   webFileCount: number;
   goFileCount: number;
+  pythonFileCount: number;
   xmlFileCount: number;
   skippedDirCount: number;
   skippedDirs: string[];
@@ -203,6 +207,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
   let javaFileCount = 0;
   let webFileCount = 0;
   let goFileCount = 0;
+  let pythonFileCount = 0;
   let xmlFileCount = 0;
   let skippedDirCount = 0;
   const skippedDirs = new Set<string>();
@@ -235,6 +240,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
       const extension = path.extname(entry.name.toLowerCase());
       if (WEB_FILE_EXTENSIONS.has(extension)) webFileCount += 1;
       if (GO_FILE_EXTENSIONS.has(extension)) goFileCount += 1;
+      if (PYTHON_FILE_EXTENSIONS.has(extension)) pythonFileCount += 1;
       if (entry.name.toLowerCase().endsWith('.xml')) xmlFileCount += 1;
       if (fileCount > MAX_FILES) {
         return {
@@ -242,6 +248,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
           javaFileCount,
           webFileCount,
           goFileCount,
+          pythonFileCount,
           xmlFileCount,
           skippedDirCount,
           skippedDirs: [...skippedDirs].sort()
@@ -255,6 +262,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
     javaFileCount,
     webFileCount,
     goFileCount,
+    pythonFileCount,
     xmlFileCount,
     skippedDirCount,
     skippedDirs: [...skippedDirs].sort()
