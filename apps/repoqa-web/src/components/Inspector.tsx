@@ -3,6 +3,7 @@ import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import '../client/monacoSetup';
 import type { InspectorState } from '../hooks/useInspector';
+import { useTheme } from '../hooks/useTheme';
 
 export interface InspectorProps extends InspectorState {
   onBack: () => void;
@@ -63,6 +64,13 @@ export function Inspector({
   onCopyAgentContext
 }: InspectorProps) {
   const language = useMemo(() => (file ? languageFor(file) : 'plaintext'), [file]);
+  const { theme } = useTheme();
+  const sliceLabel =
+    glow?.lineEnd && glow.lineEnd > glow.line
+      ? `L${glow.line} → L${glow.lineEnd}`
+      : glow
+        ? `L${glow.line}`
+        : '—';
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const [editorMount, setEditorMount] = useState(0);
@@ -129,18 +137,18 @@ export function Inspector({
   return (
     <aside
       data-testid="inspector"
-      className={`fixed inset-y-0 right-0 z-40 flex w-[85vw] max-w-sm flex-col border-l border-slate-200 bg-white transition-transform md:static md:z-auto md:w-1/3 md:min-w-96 md:shrink-0 md:translate-x-0 ${
+      className={`fixed inset-y-0 right-0 z-40 flex w-[85vw] max-w-sm flex-col border-l border-line bg-surface transition-transform md:static md:z-auto md:w-1/3 md:min-w-96 md:shrink-0 md:translate-x-0 ${
         open ? 'translate-x-0' : 'translate-x-full'
       }`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
         <div className="flex min-w-0 items-center gap-1">
           <button
             type="button"
             data-testid="inspector-back"
             onClick={onBack}
             disabled={!canGoBack}
-            className="rounded px-1.5 py-0.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+            className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
             aria-label="Back"
           >
             ←
@@ -150,22 +158,30 @@ export function Inspector({
             data-testid="inspector-forward"
             onClick={onForward}
             disabled={!canGoForward}
-            className="rounded px-1.5 py-0.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+            className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
             aria-label="Forward"
           >
             →
           </button>
         </div>
-        <span data-testid="inspector-file" className="min-w-0 truncate font-mono text-xs text-slate-500">
+        <span data-testid="inspector-file" className="min-w-0 truncate font-mono text-xs text-muted">
           {file ?? 'No file open'}
         </span>
+        {file && glow && (
+          <span
+            data-testid="inspector-line"
+            className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent"
+          >
+            L{glow.line}
+          </span>
+        )}
         {file && onCopyAgentContext && (
           <button
             type="button"
             data-testid="copy-agent-context"
             onClick={handleCopyAgentContext}
             disabled={copying}
-            className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 hover:border-accent/40 hover:text-accent disabled:opacity-60"
+            className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
           >
             {copying ? '复制中…' : '复制 Agent 上下文'}
           </button>
@@ -175,7 +191,7 @@ export function Inspector({
           data-testid="inspector-close"
           onClick={onClose}
           aria-label="Close inspector"
-          className="rounded px-1.5 py-0.5 text-sm text-slate-600 hover:bg-slate-100 md:hidden"
+          className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle md:hidden"
         >
           ✕
         </button>
@@ -183,20 +199,20 @@ export function Inspector({
 
       <div className="min-h-0 flex-1">
         {loading && (
-          <div className="flex h-full items-center justify-center text-sm text-slate-400">
+          <div className="flex h-full items-center justify-center text-sm text-muted">
             Loading file…
           </div>
         )}
         {!loading && error && (
           <div className="flex h-full items-center justify-center p-4">
-            <p data-testid="inspector-error" className="text-sm text-red-600">
+            <p data-testid="inspector-error" className="text-sm text-danger">
               {error}
             </p>
           </div>
         )}
         {!loading && !error && !file && (
           <div className="flex h-full items-center justify-center p-6">
-            <p className="text-center text-sm text-slate-400">
+            <p className="text-center text-sm text-muted">
               Click a diagram node or source card to open the file here.
             </p>
           </div>
@@ -207,7 +223,7 @@ export function Inspector({
             defaultLanguage={language}
             path={file}
             value={text}
-            theme="vs"
+            theme={theme === 'cyber' ? 'vs-dark' : 'vs'}
             onMount={handleMount}
             options={{
               readOnly: true,
@@ -220,6 +236,22 @@ export function Inspector({
           />
         )}
       </div>
+      {!loading && !error && file && text !== null && (
+        <div
+          data-testid="inspector-slices"
+          className="border-t border-line bg-subtle px-3 py-2"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+              2-Hop 关联切片
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-accent">{sliceLabel}</span>
+          </div>
+          <p className="mt-1 max-h-8 overflow-hidden font-mono text-[10px] text-muted">
+            {file} · {language}
+          </p>
+        </div>
+      )}
     </aside>
   );
 }

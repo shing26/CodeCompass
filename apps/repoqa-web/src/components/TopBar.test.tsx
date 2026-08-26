@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TopBar } from './TopBar';
 import type { Repo } from '../types';
 
@@ -24,6 +24,11 @@ const indexingRepo: Repo = {
   fileCount: 131,
   symbolCount: 0
 };
+
+beforeEach(() => {
+  window.localStorage.clear();
+  document.documentElement.dataset.theme = 'clean';
+});
 
 function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
   return {
@@ -160,5 +165,23 @@ describe('TopBar import dialog', () => {
 
     await user.click(screen.getByTestId('delete-repo'));
     expect(onDelete).toHaveBeenCalledWith(readyRepo);
+  });
+});
+
+describe('TopBar theme toggle', () => {
+  it('switches the document between clean and cyber themes', async () => {
+    const user = userEvent.setup();
+    render(<TopBar {...baseProps()} />);
+    const button = screen.getByTestId('theme-toggle');
+    expect(document.documentElement.dataset.theme).toBe('clean');
+    expect(button).toHaveTextContent('Cyber');
+
+    await user.click(button);
+    expect(document.documentElement.dataset.theme).toBe('cyber');
+    expect(button).toHaveTextContent('Clean');
+
+    await user.click(button);
+    expect(document.documentElement.dataset.theme).toBe('clean');
+    expect(button).toHaveTextContent('Cyber');
   });
 });

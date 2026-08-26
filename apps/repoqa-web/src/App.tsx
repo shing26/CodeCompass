@@ -277,7 +277,7 @@ export function App({ client: clientProp }: AppProps) {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-x-hidden bg-white text-slate-900">
+    <div className="flex h-full flex-col overflow-x-hidden bg-canvas text-ink">
       <TopBar
         repos={repos}
         currentRepo={currentRepo}
@@ -307,14 +307,14 @@ export function App({ client: clientProp }: AppProps) {
         {sidebarOpen && (
           <div
             data-testid="sidebar-mask"
-            className="fixed inset-0 z-30 bg-slate-900/30 md:hidden"
+            className="fixed inset-0 z-30 bg-ink/30 md:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
         {inspectorOpen && (
           <div
             data-testid="inspector-mask"
-            className="fixed inset-0 z-30 bg-slate-900/30 md:hidden"
+            className="fixed inset-0 z-30 bg-ink/30 md:hidden"
             onClick={() => setInspectorOpen(false)}
           />
         )}
@@ -334,17 +334,17 @@ export function App({ client: clientProp }: AppProps) {
           {repoId && view !== 'dashboard' && (
             <div
               data-testid="view-header"
-              className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-1.5"
+              className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-1.5"
             >
               <button
                 type="button"
                 data-testid="back-to-dashboard"
                 onClick={showDashboard}
-                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600 hover:border-accent/40 hover:text-accent"
+                className="rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:border-accent/40 hover:text-accent"
               >
                 ← 返回看板
               </button>
-              <span className="truncate text-xs text-slate-500">
+              <span className="truncate text-xs text-muted">
                 {view === 'tour' ? `Tour · ${activeTour?.title ?? ''}` : '问答流'}
               </span>
             </div>

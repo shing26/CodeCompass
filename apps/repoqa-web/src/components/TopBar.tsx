@@ -3,6 +3,7 @@ import type { LlmRuntimeMode, Repo, RepoPreview } from '../types';
 import { StatusStepper } from './StatusStepper';
 import { ImportRepoModal } from './ImportRepoModal';
 import { PrivacyPill } from './PrivacyPill';
+import { useTheme } from '../hooks/useTheme';
 
 interface TopBarProps {
   repos: Repo[];
@@ -58,6 +59,7 @@ export function TopBar({
   const [showImport, setShowImport] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const { theme, toggleTheme } = useTheme();
 
   const handleExport = async () => {
     if (!currentRepo || exporting) return;
@@ -73,7 +75,7 @@ export function TopBar({
   };
 
   return (
-    <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-2 py-2 sm:px-4">
+    <header className="flex items-center justify-between gap-2 border-b border-line bg-surface px-2 py-2 sm:px-4">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <button
           type="button"
@@ -81,17 +83,17 @@ export function TopBar({
           onClick={onToggleSidebar}
           aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
           aria-expanded={sidebarOpen}
-          className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 hover:border-accent hover:text-accent md:hidden"
+          className="shrink-0 rounded-md border border-line px-2 py-1 text-sm text-muted hover:border-accent hover:text-accent md:hidden"
         >
           ☰
         </button>
-        <h1 className="hidden shrink-0 text-sm font-semibold text-slate-900 min-[420px]:inline">
+        <h1 className="hidden shrink-0 text-sm font-semibold text-ink min-[420px]:inline">
           CodeCompass
         </h1>
         <div className="relative min-w-0 max-w-[38vw]">
           <select
             data-testid="repo-select"
-            className="h-8 w-full min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-accent sm:max-w-none"
+            className="h-8 w-full min-w-0 truncate rounded-md border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent sm:max-w-none"
             value={currentRepo?.id ?? ''}
             onChange={(e) => onSelectRepo(e.target.value)}
           >
@@ -109,7 +111,7 @@ export function TopBar({
           type="button"
           data-testid="open-import"
           onClick={() => setShowImport(true)}
-          className="h-8 shrink-0 rounded-md bg-accent px-2 text-sm font-medium text-white hover:bg-blue-700 sm:px-3"
+          className="h-8 shrink-0 rounded-md bg-accent px-2 text-sm font-medium text-white hover:bg-accent/90 sm:px-3"
         >
           Import<span className="hidden sm:inline"> repo</span>
         </button>
@@ -119,7 +121,7 @@ export function TopBar({
             data-testid="export-onboarding"
             onClick={handleExport}
             disabled={exporting}
-            className="h-8 shrink-0 rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50 sm:px-3"
+            className="h-8 shrink-0 rounded-md border border-line px-2 text-sm font-medium text-muted hover:border-accent hover:text-accent disabled:opacity-50 sm:px-3"
           >
             {exporting ? (
               <span className="sm:hidden">…</span>
@@ -137,7 +139,7 @@ export function TopBar({
             data-testid="reindex-repo"
             onClick={() => onReindex(currentRepo)}
             disabled={currentRepo.status === 'indexing'}
-            className="h-8 shrink-0 rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:border-accent hover:text-accent disabled:opacity-50"
+            className="h-8 shrink-0 rounded-md border border-line px-2 text-sm font-medium text-muted hover:border-accent hover:text-accent disabled:opacity-50"
           >
             重新索引
           </button>
@@ -148,7 +150,7 @@ export function TopBar({
             data-testid="delete-repo"
             onClick={() => onDelete(currentRepo)}
             disabled={currentRepo.status === 'indexing'}
-            className="h-8 shrink-0 rounded-md border border-slate-300 px-2 text-sm font-medium text-slate-700 hover:border-red-400 hover:text-red-600 disabled:opacity-50"
+            className="h-8 shrink-0 rounded-md border border-line px-2 text-sm font-medium text-muted hover:border-danger hover:text-danger disabled:opacity-50"
           >
             删除
           </button>
@@ -156,18 +158,28 @@ export function TopBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        {error && <span className="hidden text-xs text-red-600 sm:inline">{error}</span>}
-        {exportError && <span className="hidden text-xs text-red-600 sm:inline">{exportError}</span>}
+        {error && <span className="hidden text-xs text-danger sm:inline">{error}</span>}
+        {exportError && <span className="hidden text-xs text-danger sm:inline">{exportError}</span>}
+        <button
+          type="button"
+          data-testid="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === 'cyber' ? 'Switch to clean theme' : 'Switch to cyber theme'}
+          title={theme === 'cyber' ? '切换到 Clean 主题' : '切换到 Cyber 主题'}
+          className="h-8 shrink-0 rounded-md border border-line px-2 text-xs font-medium text-muted hover:border-accent hover:text-accent"
+        >
+          {theme === 'cyber' ? 'Clean' : 'Cyber'}
+        </button>
         <PrivacyPill mode={llmMode} host={llmHost} />
         {currentRepo ? (
           <>
             <div className="hidden sm:block">
               <StatusStepper status={currentRepo.status} />
             </div>
-            <span className="hidden max-w-[220px] truncate text-xs text-slate-400 lg:inline">{currentRepo.localPath}</span>
+            <span className="hidden max-w-[220px] truncate text-xs text-muted lg:inline">{currentRepo.localPath}</span>
           </>
         ) : (
-          <span className="hidden text-xs text-slate-400 sm:inline">No repo selected</span>
+          <span className="hidden text-xs text-muted sm:inline">No repo selected</span>
         )}
       </div>
 

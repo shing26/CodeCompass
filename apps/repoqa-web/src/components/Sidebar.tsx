@@ -106,11 +106,11 @@ export function Sidebar({
   return (
     <aside
       data-testid="sidebar"
-      className={`fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto border-r border-slate-200 bg-slate-50 transition-transform md:static md:z-auto md:shrink-0 md:translate-x-0 ${
+      className={`fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto border-r border-line bg-subtle transition-transform md:static md:z-auto md:shrink-0 md:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
-      <section className="border-b border-slate-200 p-3">
+      <section className="border-b border-line p-3">
         <input
           ref={searchRef}
           data-testid="sidebar-search"
@@ -119,12 +119,12 @@ export function Sidebar({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="过滤路由与符号"
           aria-label="过滤路由与符号"
-          className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-accent"
+          className="h-8 w-full rounded-md border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent"
         />
       </section>
 
-      <section className="border-b border-slate-200 p-3">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <section className="border-b border-line p-3">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
           Quick Tours
         </h2>
         {repoName && (
@@ -137,19 +137,19 @@ export function Sidebar({
           />
         )}
         {!repoName && (
-          <p data-testid="sidebar-placeholder" className="text-xs text-slate-400">
+          <p data-testid="sidebar-placeholder" className="text-xs text-muted">
             Choose a repo to see recommended tours.
           </p>
         )}
       </section>
 
-      <section className="border-b border-slate-200 p-3">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <section className="border-b border-line p-3">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
           Routes ({routes.length})
         </h2>
-        {loading && <p className="text-xs text-slate-400">Loading…</p>}
+        {loading && <p className="text-xs text-muted">Loading…</p>}
         {!loading && routeItems.length === 0 && (
-          <p className="text-xs text-slate-400">—</p>
+          <p className="text-xs text-muted">—</p>
         )}
         <ul className="space-y-1">
           {routeItems.map((r) => (
@@ -159,21 +159,24 @@ export function Sidebar({
                 data-testid="route-item"
                 onClick={() => openAt(r.filePath, r.lineStart)}
                 title={`${r.displayPath ?? r.name} · ${r.filePath}:${r.lineStart ?? 1}`}
-                className="w-full truncate rounded px-1 text-left font-mono text-xs text-slate-600 hover:bg-accent/10 hover:text-accent"
+                className="flex w-full items-center gap-2 rounded px-1 text-left font-mono text-xs text-muted hover:bg-accent/10 hover:text-accent"
               >
-                {r.displayPath ?? r.name}
+                <span className="min-w-0 flex-1 truncate">{r.displayPath ?? r.name}</span>
+                <span className="shrink-0 font-mono text-[10px] text-muted">
+                  L{r.lineStart ?? 1}
+                </span>
               </button>
             </li>
           ))}
           {routes.length > 20 && !normalizedQuery && (
-            <li className="text-xs text-slate-400">+{routes.length - 20} more</li>
+            <li className="text-xs text-muted">+{routes.length - 20} more</li>
           )}
         </ul>
       </section>
 
       <section className="p-3">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Symbols</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Symbols</h2>
           <button
             type="button"
             data-testid="symbols-toggle"
@@ -183,12 +186,12 @@ export function Sidebar({
             {symbolsVisible ? 'Collapse' : 'Expand'}
           </button>
         </div>
-        {loading && <p className="text-xs text-slate-400">Loading…</p>}
+        {loading && <p className="text-xs text-muted">Loading…</p>}
         {!loading && !symbolsVisible && (
-          <p className="text-xs text-slate-400">{tree.length} files — expand to browse</p>
+          <p className="text-xs text-muted">{tree.length} files — expand to browse</p>
         )}
         {!loading && symbolsVisible && symbolItems.length === 0 && (
-          <p className="text-xs text-slate-400">无匹配符号</p>
+          <p className="text-xs text-muted">无匹配符号</p>
         )}
         {!loading && symbolsVisible && (
           <ul className="space-y-1.5">
@@ -198,12 +201,13 @@ export function Sidebar({
                   type="button"
                   data-testid="symbol-file"
                   onClick={() => openAt(fileNode.file, 1)}
-                  className="w-full truncate rounded px-1 text-left text-xs font-medium text-slate-700 hover:bg-accent/10 hover:text-accent"
+                  className="flex w-full items-center gap-2 rounded px-1 text-left text-xs font-medium text-ink hover:bg-accent/10 hover:text-accent"
                   title={fileNode.file}
                 >
-                  {fileNode.file}
+                  <span className="min-w-0 flex-1 truncate">{fileNode.file}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted">L1</span>
                 </button>
-                <ul className="ml-2 space-y-0.5 border-l border-slate-200 pl-2">
+                <ul className="ml-2 space-y-0.5 border-l border-line pl-2">
                   {fileNode.types.slice(0, 8).map((typeNode) => (
                     <li key={typeNode.symbol.id}>
                       <button
@@ -213,14 +217,19 @@ export function Sidebar({
                           e.stopPropagation();
                           openAt(typeNode.symbol.filePath, typeNode.symbol.lineStart);
                         }}
-                        className="w-full truncate rounded px-1 text-left text-xs text-slate-600 hover:bg-accent/10 hover:text-accent"
+                        className="flex w-full items-center gap-2 rounded px-1 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
                         title={`${typeNode.symbol.filePath}:${typeNode.symbol.lineStart ?? 1}`}
                       >
-                        <span className="text-slate-400">{typeNode.symbol.kind}</span>{' '}
-                        {typeNode.symbol.name}
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="text-muted">{typeNode.symbol.kind}</span>{' '}
+                          {typeNode.symbol.name}
+                        </span>
+                        <span className="shrink-0 font-mono text-[10px] text-muted">
+                          L{typeNode.symbol.lineStart ?? 1}
+                        </span>
                       </button>
                       {typeNode.members.length > 0 && (
-                        <ul className="ml-3 space-y-0.5 border-l border-slate-200 pl-2">
+                        <ul className="ml-3 space-y-0.5 border-l border-line pl-2">
                           {typeNode.members.slice(0, 12).map((m) => (
                             <li key={m.id}>
                               <button
@@ -230,10 +239,13 @@ export function Sidebar({
                                   e.stopPropagation();
                                   openAt(m.filePath, m.lineStart);
                                 }}
-                                className="w-full truncate rounded px-1 text-left text-xs text-slate-500 hover:bg-accent/10 hover:text-accent"
+                                className="flex w-full items-center gap-2 rounded px-1 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
                                 title={`${m.filePath}:${m.lineStart ?? 1}`}
                               >
-                                {m.name}
+                                <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                                <span className="shrink-0 font-mono text-[10px] text-muted">
+                                  L{m.lineStart ?? 1}
+                                </span>
                               </button>
                             </li>
                           ))}

@@ -68,12 +68,12 @@ export function Canvas({
         <>
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
             {onBackToDashboard && (
-              <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-slate-200 bg-slate-50 px-3 py-1.5">
+              <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-line bg-subtle px-3 py-1.5">
                 <button
                   type="button"
                   data-testid="canvas-back-to-dashboard"
                   onClick={onBackToDashboard}
-                  className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600 hover:border-accent/40 hover:text-accent"
+                  className="rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:border-accent/40 hover:text-accent"
                 >
                   ← 返回看板
                 </button>
@@ -81,7 +81,7 @@ export function Canvas({
             )}
             <div
               data-testid="offline-hint"
-              className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500"
+              className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-xs text-muted"
             >
               <span aria-hidden="true">🧭</span>
               <span>
@@ -91,14 +91,14 @@ export function Canvas({
             </div>
             {messages.length === 0 && (
               <div data-testid="chat-empty" className="mx-auto mt-8 max-w-md text-center">
-                <h2 className="text-base font-semibold text-slate-900">
+                <h2 className="text-base font-semibold text-ink">
                   Explore {repo.name}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm text-muted">
                   打开看板查看技术栈与核心 API，或在左侧选择 Quick Tour，也可以直接提问，例如
                   “/owners 经过了哪些类”.
                 </p>
-                {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+                {error && <p className="mt-2 text-xs text-danger">{error}</p>}
               </div>
             )}
             <div className="space-y-4">
@@ -116,33 +116,51 @@ export function Canvas({
               ))}
             </div>
             {totalUsage.total > 0 && (
-              <p data-testid="session-usage" className="mt-3 text-right text-xs text-slate-400">
-                本次会话累计 {totalUsage.total} tokens
-              </p>
+              <div
+                data-testid="token-budget"
+                className="mt-3 flex items-center gap-2 text-xs text-muted"
+              >
+                <div
+                  role="progressbar"
+                  aria-label="Token 预算"
+                  aria-valuemin={0}
+                  aria-valuemax={8192}
+                  aria-valuenow={totalUsage.total}
+                  className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-subtle"
+                >
+                  <div
+                    className="h-full rounded-full bg-accent"
+                    style={{ width: `${Math.min(100, (totalUsage.total / 8192) * 100)}%` }}
+                  />
+                </div>
+                <span data-testid="session-usage" className="shrink-0">
+                  本次会话累计 {totalUsage.total} tokens
+                </span>
+              </div>
             )}
             {streaming && (
-              <p data-testid="streaming-indicator" className="mt-2 text-xs text-slate-400">
+              <p data-testid="streaming-indicator" className="mt-2 text-xs text-muted">
                 Streaming…
               </p>
             )}
             {streaming && reconnecting && (
-              <p data-testid="reconnecting-indicator" className="mt-2 text-xs text-amber-600">
+              <p data-testid="reconnecting-indicator" className="mt-2 text-xs text-warning">
                 连接中断，正在自动重连…
               </p>
             )}
             {recovered && !reconnecting && (
-              <p data-testid="reconnect-toast" className="mt-2 text-xs text-emerald-600">
+              <p data-testid="reconnect-toast" className="mt-2 text-xs text-success">
                 已恢复连接
               </p>
             )}
             {!streaming && error && messages.length > 0 && (
-              <div data-testid="chat-error" className="mt-2 flex items-center gap-2 text-xs text-red-600">
+              <div data-testid="chat-error" className="mt-2 flex items-center gap-2 text-xs text-danger">
                 <span>{error}</span>
                 <button
                   type="button"
                   data-testid="retry-query"
                   onClick={onRetry}
-                  className="rounded border border-red-300 bg-white px-2 py-0.5 font-medium text-red-700 hover:bg-red-50"
+                  className="rounded border border-danger/40 bg-surface px-2 py-0.5 font-medium text-danger hover:bg-danger/10"
                 >
                   重试
                 </button>
@@ -151,11 +169,11 @@ export function Canvas({
           </div>
           <form
             onSubmit={submit}
-            className="flex items-center gap-2 border-t border-slate-200 bg-white p-3"
+            className="flex items-center gap-2 border-t border-line bg-surface p-3"
           >
             <div
               data-testid="chat-mode-switcher"
-              className="flex shrink-0 rounded-md border border-slate-200 bg-slate-50 p-0.5"
+              className="flex shrink-0 rounded-md border border-line bg-subtle p-0.5"
             >
               <button
                 type="button"
@@ -165,8 +183,8 @@ export function Canvas({
                 disabled={streaming}
                 className={`h-7 rounded px-2 text-xs font-medium ${
                   mode === 'architecture'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-surface text-ink shadow-sm'
+                    : 'text-muted hover:text-ink'
                 }`}
               >
                 架构分析
@@ -179,8 +197,8 @@ export function Canvas({
                 disabled={streaming}
                 className={`h-7 rounded px-2 text-xs font-medium ${
                   mode === 'call-chain'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-surface text-ink shadow-sm'
+                    : 'text-muted hover:text-ink'
                 }`}
               >
                 调用链
@@ -193,13 +211,13 @@ export function Canvas({
               onChange={(e) => setDraft(e.target.value)}
               placeholder="例如：createOwner 的调用链？/owners 经过了哪些类？（自然语言即可）"
               disabled={streaming}
-              className="h-9 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-accent disabled:opacity-50"
+              className="h-9 flex-1 rounded-md border border-line bg-surface px-3 text-sm text-ink outline-none focus:border-accent disabled:opacity-50"
             />
             <button
               type="submit"
               data-testid="chat-submit"
               disabled={streaming || !draft.trim()}
-              className="h-9 rounded-md bg-accent px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="h-9 rounded-md bg-accent px-4 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
             >
               Ask
             </button>
@@ -208,12 +226,12 @@ export function Canvas({
       ) : (
         <div data-testid="empty-state" className="flex flex-1 items-center justify-center p-8">
           <div className="max-w-md text-center">
-            <h2 className="text-lg font-semibold text-slate-900">Start by connecting a repo</h2>
-            <p className="mt-2 text-sm text-slate-500">
+            <h2 className="text-lg font-semibold text-ink">Start by connecting a repo</h2>
+            <p className="mt-2 text-sm text-muted">
               Import a local Java repository, wait for indexing to finish, then explore call chains
               with natural-language questions.
             </p>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-muted">
               Already imported? Pick it from the selector in the top bar.
             </p>
           </div>
@@ -252,11 +270,11 @@ function MessageBubble({
   }
   return (
     <div data-testid="assistant-message" className="flex justify-start">
-      <div className="max-w-[90%] rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="max-w-[90%] rounded-lg border border-line bg-surface px-3 py-2">
         {message.text ? (
           <Markdown text={message.text} />
         ) : (
-          <span className="text-slate-400">…</span>
+          <span className="text-muted">…</span>
         )}
         {message.diagram && <MermaidDiagram code={message.diagram} onNavigate={onNavigate} />}
         {message.anchors && (
@@ -266,7 +284,7 @@ function MessageBubble({
           (message.provenance || message.lowConfidence || message.usage) && (
             <div
               data-testid="message-meta"
-              className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-2 text-[11px] text-slate-500"
+              className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2 text-[11px] text-muted"
             >
               {message.provenance && (
                 <span data-testid="provenance-badge">
@@ -274,7 +292,7 @@ function MessageBubble({
                 </span>
               )}
               {message.lowConfidence && (
-                <span data-testid="low-confidence" className="text-amber-600">
+                <span data-testid="low-confidence" className="text-warning">
                   低置信度
                 </span>
               )}
@@ -317,10 +335,10 @@ function TraceOutcome({
     return (
       <div
         data-testid="break-marker"
-        className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs"
+        className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs"
       >
-        <span className="font-semibold text-red-700">Static Analysis Break</span>
-        <span className="mt-1 block text-red-600">
+        <span className="font-semibold text-danger">Static Analysis Break</span>
+        <span className="mt-1 block text-danger">
           该 trace 未解析出完整调用链，以下为已到达的内容。
         </span>
       </div>
@@ -331,9 +349,9 @@ function TraceOutcome({
   return (
     <div
       data-testid="micro-win"
-      className="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm"
+      className="mt-3 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm"
     >
-      <p data-testid="micro-win-label" className="font-medium text-emerald-800">
+      <p data-testid="micro-win-label" className="font-medium text-success">
         {anchorCount > 0 ? `✓ 已确认 ${anchorCount} 个源码锚点` : '✓ 分析完成'}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -342,7 +360,7 @@ function TraceOutcome({
             type="button"
             data-testid="off-ramp-suggested"
             onClick={() => onSuggested(message.suggestedAction as string)}
-            className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+            className="rounded-md bg-success px-2.5 py-1 text-xs font-medium text-white hover:bg-success/90"
           >
             {message.suggestedAction}
           </button>
@@ -351,7 +369,7 @@ function TraceOutcome({
           type="button"
           data-testid="off-ramp-continue"
           onClick={onContinue}
-          className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+          className="rounded-md border border-success/40 bg-surface px-2.5 py-1 text-xs font-medium text-success hover:bg-success/10"
         >
           继续提问
         </button>
@@ -359,7 +377,7 @@ function TraceOutcome({
           type="button"
           data-testid="off-ramp-top"
           onClick={onTop}
-          className="rounded-md border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+          className="rounded-md border border-success/40 bg-surface px-2.5 py-1 text-xs font-medium text-success hover:bg-success/10"
         >
           回到顶部
         </button>
