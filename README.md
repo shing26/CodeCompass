@@ -14,6 +14,19 @@
 - **索引层（Issue 06/07）**：配置只索引 key，value 从不落盘、从不导出；多模式确定性掩码引擎重写凭据赋值（`password` / `secret` / `token` / `aws_access_key_id`…），且只重写字面量赋值，不误伤普通代码。
 - **输出层（防御性兜底）**：所有导出与 HTTP 响应再经 `maskSensitiveText` 过滤一遍，双保险。
 
+### 4. 多语言 AST 解析
+`LanguageAdapter` 抽象层把不同语言的语法树统一成同一套 `RepoSymbol` 契约：同一份调用图索引、同一套确定性调用链算法、同一个 Web/MCP/CLI 证据面。
+
+| 语言 | 扩展名 | 主要符号 | 框架 / 路由识别 |
+| --- | --- | --- | --- |
+| Java | `.java` | class / interface / method / field / route / service / repository / advice | Spring MVC 注解（`@RestController`、`@GetMapping` 等） |
+| TypeScript / JavaScript | `.ts` / `.tsx` / `.js` / `.jsx` | Class / Function / Interface / Type | NestJS 装饰器、Express 路由、`axios` / `fetch` 调用提取 |
+| Go | `.go` | struct / interface / func / receiver method / const / var | Gin / Fiber 路由注册（`r.GET`、`group.POST`） |
+| Python | `.py` | class / def / async def | FastAPI / Flask 装饰器（`@app.get`、`@router.post`、`@app.route`） |
+
+### 5. Graph RAG Agent Context
+`codecompass context <query>` 用与调用链完全一致的确定性入口解析器定位符号，然后沿内存符号图做 **1-Hop Caller + 1~3 Hop Callee** 双向检索；输出会先折叠类骨架、按优先级队列做 Token 预算剪枝，再经过 13 类凭据脱敏，最终生成可直接粘贴给 Agent 的 Markdown 上下文。
+
 ## 快速上手
 
 ### 前置要求
@@ -42,6 +55,7 @@ codecompass <path>            # 导入仓库并自动打开浏览器到驾驶舱
 codecompass <path> --port 9000        # 自定义端口（默认 43110 / $MHW_CP_PORT）
 codecompass <path> --data-dir ./data  # 自定义数据目录（默认 ~/.mhw / $MHW_DATA_DIR）
 codecompass <path> --no-browser       # 只启动服务，不自动开浏览器
+codecompass context listOrders /path/to/your/repo   # 导出 Graph RAG Agent 上下文
 codecompass --version
 ```
 
@@ -49,6 +63,16 @@ codecompass --version
 - **看板**：技术栈分类、架构指标、Top API
 - **调用链**：输入方法/资源名，模式选 `call-chain`，得到带溯源锚点的 mermaid 时序图（支持跨模块 3+ 跳）
 - **导出**：`ONBOARDING.md` 一键下载
+
+`context` 子命令无需启动 Web 服务，适合直接在终端或 CI 里取上下文：
+
+```bash
+# 使用当前目录作为仓库
+npx codecompass context listOrders
+
+# 显式指定仓库路径与可选 Token 预算
+npx codecompass context listOrders /path/to/your/repo
+```
 
 ### 方式二：Docker（容器开发）
 
@@ -63,6 +87,51 @@ docker build -t codecompass:local .
 docker run --rm -p 43110:43110 \
   -v "$PWD:/repo:ro" -v codecompass-data:/data \
   codecompass:local node services/control-plane/dist/cli.js /repo --no-browser
+```
+
+## MCP 工具接入
+
+`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 8 个确定性工具：
+
+| 工具 | 用途 |
+| --- | --- |
+| `codecompass_list_repos` | 列出已索引仓库的 id / name / status / fileCount |
+| `codecompass_trace_call_chain` | 解析确定性静态调用链 |
+| `codecompass_get_dashboard` | 聚合零 Prompt 架构驾驶舱 |
+| `codecompass_get_config_evidence` | 配置 key 证据（只返回 file:line，不返回 value） |
+| `codecompass_get_tours` | 返回 Onboarding Tour |
+| `codecompass_reverse_deps` | who-uses 反向调用者查询 |
+| `codecompass_get_pr_impact` | Git PR 架构影响面分析 |
+| `codecompass_get_subgraph_context` | **Graph RAG 子图提取**：1-Hop Caller + 1~3 Hop Callee、骨架折叠、Token 剪枝与凭据脱敏 |
+
+### Cursor
+
+在项目根目录创建 `.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "codecompass": {
+      "command": "npx",
+      "args": ["codecompass", "mcp", "/path/to/your/repo"]
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+编辑 `claude_desktop_config.json`（Windows：`%APPDATA%\Claude\claude_desktop_config.json`；macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "codecompass": {
+      "command": "npx",
+      "args": ["codecompass", "mcp", "/path/to/your/repo"]
+    }
+  }
+}
 ```
 
 ## 开发
@@ -96,4 +165,4 @@ docker-compose.yml          # 本地容器开发（只读挂载）
 
 ## 版本
 
-当前版本：`v0.4.0`。语义化版本规则见 `docs/adr/`。
+当前版本：`v0.5.0`。语义化版本规则见 `docs/adr/`。
