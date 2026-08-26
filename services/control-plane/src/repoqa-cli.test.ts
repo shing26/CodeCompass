@@ -24,6 +24,8 @@ describe('Issue 16 CLI arg parsing', () => {
         dataDir: undefined,
         noBrowser: false,
         noWatch: false,
+        failOnBreak: false,
+        failOnAuthImpact: false,
         help: false,
         version: false,
         failOnImpact: false

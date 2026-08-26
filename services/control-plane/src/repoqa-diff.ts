@@ -27,6 +27,34 @@ const GIT_SHOW_CONCURRENCY = 8;
 export const PR_IMPACT_SCHEMA_VERSION = 1 as const;
 
 /* ------------------------------------------------------------------ */
+/* Issue 29 — CI 架构门禁策略                                           */
+/* ------------------------------------------------------------------ */
+
+export type PolicyRule = 'max-affected-routes' | 'broken-chain' | 'auth-impact';
+export type DiffPolicyStatus = 'PASS' | 'FAIL';
+
+export interface DiffPolicyOptions {
+  /** Fail when the number of affected API routes exceeds this limit. */
+  maxAffectedRoutes?: number;
+  /** Fail when modified symbols cannot be reached from any route. */
+  failOnBreak?: boolean;
+  /** Fail when an impacted sensitive route lacks an auth guard. */
+  failOnAuthImpact?: boolean;
+}
+
+export interface PolicyViolation {
+  rule: PolicyRule;
+  message: string;
+  /** Deterministic, human-readable evidence lines for the violation. */
+  details: string[];
+}
+
+export interface DiffPolicyResult {
+  status: DiffPolicyStatus;
+  violations: PolicyViolation[];
+}
+
+/* ------------------------------------------------------------------ */
 /* git plumbing（只读，参数数组传参，绝不拼 shell 字符串）              */
 /* ------------------------------------------------------------------ */
 
@@ -583,6 +611,10 @@ export interface AffectedApiEntry {
   httpPath?: string;
   file: string;
   line: number;
+  /** Issue 29: route method annotations (e.g. `@PreAuthorize`) for auth policy. */
+  annotations?: string[];
+  /** Issue 29: controller class annotations for auth policy. */
+  controllerAnnotations?: string[];
   /** 每个被修改方法一条影响。 */
   impacts: Array<{
     modifiedMethod: string;
@@ -610,6 +642,8 @@ export interface DiffReport {
   uncovered: Array<{ name: string; parentType?: string; file: string; line: number; side: 'head' | 'base' }>;
   configChanges: ConfigChange[];
   mermaid: string;
+  /** Issue 29: pr-summary 门禁判定；`diff` 命令不附加。 */
+  policy?: DiffPolicyResult;
 }
 
 export interface AnalyzeDiffOptions {
@@ -741,6 +775,8 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
           httpPath: hit.routeMethod.displayPath,
           file: hit.routeMethod.filePath,
           line: hit.routeMethod.lineStart ?? 1,
+          annotations: hit.routeMethod.annotations,
+          controllerAnnotations: hit.routeClass.annotations,
           impacts
         });
       }
@@ -927,6 +963,104 @@ export function buildMermaid(input: { affectedApis: AffectedApiEntry[] }): strin
 /* Markdown 报告渲染                                                    */
 /* ------------------------------------------------------------------ */
 
+const AUTH_ANNOTATION_RE =
+  /@(?:PreAuthorize|Secured|RolesAllowed|Authenticated|Login|RequiresPermissions|RequiresAuthentication|RequiresUser|CheckPermission|SaCheckLogin|SaCheckPermission)\b/i;
+
+const SENSITIVE_ROUTE_RE =
+  /(admin|user|account|payment|billing|token|secret|credential|password|config|auth|login|permission)/i;
+
+function hasAuthAnnotation(annotations: string[] | undefined): boolean {
+  return (annotations ?? []).some((text) => AUTH_ANNOTATION_RE.test(text));
+}
+
+function isAuthProtected(api: AffectedApiEntry): boolean {
+  return hasAuthAnnotation(api.annotations) || hasAuthAnnotation(api.controllerAnnotations);
+}
+
+function isSensitiveRoute(api: AffectedApiEntry): boolean {
+  const haystack = [api.httpPath ?? '', api.routeMethod, api.controller].join(' ');
+  return SENSITIVE_ROUTE_RE.test(haystack);
+}
+
+function routeLabel(api: AffectedApiEntry): string {
+  return `${api.controller}.${api.routeMethod}${api.httpPath ? ` ${api.httpPath}` : ''} @ ${api.file}:${api.line}`;
+}
+
+/**
+ * Issue 29 — deterministic gate evaluation for `pr-summary`. Every enabled
+ * rule either contributes concrete violations or stays silent, so CI gets a
+ * stable PASS/FAIL verdict with Markdown-ready diagnostics.
+ */
+export function evaluateDiffPolicy(
+  report: DiffReport,
+  options: DiffPolicyOptions
+): DiffPolicyResult {
+  const violations: PolicyViolation[] = [];
+
+  if (
+    options.maxAffectedRoutes !== undefined &&
+    options.maxAffectedRoutes >= 0 &&
+    report.affectedApis.length > options.maxAffectedRoutes
+  ) {
+    violations.push({
+      rule: 'max-affected-routes',
+      message: `受影响路由数 ${report.affectedApis.length} 超过上限 ${options.maxAffectedRoutes}`,
+      details: report.affectedApis.map(routeLabel)
+    });
+  }
+
+  if (options.failOnBreak && report.uncovered.length > 0) {
+    violations.push({
+      rule: 'broken-chain',
+      message: `${report.uncovered.length} 个被修改符号无法经静态调用边到达任何路由`,
+      details: report.uncovered.map(
+        (entry) =>
+          `${entry.parentType ? `${entry.parentType}.` : ''}${entry.name} @ ${entry.file}:${entry.line} (${entry.side === 'head' ? '新增/修改' : '删除'})`
+      )
+    });
+  }
+
+  if (options.failOnAuthImpact) {
+    const unprotected = report.affectedApis.filter(
+      (api) => isSensitiveRoute(api) && !isAuthProtected(api)
+    );
+    if (unprotected.length > 0) {
+      violations.push({
+        rule: 'auth-impact',
+        message: `${unprotected.length} 个受影响的敏感路由缺少鉴权注解`,
+        details: unprotected.map(routeLabel)
+      });
+    }
+  }
+
+  return {
+    status: violations.length > 0 ? 'FAIL' : 'PASS',
+    violations
+  };
+}
+
+/** Issue 29: standalone Markdown verdict block for a gate result. */
+export function renderPolicyMarkdown(result: DiffPolicyResult): string {
+  const lines = ['## 门禁判定', ''];
+  if (result.status === 'PASS') {
+    lines.push('**PASS** — 未触发任何策略违规。');
+    lines.push('');
+    return lines.join('\n');
+  }
+  lines.push(`**FAIL** — ${result.violations.length} 项策略违规：`);
+  lines.push('');
+  for (const violation of result.violations) {
+    lines.push(`### ${violation.rule}`);
+    lines.push('');
+    lines.push(`- ${violation.message}`);
+    for (const detail of violation.details) {
+      lines.push(`  - \`${detail}\``);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 function refLabel(report: DiffReport): string {
   const fmt = (ref: string, sha?: string) => (sha ? `${ref} (${sha})` : ref);
   return `${fmt(report.base, report.baseSha)} → ${fmt(report.head, report.headSha)}`;
@@ -1032,6 +1166,10 @@ export function renderMarkdown(report: DiffReport): string {
       lines.push(`| \`${change.file}\` | \`${change.key}\` | ${change.line} | ${statusText} |`);
     }
     lines.push('');
+  }
+
+  if (report.policy) {
+    lines.push(renderPolicyMarkdown(report.policy));
   }
 
   lines.push('---');

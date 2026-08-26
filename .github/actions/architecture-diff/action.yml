@@ -16,6 +16,18 @@ inputs:
     description: 'Exit non-zero when impacted APIs/config changes are found.'
     required: false
     default: 'false'
+  max-affected-routes:
+    description: 'Fail the gate (exit 1) when more than this many routes are affected.'
+    required: false
+    default: ''
+  fail-on-break:
+    description: 'Fail the gate (exit 1) on modified symbols unreachable from any route.'
+    required: false
+    default: 'false'
+  fail-on-auth-impact:
+    description: 'Fail the gate (exit 1) when an impacted sensitive route lacks an auth guard.'
+    required: false
+    default: 'false'
 
 outputs:
   markdown:
@@ -33,6 +45,15 @@ runs:
         args=()
         if [[ "${{ inputs.fail-on-impact }}" == "true" ]]; then
           args+=(--fail-on-impact)
+        fi
+        if [[ -n "${{ inputs.max-affected-routes }}" ]]; then
+          args+=(--max-affected-routes "${{ inputs.max-affected-routes }}")
+        fi
+        if [[ "${{ inputs.fail-on-break }}" == "true" ]]; then
+          args+=(--fail-on-break)
+        fi
+        if [[ "${{ inputs.fail-on-auth-impact }}" == "true" ]]; then
+          args+=(--fail-on-auth-impact)
         fi
         report="$(npx --yes codecompass pr-summary "${args[@]}" "${{ inputs.base }}" "${{ inputs.head }}" "${{ inputs.repo-path }}")"
         delimiter="$(openssl rand -hex 16)"

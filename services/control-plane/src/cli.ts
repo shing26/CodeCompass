@@ -6,7 +6,7 @@ import {
   runMcpServer,
   type McpTransportFactory
 } from './repoqa-mcp';
-import { analyzeDiff, renderMarkdown } from './repoqa-diff';
+import { analyzeDiff, evaluateDiffPolicy, renderMarkdown } from './repoqa-diff';
 import { loadConfig } from './config';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { EventBus } from './events';
@@ -33,6 +33,12 @@ export interface CliArgs {
   diffFile?: string;
   /** Exit 2 from `pr-summary` when PR impact is detected. */
   failOnImpact: boolean;
+  /** Issue 29: fail `pr-summary` when affected routes exceed this limit. */
+  maxAffectedRoutes?: number;
+  /** Issue 29: fail `pr-summary` when a modified symbol breaks the chain. */
+  failOnBreak: boolean;
+  /** Issue 29: fail `pr-summary` on impacted unauthenticated sensitive routes. */
+  failOnAuthImpact: boolean;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -88,6 +94,10 @@ Options:
   --output <fmt>        Diff report format: markdown | json (default: markdown)
   --file <path>         Write the diff report to a file instead of stdout
   --fail-on-impact      With pr-summary, exit 2 when impact is detected
+  --max-affected-routes <n>
+                        With pr-summary, exit 1 when more than n routes are affected
+  --fail-on-break       With pr-summary, exit 1 on modified symbols unreachable from routes
+  --fail-on-auth-impact With pr-summary, exit 1 on impacted sensitive routes without auth
   --help, -h            Show this help
   --version, -v         Print version
 `;
@@ -97,6 +107,8 @@ export function parseArgs(argv: string[]): ParseResult {
   const args: CliArgs = {
     noBrowser: false,
     noWatch: false,
+    failOnBreak: false,
+    failOnAuthImpact: false,
     help: false,
     version: false,
     failOnImpact: false
@@ -171,6 +183,14 @@ export function parseArgs(argv: string[]): ParseResult {
       args.failOnImpact = true;
       continue;
     }
+    if (arg === '--fail-on-break') {
+      args.failOnBreak = true;
+      continue;
+    }
+    if (arg === '--fail-on-auth-impact') {
+      args.failOnAuthImpact = true;
+      continue;
+    }
     if (arg === '--no-browser') {
       args.noBrowser = true;
       continue;
@@ -203,6 +223,19 @@ export function parseArgs(argv: string[]): ParseResult {
         return { ok: false, error: '--data-dir expects a directory path' };
       }
       args.dataDir = value;
+      continue;
+    }
+    if (flag === '--max-affected-routes') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || !/^\d+$/.test(value)) {
+        return { ok: false, error: '--max-affected-routes expects a non-negative integer' };
+      }
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed)) {
+        return { ok: false, error: `--max-affected-routes out of range: ${value}` };
+      }
+      args.maxAffectedRoutes = parsed;
       continue;
     }
     if (flag === '--output') {
@@ -381,6 +414,15 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       base: args.diffBase,
       head: args.diffHead
     });
+    const policy =
+      args.command === 'pr-summary'
+        ? evaluateDiffPolicy(report, {
+            maxAffectedRoutes: args.maxAffectedRoutes,
+            failOnBreak: args.failOnBreak,
+            failOnAuthImpact: args.failOnAuthImpact
+          })
+        : undefined;
+    if (policy) report.policy = policy;
     const rendered =
       args.diffOutput === 'json' ? JSON.stringify(report, null, 2) : renderMarkdown(report);
     if (args.diffFile) {
@@ -398,7 +440,8 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       return {
         server: null,
         cockpitUrl: null,
-        exitCode: args.failOnImpact && hasImpact ? 2 : 0
+        exitCode:
+          policy?.status === 'FAIL' ? 1 : args.failOnImpact && hasImpact ? 2 : 0
       };
     }
     return { server: null, cockpitUrl: null };

@@ -9,10 +9,12 @@ import {
   buildMermaid,
   changedLinesFor,
   detectConfigChanges,
+  evaluateDiffPolicy,
   getDiffText,
   parseUnifiedDiff,
   pickModifiedSymbols,
   renderMarkdown,
+  renderPolicyMarkdown,
   type AffectedApiEntry,
   type DiffReport,
   type FileChangedLines
@@ -165,6 +167,103 @@ async function makeFixtureRepo(): Promise<{ root: string; base: string; head: st
       'src/main/resources/application.yml': HEAD_YAML
     },
     'head'
+  );
+  return { root, base, head };
+}
+
+/** Minimal DiffReport for pure policy evaluation. */
+function makePolicyReport(overrides: Partial<DiffReport> = {}): DiffReport {
+  return {
+    schemaVersion: 1,
+    summary: {
+      changedFiles: 1,
+      modifiedSymbols: 1,
+      affectedApis: 1,
+      configChanges: 0,
+      uncovered: 0
+    },
+    repoPath: 'C:/repo',
+    repoName: 'repo',
+    base: 'base',
+    head: 'head',
+    changedFiles: [],
+    modifiedSymbols: [],
+    affectedApis: [],
+    uncovered: [],
+    configChanges: [],
+    mermaid: '',
+    ...overrides
+  };
+}
+
+function makeAffectedApi(overrides: Partial<AffectedApiEntry> = {}): AffectedApiEntry {
+  return {
+    controller: 'AdminController',
+    routeMethod: 'listUsers',
+    httpPath: '/api/admin/users',
+    file: 'src/main/java/com/demo/AdminController.java',
+    line: 8,
+    impacts: [],
+    ...overrides
+  };
+}
+
+async function makeAuthFixtureRepo(): Promise<{ root: string; base: string; head: string }> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codecompass-diff-auth-'));
+  const base = await makeCommit(
+    root,
+    {
+      'src/main/java/com/demo/AdminController.java': [
+        'package com.demo;',
+        '@RestController',
+        'public class AdminController {',
+        '  private final AdminService adminService = new AdminService();',
+        '  @GetMapping("/api/admin/users")',
+        '  public String listUsers() {',
+        '    return adminService.listUsers();',
+        '  }',
+        '}',
+        ''
+      ].join('\n'),
+      'src/main/java/com/demo/AdminService.java': [
+        'package com.demo;',
+        '@Service',
+        'public class AdminService {',
+        '  private final AdminRepository adminRepository = new AdminRepository();',
+        '  public String listUsers() {',
+        '    return adminRepository.findAll();',
+        '  }',
+        '}',
+        ''
+      ].join('\n'),
+      'src/main/java/com/demo/AdminRepository.java': [
+        'package com.demo;',
+        '@Repository',
+        'public class AdminRepository {',
+        '  public String findAll() {',
+        '    return "users";',
+        '  }',
+        '}',
+        ''
+      ].join('\n')
+    },
+    'auth base'
+  );
+  const head = await commitMore(
+    root,
+    {
+      'src/main/java/com/demo/AdminRepository.java': [
+        'package com.demo;',
+        '@Repository',
+        'public class AdminRepository {',
+        '  public String findAll() {',
+        '    return "users-v2"; // 敏感链路底层变更',
+        '  }',
+        '}',
+        ''
+      ].join('\n')
+    },
+    'auth head'
   );
   return { root, base, head };
 }
@@ -410,6 +509,110 @@ describe('Issue 22 report rendering', () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Issue 29 — CI 架构门禁策略                                          */
+/* ------------------------------------------------------------------ */
+
+describe('Issue 29 diff policy gate', () => {
+  it('passes when no enabled rule is violated', () => {
+    const report = makePolicyReport({
+      affectedApis: [makeAffectedApi({ controllerAnnotations: ['@RestController'] })]
+    });
+    const result = evaluateDiffPolicy(report, {});
+    expect(result.status).toBe('PASS');
+    expect(result.violations).toEqual([]);
+    expect(renderPolicyMarkdown(result)).toContain('**PASS**');
+  });
+
+  it('fails when affected route count exceeds max-affected-routes', () => {
+    const report = makePolicyReport({
+      affectedApis: [
+        makeAffectedApi({ routeMethod: 'listUsers' }),
+        makeAffectedApi({ routeMethod: 'listRoles', httpPath: '/api/admin/roles', line: 20 })
+      ]
+    });
+    const result = evaluateDiffPolicy(report, { maxAffectedRoutes: 1 });
+    expect(result.status).toBe('FAIL');
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].rule).toBe('max-affected-routes');
+    expect(result.violations[0].message).toContain('2');
+    expect(result.violations[0].details).toHaveLength(2);
+    expect(renderPolicyMarkdown(result)).toContain('**FAIL**');
+    expect(renderPolicyMarkdown(result)).toContain('max-affected-routes');
+  });
+
+  it('fails when modified symbols cannot reach any route', () => {
+    const report = makePolicyReport({
+      uncovered: [{ name: 'orphanMethod', file: 'src/Orphan.java', line: 5, side: 'head' }]
+    });
+    const result = evaluateDiffPolicy(report, { failOnBreak: true });
+    expect(result.status).toBe('FAIL');
+    expect(result.violations[0].rule).toBe('broken-chain');
+    expect(result.violations[0].details[0]).toContain('orphanMethod');
+  });
+
+  it('flags impacted sensitive routes that lack an auth guard', () => {
+    const report = makePolicyReport({
+      affectedApis: [makeAffectedApi({ controllerAnnotations: ['@RestController'] })]
+    });
+    const result = evaluateDiffPolicy(report, { failOnAuthImpact: true });
+    expect(result.status).toBe('FAIL');
+    expect(result.violations[0].rule).toBe('auth-impact');
+    expect(result.violations[0].details[0]).toContain('/api/admin/users');
+  });
+
+  it('accepts sensitive routes protected by method or controller annotations', () => {
+    const methodProtected = makePolicyReport({
+      affectedApis: [
+        makeAffectedApi({ annotations: ['@PreAuthorize("hasRole(\'ADMIN\')")'] })
+      ]
+    });
+    expect(evaluateDiffPolicy(methodProtected, { failOnAuthImpact: true }).status).toBe('PASS');
+
+    const controllerProtected = makePolicyReport({
+      affectedApis: [
+        makeAffectedApi({ controllerAnnotations: ['@RestController', '@Secured("ADMIN")'] })
+      ]
+    });
+    expect(evaluateDiffPolicy(controllerProtected, { failOnAuthImpact: true }).status).toBe('PASS');
+  });
+
+  it('ignores non-sensitive routes for the auth rule', () => {
+    const report = makePolicyReport({
+      affectedApis: [
+        makeAffectedApi({
+          controller: 'OrdersController',
+          routeMethod: 'listOrders',
+          httpPath: '/api/orders',
+          file: 'src/OrdersController.java'
+        })
+      ]
+    });
+    const result = evaluateDiffPolicy(report, { failOnAuthImpact: true });
+    expect(result.status).toBe('PASS');
+  });
+
+  it('renders the policy verdict inside the full markdown report', () => {
+    const report = makePolicyReport({
+      affectedApis: [makeAffectedApi()],
+      policy: {
+        status: 'FAIL',
+        violations: [
+          {
+            rule: 'auth-impact',
+            message: '1 个受影响的敏感路由缺少鉴权注解',
+            details: ['AdminController.listUsers /api/admin/users @ src/main/java/com/demo/AdminController.java:8']
+          }
+        ]
+      }
+    });
+    const markdown = renderMarkdown(report);
+    expect(markdown).toContain('## 门禁判定');
+    expect(markdown).toContain('**FAIL**');
+    expect(markdown).toContain('auth-impact');
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* 端到端：临时 git 仓库（Controller→Service→Repository）             */
 /* ------------------------------------------------------------------ */
 
@@ -641,6 +844,84 @@ describe('Issue 22 codecompass diff CLI', () => {
       expect(summary.configChanges).toEqual(diff.configChanges);
       expect(summary.modifiedSymbols).toEqual(diff.modifiedSymbols);
       expect(summary.schemaVersion).toBe(diff.schemaVersion);
+    },
+    120_000
+  );
+});
+
+describe('Issue 29 pr-summary policy CLI', () => {
+  it('parses policy flags and validates max-affected-routes', () => {
+    expect(
+      parseArgs([
+        'pr-summary',
+        '--max-affected-routes=1',
+        '--fail-on-break',
+        '--fail-on-auth-impact',
+        'main',
+        'HEAD',
+        'C:/repos/petclinic'
+      ])
+    ).toMatchObject({
+      ok: true,
+      args: {
+        command: 'pr-summary',
+        maxAffectedRoutes: 1,
+        failOnBreak: true,
+        failOnAuthImpact: true,
+        diffBase: 'main',
+        diffHead: 'HEAD',
+        targetPath: 'C:/repos/petclinic'
+      }
+    });
+    expect(parseArgs(['pr-summary', '--max-affected-routes', 'abc', 'a', 'b']).ok).toBe(false);
+  });
+
+  it(
+    'exits 1 and renders a FAIL verdict when max-affected-routes is exceeded',
+    async () => {
+      const { root, base, head } = await makeFixtureRepo();
+      const lines: string[] = [];
+      const result = await runCli(
+        ['pr-summary', '--max-affected-routes', '1', base, head, root],
+        { log: (line) => lines.push(line) }
+      );
+      expect(result.exitCode).toBe(1);
+      const output = lines.join('\n');
+      expect(output).toContain('## 门禁判定');
+      expect(output).toContain('**FAIL**');
+      expect(output).toContain('max-affected-routes');
+    },
+    120_000
+  );
+
+  it(
+    'exits 0 and renders a PASS verdict when policy limits hold',
+    async () => {
+      const { root, base, head } = await makeFixtureRepo();
+      const lines: string[] = [];
+      const result = await runCli(
+        ['pr-summary', '--max-affected-routes', '10', base, head, root],
+        { log: (line) => lines.push(line) }
+      );
+      expect(result.exitCode).toBe(0);
+      expect(lines.join('\n')).toContain('**PASS**');
+    },
+    120_000
+  );
+
+  it(
+    'exits 1 when an impacted sensitive route lacks auth annotations',
+    async () => {
+      const { root, base, head } = await makeAuthFixtureRepo();
+      const lines: string[] = [];
+      const result = await runCli(
+        ['pr-summary', '--fail-on-auth-impact', base, head, root],
+        { log: (line) => lines.push(line) }
+      );
+      expect(result.exitCode).toBe(1);
+      const output = lines.join('\n');
+      expect(output).toContain('auth-impact');
+      expect(output).toContain('/api/admin/users');
     },
     120_000
   );
