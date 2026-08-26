@@ -13,6 +13,47 @@ function matchesSymbol(symbol: RepoSymbol, query: string): boolean {
   ].some((value) => typeof value === 'string' && value.toLowerCase().includes(query));
 }
 
+function languageBadgeFor(file: string): string {
+  const ext = file.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'java':
+      return 'Java';
+    case 'ts':
+    case 'tsx':
+      return 'TS';
+    case 'js':
+    case 'jsx':
+      return 'JS';
+    case 'py':
+      return 'Python';
+    case 'go':
+      return 'Go';
+    case 'xml':
+      return 'XML';
+    default:
+      return 'CODE';
+  }
+}
+
+function httpMethodFor(symbol: RepoSymbol): string {
+  const haystack = [symbol.name, ...(symbol.annotations ?? [])].join(' ');
+  const mapping = haystack.match(/@(Get|Post|Put|Delete|Patch)(?:Mapping)?\b/i);
+  if (mapping) return mapping[1].toUpperCase();
+  const call = haystack.match(/\.(get|post|put|delete|patch)\s*\(/i);
+  if (call) return call[1].toUpperCase();
+  const inline = haystack.match(/\b(GET|POST|PUT|DELETE|PATCH)\s+\//);
+  if (inline) return inline[1];
+  return 'API';
+}
+
+function lineRangeFor(symbol: RepoSymbol): string {
+  if (!symbol.lineStart) return '';
+  if (symbol.lineEnd && symbol.lineEnd > symbol.lineStart) {
+    return `L${symbol.lineStart}-${symbol.lineEnd}`;
+  }
+  return `L${symbol.lineStart}`;
+}
+
 function filterSymbolTree(
   tree: ReturnType<typeof buildSymbolTree>,
   query: string
@@ -106,7 +147,7 @@ export function Sidebar({
   return (
     <aside
       data-testid="sidebar"
-      className={`fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto border-r border-line bg-subtle transition-transform md:static md:z-auto md:shrink-0 md:translate-x-0 ${
+      className={`custom-scroll fixed inset-y-0 left-0 z-40 w-[280px] overflow-y-auto border-r border-line bg-subtle transition-transform md:static md:z-auto md:shrink-0 md:translate-x-0 ${
         open ? 'translate-x-0' : '-translate-x-full'
       }`}
     >
@@ -161,9 +202,12 @@ export function Sidebar({
                 title={`${r.displayPath ?? r.name} · ${r.filePath}:${r.lineStart ?? 1}`}
                 className="flex w-full items-center gap-2 rounded px-1 text-left font-mono text-xs text-muted hover:bg-accent/10 hover:text-accent"
               >
+                <span className="shrink-0 rounded bg-accent/10 px-1 text-[9px] font-semibold text-accent">
+                  {httpMethodFor(r)}
+                </span>
                 <span className="min-w-0 flex-1 truncate">{r.displayPath ?? r.name}</span>
                 <span className="shrink-0 font-mono text-[10px] text-muted">
-                  L{r.lineStart ?? 1}
+                  {lineRangeFor(r)}
                 </span>
               </button>
             </li>
@@ -204,6 +248,9 @@ export function Sidebar({
                   className="flex w-full items-center gap-2 rounded px-1 text-left text-xs font-medium text-ink hover:bg-accent/10 hover:text-accent"
                   title={fileNode.file}
                 >
+                  <span className="shrink-0 rounded bg-subtle px-1 text-[9px] font-semibold text-muted">
+                    {languageBadgeFor(fileNode.file)}
+                  </span>
                   <span className="min-w-0 flex-1 truncate">{fileNode.file}</span>
                   <span className="shrink-0 font-mono text-[10px] text-muted">L1</span>
                 </button>
@@ -220,12 +267,17 @@ export function Sidebar({
                         className="flex w-full items-center gap-2 rounded px-1 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
                         title={`${typeNode.symbol.filePath}:${typeNode.symbol.lineStart ?? 1}`}
                       >
+                        {typeNode.symbol.displayPath && (
+                          <span className="shrink-0 rounded bg-callee/10 px-1 text-[9px] font-semibold text-callee">
+                            {httpMethodFor(typeNode.symbol)}
+                          </span>
+                        )}
                         <span className="min-w-0 flex-1 truncate">
                           <span className="text-muted">{typeNode.symbol.kind}</span>{' '}
                           {typeNode.symbol.name}
                         </span>
                         <span className="shrink-0 font-mono text-[10px] text-muted">
-                          L{typeNode.symbol.lineStart ?? 1}
+                          {lineRangeFor(typeNode.symbol)}
                         </span>
                       </button>
                       {typeNode.members.length > 0 && (
@@ -242,9 +294,14 @@ export function Sidebar({
                                 className="flex w-full items-center gap-2 rounded px-1 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
                                 title={`${m.filePath}:${m.lineStart ?? 1}`}
                               >
+                                {m.displayPath && (
+                                  <span className="shrink-0 rounded bg-callee/10 px-1 text-[9px] font-semibold text-callee">
+                                    {httpMethodFor(m)}
+                                  </span>
+                                )}
                                 <span className="min-w-0 flex-1 truncate">{m.name}</span>
                                 <span className="shrink-0 font-mono text-[10px] text-muted">
-                                  L{m.lineStart ?? 1}
+                                  {lineRangeFor(m)}
                                 </span>
                               </button>
                             </li>

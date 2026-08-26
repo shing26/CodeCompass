@@ -155,8 +155,8 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
 async function selectRepo(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
   await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-  // Issue 13: the dashboard is the default view once a repo is selected.
-  await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+  // Issue 31: the topology workbench is the default view once a repo is selected.
+  await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
 }
 
 describe('App scaffold and repo connect', () => {
@@ -238,22 +238,23 @@ describe('App scaffold and repo connect', () => {
     expect(screen.getByTestId('import-dialog')).toBeInTheDocument();
   });
 
-  it('shows the ready status stepper once a repo is selected', async () => {
+  it('shows the Watcher Ready capsule once a repo is selected', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('Graph Ready'));
+    expect(screen.getByTestId('watcher-status')).toHaveTextContent('Watcher: Ready');
   });
 
-  it('shows an error badge when the selected repo failed to index', async () => {
+  it('shows a Watcher Offline capsule when the selected repo failed to index', async () => {
     const erroredRepo: Repo = { ...readyRepo, status: 'error' };
     const client = makeClient({ listRepos: vi.fn().mockResolvedValue([erroredRepo]) });
     const user = userEvent.setup();
     render(<App client={client} />);
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('Error'));
-    expect(screen.getByTestId('status')).not.toHaveTextContent('Graph Ready');
+    await waitFor(() =>
+      expect(screen.getByTestId('watcher-status')).toHaveTextContent('Watcher: Offline')
+    );
   });
 
   it('surfaces an import failure without closing the dialog', async () => {
@@ -276,16 +277,34 @@ describe('App scaffold and repo connect', () => {
   });
 });
 
-describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
-  it('lands on the dashboard after selecting a repo', async () => {
+describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
+  it('lands on the topology workbench after selecting a repo', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
-    expect(screen.getByTestId('highlight-badge')).toHaveTextContent('Spring Boot');
+    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 
-  it('plays a tour from the sidebar and returns to the dashboard with one click', async () => {
+  it('switches to the metrics dashboard and the CI gate via the TopBar tabs', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-metrics'));
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    expect(screen.getByTestId('highlight-badge')).toHaveTextContent('Spring Boot');
+
+    await user.click(screen.getByTestId('tab-gate'));
+    await waitFor(() => expect(screen.getByTestId('ci-gate')).toBeInTheDocument());
+
+    await user.click(screen.getByTestId('tab-topo'));
+    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
+  });
+
+  it('plays a tour from the sidebar and returns to the workbench with one click', async () => {
     const client = makeClient();
     client.getFileRaw = vi.fn().mockResolvedValue('class AuthFilter {}');
     const user = userEvent.setup();
@@ -299,7 +318,7 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
     await waitFor(() => expect(client.getFileRaw).toHaveBeenCalledWith('repo-1', 'src/AuthFilter.java'));
 
     await user.click(screen.getByTestId('back-to-dashboard'));
-    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
     expect(screen.queryByTestId('tour-player')).not.toBeInTheDocument();
   });
 
@@ -309,6 +328,8 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
     render(<App client={client} />);
     await selectRepo(user);
 
+    await user.click(screen.getByTestId('tab-metrics'));
+    await waitFor(() => expect(screen.getByTestId('api-entry')).toBeInTheDocument());
     await user.click(screen.getByTestId('api-entry'));
     await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
     expect(screen.getByTestId('user-message')).toHaveTextContent('listOrders 的完整调用链是怎样的？');
@@ -318,7 +339,7 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
       'call-chain',
       { name: 'listOrders', file: 'src/main/java/OrderController.java' }
     );
-    expect(screen.getByTestId('back-to-dashboard')).toBeInTheDocument();
+    expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 
   it('switches to the chat view from the dashboard 提问 button', async () => {
@@ -326,10 +347,11 @@ describe('Issue 13 main-view switching (dashboard / tour / chat)', () => {
     render(<App client={makeClient()} />);
     await selectRepo(user);
 
+    await user.click(screen.getByTestId('tab-metrics'));
+    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
     await user.click(screen.getByTestId('open-chat'));
     await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
-    await user.click(screen.getByTestId('back-to-dashboard'));
-    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 });
 
@@ -347,6 +369,7 @@ describe('Issue 14 ONBOARDING.md export', () => {
     render(<App client={client} />);
     await selectRepo(user);
 
+    await user.click(screen.getByTestId('more-actions'));
     await user.click(screen.getByTestId('export-onboarding'));
     await waitFor(() => expect(client.exportOnboarding).toHaveBeenCalledWith('repo-1'));
     await waitFor(() =>
@@ -361,13 +384,14 @@ describe('Issue 14 ONBOARDING.md export', () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
-    expect(screen.queryByTestId('export-onboarding')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('more-actions')).not.toBeInTheDocument();
 
     await selectRepo(user);
+    await user.click(screen.getByTestId('more-actions'));
     expect(screen.getByTestId('export-onboarding')).toBeInTheDocument();
   });
 
-  it('surfaces an export failure without leaving the dashboard', async () => {
+  it('surfaces an export failure without leaving the workbench', async () => {
     const client = makeClient({
       exportOnboarding: vi.fn().mockRejectedValue(new Error('export boom'))
     });
@@ -375,9 +399,10 @@ describe('Issue 14 ONBOARDING.md export', () => {
     render(<App client={client} />);
     await selectRepo(user);
 
+    await user.click(screen.getByTestId('more-actions'));
     await user.click(screen.getByTestId('export-onboarding'));
     await waitFor(() => expect(screen.getByText('export boom')).toBeInTheDocument());
-    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
     expect(downloadTextFile).not.toHaveBeenCalled();
   });
 });
@@ -387,10 +412,10 @@ describe('Issue 16 cockpit deep link (?repo=<id>)', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('auto-selects the repo from the query param and lands on the dashboard', async () => {
+  it('auto-selects the repo from the query param and lands on the topology workbench', async () => {
     window.history.replaceState(null, '', '/?repo=repo-1');
     render(<App client={makeClient()} />);
-    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
   });
 
   it('keeps the manual selection flow when no query param is present', async () => {
@@ -493,7 +518,7 @@ describe('Issue 30 repo_updated hot reload', () => {
 
     await waitFor(() => expect(client.listSymbols).toHaveBeenCalledTimes(2));
     expect(client.getDashboard).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 });
@@ -514,7 +539,6 @@ describe('Sprint 1 remote LLM privacy consent', () => {
       expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型')
     );
     await selectRepo(user);
-    await user.click(screen.getByTestId('open-chat'));
 
     await user.type(screen.getByTestId('chat-input'), 'architecture overview');
     await user.click(screen.getByTestId('chat-submit'));
@@ -544,7 +568,6 @@ describe('Sprint 1 remote LLM privacy consent', () => {
       expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型')
     );
     await selectRepo(user);
-    await user.click(screen.getByTestId('open-chat'));
 
     await user.type(screen.getByTestId('chat-input'), 'architecture overview');
     await user.click(screen.getByTestId('chat-submit'));

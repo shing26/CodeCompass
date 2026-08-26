@@ -12,9 +12,18 @@ import { Sidebar } from './components/Sidebar';
 import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
+import { CiGateView } from './components/CiGateView';
 import { TourPlayer } from './components/TourPlayer';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
-import type { QueryMode, Repo, RepoTour, RuntimeInfo, TopApiEntry } from './types';
+import type {
+  Anchor,
+  QueryMode,
+  Repo,
+  RepoTour,
+  RuntimeInfo,
+  TopApiEntry,
+  WorkbenchTab
+} from './types';
 
 export interface AppProps {
   /** Dependency injection seam for tests; defaults to the real client. */
@@ -30,8 +39,8 @@ function repoUpdatedWebSocketUrl(baseUrl: string): string {
   return `${baseUrl.replace(/^http/, 'ws')}/ws`;
 }
 
-/** Main view state: Onboarding Dashboard / guided Tour player / Q&A chat. */
-type MainView = 'dashboard' | 'tour' | 'chat';
+/** Main view state: workbench tabs plus the guided Tour player. */
+type MainView = WorkbenchTab | 'tour';
 
 export function App({ client: clientProp }: AppProps) {
   // Build the default client once: constructing it during render (e.g. in a
@@ -126,8 +135,9 @@ export function App({ client: clientProp }: AppProps) {
     };
   }, [client.baseUrl, repoId, refreshSymbolsSilent, refreshDashboardSilent]);
 
-  // Issue 13: main-view switcher between dashboard / tour playback / chat.
-  const [view, setView] = useState<MainView>('dashboard');
+  // Issue 31: the three-pane workbench is the default; the dashboard and CI
+  // gate are explicit TopBar tabs.
+  const [view, setView] = useState<MainView>('topo');
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -139,9 +149,9 @@ export function App({ client: clientProp }: AppProps) {
     if (inspector.file) setInspectorOpen(true);
   }, [inspector.file]);
 
-  const showDashboard = () => {
+  const goTopology = () => {
     setActiveTour(null);
-    setView('dashboard');
+    setView('topo');
   };
 
   const handleSelectRepo = (id: string) => {
@@ -159,7 +169,7 @@ export function App({ client: clientProp }: AppProps) {
       }
     }
     setActiveTour(null);
-    setView('dashboard');
+    setView('topo');
   };
 
   // Bug-08: restore the selected repo when the user navigates back/forward
@@ -170,7 +180,7 @@ export function App({ client: clientProp }: AppProps) {
       if (id && id !== currentRepo?.id) {
         selectRepo(id);
         setActiveTour(null);
-        setView('dashboard');
+        setView('topo');
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -180,7 +190,7 @@ export function App({ client: clientProp }: AppProps) {
   const handleImportLocal = async (name: string, localPath: string) => {
     await importRepo(name, localPath);
     setActiveTour(null);
-    setView('dashboard');
+    setView('topo');
   };
 
   // Issue 19: remote clone — POST /api/repos/clone returns once the clone
@@ -191,7 +201,7 @@ export function App({ client: clientProp }: AppProps) {
     await refresh();
     selectRepo(repo.id);
     setActiveTour(null);
-    setView('dashboard');
+    setView('topo');
     return repo;
   };
 
@@ -201,7 +211,7 @@ export function App({ client: clientProp }: AppProps) {
   };
 
   const handleTrace = (api: TopApiEntry) => {
-    setView('chat');
+    setView('topo');
     // Pass the clicked entry as structured input and force the deterministic
     // call-chain mode so the trace starts from THIS exact symbol (name + file),
     // never from a same-name sibling in another file (e.g. a test helper).
@@ -257,7 +267,7 @@ export function App({ client: clientProp }: AppProps) {
       await refresh();
       selectRepo(repo.id);
       setActiveTour(null);
-      setView('dashboard');
+      setView('topo');
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err));
     }
@@ -270,11 +280,22 @@ export function App({ client: clientProp }: AppProps) {
       await refresh();
       selectRepo('');
       setActiveTour(null);
-      setView('dashboard');
+      setView('topo');
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err));
     }
   };
+
+  // The Inspector's 2-Hop slice panel follows the latest resolved trace.
+  const inspectorSlices = useMemo<Anchor[]>(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.role === 'assistant' && message.anchors?.length) {
+        return message.anchors;
+      }
+    }
+    return [];
+  }, [messages]);
 
   return (
     <div className="flex h-full flex-col overflow-x-hidden bg-canvas text-ink">
@@ -295,6 +316,13 @@ export function App({ client: clientProp }: AppProps) {
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}
+        activeView={view === 'tour' ? 'topo' : view}
+        onSelectView={(tab) => {
+          setActiveTour(null);
+          setView(tab);
+        }}
+        onCopyAgentContext={handleCopyAgentContext}
+        canCopyAgentContext={repoId !== null && inspector.file !== null}
       />
       {consentPending && (
         <PrivacyConsentModal
@@ -331,7 +359,7 @@ export function App({ client: clientProp }: AppProps) {
           onNavigate={inspector.openFile}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          {repoId && view !== 'dashboard' && (
+          {repoId && view === 'tour' && (
             <div
               data-testid="view-header"
               className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-1.5"
@@ -339,17 +367,15 @@ export function App({ client: clientProp }: AppProps) {
               <button
                 type="button"
                 data-testid="back-to-dashboard"
-                onClick={showDashboard}
+                onClick={goTopology}
                 className="rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:border-accent/40 hover:text-accent"
               >
-                ← 返回看板
+                ← 返回工作台
               </button>
-              <span className="truncate text-xs text-muted">
-                {view === 'tour' ? `Tour · ${activeTour?.title ?? ''}` : '问答流'}
-              </span>
+              <span className="truncate text-xs text-muted">Tour · {activeTour?.title ?? ''}</span>
             </div>
           )}
-          {!repoId || view === 'chat' ? (
+          {!repoId || view === 'topo' ? (
             <Canvas
               repo={currentRepo}
               messages={messages}
@@ -361,15 +387,17 @@ export function App({ client: clientProp }: AppProps) {
               onSubmit={handleSubmit}
               onRetry={retry}
               onNavigate={inspector.openFile}
-              onBackToDashboard={view === 'chat' ? showDashboard : undefined}
+              symbols={symbols}
             />
           ) : view === 'tour' && activeTour ? (
             <TourPlayer
               key={activeTour.id}
               tour={activeTour}
               onNavigate={inspector.openFile}
-              onBack={showDashboard}
+              onBack={goTopology}
             />
+          ) : view === 'gate' ? (
+            <CiGateView repo={currentRepo} dashboard={dashboard} />
           ) : (
             <DashboardView
               repoName={currentRepo?.name ?? null}
@@ -379,7 +407,7 @@ export function App({ client: clientProp }: AppProps) {
               onRetry={refreshDashboard}
               onTrace={handleTrace}
               onNavigate={inspector.openFile}
-              onOpenChat={() => setView('chat')}
+              onOpenChat={() => setView('topo')}
             />
           )}
         </div>
@@ -396,8 +424,21 @@ export function App({ client: clientProp }: AppProps) {
           open={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
           onCopyAgentContext={handleCopyAgentContext}
+          usage={totalUsage}
+          slices={inspectorSlices}
         />
       </div>
+      <footer
+        data-testid="footer-status"
+        className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-line bg-surface px-3 text-[10px] text-muted"
+      >
+        <span className="min-w-0 truncate">{currentRepo?.localPath ?? '未连接仓库'}</span>
+        <span className="flex shrink-0 items-center gap-3">
+          <span>{currentRepo ? `${currentRepo.fileCount} files` : ''}</span>
+          <span>{currentRepo ? `${currentRepo.symbolCount} symbols` : ''}</span>
+          <span className="font-medium text-accent">Local-First</span>
+        </span>
+      </footer>
     </div>
   );
 }

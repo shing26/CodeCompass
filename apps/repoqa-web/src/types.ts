@@ -46,9 +46,14 @@ export interface RepoSymbol {
   displayPath?: string;
   /** Issue 21/24: enclosing type for members, or simple mapper interface name. */
   parentType?: string;
+  /** Raw declaration annotations, e.g. `@GetMapping("/owners")` or `router.get`. */
+  annotations?: string[];
 }
 
 export type QueryMode = 'architecture' | 'call-chain' | 'environment';
+
+/** Top-level workbench tabs rendered by the TopBar segmented control. */
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate';
 
 /**
  * Explicit trace start (Top API click): the clicked symbol's exact name

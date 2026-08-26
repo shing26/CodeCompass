@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Canvas } from './Canvas';
+import type { ChatMessage } from '../hooks/useChat';
 import type { Repo } from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
@@ -92,5 +93,31 @@ describe('Canvas offline UX (Issue 18)', () => {
     await user.type(screen.getByTestId('chat-input'), 'owner 相关架构');
     await user.click(screen.getByTestId('chat-submit'));
     expect(onSubmit).toHaveBeenCalledWith('owner 相关架构', 'architecture');
+  });
+});
+
+describe('Canvas topology flow cards (Issue 31)', () => {
+  it('renders Caller/Target/Callee cards from the latest trace anchors', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'msg-1',
+        role: 'assistant',
+        text: '',
+        status: 'done',
+        anchors: [
+          { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
+          { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' },
+          { file: 'src/main/resources/OrderMapper.xml', line: 30, symbol: 'findAll' }
+        ]
+      }
+    ];
+    renderCanvas({ messages });
+
+    expect(screen.getAllByTestId('flow-card')).toHaveLength(3);
+    expect(screen.getByTestId('selected-node')).toHaveTextContent('listOrders');
+    expect(screen.getByTestId('affected-count')).toHaveTextContent('3 波及');
+    expect(screen.getAllByTestId('flow-arrow')).toHaveLength(2);
+    expect(screen.getByText('Caller')).toBeInTheDocument();
+    expect(screen.getByText('Callee')).toBeInTheDocument();
   });
 });

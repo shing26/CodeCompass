@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
@@ -49,6 +49,10 @@ const readyRepo: Repo = {
   createdAt: '2026-08-21T00:00:00.000Z',
   updatedAt: '2026-08-21T00:00:00.000Z'
 };
+
+beforeEach(() => {
+  window.history.replaceState(null, '', '/');
+});
 
 /** Fake SSE stream controlled by the test, satisfying QueryStreamLike. */
 class FakeStream implements QueryStreamLike {
@@ -114,9 +118,8 @@ function makeClient(stream?: FakeStream) {
 async function selectRepo(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
   await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-  // Issue 13: the dashboard is the default view; open the Q&A chat explicitly.
-  await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
-  await user.click(screen.getByTestId('open-chat'));
+  // Issue 31: the topology workbench with the chat input is the default view.
+  await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
 }
 
 describe('chat stream (ticket 02)', () => {
@@ -270,14 +273,10 @@ describe('Round 2 chat history per repo', () => {
     );
 
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
-    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
-    await user.click(screen.getByTestId('open-chat'));
     await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
     expect(screen.queryByTestId('user-message')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
-    await user.click(screen.getByTestId('open-chat'));
     await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
     expect(screen.getByTestId('user-message')).toHaveTextContent('initCreationForm 的调用链');
   });
@@ -609,14 +608,10 @@ describe('Sprint 1 provenance and token usage', () => {
     );
 
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
-    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
-    await user.click(screen.getByTestId('open-chat'));
     await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
     expect(screen.queryByTestId('session-usage')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
-    await user.click(screen.getByTestId('open-chat'));
     await waitFor(() =>
       expect(screen.getByTestId('session-usage')).toHaveTextContent('累计 30 tokens')
     );

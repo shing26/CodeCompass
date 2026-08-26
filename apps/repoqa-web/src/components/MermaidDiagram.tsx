@@ -103,7 +103,7 @@ export function MermaidDiagram({ code, onNavigate }: MermaidDiagramProps) {
       {failed && (
         <pre
           data-testid="mermaid-fallback"
-          className="overflow-x-auto rounded-md bg-slate-900 p-3 text-xs text-slate-100"
+          className="overflow-x-auto rounded-md border border-line bg-code p-3 text-xs text-ink"
         >
           {code}
         </pre>

@@ -7,7 +7,7 @@ describe('PrivacyPill (Sprint 1)', () => {
     render(<PrivacyPill mode="none" />);
     const pill = screen.getByTestId('privacy-pill');
     expect(pill).toHaveTextContent('纯本地确定性');
-    expect(pill.querySelector('.bg-emerald-500')).toBeInTheDocument();
+    expect(pill.querySelector('.bg-success')).toBeInTheDocument();
   });
 
   it('shows the local model state without a host label', () => {
@@ -15,7 +15,7 @@ describe('PrivacyPill (Sprint 1)', () => {
     const pill = screen.getByTestId('privacy-pill');
     expect(pill).toHaveTextContent('本地模型');
     expect(pill).not.toHaveTextContent('127.0.0.1');
-    expect(pill.querySelector('.bg-amber-500')).toBeInTheDocument();
+    expect(pill.querySelector('.bg-warning')).toBeInTheDocument();
   });
 
   it('shows the masked remote host next to the remote model label', () => {
@@ -23,6 +23,6 @@ describe('PrivacyPill (Sprint 1)', () => {
     const pill = screen.getByTestId('privacy-pill');
     expect(pill).toHaveTextContent('远程模型');
     expect(pill).toHaveTextContent('api.***.com');
-    expect(pill.querySelector('.bg-red-500')).toBeInTheDocument();
+    expect(pill.querySelector('.bg-danger')).toBeInTheDocument();
   });
 });

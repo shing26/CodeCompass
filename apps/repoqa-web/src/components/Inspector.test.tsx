@@ -298,4 +298,19 @@ describe('Inspector (ticket 05)', () => {
     render(<Inspector {...baseProps()} />);
     expect(screen.queryByTestId('copy-agent-context')).not.toBeInTheDocument();
   });
+
+  it('Issue 31: shows the token budget progress and line range in the header', () => {
+    render(
+      <Inspector
+        {...baseProps({
+          file: 'src/main/java/OwnerController.java',
+          text: 'public class OwnerController {',
+          glow: { line: 88, lineEnd: 112 },
+          usage: { input: 1600, output: 1820, total: 3420, source: 'provider' }
+        })}
+      />
+    );
+    expect(screen.getByTestId('inspector-line')).toHaveTextContent('88 ~ 112');
+    expect(screen.getByTestId('inspector-token-budget')).toHaveTextContent('3,420 / 6,000 Tokens');
+  });
 });

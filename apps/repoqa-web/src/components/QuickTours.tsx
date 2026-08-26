@@ -20,18 +20,18 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
   const [expanded, setExpanded] = useState(false);
 
   if (loading && tours.length === 0) {
-    return <p className="text-xs text-slate-400">Loading tours…</p>;
+    return <p className="text-xs text-muted">Loading tours…</p>;
   }
 
   if (error && tours.length === 0) {
     return (
       <div className="flex items-center gap-2">
-        <span className="text-xs text-red-600">Tours 加载失败</span>
+        <span className="text-xs text-danger">Tours 加载失败</span>
         <button
           type="button"
           data-testid="tours-retry"
           onClick={onRetry}
-          className="rounded border border-red-300 bg-white px-1.5 py-0.5 text-[11px] text-red-700 hover:bg-red-50"
+          className="rounded border border-danger/40 bg-surface px-1.5 py-0.5 text-[11px] text-danger hover:bg-danger/10"
         >
           重试
         </button>
@@ -40,7 +40,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
   }
 
   if (tours.length === 0) {
-    return <p className="text-xs text-slate-400">No tours available.</p>;
+    return <p className="text-xs text-muted">No tours available.</p>;
   }
 
   const [recommended, ...rest] = tours;
@@ -57,7 +57,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
         <span aria-hidden className="text-accent">→</span>
       </button>
       {recommended.description && (
-        <p className="mb-1 px-1 text-[11px] leading-snug text-slate-400">
+        <p className="mb-1 px-1 text-[11px] leading-snug text-muted">
           {recommended.description}
         </p>
       )}
@@ -68,7 +68,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
             type="button"
             data-testid="more-tours-toggle"
             onClick={() => setExpanded((v) => !v)}
-            className="w-full px-2.5 py-1 text-left text-xs text-slate-400 hover:text-slate-600"
+            className="w-full px-2.5 py-1 text-left text-xs text-muted hover:text-ink"
           >
             {expanded ? 'Hide More Tours' : `More Tours (${rest.length})`}
           </button>
@@ -80,7 +80,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
                     type="button"
                     data-testid={`tour-${tour.id}`}
                     onClick={() => onPlay(tour)}
-                    className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-left text-xs text-slate-600 hover:border-accent/40 hover:text-accent"
+                    className="w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-left text-xs text-muted hover:border-accent/40 hover:text-accent"
                   >
                     {tour.title}
                   </button>

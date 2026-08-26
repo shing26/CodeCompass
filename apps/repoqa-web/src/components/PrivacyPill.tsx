@@ -12,16 +12,16 @@ const LABELS: Record<LlmRuntimeMode, string> = {
 };
 
 const DOT_CLASSES: Record<LlmRuntimeMode, string> = {
-  none: 'bg-emerald-500',
-  local: 'bg-amber-500',
-  remote: 'bg-red-500'
+  none: 'bg-success',
+  local: 'bg-warning',
+  remote: 'bg-danger'
 };
 
 export function PrivacyPill({ mode, host }: PrivacyPillProps) {
   return (
     <div
       data-testid="privacy-pill"
-      className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-700"
+      className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2.5 text-xs font-medium text-muted"
       title={mode === 'remote' && host ? `LLM host: ${host}` : undefined}
     >
       <span className={`h-2 w-2 rounded-full ${DOT_CLASSES[mode]}`} />

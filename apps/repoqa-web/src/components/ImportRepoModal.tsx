@@ -203,7 +203,7 @@ export function ImportRepoModal({
   return (
     <div
       data-testid="import-dialog"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40"
       role="dialog"
       aria-modal="true"
       aria-label="Import or clone repo"
@@ -215,16 +215,16 @@ export function ImportRepoModal({
       }}
     >
       <div
-        className="w-[26rem] rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
+        className="w-[26rem] rounded-lg border border-line bg-surface p-4 shadow-neon"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">
+        <h2 className="mb-3 text-sm font-semibold text-ink">
           Import or clone repo
         </h2>
         <div
           role="tablist"
           aria-label="Import source"
-          className="mb-3 grid grid-cols-2 gap-1 rounded-md border border-slate-200 bg-slate-50 p-1"
+          className="mb-3 grid grid-cols-2 gap-1 rounded-md border border-line bg-subtle p-1"
         >
           <button
             type="button"
@@ -234,8 +234,8 @@ export function ImportRepoModal({
             onClick={() => setTab('local')}
             className={`h-8 rounded-md text-sm font-medium ${
               tab === 'local'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-surface text-ink shadow-sm'
+                : 'text-muted hover:text-ink'
             }`}
           >
             本地路径
@@ -248,8 +248,8 @@ export function ImportRepoModal({
             onClick={() => setTab('remote')}
             className={`h-8 rounded-md text-sm font-medium ${
               tab === 'remote'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-surface text-ink shadow-sm'
+                : 'text-muted hover:text-ink'
             }`}
           >
             GitHub 仓库
@@ -258,17 +258,17 @@ export function ImportRepoModal({
 
         {tab === 'local' ? (
           <form onSubmit={submitLocal}>
-            <label className="mb-2 block text-xs font-medium text-slate-600">
+            <label className="mb-2 block text-xs font-medium text-muted">
               Name
               <input
                 data-testid="import-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="petclinic"
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
             </label>
-            <label className="mb-2 block text-xs font-medium text-slate-600">
+            <label className="mb-2 block text-xs font-medium text-muted">
               Local path
               <input
                 data-testid="import-path"
@@ -278,10 +278,10 @@ export function ImportRepoModal({
                   runPreview(e.target.value);
                 }}
                 placeholder="C:/projects/spring-petclinic"
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
             </label>
-            <label className="mb-2 block text-xs font-medium text-slate-600">
+            <label className="mb-2 block text-xs font-medium text-muted">
               或选择文件夹
               <input
                 data-testid="import-folder"
@@ -289,18 +289,18 @@ export function ImportRepoModal({
                 {...({ webkitdirectory: '' } as InputHTMLAttributes<HTMLInputElement>)}
                 multiple
                 onChange={handleFolderChange}
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs text-slate-600 outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-xs text-muted outline-none focus:border-accent"
               />
             </label>
             {folderHint && (
-              <p data-testid="import-folder-hint" className="mb-2 text-xs text-amber-600">
+              <p data-testid="import-folder-hint" className="mb-2 text-xs text-warning">
                 {folderHint}
               </p>
             )}
             {previewLoading && (
               <p
                 data-testid="import-preview-loading"
-                className="mb-2 text-xs text-slate-400"
+                className="mb-2 text-xs text-muted"
               >
                 正在扫描目录…
               </p>
@@ -308,9 +308,9 @@ export function ImportRepoModal({
             {preview && !previewLoading && (
               <div
                 data-testid="import-preview"
-                className="mb-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-600"
+                className="mb-2 rounded-md border border-line bg-subtle px-2 py-1.5 text-xs text-muted"
               >
-                将索引 <span className="font-semibold text-slate-800">{preview.fileCount}</span> 个文件
+                将索引 <span className="font-semibold text-ink">{preview.fileCount}</span> 个文件
                 {preview.javaFileCount > 0
                   ? `（含 ${preview.javaFileCount} 个 Java 文件${
                       preview.xmlFileCount > 0
@@ -319,7 +319,7 @@ export function ImportRepoModal({
                     }）`
                   : ''}
                 ，跳过{' '}
-                <span className="font-semibold text-slate-800">
+                <span className="font-semibold text-ink">
                   {preview.skippedDirCount}
                 </span>{' '}
                 个目录
@@ -331,12 +331,12 @@ export function ImportRepoModal({
             {previewError && (
               <p
                 data-testid="import-preview-error"
-                className="mb-2 text-xs text-amber-600"
+                className="mb-2 text-xs text-warning"
               >
                 {previewError}
               </p>
             )}
-            {localError && <p className="mb-2 text-xs text-red-600">{localError}</p>}
+            {localError && <p className="mb-2 text-xs text-danger">{localError}</p>}
             {localBusy &&
               (importingRepo ? (
                 <div
@@ -353,7 +353,7 @@ export function ImportRepoModal({
               ) : (
                 <p
                   data-testid="import-progress"
-                  className="mb-2 text-xs text-slate-500"
+                  className="mb-2 text-xs text-muted"
                 >
                   正在启动导入…
                 </p>
@@ -365,7 +365,7 @@ export function ImportRepoModal({
                   reset();
                   onClose();
                 }}
-                className="h-8 rounded-md px-3 text-sm text-slate-600 hover:bg-slate-100"
+                className="h-8 rounded-md px-3 text-sm text-muted hover:bg-subtle"
               >
                 Cancel
               </button>
@@ -373,7 +373,7 @@ export function ImportRepoModal({
                 type="submit"
                 data-testid="import-submit"
                 disabled={localBusy || !name.trim() || !localPath.trim()}
-                className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
               >
                 {localBusy ? 'Importing…' : 'Import'}
               </button>
@@ -381,27 +381,27 @@ export function ImportRepoModal({
           </form>
         ) : (
           <form onSubmit={submitRemote}>
-            <label className="mb-2 block text-xs font-medium text-slate-600">
+            <label className="mb-2 block text-xs font-medium text-muted">
               Git URL
               <input
                 data-testid="import-url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://github.com/org/petclinic.git"
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
             </label>
-            <label className="mb-3 block text-xs font-medium text-slate-600">
+            <label className="mb-3 block text-xs font-medium text-muted">
               Branch（可选）
               <input
                 data-testid="import-branch"
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
                 placeholder="main"
-                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm outline-none focus:border-accent"
+                className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
             </label>
-            {remoteError && <p className="mb-2 text-xs text-red-600">{remoteError}</p>}
+            {remoteError && <p className="mb-2 text-xs text-danger">{remoteError}</p>}
             {remotePhase === 'cloning' && (
               <div
                 data-testid="import-clone-progress"
@@ -432,7 +432,7 @@ export function ImportRepoModal({
                   reset();
                   onClose();
                 }}
-                className="h-8 rounded-md px-3 text-sm text-slate-600 hover:bg-slate-100"
+                className="h-8 rounded-md px-3 text-sm text-muted hover:bg-subtle"
               >
                 Cancel
               </button>
@@ -440,7 +440,7 @@ export function ImportRepoModal({
                 type="submit"
                 data-testid="import-clone-submit"
                 disabled={remoteBusy || !url.trim()}
-                className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
               >
                 {remotePhase === 'cloning'
                   ? 'Cloning…'

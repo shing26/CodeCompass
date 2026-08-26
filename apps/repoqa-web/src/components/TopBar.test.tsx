@@ -53,6 +53,10 @@ function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
     sidebarOpen: false,
     importingRepo: null,
     llmMode: 'none' as const,
+    activeView: 'topo' as const,
+    onSelectView: vi.fn(),
+    onCopyAgentContext: vi.fn(),
+    canCopyAgentContext: false,
     ...overrides
   };
 }
@@ -160,11 +164,51 @@ describe('TopBar import dialog', () => {
       />
     );
 
+    await user.click(screen.getByTestId('more-actions'));
     await user.click(screen.getByTestId('reindex-repo'));
     expect(onReindex).toHaveBeenCalledWith(readyRepo);
 
+    await user.click(screen.getByTestId('more-actions'));
     await user.click(screen.getByTestId('delete-repo'));
     expect(onDelete).toHaveBeenCalledWith(readyRepo);
+  });
+});
+
+describe('TopBar workbench header (Issue 31)', () => {
+  it('shows the watcher state capsule for a ready repo', () => {
+    render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
+    expect(screen.getByTestId('watcher-status')).toHaveTextContent('Watcher: Ready');
+    expect(screen.getByTestId('masked-badge')).toHaveTextContent('13-Rules Masked');
+  });
+
+  it('switches the active segmented tab', async () => {
+    const user = userEvent.setup();
+    const onSelectView = vi.fn();
+    render(<TopBar {...baseProps({ currentRepo: readyRepo, onSelectView })} />);
+    expect(screen.getByTestId('tab-topo')).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByTestId('tab-metrics'));
+    expect(onSelectView).toHaveBeenCalledWith('metrics');
+    await user.click(screen.getByTestId('tab-gate'));
+    expect(onSelectView).toHaveBeenCalledWith('gate');
+  });
+
+  it('disables the TopBar agent-context copy button until a file is open', async () => {
+    const user = userEvent.setup();
+    const onCopyAgentContext = vi.fn();
+    render(
+      <TopBar
+        {...baseProps({
+          currentRepo: readyRepo,
+          onCopyAgentContext,
+          canCopyAgentContext: false
+        })}
+      />
+    );
+    const copy = screen.getByTestId('topbar-copy-context');
+    expect(copy).toBeDisabled();
+    await user.click(copy);
+    expect(onCopyAgentContext).not.toHaveBeenCalled();
   });
 });
 

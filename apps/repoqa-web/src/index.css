@@ -5,6 +5,11 @@
 :root,
 [data-theme='clean'] {
   color-scheme: light;
+  --bg-canvas: 248 250 252;
+  --bg-surface: 255 255 255;
+  --bg-elevated: 255 255 255;
+  --bg-hover: 241 245 249;
+  --border-subtle: 226 232 240;
   --color-canvas: 248 250 252;
   --color-surface: 255 255 255;
   --color-surface-raised: 255 255 255;
@@ -18,10 +23,17 @@
   --color-warning: 217 119 6;
   --color-danger: 220 38 38;
   --color-code: 248 250 252;
+  --color-callee: 147 51 234;
+  --shadow-neon: 0 0 0 1px rgb(37 99 235 / 0.16), 0 8px 24px rgb(15 23 42 / 0.06);
 }
 
 [data-theme='cyber'] {
   color-scheme: dark;
+  --bg-canvas: 7 11 24;
+  --bg-surface: 15 20 38;
+  --bg-elevated: 21 28 50;
+  --bg-hover: 24 33 60;
+  --border-subtle: 45 58 96;
   --color-canvas: 7 11 24;
   --color-surface: 15 20 38;
   --color-surface-raised: 21 28 50;
@@ -35,6 +47,8 @@
   --color-warning: 251 191 36;
   --color-danger: 248 113 113;
   --color-code: 10 14 28;
+  --color-callee: 217 70 239;
+  --shadow-neon: 0 0 0 1px rgb(34 211 238 / 0.25), 0 0 22px rgb(34 211 238 / 0.18);
 }
 
 html,
@@ -46,6 +60,52 @@ body,
 body {
   background-color: rgb(var(--color-canvas));
   color: rgb(var(--color-ink));
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+/* Workbench canvas dot-grid backdrop. */
+.workbench-grid {
+  background-color: rgb(var(--bg-canvas));
+  background-image: radial-gradient(rgb(var(--color-line) / 0.55) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* Animated dashed connector between topology flow cards. */
+.topo-line {
+  height: 1px;
+  min-width: 24px;
+  flex: 1 1 auto;
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--color-muted)) 50%,
+    transparent 50%
+  );
+  background-size: 6px 1px;
+  background-repeat: repeat-x;
+  animation: topo-line-flow 0.6s linear infinite;
+}
+
+@keyframes topo-line-flow {
+  to {
+    background-position: 6px 0;
+  }
+}
+
+/* Slim, theme-aware scrollbars. */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--color-line)) transparent;
+}
+.custom-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-line));
+  border-radius: 9999px;
 }
 
 /* One-shot amber line glow in the Monaco Inspector (spec FR-4). */

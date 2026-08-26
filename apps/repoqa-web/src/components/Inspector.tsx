@@ -4,6 +4,7 @@ import type { editor } from 'monaco-editor';
 import '../client/monacoSetup';
 import type { InspectorState } from '../hooks/useInspector';
 import { useTheme } from '../hooks/useTheme';
+import type { Anchor, TokenUsage } from '../types';
 
 export interface InspectorProps extends InspectorState {
   onBack: () => void;
@@ -16,6 +17,16 @@ export interface InspectorProps extends InspectorState {
   onClose: () => void;
   /** Issue 28: copy the Graph RAG agent context for the current file. */
   onCopyAgentContext?: () => void | Promise<void>;
+  /** Issue 31: session token usage shown against the Inspector budget. */
+  usage?: TokenUsage;
+  /** Issue 31: 2-Hop caller/callee slices from the latest resolved trace. */
+  slices?: Anchor[];
+}
+
+const TOKEN_BUDGET = 6000;
+
+function formatNumber(value: number): string {
+  return value.toLocaleString('en-US');
 }
 
 function languageFor(file: string): string {
@@ -61,16 +72,19 @@ export function Inspector({
   canGoForward,
   open,
   onClose,
-  onCopyAgentContext
+  onCopyAgentContext,
+  usage = { input: 0, output: 0, total: 0, source: 'estimate' },
+  slices = []
 }: InspectorProps) {
   const language = useMemo(() => (file ? languageFor(file) : 'plaintext'), [file]);
   const { theme } = useTheme();
-  const sliceLabel =
+  const lineLabel =
     glow?.lineEnd && glow.lineEnd > glow.line
-      ? `L${glow.line} → L${glow.lineEnd}`
+      ? `${glow.line} ~ ${glow.lineEnd}`
       : glow
-        ? `L${glow.line}`
-        : '—';
+        ? `${glow.line}`
+        : '';
+  const usagePercent = Math.min(100, (usage.total / TOKEN_BUDGET) * 100);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const [editorReady, setEditorReady] = useState(false);
   const [editorMount, setEditorMount] = useState(0);
@@ -137,64 +151,93 @@ export function Inspector({
   return (
     <aside
       data-testid="inspector"
-      className={`fixed inset-y-0 right-0 z-40 flex w-[85vw] max-w-sm flex-col border-l border-line bg-surface transition-transform md:static md:z-auto md:w-1/3 md:min-w-96 md:shrink-0 md:translate-x-0 ${
+      className={`fixed inset-y-0 right-0 z-40 flex w-[85vw] max-w-sm flex-col border-l border-line bg-surface transition-transform md:static md:z-auto md:w-[340px] md:shrink-0 md:translate-x-0 ${
         open ? 'translate-x-0' : 'translate-x-full'
       }`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
-        <div className="flex min-w-0 items-center gap-1">
+      <div className="border-b border-line">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+          <div className="flex min-w-0 items-center gap-1">
+            <button
+              type="button"
+              data-testid="inspector-back"
+              onClick={onBack}
+              disabled={!canGoBack}
+              className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
+              aria-label="Back"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              data-testid="inspector-forward"
+              onClick={onForward}
+              disabled={!canGoForward}
+              className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
+              aria-label="Forward"
+            >
+              →
+            </button>
+          </div>
+          <span
+            data-testid="inspector-file"
+            className="min-w-0 truncate font-mono text-xs text-muted"
+            title={file ?? undefined}
+          >
+            {file ?? 'No file open'}
+          </span>
+          {file && onCopyAgentContext && (
+            <button
+              type="button"
+              data-testid="copy-agent-context"
+              onClick={handleCopyAgentContext}
+              disabled={copying}
+              className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
+            >
+              {copying ? '复制中…' : '复制 Agent 上下文'}
+            </button>
+          )}
           <button
             type="button"
-            data-testid="inspector-back"
-            onClick={onBack}
-            disabled={!canGoBack}
-            className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
-            aria-label="Back"
+            data-testid="inspector-close"
+            onClick={onClose}
+            aria-label="Close inspector"
+            className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle md:hidden"
           >
-            ←
-          </button>
-          <button
-            type="button"
-            data-testid="inspector-forward"
-            onClick={onForward}
-            disabled={!canGoForward}
-            className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
-            aria-label="Forward"
-          >
-            →
+            ✕
           </button>
         </div>
-        <span data-testid="inspector-file" className="min-w-0 truncate font-mono text-xs text-muted">
-          {file ?? 'No file open'}
-        </span>
-        {file && glow && (
-          <span
-            data-testid="inspector-line"
-            className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent"
-          >
-            L{glow.line}
-          </span>
+        {file && (
+          <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
+            <span
+              data-testid="inspector-line"
+              className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-accent"
+            >
+              {lineLabel || '—'}
+            </span>
+            <div
+              data-testid="inspector-token-budget"
+              className="flex min-w-0 flex-1 items-center gap-2"
+            >
+              <div
+                role="progressbar"
+                aria-label="Token 预算"
+                aria-valuemin={0}
+                aria-valuemax={TOKEN_BUDGET}
+                aria-valuenow={usage.total}
+                className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-subtle"
+              >
+                <div
+                  className="h-full rounded-full bg-accent"
+                  style={{ width: `${usagePercent}%` }}
+                />
+              </div>
+              <span className="shrink-0 font-mono text-[10px] text-muted">
+                {formatNumber(usage.total)} / {formatNumber(TOKEN_BUDGET)} Tokens
+              </span>
+            </div>
+          </div>
         )}
-        {file && onCopyAgentContext && (
-          <button
-            type="button"
-            data-testid="copy-agent-context"
-            onClick={handleCopyAgentContext}
-            disabled={copying}
-            className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
-          >
-            {copying ? '复制中…' : '复制 Agent 上下文'}
-          </button>
-        )}
-        <button
-          type="button"
-          data-testid="inspector-close"
-          onClick={onClose}
-          aria-label="Close inspector"
-          className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle md:hidden"
-        >
-          ✕
-        </button>
       </div>
 
       <div className="min-h-0 flex-1">
@@ -245,11 +288,32 @@ export function Inspector({
             <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
               2-Hop 关联切片
             </span>
-            <span className="shrink-0 font-mono text-[10px] text-accent">{sliceLabel}</span>
+            <span className="shrink-0 font-mono text-[10px] text-accent">{lineLabel}</span>
           </div>
-          <p className="mt-1 max-h-8 overflow-hidden font-mono text-[10px] text-muted">
-            {file} · {language}
-          </p>
+          {slices.length > 0 ? (
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {slices.map((slice, idx) => {
+                const role =
+                  idx === 0 ? '↑ Caller' : idx === slices.length - 1 ? '↓ Callee' : 'Target';
+                const name = slice.file.split(/[\\/]/).pop() ?? slice.file;
+                return (
+                  <span
+                    key={`${slice.file}-${slice.line}-${idx}`}
+                    data-testid="slice-chip"
+                    className={`rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] ${
+                      role.includes('Callee') ? 'text-callee' : 'text-accent'
+                    }`}
+                  >
+                    {role} {name} L{slice.line}
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-1 max-h-8 overflow-hidden font-mono text-[10px] text-muted">
+              {file} · {language}
+            </p>
+          )}
         </div>
       )}
     </aside>

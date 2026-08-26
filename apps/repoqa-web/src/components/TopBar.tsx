@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import type { LlmRuntimeMode, Repo, RepoPreview } from '../types';
-import { StatusStepper } from './StatusStepper';
+import type { LlmRuntimeMode, Repo, RepoPreview, WorkbenchTab } from '../types';
 import { ImportRepoModal } from './ImportRepoModal';
 import { PrivacyPill } from './PrivacyPill';
 import { useTheme } from '../hooks/useTheme';
@@ -31,12 +30,39 @@ interface TopBarProps {
   importingRepo?: Repo | null;
   llmMode: LlmRuntimeMode;
   llmHost?: string;
+  /** Issue 31: active workbench tab. */
+  activeView: WorkbenchTab;
+  onSelectView: (tab: WorkbenchTab) => void;
+  /** Issue 28: copy the Graph RAG agent context from the TopBar. */
+  onCopyAgentContext: () => void | Promise<void>;
+  canCopyAgentContext: boolean;
+}
+
+const TABS: Array<{ id: WorkbenchTab; label: string }> = [
+  { id: 'topo', label: '拓扑探查' },
+  { id: 'metrics', label: '架构指标' },
+  { id: 'gate', label: 'CI 门禁' }
+];
+
+function watcherState(status: Repo['status'] | undefined) {
+  switch (status) {
+    case 'ready':
+      return { label: 'Ready', dotClass: 'bg-success' };
+    case 'indexing':
+    case 'cloning':
+    case 'parsing':
+      return { label: 'Indexing', dotClass: 'bg-warning animate-pulse' };
+    case 'error':
+      return { label: 'Offline', dotClass: 'bg-danger' };
+    default:
+      return { label: 'Standby', dotClass: 'bg-muted' };
+  }
 }
 
 /**
- * TopBar: repo selector + import entry + index status stepper. The import
- * ceremony lives in ImportRepoModal (Issue 19); this header only owns when it
- * is open.
+ * TopBar: 48px workbench header with repo/watcher state on the left, the
+ * topo/metrics/gate segmented tabs in the middle and privacy/theme/agent
+ * actions on the right. Repo lifecycle actions live in the overflow menu.
  */
 export function TopBar({
   repos,
@@ -54,12 +80,20 @@ export function TopBar({
   sidebarOpen,
   importingRepo,
   llmMode,
-  llmHost
+  llmHost,
+  activeView,
+  onSelectView,
+  onCopyAgentContext,
+  canCopyAgentContext
 }: TopBarProps) {
   const [showImport, setShowImport] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [copied, setCopied] = useState(false);
   const { theme, toggleTheme } = useTheme();
+  const watcher = watcherState(currentRepo?.status);
 
   const handleExport = async () => {
     if (!currentRepo || exporting) return;
@@ -74,9 +108,21 @@ export function TopBar({
     }
   };
 
+  const handleCopyAgentContext = async () => {
+    if (!canCopyAgentContext || copying) return;
+    setCopying(true);
+    try {
+      await onCopyAgentContext();
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } finally {
+      setCopying(false);
+    }
+  };
+
   return (
-    <header className="flex items-center justify-between gap-2 border-b border-line bg-surface px-2 py-2 sm:px-4">
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-subtle bg-surface px-2 sm:gap-3 sm:px-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
         <button
           type="button"
           data-testid="sidebar-toggle"
@@ -87,26 +133,37 @@ export function TopBar({
         >
           ☰
         </button>
-        <h1 className="hidden shrink-0 text-sm font-semibold text-ink min-[420px]:inline">
-          CodeCompass
-        </h1>
-        <div className="relative min-w-0 max-w-[38vw]">
-          <select
-            data-testid="repo-select"
-            className="h-8 w-full min-w-0 truncate rounded-md border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent sm:max-w-none"
-            value={currentRepo?.id ?? ''}
-            onChange={(e) => onSelectRepo(e.target.value)}
-          >
-            <option value="" disabled>
-              {loading ? 'Loading repos…' : 'Select a repo'}
-            </option>
-            {repos.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+        <div
+          data-testid="brand-logo"
+          className="flex h-8 shrink-0 items-center gap-2 rounded-md border border-line bg-subtle px-2"
+        >
+          <span className="grid h-4 w-4 place-items-center rounded-sm bg-accent text-[10px] font-bold text-white">
+            CC
+          </span>
+          <span className="hidden text-xs font-semibold text-ink lg:inline">CodeCompass</span>
         </div>
+        <select
+          data-testid="repo-select"
+          className="h-8 min-w-0 max-w-[42vw] truncate rounded-md border border-line bg-surface px-2 text-sm text-ink outline-none focus:border-accent sm:max-w-[260px]"
+          value={currentRepo?.id ?? ''}
+          onChange={(e) => onSelectRepo(e.target.value)}
+        >
+          <option value="" disabled>
+            {loading ? 'Loading repos…' : 'Select a repo'}
+          </option>
+          {repos.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        <span
+          data-testid="watcher-status"
+          className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2 py-1 text-[11px] font-medium text-muted min-[520px]:inline-flex"
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${watcher.dotClass}`} />
+          Watcher: {watcher.label}
+        </span>
         <button
           type="button"
           data-testid="open-import"
@@ -115,51 +172,107 @@ export function TopBar({
         >
           Import<span className="hidden sm:inline"> repo</span>
         </button>
-        {currentRepo && (
-          <button
-            type="button"
-            data-testid="export-onboarding"
-            onClick={handleExport}
-            disabled={exporting}
-            className="h-8 shrink-0 rounded-md border border-line px-2 text-sm font-medium text-muted hover:border-accent hover:text-accent disabled:opacity-50 sm:px-3"
-          >
-            {exporting ? (
-              <span className="sm:hidden">…</span>
-            ) : (
-              <>
-                <span className="hidden sm:inline">导出 ONBOARDING.md</span>
-                <span className="sm:hidden">导出</span>
-              </>
-            )}
-          </button>
-        )}
-        {currentRepo && (
-          <button
-            type="button"
-            data-testid="reindex-repo"
-            onClick={() => onReindex(currentRepo)}
-            disabled={currentRepo.status === 'indexing'}
-            className="h-8 shrink-0 rounded-md border border-line px-2 text-sm font-medium text-muted hover:border-accent hover:text-accent disabled:opacity-50"
-          >
-            重新索引
-          </button>
-        )}
-        {currentRepo && (
-          <button
-            type="button"
-            data-testid="delete-repo"
-            onClick={() => onDelete(currentRepo)}
-            disabled={currentRepo.status === 'indexing'}
-            className="h-8 shrink-0 rounded-md border border-line px-2 text-sm font-medium text-muted hover:border-danger hover:text-danger disabled:opacity-50"
-          >
-            删除
-          </button>
-        )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        {error && <span className="hidden text-xs text-danger sm:inline">{error}</span>}
-        {exportError && <span className="hidden text-xs text-danger sm:inline">{exportError}</span>}
+      <nav
+        data-testid="workbench-tabs"
+        aria-label="Workbench views"
+        className="flex h-8 shrink-0 items-center gap-0.5 rounded-md border border-line bg-subtle p-0.5"
+      >
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            data-testid={`tab-${tab.id}`}
+            aria-pressed={activeView === tab.id}
+            onClick={() => onSelectView(tab.id)}
+            className={`h-7 whitespace-nowrap rounded px-2 text-xs font-medium transition-colors ${
+              activeView === tab.id
+                ? 'bg-surface text-ink shadow-sm'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+        {currentRepo && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              data-testid="more-actions"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label="更多操作"
+              aria-expanded={menuOpen}
+              className="grid h-8 w-8 place-items-center rounded-md border border-line text-sm text-muted hover:border-accent hover:text-accent"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <>
+                <div
+                  data-testid="more-menu-backdrop"
+                  className="fixed inset-0 z-40"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div
+                  data-testid="more-menu"
+                  className="absolute right-0 top-full z-50 mt-1 w-48 rounded-md border border-line bg-surface py-1 shadow-neon"
+                >
+                  <button
+                    type="button"
+                    data-testid="export-onboarding"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void handleExport();
+                    }}
+                    disabled={exporting}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-subtle hover:text-ink disabled:opacity-50"
+                  >
+                    导出 ONBOARDING.md
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="reindex-repo"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onReindex(currentRepo);
+                    }}
+                    disabled={currentRepo.status === 'indexing'}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-subtle hover:text-ink disabled:opacity-50"
+                  >
+                    重新索引
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="delete-repo"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete(currentRepo);
+                    }}
+                    disabled={currentRepo.status === 'indexing'}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-danger hover:bg-danger/10 disabled:opacity-50"
+                  >
+                    删除
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {error && <span className="hidden text-xs text-danger xl:inline">{error}</span>}
+        {exportError && (
+          <span className="hidden text-xs text-danger xl:inline">{exportError}</span>
+        )}
+        <span
+          data-testid="masked-badge"
+          className="hidden rounded-full border border-line bg-subtle px-2 py-1 text-[10px] font-medium text-muted lg:inline-flex"
+        >
+          13-Rules Masked
+        </span>
+        <PrivacyPill mode={llmMode} host={llmHost} />
         <button
           type="button"
           data-testid="theme-toggle"
@@ -170,17 +283,19 @@ export function TopBar({
         >
           {theme === 'cyber' ? 'Clean' : 'Cyber'}
         </button>
-        <PrivacyPill mode={llmMode} host={llmHost} />
-        {currentRepo ? (
-          <>
-            <div className="hidden sm:block">
-              <StatusStepper status={currentRepo.status} />
-            </div>
-            <span className="hidden max-w-[220px] truncate text-xs text-muted lg:inline">{currentRepo.localPath}</span>
-          </>
-        ) : (
-          <span className="hidden text-xs text-muted sm:inline">No repo selected</span>
-        )}
+        <button
+          type="button"
+          data-testid="topbar-copy-context"
+          onClick={handleCopyAgentContext}
+          disabled={!canCopyAgentContext || copying}
+          className={`h-8 shrink-0 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50 ${
+            copied
+              ? 'bg-success text-white'
+              : 'bg-accent text-white hover:bg-accent/90'
+          }`}
+        >
+          {copied ? '已复制' : '复制 Agent 上下文'}
+        </button>
       </div>
 
       {showImport && (

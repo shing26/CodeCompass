@@ -1,6 +1,6 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { Fragment, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ChatMessage } from '../hooks/useChat';
-import type { QueryMode, Repo, TokenUsage } from '../types';
+import type { Anchor, QueryMode, Repo, RepoSymbol, TokenUsage } from '../types';
 import { Markdown } from './Markdown';
 import { MermaidDiagram } from './MermaidDiagram';
 import { SourceTraceDrawer } from './SourceTraceDrawer';
@@ -20,6 +20,8 @@ interface CanvasProps {
   onNavigate?: (file: string, line: number) => void;
   /** Issue 18: pinned "back to dashboard" entry inside the canvas. */
   onBackToDashboard?: () => void;
+  /** Issue 31: symbol catalog for the workbench API/SQL impact counts. */
+  symbols?: RepoSymbol[];
 }
 
 /**
@@ -40,12 +42,32 @@ export function Canvas({
   onSubmit,
   onRetry,
   onNavigate,
-  onBackToDashboard
+  onBackToDashboard,
+  symbols = []
 }: CanvasProps) {
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<QueryMode>('call-chain');
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const latestTrace = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.role === 'assistant' && message.anchors?.length) return message;
+    }
+    return null;
+  }, [messages]);
+  const flowAnchors = latestTrace?.anchors ?? [];
+  const selectedNode = flowAnchors[0]?.symbol ?? repo?.name ?? '—';
+  const affectedCount = flowAnchors.length;
+  const apiCount = useMemo(
+    () => symbols.filter((s) => s.kind === 'route' || s.displayPath).length,
+    [symbols]
+  );
+  const sqlCount = useMemo(
+    () => symbols.filter((s) => s.kind === 'sql' || s.kind === 'mapper').length,
+    [symbols]
+  );
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -66,7 +88,36 @@ export function Canvas({
     <main data-testid="canvas" className="flex flex-1 flex-col overflow-hidden">
       {repo ? (
         <>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+          <div ref={scrollRef} className="workbench-grid custom-scroll flex-1 overflow-y-auto p-4">
+            <div className="pointer-events-none sticky top-2 z-10 mb-3 flex items-center gap-2 rounded-md border border-line bg-surface/90 px-3 py-1.5 shadow-neon backdrop-blur">
+              <span className="text-[10px] uppercase tracking-wide text-muted">焦点</span>
+              <span
+                data-testid="selected-node"
+                className="min-w-0 flex-1 truncate font-mono text-xs text-ink"
+              >
+                {selectedNode}
+              </span>
+              <span
+                data-testid="affected-count"
+                className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"
+              >
+                {affectedCount} 波及
+              </span>
+            </div>
+            <div className="mb-3 flex items-center gap-2 text-[10px] font-medium text-muted">
+              <span
+                data-testid="api-count"
+                className="rounded-full border border-line bg-surface px-2 py-0.5"
+              >
+                ↑ API {apiCount}
+              </span>
+              <span
+                data-testid="sql-count"
+                className="rounded-full border border-line bg-surface px-2 py-0.5"
+              >
+                ↓ SQL {sqlCount}
+              </span>
+            </div>
             {onBackToDashboard && (
               <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-line bg-subtle px-3 py-1.5">
                 <button
@@ -78,6 +129,9 @@ export function Canvas({
                   ← 返回看板
                 </button>
               </div>
+            )}
+            {flowAnchors.length > 0 && (
+              <FlowCards anchors={flowAnchors} onNavigate={onNavigate} />
             )}
             <div
               data-testid="offline-hint"
@@ -91,6 +145,7 @@ export function Canvas({
             </div>
             {messages.length === 0 && (
               <div data-testid="chat-empty" className="mx-auto mt-8 max-w-md text-center">
+                <FlowSkeleton />
                 <h2 className="text-base font-semibold text-ink">
                   Explore {repo.name}
                 </h2>
@@ -238,6 +293,93 @@ export function Canvas({
         </div>
       )}
     </main>
+  );
+}
+
+function languageBadge(file: string): string {
+  const ext = file.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'java':
+      return 'Java';
+    case 'ts':
+    case 'tsx':
+      return 'TS';
+    case 'js':
+    case 'jsx':
+      return 'JS';
+    case 'py':
+      return 'Python';
+    case 'go':
+      return 'Go';
+    case 'xml':
+      return 'XML';
+    default:
+      return 'CODE';
+  }
+}
+
+function basename(file: string): string {
+  return file.split(/[\\/]/).pop() ?? file;
+}
+
+/** Caller -> Target -> Callee topology cards with animated dashed connectors. */
+function FlowCards({
+  anchors,
+  onNavigate
+}: {
+  anchors: Anchor[];
+  onNavigate?: (file: string, line: number) => void;
+}) {
+  const cards = anchors.slice(0, 3);
+  return (
+    <div data-testid="flow-cards" className="mb-4 flex items-stretch gap-2">
+      {cards.map((anchor, idx) => {
+        const role = idx === 0 ? 'Caller' : idx === cards.length - 1 ? 'Callee' : 'Target';
+        return (
+          <Fragment key={`${anchor.file}-${anchor.line}-${idx}`}>
+            {idx > 0 && <div data-testid="flow-arrow" className="topo-line self-center" />}
+            <button
+              type="button"
+              data-testid="flow-card"
+              onClick={() => onNavigate?.(anchor.file, anchor.line)}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface p-2 text-left hover:border-accent/50"
+              title={`${anchor.file}:${anchor.line}`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`text-[9px] font-bold uppercase ${
+                    role === 'Callee' ? 'text-callee' : 'text-accent'
+                  }`}
+                >
+                  {role}
+                </span>
+                <span className="rounded bg-subtle px-1 text-[9px] font-medium text-muted">
+                  {languageBadge(anchor.file)}
+                </span>
+              </div>
+              <div className="mt-1 truncate font-mono text-xs text-ink">{anchor.symbol}</div>
+              <div className="mt-0.5 truncate text-[10px] text-muted">
+                {basename(anchor.file)} L{anchor.line}
+              </div>
+            </button>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Empty topology skeleton shown before the first trace resolves. */
+function FlowSkeleton() {
+  return (
+    <div data-testid="flow-skeleton" className="mx-auto mb-4 flex max-w-md items-center gap-2">
+      {[0, 1, 2].map((idx) => (
+        <Fragment key={idx}>
+          {idx > 0 && <div className="topo-line self-center" />}
+          <div className="h-16 min-w-0 flex-1 rounded-md border border-dashed border-line bg-surface/60" />
+        </Fragment>
+      ))}
+    </div>
   );
 }
 
