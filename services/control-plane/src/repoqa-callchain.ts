@@ -52,6 +52,8 @@ export interface SymbolIndex {
   implsOfInterface: Map<string, string[]>;
   /** Issue 24: `<simple-interface>.<statement-id>` → MyBatis XML SQL nodes. */
   mapperStatements: Map<string, RepoSymbol[]>;
+  /** Issue 25: normalized route path → backend symbols with a displayPath. */
+  routesByPath: Map<string, Array<{ symbol: RepoSymbol; priority: number }>>;
   /** file → method name → method symbols (legacy same-file resolution). */
   methodsByFile: Map<string, Map<string, RepoSymbol[]>>;
   /** method name → method symbols (legacy global resolution). */
@@ -69,6 +71,25 @@ function identity(symbol: RepoSymbol): string {
  */
 export function symbolIdentity(symbol: RepoSymbol): string {
   return identity(symbol);
+}
+
+/**
+ * Issue 25 — normalize a route URL for cross-language matching: strip query
+ * string/hash, keep only the pathname of absolute URLs, and collapse trailing
+ * slashes. `/api/owners?x=1` and `/api/owners/` resolve to the same key.
+ */
+export function normalizeRoutePath(raw: string): string {
+  let pathname = raw.trim().split(/[?#]/, 1)[0];
+  if (/^https?:\/\//i.test(pathname)) {
+    try {
+      pathname = new URL(pathname).pathname;
+    } catch {
+      pathname = `/${pathname.split('/').slice(3).join('/')}`;
+    }
+  }
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
+  pathname = pathname.replace(/\/+$/, '');
+  return pathname === '' ? '/' : pathname;
 }
 
 /* ------------------------------------------------------------------ */
@@ -189,10 +210,22 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
   const types = new Map<string, TypeInfo>();
   const implsOfInterface = new Map<string, string[]>();
   const mapperStatements = new Map<string, RepoSymbol[]>();
+  const routesByPath = new Map<string, Array<{ symbol: RepoSymbol; priority: number }>>();
   const methodsByFile = new Map<string, Map<string, RepoSymbol[]>>();
   const methodsByName = new Map<string, RepoSymbol[]>();
 
   for (const symbol of symbols) {
+    // Method-level paths win over the class-level route prefix when both match
+    // (`@Controller("owners")` + `@GetMapping` both have displayPath `/owners`).
+    if (symbol.displayPath) {
+      const key = normalizeRoutePath(symbol.displayPath);
+      const list = routesByPath.get(key) ?? [];
+      list.push({
+        symbol,
+        priority: symbol.kind === 'method' ? 2 : symbol.kind === 'route' ? 1 : 0
+      });
+      routesByPath.set(key, list);
+    }
     if (TYPE_KINDS.has(symbol.kind)) {
       const info: TypeInfo = {
         symbol,
@@ -250,6 +283,7 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
     types,
     implsOfInterface,
     mapperStatements,
+    routesByPath,
     methodsByFile,
     methodsByName
   };
@@ -323,11 +357,45 @@ function resolveImpl(
   return { target: pickOverload(methods, caller.filePath) };
 }
 
+/**
+ * Issue 25 — bridge a browser-side HTTP call (`fetch` / `axios`) to a backend
+ * route. Matching is path-based and deterministic:
+ * - exact normalized path first, then a `/api` context-prefix variant;
+ * - method-level paths are preferred over class-level route prefixes;
+ * - multiple candidates at the same priority are treated as ambiguous.
+ */
+function resolveHttpRoute(
+  index: SymbolIndex,
+  call: RepoSymbolCall
+): ResolveResult | undefined {
+  if (!call.http) return undefined;
+  const url = normalizeRoutePath(call.http.url);
+  const exact = index.routesByPath.get(url) ?? [];
+  const candidates = exact.length > 0
+    ? exact.slice()
+    : url.startsWith('/api/')
+      ? index.routesByPath.get(url.slice('/api'.length)) ?? []
+      : [];
+  if (candidates.length === 0) return undefined;
+  candidates.sort((a, b) => b.priority - a.priority || (a.symbol.lineStart ?? 0) - (b.symbol.lineStart ?? 0));
+  const topPriority = candidates[0].priority;
+  const best = candidates.filter((candidate) => candidate.priority === topPriority);
+  if (best.length !== 1) return { reason: STATIC_ANALYSIS_BREAK_DYNAMIC };
+  return { target: best[0].symbol };
+}
+
 function resolveCall(
   index: SymbolIndex,
   caller: RepoSymbol,
   call: RepoSymbolCall
 ): ResolveResult {
+  if (call.http) {
+    const httpTarget = resolveHttpRoute(index, call);
+    if (httpTarget) return httpTarget;
+    return {
+      reason: `${STATIC_ANALYSIS_BREAK_DYNAMIC} HTTP ${call.http.method} ${call.http.url}`
+    };
+  }
   const candidateTypesList = candidateTypes(index, caller, call);
   for (const typeName of candidateTypesList) {
     const info = index.types.get(typeName);

@@ -123,11 +123,15 @@ describe('previewRepo (Round 2 B4)', () => {
     ]);
     await fs.mkdir(path.join(root, 'src', 'main', 'java'), { recursive: true });
     await fs.writeFile(path.join(root, 'src', 'main', 'java', 'App.java'), 'class App {}\n');
+    await fs.mkdir(path.join(root, 'src', 'main', 'web'), { recursive: true });
+    await fs.writeFile(path.join(root, 'src', 'main', 'web', 'app.ts'), 'export const x = 1;\n');
+    await fs.writeFile(path.join(root, 'src', 'main', 'web', 'app.jsx'), 'export const y = 2;\n');
     await fs.writeFile(path.join(root, 'README.md'), '# Demo\n');
 
     const preview = await previewRepo(root);
-    expect(preview.fileCount).toBe(2);
+    expect(preview.fileCount).toBe(4);
     expect(preview.javaFileCount).toBe(1);
+    expect(preview.webFileCount).toBe(2);
     expect(preview.skippedDirCount).toBe(4);
     expect(preview.skippedDirs).toEqual(['.git', '.scratch', 'node_modules', 'target']);
   });

@@ -8,7 +8,7 @@ import type {
   ServerEvent
 } from '../../../packages/contracts/src/index';
 import { MAX_FILES, MAX_LINES, scanRepo, detectMavenModules, mavenSourceRoots } from './repoqa-scan';
-import { parseJavaFile } from './repoqa-parser';
+import { adapterFor } from './repoqa-parser';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { extractMapperSymbols } from './repoqa-mapper';
 import { buildCallIndex, resolveCallChain, type SymbolIndex } from './repoqa-callchain';
@@ -794,14 +794,15 @@ export class RepoQAWorker {
     const total = files.length;
     let parsed = 0;
     for (const filePath of files) {
-      if (filePath.endsWith('.java')) {
+      const adapter = adapterFor(filePath);
+      if (adapter) {
         try {
-          symbols.push(...(await parseJavaFile(filePath, repoId, root)));
+          symbols.push(...(await adapter.parseFile(filePath, repoId, root)));
         } catch (error) {
-          // Dogfooding (Issue 17): real-world Java repos routinely contain edge
-          // syntax our parser cannot cover (e.g. class literals inside annotation
-          // arguments). A single unparseable file must not abort the whole import —
-          // skip it, surface a warning event, and keep the rest of the repo.
+          // Dogfooding (Issue 17): real-world repos routinely contain edge
+          // syntax a parser cannot cover (e.g. class literals inside annotation
+          // arguments). A single unparseable file must not abort the whole
+          // import — skip it, surface a warning event, and keep the rest.
           const relative = path.relative(root, filePath).split(path.sep).join('/');
           const detail = error instanceof Error ? error.message : String(error);
           skipped.push({ file: relative, error: detail });

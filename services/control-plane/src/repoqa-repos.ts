@@ -33,6 +33,8 @@ export interface RepoSymbolCall {
   receiverType?: string;
   /** True when the receiver could not be typed statically (chains, external calls). */
   dynamic?: boolean;
+  /** Issue 25: browser-side HTTP call (`fetch`, `axios`) for cross-language route bridging. */
+  http?: { method: string; url: string };
 }
 
 export interface RepoSymbol {
