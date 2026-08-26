@@ -2,16 +2,17 @@ import type { RepoSymbol } from './repoqa-repos';
 import type { LanguageAdapter } from './languages/LanguageAdapter';
 import { JavaAdapter } from './languages/JavaAdapter';
 import { TypeScriptAdapter } from './languages/TypeScriptAdapter';
+import { GoAdapter } from './languages/GoAdapter';
 
 /**
- * Issue 25 — language adapter dispatcher. The Java implementation moved to
+ * Language adapter dispatcher. The Java implementation moved to
  * `languages/JavaAdapter.ts`; this module keeps the historical `parseJava*`
  * API for callers that predate the adapter layer and routes new files through
  * the owning adapter.
  */
 export * from './languages/JavaAdapter';
 
-const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter];
+const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter];
 
 /** Return the language adapter owning `filePath`, or undefined. */
 export function adapterFor(filePath: string): LanguageAdapter | undefined {

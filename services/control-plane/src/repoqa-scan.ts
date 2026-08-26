@@ -8,6 +8,9 @@ export const MAX_LINES = 500_000;
 /** Issue 25: web-family files parsed by the TypeScript/JavaScript adapter. */
 export const WEB_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 
+/** Issue 26: Go source files parsed by the Go adapter. */
+export const GO_FILE_EXTENSIONS = new Set(['.go']);
+
 /**
  * Issue 18 — directories that are never indexed. Matching is case-insensitive
  * (`Target` ≡ `target`) because the same repo is often checked out on macOS
@@ -178,6 +181,7 @@ export interface RepoPreviewStats {
   fileCount: number;
   javaFileCount: number;
   webFileCount: number;
+  goFileCount: number;
   xmlFileCount: number;
   skippedDirCount: number;
   skippedDirs: string[];
@@ -198,6 +202,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
   let fileCount = 0;
   let javaFileCount = 0;
   let webFileCount = 0;
+  let goFileCount = 0;
   let xmlFileCount = 0;
   let skippedDirCount = 0;
   const skippedDirs = new Set<string>();
@@ -229,12 +234,14 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
       if (entry.name.toLowerCase().endsWith('.java')) javaFileCount += 1;
       const extension = path.extname(entry.name.toLowerCase());
       if (WEB_FILE_EXTENSIONS.has(extension)) webFileCount += 1;
+      if (GO_FILE_EXTENSIONS.has(extension)) goFileCount += 1;
       if (entry.name.toLowerCase().endsWith('.xml')) xmlFileCount += 1;
       if (fileCount > MAX_FILES) {
         return {
           fileCount,
           javaFileCount,
           webFileCount,
+          goFileCount,
           xmlFileCount,
           skippedDirCount,
           skippedDirs: [...skippedDirs].sort()
@@ -247,6 +254,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
     fileCount,
     javaFileCount,
     webFileCount,
+    goFileCount,
     xmlFileCount,
     skippedDirCount,
     skippedDirs: [...skippedDirs].sort()

@@ -106,7 +106,12 @@ function memberParts(node: SyntaxNode, source: string): string[] {
         else visit(child);
         child = child.nextSibling;
       }
-    } else {
+    } else if (
+      current.name === 'VariableName' ||
+      current.name === 'this' ||
+      current.name === 'super' ||
+      current.name === 'PropertyName'
+    ) {
       parts.push(textOf(current, source));
     }
   };
