@@ -13,12 +13,13 @@ import { EventBus } from './events';
 import { RepoQARepos } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
 import { extractSubgraphContext } from './repoqa-graphrag';
+import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
 
-export const VERSION = '0.5.1';
+export const VERSION = '0.6.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
-  command?: 'mcp' | 'diff' | 'pr-summary' | 'context';
+  command?: 'mcp' | 'diff' | 'pr-summary' | 'context' | 'doctor';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -43,6 +44,8 @@ export interface CliArgs {
   dataDir?: string;
   noBrowser: boolean;
   noWatch: boolean;
+  /** `codecompass doctor --json` — structured health report. */
+  doctorJson: boolean;
   help: boolean;
   version: boolean;
 }
@@ -59,6 +62,7 @@ Usage:
   codecompass diff [options] <base> <head> [repoPath]
   codecompass pr-summary [options] <base> <head> [repoPath]
   codecompass context <query> [repoPath]
+  codecompass doctor [--data-dir <path>] [--json]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
@@ -81,6 +85,9 @@ Subcommands:
                         start symbol: 1-hop callers, 1-3 hop callees, class
                         skeletons, token pruning and credential masking.
                         [repoPath] defaults to the current directory.
+  doctor                Diagnose Node/SQLite ABI, control-plane port, data
+                        directory and Local LLM (Ollama) health. Exits 1 on a
+                        fatal check failure.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -91,6 +98,7 @@ Options:
   --data-dir <dir>      Data directory (default: MHW_DATA_DIR or ~/.mhw)
   --no-browser          Do not auto-open the browser
   --no-watch            Disable FS watcher hot reload for ready repos
+  --json                With doctor, emit a structured JSON report
   --output <fmt>        Diff report format: markdown | json (default: markdown)
   --file <path>         Write the diff report to a file instead of stdout
   --fail-on-impact      With pr-summary, exit 2 when impact is detected
@@ -107,6 +115,7 @@ export function parseArgs(argv: string[]): ParseResult {
   const args: CliArgs = {
     noBrowser: false,
     noWatch: false,
+    doctorJson: false,
     failOnBreak: false,
     failOnAuthImpact: false,
     help: false,
@@ -199,6 +208,10 @@ export function parseArgs(argv: string[]): ParseResult {
       args.noWatch = true;
       continue;
     }
+    if (arg === '--json') {
+      args.doctorJson = true;
+      continue;
+    }
 
     const inline = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : undefined;
     const flag = inline !== undefined ? arg.slice(0, arg.indexOf('=')) : arg;
@@ -262,7 +275,13 @@ export function parseArgs(argv: string[]): ParseResult {
     if (
       args.command === undefined &&
       args.targetPath === undefined &&
-      (arg === 'mcp' || arg === 'diff' || arg === 'pr-summary' || arg === 'context')
+      (
+        arg === 'mcp' ||
+        arg === 'diff' ||
+        arg === 'pr-summary' ||
+        arg === 'context' ||
+        arg === 'doctor'
+      )
     ) {
       args.command = arg;
       continue;
@@ -378,6 +397,22 @@ async function runContextCommand(options: ContextCommandOptions): Promise<void> 
 }
 
 /**
+ * v0.6.0 (D-MCP-1) — fatal MCP failures must leave stdout as a valid JSON-RPC
+ * stream. A raw stderr write breaks the handshake for Agent clients, so the
+ * error is emitted as a structured error payload before the process exits.
+ */
+export function emitMcpStdioError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stdout.write(
+    `${JSON.stringify({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32603, message }
+    })}\n`
+  );
+}
+
+/**
  * Run the CLI. Starts the one-process stack (and imports `targetPath` when
  * given), then auto-opens the browser to the cockpit unless --no-browser.
  * Resolves with the running server so callers/tests can close() it; help and
@@ -461,6 +496,23 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     return { server: null, cockpitUrl: null };
   }
 
+  if (args.command === 'doctor') {
+    const report = await runDoctor({
+      dataDir: args.dataDir,
+      port: args.port
+    });
+    if (args.doctorJson) {
+      log(JSON.stringify(report, null, 2));
+    } else {
+      log(renderDoctorText(report));
+    }
+    return {
+      server: null,
+      cockpitUrl: null,
+      exitCode: report.status === 'error' ? 1 : 0
+    };
+  }
+
   if (args.command === 'mcp') {
     // Issue 20: `codecompass mcp <path>` — index the target repo, then serve
     // the MCP protocol on stdio until the Agent client disconnects. No HTTP
@@ -470,13 +522,30 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     // Stdio carries the MCP protocol itself; production progress logs go to
     // stderr so stdout stays a pure newline-delimited JSON message stream.
     const mcpLog = ctx.log ?? ((line: string) => console.error(line));
-    await runMcpServer({
-      targetPath: args.targetPath,
-      env: mcpEnv,
-      log: mcpLog,
-      transportFactory: ctx.mcpTransport
-    });
-    return { server: null, cockpitUrl: null };
+    let guardEmitted = false;
+    const fatal = (error: unknown) => {
+      if (guardEmitted) return;
+      guardEmitted = true;
+      emitMcpStdioError(error);
+      setImmediate(() => process.exit(1));
+    };
+    process.once('uncaughtException', fatal);
+    process.once('unhandledRejection', fatal);
+    try {
+      await runMcpServer({
+        targetPath: args.targetPath,
+        env: mcpEnv,
+        log: mcpLog,
+        transportFactory: ctx.mcpTransport
+      });
+      return { server: null, cockpitUrl: null };
+    } catch (error) {
+      fatal(error);
+      return { server: null, cockpitUrl: null, exitCode: 1 };
+    } finally {
+      process.removeListener('uncaughtException', fatal);
+      process.removeListener('unhandledRejection', fatal);
+    }
   }
 
   const env = { ...(ctx.env ?? process.env) };

@@ -191,6 +191,47 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
     }
   }, 20_000);
 
+  it('broadcasts staged DISCOVERY/AST/CROSS_LANG_BRIDGE/FINALIZING phases (v0.6.0)', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-worker-stages-'));
+    const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+    await fs.mkdir(pkg, { recursive: true });
+    for (let index = 0; index < 30; index += 1) {
+      await fs.writeFile(
+        path.join(pkg, `A${index}.java`),
+        `package com.demo;\npublic class A${index} {}\n`
+      );
+    }
+
+    const db = openDb(':memory:');
+    const repoqa = new RepoQARepos(db);
+    const eventBus = new EventBus();
+    const phases: string[] = [];
+    const percents: number[] = [];
+    eventBus.on((event) => {
+      if (event.type === 'repoqa.index.progress') {
+        const payload = event.payload as { phase?: string; percent?: number };
+        if (payload.phase) phases.push(payload.phase);
+        if (typeof payload.percent === 'number') percents.push(payload.percent);
+      }
+    });
+    const worker = new RepoQAWorker(repoqa, eventBus);
+    try {
+      const result = await worker.indexRepo({ localPath: root, name: 'stages' });
+      expect(result.repo.status).toBe('ready');
+      expect(phases).toContain('DISCOVERY');
+      expect(phases).toContain('AST_EXTRACTION');
+      expect(phases).toContain('CROSS_LANG_BRIDGE');
+      expect(phases).toContain('FINALIZING');
+      expect(percents).toContain(5);
+      expect(percents).toContain(85);
+      expect(percents).toContain(95);
+      expect(percents).toContain(100);
+    } finally {
+      db.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it('returns exact-symbol confidence 1 and default-entry fallback 0.2', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-worker-confidence-'));
     const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');

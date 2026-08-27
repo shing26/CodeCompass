@@ -322,7 +322,15 @@ function httpCallDescriptor(
   const path = dynamicPathPattern(firstArgumentNode(node), source);
   if (!path) return undefined;
 
-  if (shape.bareName === 'fetch') {
+  if (
+    shape.bareName === 'fetch' ||
+    shape.bareName === '$fetch' ||
+    shape.bareName === 'ofetch'
+  ) {
+    if (shape.bareName === '$fetch' || shape.bareName === 'ofetch') {
+      const method = requestMethod(node, source) ?? 'GET';
+      return { method, url: path };
+    }
     return { method: 'GET', url: path };
   }
   if (shape.property === 'fetch' && (shape.base === 'window' || shape.base === 'globalThis')) {
@@ -334,6 +342,8 @@ function httpCallDescriptor(
   const client = httpClients.get(base);
   const isAxiosClient =
     base === 'axios' ||
+    base === 'ky' ||
+    base === 'ofetch' ||
     client !== undefined ||
     /Axios/.test(receiverTypeOf(base, scope, typeStack) ?? '') ||
     /^(api|http|client|request|fetcher)/i.test(base) ||
@@ -573,6 +583,12 @@ export function parseTypeScriptSource(
               textOf(initCall, source)
             )?.[1];
             httpClients.set(textOf(def, source), { baseURL });
+          }
+          if (initShape.base === 'ky' && initShape.property === 'create') {
+            const prefixUrl = /prefixUrl\s*:\s*["']([^"']+)["']/.exec(
+              textOf(initCall, source)
+            )?.[1];
+            httpClients.set(textOf(def, source), { baseURL: prefixUrl });
           }
         }
         if (fn && def) {

@@ -2,9 +2,15 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RepoSymbol } from './repoqa-repos';
-import { parseJavaSource } from './repoqa-parser';
+import { adapterFor } from './repoqa-parser';
 import { CallResolver, symbolIdentity } from './repoqa-callchain';
 import { scanPom, scanProperties, scanYaml, type ScannedKey } from './repoqa-config';
+import { SOURCE_EXTENSIONS } from './repoqa-scan';
+import type {
+  ArchitectureDeltaReport,
+  CallEdge,
+  ExtractedSymbol
+} from '../../../packages/contracts/src/index';
 
 /**
  * Issue 22 — PR 架构影响面透视（`codecompass diff <base> <head> [repoPath]`）。
@@ -25,6 +31,7 @@ import { scanPom, scanProperties, scanYaml, type ScannedKey } from './repoqa-con
 export const GIT_TIMEOUT_MS = 60_000;
 const GIT_SHOW_CONCURRENCY = 8;
 export const PR_IMPACT_SCHEMA_VERSION = 1 as const;
+export const ARCHITECTURE_DELTA_SCHEMA_VERSION = 1 as const;
 
 /* ------------------------------------------------------------------ */
 /* Issue 29 — CI 架构门禁策略                                           */
@@ -386,13 +393,13 @@ export function reverseReachability(
   const resolver = new CallResolver(symbols);
   const byId = new Map<string, RepoSymbol>();
   for (const symbol of symbols) {
-    if (symbol.kind === 'method') byId.set(symbolIdentity(symbol), symbol);
+    byId.set(symbolIdentity(symbol), symbol);
   }
 
   // calleeId → callerIds（确定性解析每条调用边）。
   const reverse = new Map<string, Set<string>>();
   for (const caller of symbols) {
-    if (caller.kind !== 'method') continue;
+    if (caller.kind !== 'method' && caller.kind !== 'route') continue;
     for (const call of caller.calls ?? []) {
       const resolved = resolver.resolve(caller, call);
       if (!('target' in resolved) || !resolved.target) continue;
@@ -412,9 +419,10 @@ export function reverseReachability(
   const routeMethodById = new Map<string, RepoSymbol>();
   for (const symbol of symbols) {
     if (
-      symbol.kind === 'method' &&
-      symbol.parentType &&
-      routeClassByName.has(symbol.parentType)
+      symbol.kind === 'route' ||
+      (symbol.kind === 'method' &&
+        symbol.parentType &&
+        routeClassByName.has(symbol.parentType))
     ) {
       routeMethodById.set(symbolIdentity(symbol), symbol);
     }
@@ -466,9 +474,12 @@ export function reverseReachability(
       .filter((symbol): symbol is RepoSymbol => Boolean(symbol));
     let hit = hitByRoute.get(found);
     if (!hit) {
+      const routeClass = routeMethod.parentType
+        ? routeClassByName.get(routeMethod.parentType)
+        : undefined;
       hit = {
         routeMethod,
-        routeClass: routeClassByName.get(routeMethod.parentType ?? '')!,
+        routeClass: routeClass ?? routeMethod,
         impacts: []
       };
       hitByRoute.set(found, hit);
@@ -592,6 +603,8 @@ export interface ChangedFileEntry {
   path: string;
   status: GitStatus;
   java: boolean;
+  /** v0.6.0 — any supported source file (Java/TS/Python/Go). */
+  source: boolean;
   config: boolean;
 }
 
@@ -644,6 +657,8 @@ export interface DiffReport {
   mermaid: string;
   /** Issue 29: pr-summary 门禁判定；`diff` 命令不附加。 */
   policy?: DiffPolicyResult;
+  /** v0.6.0 — 路由增删 / 断边 / 风险分级 delta，供 Web 架构差异工作台消费。 */
+  architectureDelta?: ArchitectureDeltaReport;
 }
 
 export interface AnalyzeDiffOptions {
@@ -665,7 +680,10 @@ async function parseRefSymbols(
       if (file === undefined) return;
       try {
         const source = await readGitFile(repoPath, ref, file);
-        symbols.push(...parseJavaSource(source, file, `diff-${ref}`));
+        const adapter = adapterFor(file);
+        if (adapter) {
+          symbols.push(...adapter.parseSource(source, file, `diff-${ref}`));
+        }
       } catch {
         // 单文件解析失败不阻断整体分析（与 indexRepo 的容错一致）。
       }
@@ -677,6 +695,162 @@ async function parseRefSymbols(
   );
   await Promise.all(workers);
   return symbols;
+}
+
+function toExtractedSymbol(symbol: RepoSymbol): ExtractedSymbol {
+  return {
+    name: symbol.name,
+    file: symbol.filePath,
+    lineStart: symbol.lineStart ?? 1,
+    lineEnd: symbol.lineEnd ?? symbol.lineStart ?? 1,
+    kind: symbol.kind,
+    parentType: symbol.parentType,
+    displayPath: symbol.displayPath
+  };
+}
+
+function deltaRouteKey(symbol: RepoSymbol): string {
+  return `${symbol.filePath}:${symbol.parentType ?? ''}:${symbol.name}:${symbol.displayPath ?? ''}`;
+}
+
+function riskLevelFor(affectedBySymbols: string[], maxChainLength: number): 'HIGH' | 'MEDIUM' | 'LOW' {
+  if (affectedBySymbols.length >= 3 || maxChainLength >= 3) return 'HIGH';
+  if (affectedBySymbols.length === 2) return 'MEDIUM';
+  return 'LOW';
+}
+
+function buildDeltaMermaid(delta: {
+  addedRoutes: ExtractedSymbol[];
+  removedRoutes: ExtractedSymbol[];
+  brokenEdges: CallEdge[];
+}): string {
+  const nodeLines: string[] = [];
+  const edgeLines: string[] = [];
+  const nodeIds = new Map<string, string>();
+  let counter = 0;
+  const idFor = (key: string, label: string): string => {
+    let id = nodeIds.get(key);
+    if (!id) {
+      counter += 1;
+      id = `n${counter}`;
+      nodeIds.set(key, id);
+      nodeLines.push(`    ${id}["${escapeHtml(label)}"]`);
+    }
+    return id;
+  };
+
+  for (const route of delta.addedRoutes) {
+    const label = `🟢 ${route.parentType ? `${route.parentType}.` : ''}${route.name}${route.displayPath ? ` ${route.displayPath}` : ''} @ ${route.file}:${route.lineStart}`;
+    idFor(`added:${route.file}:${route.lineStart}:${route.name}`, label);
+  }
+  for (const route of delta.removedRoutes) {
+    const label = `🔴 ${route.parentType ? `${route.parentType}.` : ''}${route.name}${route.displayPath ? ` ${route.displayPath}` : ''} @ ${route.file}:${route.lineStart}`;
+    idFor(`removed:${route.file}:${route.lineStart}:${route.name}`, label);
+  }
+  for (const edge of delta.brokenEdges) {
+    const fromKey = `from:${edge.from.file}:${edge.from.line}:${edge.from.method}`;
+    const toKey = `to:${edge.to.file}:${edge.to.line}:${edge.to.method}`;
+    const fromId = idFor(fromKey, `${edge.from.method} @ ${edge.from.file}:${edge.from.line}`);
+    const toId = idFor(toKey, `${edge.to.method} @ ${edge.to.file}:${edge.to.line}`);
+    edgeLines.push(`    ${fromId} -. 断链 .-> ${toId}`);
+  }
+
+  if (nodeLines.length === 0 && edgeLines.length === 0) {
+    return '```mermaid\ngraph TD\n    empty["无架构差异"]\n```';
+  }
+  return ['```mermaid', 'graph TD', ...nodeLines, ...edgeLines, '```'].join('\n');
+}
+
+/**
+ * v0.6.0 — Architecture Delta：以 base/head 两个完整符号表对比路由增删，
+ * 收集 head 中无法静态解析的调用断边，并按波及符号数 / 链路长度给受影响
+ * API 分级。全部来自 git 对象，只读。
+ */
+export function buildArchitectureDelta(
+  report: Pick<
+    DiffReport,
+    'base' | 'head' | 'baseSha' | 'headSha' | 'affectedApis'
+  >,
+  baseSymbols: RepoSymbol[],
+  headSymbols: RepoSymbol[]
+): ArchitectureDeltaReport {
+  const baseRoutes = new Map<string, RepoSymbol>();
+  const headRoutes = new Map<string, RepoSymbol>();
+  for (const symbol of baseSymbols) {
+    if (symbol.kind === 'route') baseRoutes.set(deltaRouteKey(symbol), symbol);
+  }
+  for (const symbol of headSymbols) {
+    if (symbol.kind === 'route') headRoutes.set(deltaRouteKey(symbol), symbol);
+  }
+
+  const addedRoutes: ExtractedSymbol[] = [];
+  for (const [key, symbol] of headRoutes) {
+    if (!baseRoutes.has(key)) addedRoutes.push(toExtractedSymbol(symbol));
+  }
+  const removedRoutes: ExtractedSymbol[] = [];
+  for (const [key, symbol] of baseRoutes) {
+    if (!headRoutes.has(key)) removedRoutes.push(toExtractedSymbol(symbol));
+  }
+
+  const resolver = new CallResolver(headSymbols);
+  const brokenEdges: CallEdge[] = [];
+  for (const caller of headSymbols) {
+    if (caller.kind !== 'method' && caller.kind !== 'route') continue;
+    for (const call of caller.calls ?? []) {
+      const result = resolver.resolve(caller, call);
+      if ('reason' in result) {
+        brokenEdges.push({
+          from: {
+            file: caller.filePath,
+            method: caller.name,
+            line: call.line ?? caller.lineStart ?? 1
+          },
+          to: {
+            file: call.file,
+            method: call.method,
+            line: call.line ?? caller.lineStart ?? 1
+          }
+        });
+      }
+    }
+  }
+
+  const impactedApis = report.affectedApis.map((api) => {
+    const affectedBySymbols = [
+      ...new Set(api.impacts.map((impact) => impact.modifiedMethod))
+    ].sort((a, b) => a.localeCompare(b));
+    const maxChainLength = api.impacts.reduce(
+      (max, impact) => Math.max(max, impact.chain.length),
+      0
+    );
+    return {
+      routeSymbol: {
+        name: api.routeMethod,
+        file: api.file,
+        lineStart: api.line,
+        lineEnd: api.line,
+        kind: 'route',
+        parentType: api.controller,
+        displayPath: api.httpPath
+      } satisfies ExtractedSymbol,
+      affectedBySymbols,
+      riskLevel: riskLevelFor(affectedBySymbols, maxChainLength)
+    };
+  });
+
+  const delta: ArchitectureDeltaReport = {
+    schemaVersion: ARCHITECTURE_DELTA_SCHEMA_VERSION,
+    base: report.base,
+    head: report.head,
+    baseSha: report.baseSha,
+    headSha: report.headSha,
+    addedRoutes: addedRoutes.sort((a, b) => a.file.localeCompare(b.file) || a.lineStart - b.lineStart),
+    removedRoutes: removedRoutes.sort((a, b) => a.file.localeCompare(b.file) || a.lineStart - b.lineStart),
+    brokenEdges,
+    impactedApis,
+    mermaid: buildDeltaMermaid({ addedRoutes, removedRoutes, brokenEdges })
+  };
+  return delta;
 }
 
 /**
@@ -702,27 +876,30 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
     changedByFile.set(fileDiff.path, changedLinesFor(fileDiff));
   }
 
-  const javaChanged = statuses.filter((status) => status.path.endsWith('.java'));
-  const changedJavaPaths = new Set(javaChanged.map((status) => status.path));
+  const sourceChanged = statuses.filter((status) =>
+    SOURCE_EXTENSIONS.has(path.extname(status.path).toLowerCase())
+  );
+  const changedSourcePaths = new Set(sourceChanged.map((status) => status.path));
 
   // head 符号全集（反向可达性需要全量调用边）。
-  const headJavaFiles = (await listGitFiles(repoPath, options.head)).filter((file) =>
-    file.endsWith('.java')
+  const headSourceFiles = (await listGitFiles(repoPath, options.head)).filter((file) =>
+    SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase())
   );
-  const headSymbols = await parseRefSymbols(repoPath, options.head, headJavaFiles);
+  const headSymbols = await parseRefSymbols(repoPath, options.head, headSourceFiles);
 
   const headModified = pickModifiedSymbols(headSymbols, changedByFile, 'head').filter((entry) =>
-    changedJavaPaths.has(entry.symbol.filePath)
+    changedSourcePaths.has(entry.symbol.filePath)
   );
 
-  // base 侧：仅对 base 中存在、head 中已消失的符号（删除的方法/类）做反向分析。
-  const baseSymbolsOfChanged: RepoSymbol[] = [];
-  const baseChangedFiles = javaChanged
-    .filter((status) => status.status !== 'A')
-    .map((status) => status.path);
-  if (baseChangedFiles.length > 0) {
-    baseSymbolsOfChanged.push(...(await parseRefSymbols(repoPath, options.base, baseChangedFiles)));
-  }
+  // base 符号全集：v0.6.0 还需要全量路由表做 Architecture Delta 的路由增删
+  // 对比，同时支持删除符号的反向分析。
+  const baseSourceFiles = (await listGitFiles(repoPath, options.base)).filter((file) =>
+    SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase())
+  );
+  const baseSymbols = await parseRefSymbols(repoPath, options.base, baseSourceFiles);
+  const baseSymbolsOfChanged = baseSymbols.filter((symbol) =>
+    changedSourcePaths.has(symbol.filePath)
+  );
   // 以 (file, kind, parentType, name) 判定“head 中仍存在”——行号位移不算删除，
   // 只有真正消失的符号才需要 base 图做反向分析。
   const presenceKey = (symbol: RepoSymbol): string =>
@@ -730,7 +907,7 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
   const headPresence = new Set(headSymbols.map(presenceKey));
   const baseModified = pickModifiedSymbols(baseSymbolsOfChanged, changedByFile, 'base')
     .filter((entry) => !headPresence.has(presenceKey(entry.symbol)))
-    .filter((entry) => changedJavaPaths.has(entry.symbol.filePath));
+    .filter((entry) => changedSourcePaths.has(entry.symbol.filePath));
 
   // 反向可达性：head 侧用 head 图；base 侧（删除）用 base 图。
   const reachableModified = headModified.filter((entry) => entry.symbol.kind === 'method');
@@ -742,10 +919,6 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
   };
   const baseModifiedMethods = baseModified.filter((entry) => entry.symbol.kind === 'method');
   if (baseModifiedMethods.length > 0) {
-    const baseJavaFiles = (await listGitFiles(repoPath, options.base)).filter((file) =>
-      file.endsWith('.java')
-    );
-    const baseSymbols = await parseRefSymbols(repoPath, options.base, baseJavaFiles);
     baseReach = reverseReachability(baseSymbols, baseModifiedMethods);
   }
 
@@ -824,6 +997,18 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
     }))
   ].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 
+  const architectureDelta = buildArchitectureDelta(
+    {
+      base: options.base,
+      head: options.head,
+      baseSha,
+      headSha,
+      affectedApis
+    },
+    baseSymbols,
+    headSymbols
+  );
+
   return {
     schemaVersion: PR_IMPACT_SCHEMA_VERSION,
     summary: {
@@ -844,6 +1029,7 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
         path: status.path,
         status: status.status,
         java: status.path.endsWith('.java'),
+        source: SOURCE_EXTENSIONS.has(path.extname(status.path).toLowerCase()),
         config: isConfigFile(status.path)
       }))
       .sort((a, b) => a.path.localeCompare(b.path)),
@@ -851,7 +1037,8 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
     affectedApis,
     uncovered,
     configChanges,
-    mermaid: buildMermaid({ affectedApis })
+    mermaid: buildMermaid({ affectedApis }),
+    architectureDelta
   };
 }
 

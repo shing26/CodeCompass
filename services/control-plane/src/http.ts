@@ -22,6 +22,7 @@ import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-expo
 import { previewRepo } from './repoqa-scan';
 import { llmRuntimeInfo, maskHostname } from './repoqa-llm';
 import { extractSubgraphContext } from './repoqa-graphrag';
+import { analyzeDiff } from './repoqa-diff';
 
 export interface HttpDeps {
   repos: Repos;
@@ -315,6 +316,31 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const dashboard = buildDashboard({ repoId: repo.id, repoName: repo.name, symbols });
     res.json({ dashboard: maskEventPayload(dashboard) });
+  });
+
+  // v0.6.0 — Architecture Delta: base/head 两个 git ref 的多语言路由增删、
+  // 断边与风险分级。复用 `codecompass diff` 的只读 git 内核，不触碰工作区。
+  app.post('/api/repos/:id/architecture-delta', async (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const body = (req.body ?? {}) as { base?: unknown; head?: unknown };
+    const base = typeof body.base === 'string' ? body.base.trim() : '';
+    const head = typeof body.head === 'string' ? body.head.trim() : '';
+    if (!base || !head) {
+      res.status(400).json({ error: 'base and head git refs are required' });
+      return;
+    }
+    try {
+      const report = await analyzeDiff({ repoPath: repo.localPath, base, head });
+      res.json({ delta: report.architectureDelta ?? null });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   });
 
   // Issue 28: Graph RAG subgraph extraction. Deterministic (no LLM): resolves

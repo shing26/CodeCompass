@@ -594,10 +594,9 @@ describe('Issue 20 MCP CLI wiring', () => {
       args: {
         command: 'mcp',
         targetPath: 'C:/repos/demo',
-        port: undefined,
-        dataDir: undefined,
         noBrowser: false,
         noWatch: false,
+        doctorJson: false,
         failOnBreak: false,
         failOnAuthImpact: false,
         help: false,

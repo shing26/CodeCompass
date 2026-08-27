@@ -151,6 +151,54 @@ function keywordStringArg(
   return undefined;
 }
 
+/** Non-punctuation call arguments (first = path, second = handler, etc.). */
+function argumentNodes(node: SyntaxNode): SyntaxNode[] {
+  const argList = node.getChild('ArgList');
+  if (!argList) return [];
+  const out: SyntaxNode[] = [];
+  let child = argList.firstChild;
+  while (child) {
+    if (child.name !== ',' && child.name !== '(' && child.name !== ')') {
+      out.push(child);
+    }
+    child = child.nextSibling;
+  }
+  return out;
+}
+
+/** First positional variable argument (skips `prefix=...` style keywords). */
+function firstVariableArg(node: SyntaxNode, source: string): string | undefined {
+  const ignored = new Set([
+    'prefix',
+    'url_prefix',
+    'tags',
+    'responses',
+    'dependencies',
+    'default_response_class',
+    'include_in_schema'
+  ]);
+  const argList = node.getChild('ArgList');
+  if (!argList) return undefined;
+  let child = argList.firstChild;
+  while (child) {
+    if (child.name === 'VariableName') {
+      const name = textOf(child, source);
+      if (!ignored.has(name)) return name;
+    }
+    child = child.nextSibling;
+  }
+  return undefined;
+}
+
+/** `methods=["GET","POST"]` → `['GET','POST']`; empty when absent. */
+function routeMethodsFromText(raw: string): string[] {
+  const match = /methods\s*=\s*\[([^\]]*)\]/.exec(raw);
+  if (!match) return [];
+  return (match[1].match(/["']([^"']+)["']/g) ?? []).map((method) =>
+    method.replace(/["']/g, '').toUpperCase()
+  );
+}
+
 function routeDecoratorInfo(
   decorator: SyntaxNode,
   source: string
@@ -317,29 +365,33 @@ export function parsePythonSource(
         if (pendingRoute) {
           symbol.displayPath = pendingRoute.displayPath;
           symbol.annotations = [pendingRoute.decoratorText];
-          const routeMethod =
+          const explicitMethods =
             pendingRoute.method === 'route'
-              ? 'route'
-              : pendingRoute.method.toUpperCase();
-          symbols.push({
-            repoId,
-            kind: 'route',
-            name: `${routeMethod} ${pendingRoute.displayPath}`,
-            filePath: relativePath,
-            lineStart: pendingRoute.line,
-            lineEnd: lineAt(source, Math.max(node.from, node.to - 1)),
-            signature: `${pendingRoute.decoratorText} ${functionName}()`,
-            displayPath: pendingRoute.displayPath,
-            annotations: [pendingRoute.decoratorText],
-            calls: [
-              {
-                file: relativePath,
-                method: functionName,
-                line: lineAt(source, name.from),
-                dynamic: false
-              }
-            ]
-          });
+              ? routeMethodsFromText(pendingRoute.decoratorText)
+              : [pendingRoute.method.toUpperCase()];
+          const routeMethods =
+            explicitMethods.length > 0 ? explicitMethods : ['route'];
+          for (const routeMethod of routeMethods) {
+            symbols.push({
+              repoId,
+              kind: 'route',
+              name: `${routeMethod} ${pendingRoute.displayPath}`,
+              filePath: relativePath,
+              lineStart: pendingRoute.line,
+              lineEnd: lineAt(source, Math.max(node.from, node.to - 1)),
+              signature: `${pendingRoute.decoratorText} ${functionName}()`,
+              displayPath: pendingRoute.displayPath,
+              annotations: [pendingRoute.decoratorText],
+              calls: [
+                {
+                  file: relativePath,
+                  method: functionName,
+                  line: lineAt(source, name.from),
+                  dynamic: false
+                }
+              ]
+            });
+          }
           pendingRoute = undefined;
         }
         symbols.push(symbol);
@@ -350,6 +402,71 @@ export function parsePythonSource(
           selfType: parentType
         });
         return;
+      }
+
+      if (node.name === 'CallExpression') {
+        const member = node.getChild('MemberExpression');
+        const names = member ? memberParts(member, source) : [];
+        const callLine = lineAt(source, node.from);
+        if (names.length === 2 && names[1] === 'include_router') {
+          const target = firstVariableArg(node, source);
+          if (target) {
+            const includePrefix = keywordStringArg(node, source, [
+              'prefix',
+              'url_prefix'
+            ]);
+            const basePrefix = routerPrefixes.get(names[0]);
+            routerPrefixes.set(target, joinRoutePath(basePrefix, includePrefix ?? ''));
+          }
+          return;
+        }
+        if (names.length === 2 && names[1] === 'add_api_route') {
+          const args = argumentNodes(node);
+          const routePath =
+            args[0]?.name === 'String'
+              ? unquote(textOf(args[0], source))
+              : undefined;
+          const handler =
+            args[1]?.name === 'VariableName' ? textOf(args[1], source) : undefined;
+          if (routePath) {
+            const methods = routeMethodsFromText(textOf(node, source));
+            const finalMethods = methods.length > 0 ? methods : ['GET'];
+            const prefix = routerPrefixes.get(names[0]);
+            const displayPath = joinRoutePath(prefix, routePath);
+            for (const method of finalMethods) {
+              const name = `${method} ${displayPath}`;
+              const duplicate = symbols.some(
+                (symbol) =>
+                  symbol.kind === 'route' &&
+                  symbol.name === name &&
+                  symbol.lineStart === callLine
+              );
+              if (duplicate) continue;
+              symbols.push({
+                repoId,
+                kind: 'route',
+                name,
+                filePath: relativePath,
+                lineStart: callLine,
+                lineEnd: callLine,
+                signature: `add_api_route("${routePath}")`,
+                displayPath,
+                annotations: [textOf(node, source).trim().slice(0, 120)],
+                calls: handler
+                  ? [
+                      {
+                        file: relativePath,
+                        method: handler,
+                        line: callLine,
+                        dynamic: false
+                      }
+                    ]
+                  : []
+              });
+            }
+          }
+          return;
+        }
       }
 
       if (node.name === 'CallExpression' && methodStack.length > 0) {

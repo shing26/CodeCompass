@@ -304,6 +304,17 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 
+  it('switches to the architecture delta workbench tab (v0.6.0)', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-delta'));
+    await waitFor(() =>
+      expect(screen.getByTestId('architecture-delta')).toBeInTheDocument()
+    );
+  });
+
   it('plays a tour from the sidebar and returns to the workbench with one click', async () => {
     const client = makeClient();
     client.getFileRaw = vi.fn().mockResolvedValue('class AuthFilter {}');

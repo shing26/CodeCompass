@@ -5,7 +5,8 @@ import type { EventBus } from './events';
 import type {
   RepoQaAnchor,
   RepoQaTraceHop,
-  ServerEvent
+  ServerEvent,
+  IndexingPhase
 } from '../../../packages/contracts/src/index';
 import {
   MAX_FILES,
@@ -18,6 +19,7 @@ import {
 import { adapterFor } from './repoqa-parser';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { extractMapperSymbols } from './repoqa-mapper';
+import { parseLargeFileTier3 } from './large-file';
 import {
   buildCallIndex,
   CallResolver,
@@ -38,10 +40,14 @@ import {
 
 export type IndexProgressPayload = {
   repoId: string;
-  phase: 'cloning' | 'parsing' | 'ready' | 'error';
+  phase: 'cloning' | 'parsing' | 'ready' | 'error' | IndexingPhase;
   detail?: string;
   parsedCount?: number;
   totalFiles?: number;
+  phaseLabel?: string;
+  currentFile?: string;
+  processedFiles?: number;
+  percent?: number;
 };
 
 export type StartSymbolResolution = {
@@ -158,6 +164,7 @@ export function findFuzzyStartSymbol(
 export class RepoQAWorker {
   private running = new Map<string, AbortController>();
   private readonly symbolCache = new Map<string, { symbols: RepoSymbol[]; index: SymbolIndex }>();
+  private readonly progressEmitAt = new Map<string, number>();
 
   constructor(
     private repoqa: RepoQARepos,
@@ -345,7 +352,15 @@ export class RepoQAWorker {
 
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
-        payload: { repoId, phase: 'parsing', detail: 'Resolving local repo...' }
+        payload: {
+          repoId,
+          phase: 'DISCOVERY',
+          phaseLabel: '发现文件',
+          detail: 'Resolving local repo...',
+          processedFiles: 0,
+          totalFiles: 0,
+          percent: 0
+        }
       } as any);
       this.repoqa.updateRepoStatus(repoId, 'indexing', undefined, undefined, undefined, {
         parsed: 0,
@@ -353,7 +368,15 @@ export class RepoQAWorker {
       });
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
-        payload: { repoId, phase: 'parsing', detail: 'Scanning files and counting lines...' }
+        payload: {
+          repoId,
+          phase: 'DISCOVERY',
+          phaseLabel: '发现文件',
+          detail: 'Scanning files and counting lines...',
+          processedFiles: 0,
+          totalFiles: 0,
+          percent: 0
+        }
       } as any);
 
       const stats = await scanRepo(localPath);
@@ -378,15 +401,35 @@ export class RepoQAWorker {
           ? `, ${modules.length} Maven module${modules.length === 1 ? '' : 's'} (${modules.map((m) => m.name).join(', ')})`
           : '';
 
+      this.broadcast(taskId, {
+        type: 'repoqa.index.progress',
+        payload: {
+          repoId,
+          phase: 'DISCOVERY',
+          phaseLabel: '发现文件',
+          detail: `Found ${stats.fileCount} files`,
+          processedFiles: stats.fileCount,
+          totalFiles: stats.fileCount,
+          percent: 5
+        }
+      } as any);
+
       this.repoqa.saveFiles(repoId, localPath, stats.files);
+      const largeFiles = new Set(stats.largeFiles);
       const { symbols, skipped } = await this.parseRepo(
         repoId,
         localPath,
         stats.files,
-        (parsed, total) => {
+        largeFiles,
+        (parsed, total, currentFile) => {
           // Bug-R2-04: surface a live AST parsing count so large imports never
           // look stuck on the scan phase. fileCount is transient here and is
           // overwritten with the real total when the repo flips to ready.
+          // v0.6.0: 100ms time throttle; the final tick always emits.
+          const now = Date.now();
+          const lastEmit = this.progressEmitAt.get(taskId) ?? 0;
+          if (parsed < total && now - lastEmit < 100) return;
+          this.progressEmitAt.set(taskId, now);
           this.repoqa.updateRepoStatus(repoId, 'indexing', parsed, undefined, undefined, {
             parsed,
             total
@@ -395,10 +438,14 @@ export class RepoQAWorker {
             type: 'repoqa.index.progress',
             payload: {
               repoId,
-              phase: 'parsing',
+              phase: 'AST_EXTRACTION',
+              phaseLabel: 'AST 提取',
               detail: `Parsing AST... ${parsed} files`,
               parsedCount: parsed,
-              totalFiles: total
+              totalFiles: total,
+              processedFiles: parsed,
+              percent: Math.min(80, Math.round(10 + 70 * (parsed / Math.max(total, 1)))),
+              currentFile
             }
           } as any);
         }
@@ -413,12 +460,36 @@ export class RepoQAWorker {
           })
         });
       }
+      this.broadcast(taskId, {
+        type: 'repoqa.index.progress',
+        payload: {
+          repoId,
+          phase: 'CROSS_LANG_BRIDGE',
+          phaseLabel: '跨语言桥接',
+          detail: 'Building cross-language call edges...',
+          processedFiles: stats.fileCount,
+          totalFiles: stats.fileCount,
+          percent: 85
+        }
+      } as any);
       const configSymbols = await extractConfigSymbols(repoId, localPath, stats.files);
       const mapperSymbols = await extractMapperSymbols(
         repoId,
         localPath,
         stats.files
       );
+      this.broadcast(taskId, {
+        type: 'repoqa.index.progress',
+        payload: {
+          repoId,
+          phase: 'FINALIZING',
+          phaseLabel: '拓扑收敛',
+          detail: 'Finalizing chunks and symbol graph...',
+          processedFiles: stats.fileCount,
+          totalFiles: stats.fileCount,
+          percent: 95
+        }
+      } as any);
       const chunks = await this.extractChunks(repoId, localPath, stats.files);
       const allSymbols = [...symbols, ...configSymbols, ...mapperSymbols];
       this.repoqa.upsertSymbols(allSymbols);
@@ -441,8 +512,12 @@ export class RepoQAWorker {
         type: 'repoqa.index.progress',
         payload: {
           repoId,
-          phase: 'ready',
-          detail: `Indexed ${stats.fileCount} files, ${stats.lineCount} lines${moduleSummary}`
+          phase: 'FINALIZING',
+          phaseLabel: '拓扑收敛',
+          detail: `Indexed ${stats.fileCount} files, ${stats.lineCount} lines${moduleSummary}`,
+          processedFiles: stats.fileCount,
+          totalFiles: stats.fileCount,
+          percent: 100
         }
       } as any);
       this.broadcast(taskId, {
@@ -968,7 +1043,8 @@ export class RepoQAWorker {
     repoId: string,
     root: string,
     files: string[],
-    onProgress?: (parsed: number, total: number) => void
+    largeFiles: Set<string>,
+    onProgress?: (parsed: number, total: number, currentFile?: string) => void
   ): Promise<{ symbols: RepoSymbol[]; skipped: Array<{ file: string; error: string }> }> {
     const symbols: RepoSymbol[] = [];
     const skipped: Array<{ file: string; error: string }> = [];
@@ -978,7 +1054,21 @@ export class RepoQAWorker {
       const adapter = adapterFor(filePath);
       if (adapter) {
         try {
-          symbols.push(...(await adapter.parseFile(filePath, repoId, root)));
+          if (largeFiles.has(filePath)) {
+            const source = await fs.readFile(filePath, 'utf8');
+            const relative = path.relative(root, filePath).split(path.sep).join('/');
+            symbols.push(...parseLargeFileTier3(source, relative, repoId));
+            this.repoqa.recordEvent({
+              repoId,
+              eventType: 'repoqa.index.warning',
+              feedback: JSON.stringify({
+                tier: 'LARGE_GENERATED_FILE',
+                file: relative
+              })
+            });
+          } else {
+            symbols.push(...(await adapter.parseFile(filePath, repoId, root)));
+          }
         } catch (error) {
           // Dogfooding (Issue 17): real-world repos routinely contain edge
           // syntax a parser cannot cover (e.g. class literals inside annotation
@@ -990,7 +1080,8 @@ export class RepoQAWorker {
         }
       }
       parsed += 1;
-      if (parsed % 50 === 0) onProgress?.(parsed, total);
+      const currentFile = path.relative(root, filePath).split(path.sep).join('/');
+      if (parsed % 50 === 0) onProgress?.(parsed, total, currentFile);
     }
     if (total > 0) onProgress?.(total, total);
     return { symbols, skipped };

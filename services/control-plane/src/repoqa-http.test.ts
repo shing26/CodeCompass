@@ -535,8 +535,9 @@ describe('RepoPulse repo import HTTP API', () => {
       expect(result.body.repo?.status).toBe('ready');
       expect(result.body.repo?.localPath).toBe(path.resolve(root));
       expect(result.body.repo?.fileCount).toBe(5);
-      expect(events).toContain('progress:parsing');
-      expect(events).toContain('progress:ready');
+      expect(events).toContain('progress:DISCOVERY');
+      expect(events).toContain('progress:AST_EXTRACTION');
+      expect(events).toContain('progress:FINALIZING');
       expect(events).toContain('done');
 
       const listResponse = await fetch(`${ctx.baseUrl}/api/repos`);
@@ -1059,6 +1060,74 @@ describe('RepoPulse symbol extraction HTTP API', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('serves architecture delta between two git refs (v0.6.0)', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-delta-http-'));
+    try {
+      await makeJavaRepo(root);
+      await gitRun(['init', '-q'], root);
+      await gitRun(['config', 'user.email', 'repoqa@test.local'], root);
+      await gitRun(['config', 'user.name', 'RepoQA Test'], root);
+      await gitRun(['add', '-A'], root);
+      await gitRun(['commit', '-q', '-m', 'base'], root);
+      await fs.writeFile(
+        path.join(root, 'src', 'main', 'java', 'com', 'demo', 'Controller.java'),
+        [
+          'package com.demo;',
+          '@RestController',
+          'public class Controller {',
+          '  private final DemoService demoService = new DemoService();',
+          '  @GetMapping("/api/ping")',
+          '  public String ping() { return "pong"; }',
+          '  public String hello() { return demoService.greet(); }',
+          '}',
+          ''
+        ].join('\n')
+      );
+      await gitRun(['add', '-A'], root);
+      await gitRun(['commit', '-q', '-m', 'head'], root);
+
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/architecture-delta`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ base: 'HEAD~1', head: 'HEAD' })
+        }
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        delta: {
+          addedRoutes: Array<{ displayPath?: string }>;
+          removedRoutes: Array<{ displayPath?: string }>;
+          mermaid?: string;
+        };
+      };
+      expect(body.delta).toBeDefined();
+      expect(
+        body.delta.addedRoutes.some((route) => route.displayPath === '/api/ping')
+      ).toBe(true);
+      expect(body.delta.mermaid).toContain('graph TD');
+
+      const missing = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/architecture-delta`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ base: 'HEAD~1' })
+        }
+      );
+      expect(missing.status).toBe(400);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it('subgraph-context spans same-named methods and cross-language callers (v0.5.1 D8)', async () => {
     const ctx = await startServer();

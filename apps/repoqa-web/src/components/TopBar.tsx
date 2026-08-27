@@ -1,7 +1,14 @@
 import { useState } from 'react';
-import type { LlmRuntimeMode, Repo, RepoPreview, WorkbenchTab } from '../types';
+import type {
+  IndexingProgress,
+  LlmRuntimeMode,
+  Repo,
+  RepoPreview,
+  WorkbenchTab
+} from '../types';
 import { ImportRepoModal } from './ImportRepoModal';
 import { PrivacyPill } from './PrivacyPill';
+import { StatusStepper } from './StatusStepper';
 import { useTheme } from '../hooks/useTheme';
 
 interface TopBarProps {
@@ -36,12 +43,15 @@ interface TopBarProps {
   /** Issue 28: copy the Graph RAG agent context from the TopBar. */
   onCopyAgentContext: () => void | Promise<void>;
   canCopyAgentContext: boolean;
+  /** v0.6.0 — live staged indexing progress from the WebSocket stream. */
+  indexingProgress?: IndexingProgress | null;
 }
 
 const TABS: Array<{ id: WorkbenchTab; label: string }> = [
   { id: 'topo', label: '拓扑探查' },
   { id: 'metrics', label: '架构指标' },
-  { id: 'gate', label: 'CI 门禁' }
+  { id: 'gate', label: 'CI 门禁' },
+  { id: 'delta', label: '架构差异' }
 ];
 
 function watcherState(status: Repo['status'] | undefined) {
@@ -84,7 +94,8 @@ export function TopBar({
   activeView,
   onSelectView,
   onCopyAgentContext,
-  canCopyAgentContext
+  canCopyAgentContext,
+  indexingProgress
 }: TopBarProps) {
   const [showImport, setShowImport] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -121,6 +132,7 @@ export function TopBar({
   };
 
   return (
+    <>
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-subtle bg-surface px-2 sm:gap-3 sm:px-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
         <button
@@ -310,5 +322,7 @@ export function TopBar({
         />
       )}
     </header>
+    <StatusStepper progress={indexingProgress ?? null} />
+    </>
   );
 }

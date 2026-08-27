@@ -126,4 +126,60 @@ describe('PythonAdapter — symbol extraction (Issue 27)', () => {
     const handler = symbols.find((symbol) => symbol.name === 'health');
     expect(handler?.displayPath).toBe('/health');
   });
+
+  it('supports include_router prefix cascade, add_api_route and Flask methods (v0.6.0)', () => {
+    const source = [
+      'from fastapi import FastAPI',
+      'from fastapi.routing import APIRouter',
+      '',
+      'app = FastAPI()',
+      'router = APIRouter()',
+      'app.include_router(router, prefix="/api/v1")',
+      '',
+      '@router.get("/items")',
+      'def list_items():',
+      '    return []',
+      '',
+      'app.add_api_route("/health", handler, methods=["GET", "POST"])',
+      '',
+      'from flask import Flask',
+      'flask_app = Flask(__name__)',
+      '',
+      '@flask_app.route("/admin", methods=["GET", "POST"])',
+      'def admin():',
+      '    return "ok"'
+    ].join('\n');
+    const symbols = parsePythonSource(source, 'app/routes.py', 'repo');
+
+    expect(
+      symbols.find((symbol) => symbol.name === 'GET /api/v1/items')
+    ).toMatchObject({
+      kind: 'route',
+      displayPath: '/api/v1/items'
+    });
+    expect(
+      symbols.find((symbol) => symbol.name === 'GET /health')
+    ).toMatchObject({
+      kind: 'route',
+      displayPath: '/health'
+    });
+    expect(
+      symbols.find((symbol) => symbol.name === 'POST /health')
+    ).toMatchObject({
+      kind: 'route',
+      displayPath: '/health'
+    });
+    expect(
+      symbols.find((symbol) => symbol.name === 'GET /admin')
+    ).toMatchObject({
+      kind: 'route',
+      displayPath: '/admin'
+    });
+    expect(
+      symbols.find((symbol) => symbol.name === 'POST /admin')
+    ).toMatchObject({
+      kind: 'route',
+      displayPath: '/admin'
+    });
+  });
 });

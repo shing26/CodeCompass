@@ -35,7 +35,7 @@ import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-gra
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.5.1';
+export const MCP_SERVER_VERSION = '0.6.0';
 
 /** Dependencies required to serve MCP tools (subset of the control-plane stack). */
 export interface McpDeps {

@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseArgs, runCli, type CliRunResult } from './cli';
+import { emitMcpStdioError, parseArgs, runCli, type CliRunResult } from './cli';
 import { resolveWebDist } from './server';
 
 const openSpy = vi.fn();
@@ -20,10 +20,9 @@ describe('Issue 16 CLI arg parsing', () => {
       ok: true,
       args: {
         targetPath: 'C:/repos/petclinic',
-        port: undefined,
-        dataDir: undefined,
         noBrowser: false,
         noWatch: false,
+        doctorJson: false,
         failOnBreak: false,
         failOnAuthImpact: false,
         help: false,
@@ -205,6 +204,23 @@ describe('Issue 16 CLI one-process startup', () => {
     // exist (CI with no web build) the CLI simply skips static hosting.
     if (!resolved) return;
     expect(resolved.replace(/\\/g, '/')).toMatch(/\/apps\/repoqa-web\/dist$/);
+  });
+});
+
+describe('v0.6.0 MCP structured error guard', () => {
+  it('writes a JSON-RPC error to stdout and never touches stderr', () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      emitMcpStdioError(new Error('sqlite ABI mismatch'));
+      expect(stdout).toHaveBeenCalledWith(
+        '{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"sqlite ABI mismatch"}}\n'
+      );
+      expect(stderr).not.toHaveBeenCalled();
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
   });
 });
 

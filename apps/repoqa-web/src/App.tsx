@@ -13,10 +13,12 @@ import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
 import { CiGateView } from './components/CiGateView';
+import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { TourPlayer } from './components/TourPlayer';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
 import type {
   Anchor,
+  IndexingProgress,
   QueryMode,
   Repo,
   RepoTour,
@@ -119,9 +121,18 @@ export function App({ client: clientProp }: AppProps) {
       try {
         const message = JSON.parse(String(event.data)) as {
           type?: string;
-          payload?: { repoId?: string };
+          payload?: { repoId?: string; phase?: IndexingProgress['phase']; percent?: number };
         };
-        if (message.type === 'repo_updated' && message.payload?.repoId === repoId) {
+        if (message.type === 'repoqa.index.progress') {
+          const payload = message.payload as IndexingProgress | undefined;
+          if (payload && payload.repoId === repoId) {
+            setIndexingProgress(payload);
+            if (payload.phase === 'FINALIZING' && payload.percent === 100) {
+              void refreshSymbolsSilent();
+              void refreshDashboardSilent();
+            }
+          }
+        } else if (message.type === 'repo_updated' && message.payload?.repoId === repoId) {
           void refreshSymbolsSilent();
           void refreshDashboardSilent();
         }
@@ -139,6 +150,7 @@ export function App({ client: clientProp }: AppProps) {
   // gate are explicit TopBar tabs.
   const [view, setView] = useState<MainView>('topo');
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
+  const [indexingProgress, setIndexingProgress] = useState<IndexingProgress | null>(null);
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -148,6 +160,10 @@ export function App({ client: clientProp }: AppProps) {
   useEffect(() => {
     if (inspector.file) setInspectorOpen(true);
   }, [inspector.file]);
+
+  useEffect(() => {
+    setIndexingProgress(null);
+  }, [repoId]);
 
   const goTopology = () => {
     setActiveTour(null);
@@ -323,6 +339,7 @@ export function App({ client: clientProp }: AppProps) {
         }}
         onCopyAgentContext={handleCopyAgentContext}
         canCopyAgentContext={repoId !== null && inspector.file !== null}
+        indexingProgress={indexingProgress}
       />
       {consentPending && (
         <PrivacyConsentModal
@@ -398,6 +415,8 @@ export function App({ client: clientProp }: AppProps) {
             />
           ) : view === 'gate' ? (
             <CiGateView repo={currentRepo} dashboard={dashboard} />
+          ) : view === 'delta' ? (
+            <ArchitectureDeltaView repo={currentRepo} client={client} />
           ) : (
             <DashboardView
               repoName={currentRepo?.name ?? null}

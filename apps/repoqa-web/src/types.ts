@@ -53,7 +53,59 @@ export interface RepoSymbol {
 export type QueryMode = 'architecture' | 'call-chain' | 'environment';
 
 /** Top-level workbench tabs rendered by the TopBar segmented control. */
-export type WorkbenchTab = 'topo' | 'metrics' | 'gate';
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta';
+
+/** v0.6.0 — staged indexing pipeline phases broadcast over WebSocket. */
+export type IndexingPhase =
+  | 'DISCOVERY'
+  | 'AST_EXTRACTION'
+  | 'CROSS_LANG_BRIDGE'
+  | 'FINALIZING';
+
+export interface IndexingProgress {
+  repoId: string;
+  phase: IndexingPhase;
+  phaseLabel?: string;
+  currentFile?: string;
+  processedFiles?: number;
+  totalFiles?: number;
+  percent?: number;
+}
+
+/** v0.6.0 — Architecture Delta payload returned by the HTTP endpoint. */
+export interface ArchitectureDeltaSymbol {
+  name: string;
+  file: string;
+  lineStart: number;
+  lineEnd: number;
+  kind: string;
+  parentType?: string;
+  displayPath?: string;
+}
+
+export interface ArchitectureDeltaEdge {
+  from: { file: string; method: string; line: number };
+  to: { file: string; method: string; line: number };
+}
+
+export interface ArchitectureDeltaImpactedApi {
+  routeSymbol: ArchitectureDeltaSymbol;
+  affectedBySymbols: string[];
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+export interface ArchitectureDeltaReport {
+  schemaVersion: number;
+  base: string;
+  head: string;
+  baseSha?: string;
+  headSha?: string;
+  addedRoutes: ArchitectureDeltaSymbol[];
+  removedRoutes: ArchitectureDeltaSymbol[];
+  brokenEdges: ArchitectureDeltaEdge[];
+  impactedApis: ArchitectureDeltaImpactedApi[];
+  mermaid?: string;
+}
 
 /**
  * Explicit trace start (Top API click): the clicked symbol's exact name

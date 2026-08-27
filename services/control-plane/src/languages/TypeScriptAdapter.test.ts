@@ -212,4 +212,32 @@ export default function PostDetailPage() {
       expect.objectContaining({ http: { method: 'POST', url: '/posts/{id}/like' } })
     );
   });
+
+  it('recognizes ky, ofetch and $fetch HTTP clients with prefixUrl (v0.6.0)', () => {
+    const source = `
+import ky from 'ky';
+
+export const api = ky.create({ prefixUrl: '/api/v2' });
+
+export async function loadOrders() {
+  await api.get('/orders');
+  await $fetch('/pets', { method: 'POST' });
+}
+
+export async function loadUsers() {
+  return ofetch('/users');
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/api.ts', 'repo');
+
+    const loadOrders = symbols.find((symbol) => symbol.name === 'loadOrders');
+    const httpCalls = (loadOrders?.calls ?? [])
+      .map((call) => call.http)
+      .filter((http) => http !== undefined);
+    expect(httpCalls).toContainEqual({ method: 'GET', url: '/api/v2/orders' });
+    expect(httpCalls).toContainEqual({ method: 'POST', url: '/pets' });
+
+    const loadUsers = symbols.find((symbol) => symbol.name === 'loadUsers');
+    expect(loadUsers?.calls?.[0]?.http).toEqual({ method: 'GET', url: '/users' });
+  });
 });

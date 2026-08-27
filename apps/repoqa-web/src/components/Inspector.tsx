@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import '../client/monacoSetup';
+import { monaco } from '../client/monacoSetup';
 import type { InspectorState } from '../hooks/useInspector';
 import { useTheme } from '../hooks/useTheme';
 import type { Anchor, TokenUsage } from '../types';
@@ -105,6 +105,36 @@ export function Inspector({
       setCopying(false);
     }
   };
+
+  // v0.6.0 — global Monaco theme responder: switching the app theme calls
+  // editor.setTheme and re-lays-out after 50ms so the code pane never flashes.
+  useEffect(() => {
+    if (!editorReady || !editorRef.current) return;
+    monaco.editor?.setTheme?.(theme === 'cyber' ? 'vs-dark' : 'vs');
+    const timer = setTimeout(() => {
+      if (typeof editorRef.current?.layout === 'function') {
+        editorRef.current.layout();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [theme, editorReady, editorMount]);
+
+  useEffect(() => {
+    if (!editorReady || !editorRef.current) return;
+    if (typeof ResizeObserver === 'undefined') return;
+    let observer: ResizeObserver | null = null;
+    try {
+      observer = new ResizeObserver(() => {
+        if (typeof editorRef.current?.layout === 'function') {
+          editorRef.current.layout();
+        }
+      });
+      observer.observe(document.documentElement);
+    } catch {
+      // jsdom/test environments may not support ResizeObserver.
+    }
+    return () => observer?.disconnect();
+  }, [editorReady, editorMount]);
 
   // Glow on every navigation, not just first mount: the Monaco wrapper mounts
   // asynchronously (monaco loader) and swaps models on path change. Waiting a

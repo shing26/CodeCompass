@@ -1,5 +1,6 @@
 import type {
   Anchor,
+  ArchitectureDeltaReport,
   ImportRepoInput,
   QueryEvent,
   QueryMode,
@@ -207,6 +208,39 @@ export class RepoQAClient {
     }
     const body = (await res.json()) as { dashboard?: RepoDashboard };
     return body.dashboard ?? null;
+  }
+
+  /** v0.6.0 — architecture delta between two git refs of a repo. */
+  async getArchitectureDelta(
+    repoId: string,
+    base: string,
+    head: string
+  ): Promise<ArchitectureDeltaReport> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/architecture-delta`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ base, head })
+      }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`getArchitectureDelta failed: ${res.status}${detail}`);
+    }
+    const body = (await res.json()) as { delta?: ArchitectureDeltaReport };
+    if (!body.delta) {
+      throw new Error('getArchitectureDelta failed: missing delta in response');
+    }
+    return body.delta;
   }
 
   /** Issue 11/13: AST-heuristic onboarding tours, optionally filtered by type. */

@@ -99,7 +99,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     repoqa,
     worker,
     eventBus,
-    version: '0.5.1',
+    version: '0.6.0',
     dataDir: config.dataDir,
     port: config.port,
     exportDir: path.join(config.dataDir, 'exports'),

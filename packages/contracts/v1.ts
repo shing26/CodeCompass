@@ -1,6 +1,8 @@
 // v1 Core Contracts (working draft)
 // These types are shared between Electron UI and Control Plane.
 
+import type { IndexingPhase } from './src/repoqa';
+
 export type TaskType = 'coding' | 'shell' | 'browser';
 export type TaskStatus =
   | 'pending'
@@ -68,10 +70,15 @@ export interface ApprovalResolved {
 
 export interface RepoQaIndexProgress {
   repoId: string;
-  phase: 'cloning' | 'parsing' | 'ready' | 'error';
+  phase: 'cloning' | 'parsing' | 'ready' | 'error' | IndexingPhase;
   detail?: string;
   parsedCount?: number;
   totalFiles?: number;
+  /** v0.6.0 — staged pipeline fields broadcast during indexing. */
+  phaseLabel?: string;
+  currentFile?: string;
+  processedFiles?: number;
+  percent?: number;
 }
 
 export interface RepoQaIndexDone {

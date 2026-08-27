@@ -5,6 +5,10 @@ import { parsePomModules } from './repoqa-parser';
 export const MAX_FILES = 3000;
 export const MAX_LINES = 500_000;
 
+/** v0.6.0 (D-BE-1) — files beyond these limits degrade to Tier 3 extraction. */
+export const LARGE_FILE_LINE_LIMIT = 3000;
+export const LARGE_FILE_LINE_LENGTH_LIMIT = 1000;
+
 /** v0.5.1 — source extensions whose SLOC counts toward the line budget. */
 export const SOURCE_EXTENSIONS = new Set([
   '.java',
@@ -71,6 +75,8 @@ export interface RepoScanStats {
   files: string[];
   /** Issue 24: XML resources are indexed for MyBatis mapper extraction. */
   xmlFileCount: number;
+  /** v0.6.0: source files classified as LARGE_GENERATED_FILE. */
+  largeFiles: string[];
 }
 
 /**
@@ -156,6 +162,7 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
   let lineCount = 0;
   let xmlFileCount = 0;
   const files: string[] = [];
+  const largeFiles: string[] = [];
   const stack = [root];
 
   while (stack.length > 0) {
@@ -180,24 +187,34 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
       files.push(filePath);
       if (entry.name.toLowerCase().endsWith('.xml')) xmlFileCount += 1;
       if (fileCount > MAX_FILES) {
-        return { fileCount, lineCount, files, xmlFileCount };
+        return { fileCount, lineCount, files, xmlFileCount, largeFiles };
       }
 
       const extension = path.extname(entry.name.toLowerCase());
       if (!SOURCE_EXTENSIONS.has(extension)) continue;
       try {
         const content = await fs.readFile(filePath, 'utf8');
-        lineCount += countLines(content);
+        const fileLines = countLines(content);
+        lineCount += fileLines;
+        const maxLineLength = content
+          .split(/\r?\n/)
+          .reduce((max, line) => Math.max(max, line.length), 0);
+        if (
+          fileLines > LARGE_FILE_LINE_LIMIT ||
+          maxLineLength > LARGE_FILE_LINE_LENGTH_LIMIT
+        ) {
+          largeFiles.push(filePath);
+        }
       } catch {
         // Unreadable files still count toward the index limit.
       }
       if (lineCount > MAX_LINES) {
-        return { fileCount, lineCount, files, xmlFileCount };
+        return { fileCount, lineCount, files, xmlFileCount, largeFiles };
       }
     }
   }
 
-  return { fileCount, lineCount, files, xmlFileCount };
+  return { fileCount, lineCount, files, xmlFileCount, largeFiles };
 }
 
 /**

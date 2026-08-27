@@ -191,6 +191,31 @@ describe('TopBar workbench header (Issue 31)', () => {
     expect(onSelectView).toHaveBeenCalledWith('metrics');
     await user.click(screen.getByTestId('tab-gate'));
     expect(onSelectView).toHaveBeenCalledWith('gate');
+    await user.click(screen.getByTestId('tab-delta'));
+    expect(onSelectView).toHaveBeenCalledWith('delta');
+  });
+
+  it('renders the staged indexing progress stepper (v0.6.0)', () => {
+    render(
+      <TopBar
+        {...baseProps({
+          currentRepo: indexingRepo,
+          indexingProgress: {
+            repoId: 'repo-2',
+            phase: 'AST_EXTRACTION',
+            phaseLabel: 'AST 提取',
+            currentFile: 'src/App.java',
+            processedFiles: 10,
+            totalFiles: 131,
+            percent: 15
+          }
+        })}
+      />
+    );
+    expect(screen.getByTestId('status-stepper')).toBeInTheDocument();
+    expect(screen.getByTestId('status-step-AST_EXTRACTION')).toBeInTheDocument();
+    expect(screen.getByTestId('status-progress')).toHaveAttribute('aria-valuenow', '15');
+    expect(screen.getByTestId('status-current-file')).toHaveTextContent('src/App.java');
   });
 
   it('disables the TopBar agent-context copy button until a file is open', async () => {

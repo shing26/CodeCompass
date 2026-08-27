@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { parseArgs, runCli } from './cli';
 import {
   analyzeDiff,
+  buildArchitectureDelta,
   buildMermaid,
   changedLinesFor,
   detectConfigChanges,
@@ -476,8 +477,14 @@ describe('Issue 22 report rendering', () => {
       baseSha: 'aaaaaaa',
       headSha: 'bbbbbbb',
       changedFiles: [
-        { path: 'src/A.java', status: 'M' as const, java: true, config: false },
-        { path: 'src/application.yml', status: 'M' as const, java: false, config: true }
+        { path: 'src/A.java', status: 'M' as const, java: true, source: true, config: false },
+        {
+          path: 'src/application.yml',
+          status: 'M' as const,
+          java: false,
+          source: false,
+          config: true
+        }
       ],
       modifiedSymbols: [
         {
@@ -698,6 +705,198 @@ describe('Issue 22 analyzeDiff end-to-end', () => {
     },
     120_000
   );
+});
+
+/* ------------------------------------------------------------------ */
+/* v0.6.0 — Architecture Delta                                        */
+/* ------------------------------------------------------------------ */
+
+describe('v0.6.0 Architecture Delta', () => {
+  it('classifies route deltas, broken edges and impacted API risk', () => {
+    const baseSymbols: RepoSymbol[] = [
+      {
+        repoId: 'base',
+        kind: 'route',
+        name: 'GET /api/orders',
+        filePath: 'src/main/java/com/demo/OrdersController.java',
+        lineStart: 5,
+        lineEnd: 5,
+        displayPath: '/api/orders'
+      },
+      {
+        repoId: 'base',
+        kind: 'route',
+        name: 'GET /api/health',
+        filePath: 'src/app.py',
+        lineStart: 3,
+        lineEnd: 3,
+        displayPath: '/api/health'
+      }
+    ];
+    const headSymbols: RepoSymbol[] = [
+      {
+        repoId: 'head',
+        kind: 'route',
+        name: 'GET /api/orders',
+        filePath: 'src/main/java/com/demo/OrdersController.java',
+        lineStart: 5,
+        lineEnd: 5,
+        displayPath: '/api/orders'
+      },
+      {
+        repoId: 'head',
+        kind: 'route',
+        name: 'GET /api/reports',
+        filePath: 'src/api/reports.ts',
+        lineStart: 4,
+        lineEnd: 4,
+        displayPath: '/api/reports'
+      },
+      {
+        repoId: 'head',
+        kind: 'method',
+        name: 'loadOrders',
+        filePath: 'src/api/client.ts',
+        lineStart: 1,
+        lineEnd: 4,
+        calls: [
+          {
+            file: 'src/api/client.ts',
+            method: 'missingThing',
+            line: 3
+          }
+        ]
+      }
+    ];
+    const delta = buildArchitectureDelta(
+      {
+        base: 'main',
+        head: 'feat/delta',
+        baseSha: 'aaaaaaa',
+        headSha: 'bbbbbbb',
+        affectedApis: [
+          {
+            controller: 'OrdersController',
+            routeMethod: 'listOrders',
+            httpPath: '/api/orders',
+            file: 'src/main/java/com/demo/OrdersController.java',
+            line: 5,
+            impacts: [
+              {
+                modifiedMethod: 'findAll',
+                modifiedFile: 'src/main/java/com/demo/OrderRepository.java',
+                modifiedLine: 9,
+                side: 'head',
+                chain: ['listOrders', 'findOrders', 'findAll']
+              }
+            ]
+          }
+        ]
+      },
+      baseSymbols,
+      headSymbols
+    );
+
+    expect(delta.addedRoutes.map((route) => route.displayPath)).toEqual([
+      '/api/reports'
+    ]);
+    expect(delta.removedRoutes.map((route) => route.displayPath)).toEqual([
+      '/api/health'
+    ]);
+    expect(delta.brokenEdges).toHaveLength(1);
+    expect(delta.brokenEdges[0]).toMatchObject({
+      from: { file: 'src/api/client.ts', method: 'loadOrders', line: 3 },
+      to: { file: 'src/api/client.ts', method: 'missingThing', line: 3 }
+    });
+    expect(delta.impactedApis).toHaveLength(1);
+    expect(delta.impactedApis[0]).toMatchObject({
+      riskLevel: 'HIGH',
+      affectedBySymbols: ['findAll']
+    });
+    expect(delta.mermaid).toContain('graph TD');
+    expect(delta.mermaid).toContain('/api/reports');
+    expect(delta.mermaid).toContain('/api/health');
+  });
+
+  it('reports multi-language route additions/removals and broken edges through analyzeDiff', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'codecompass-delta-poly-'));
+    try {
+      const base = await makeCommit(
+        root,
+        {
+          'src/main/java/com/demo/OrdersController.java': [
+            'package com.demo;',
+            '@RestController',
+            'public class OrdersController {',
+            '  @GetMapping("/api/orders")',
+            '  public String listOrders() {',
+            '    return "ok";',
+            '  }',
+            '}',
+            ''
+          ].join('\n'),
+          'src/app.py': [
+            'from fastapi import FastAPI',
+            'app = FastAPI()',
+            '',
+            '@app.get("/api/health")',
+            'def health():',
+            '    return "ok"',
+            ''
+          ].join('\n'),
+          'src/api/client.ts': [
+            'export async function loadOrders() {',
+            '  await fetch("/api/orders");',
+            '  return client.missingThing();',
+            '}',
+            ''
+          ].join('\n')
+        },
+        'polyglot base'
+      );
+      const head = await commitMore(
+        root,
+        {
+          'src/api/reports.ts': [
+            "import express from 'express';",
+            'const app = express();',
+            '',
+            "app.get('/api/reports', listReports);",
+            '',
+            'function listReports() { return []; }',
+            ''
+          ].join('\n'),
+          'src/app.py': [
+            'from fastapi import FastAPI',
+            'app = FastAPI()',
+            ''
+          ].join('\n')
+        },
+        'polyglot head'
+      );
+
+      const report = await analyzeDiff({ repoPath: root, base, head });
+      expect(report.architectureDelta).toBeDefined();
+      expect(
+        report.architectureDelta!.addedRoutes.some(
+          (route) => route.displayPath === '/api/reports'
+        )
+      ).toBe(true);
+      expect(
+        report.architectureDelta!.removedRoutes.some(
+          (route) => route.displayPath === '/api/health'
+        )
+      ).toBe(true);
+      expect(
+        report.architectureDelta!.brokenEdges.some(
+          (edge) => edge.to.method === 'missingThing'
+        )
+      ).toBe(true);
+      expect(report.architectureDelta!.mermaid).toContain('graph TD');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 /* ------------------------------------------------------------------ */
