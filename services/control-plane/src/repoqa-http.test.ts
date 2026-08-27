@@ -111,6 +111,40 @@ async function makeArchitectureQuestionRepo(root: string): Promise<void> {
   );
 }
 
+async function makeCrossLangBridgeRepo(root: string): Promise<void> {
+  const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+  await fs.mkdir(pkg, { recursive: true });
+  await fs.mkdir(path.join(root, 'web'), { recursive: true });
+  await fs.writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+  await fs.writeFile(
+    path.join(pkg, 'PostController.java'),
+    [
+      'package com.demo;',
+      '@RestController',
+      '@RequestMapping("/api/v1/posts")',
+      'public class PostController {',
+      '  private final LikeCounterService likeCounterService = new LikeCounterService();',
+      '  @PostMapping("/{id}/like")',
+      '  public void likePost(long id) { likeCounterService.likePost(id); }',
+      '}'
+    ].join('\n')
+  );
+  await fs.writeFile(
+    path.join(pkg, 'LikeCounterService.java'),
+    'package com.demo;\npublic class LikeCounterService {\n  public void likePost(long id) {}\n}\n'
+  );
+  await fs.writeFile(
+    path.join(root, 'web', 'PostDetailPage.tsx'),
+    [
+      "export default function PostDetailPage() {",
+      "  const handleLike = async (id: string) => {",
+      "    await apiClient.post('/posts/' + id + '/like');",
+      '  }',
+      '}'
+    ].join('\n')
+  );
+}
+
 async function makeConfigRepo(root: string): Promise<void> {
   await fs.mkdir(path.join(root, 'src', 'main', 'resources'), { recursive: true });
   await fs.writeFile(
@@ -951,6 +985,102 @@ describe('RepoPulse symbol extraction HTTP API', () => {
       };
       expect(routes.symbols.length).toBeGreaterThan(0);
       expect(routes.symbols.every((symbol) => symbol.kind === 'route')).toBe(true);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes symbolType on /symbols (v0.5.1 D6)', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-symbol-type-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/symbols`);
+      const body = (await response.json()) as {
+        symbols: Array<{ kind: string; symbolType: string }>;
+      };
+      expect(body.symbols.length).toBeGreaterThan(0);
+      expect(body.symbols.every((symbol) => symbol.symbolType !== 'UNKNOWN')).toBe(true);
+      expect(
+        body.symbols.find((symbol) => symbol.kind === 'route')?.symbolType
+      ).toBe('ROUTE');
+      expect(
+        body.symbols.find((symbol) => symbol.kind === 'method')?.symbolType
+      ).toBe('FUNCTION');
+      expect(
+        body.symbols.find((symbol) => symbol.kind === 'service')?.symbolType
+      ).toBe('SERVICE');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('exposes reverse-deps over HTTP and returns cross-language callers (v0.5.1 D8)', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-reverse-http-'));
+    try {
+      await makeCrossLangBridgeRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/reverse-deps?symbolName=${encodeURIComponent('likePost')}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        target: { name: string };
+        callers: Array<{ file: string; method: string }>;
+        count: number;
+        fallback: boolean;
+      };
+      expect(body.target.name).toBe('likePost');
+      expect(body.fallback).toBe(false);
+      expect(
+        body.callers.some(
+          (caller) => caller.file.endsWith('.tsx') && caller.method === 'handleLike'
+        )
+      ).toBe(true);
+      expect(
+        body.callers.some(
+          (caller) =>
+            caller.file.endsWith('PostController.java') && caller.method === 'likePost'
+        )
+      ).toBe(true);
+      expect(body.count).toBeGreaterThanOrEqual(2);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('subgraph-context spans same-named methods and cross-language callers (v0.5.1 D8)', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-subgraph-crosslang-'));
+    try {
+      await makeCrossLangBridgeRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=${encodeURIComponent('likePost')}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        context: { nodes: Array<{ name: string; file: string }> };
+      };
+      expect(
+        body.context.nodes.some(
+          (node) => node.name === 'handleLike' && node.file.endsWith('.tsx')
+        )
+      ).toBe(true);
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
@@ -1923,6 +2053,7 @@ describe('RepoPulse chunks and config evidence', () => {
       const configBody = (await configResponse.json()) as {
         symbols: Array<{ name: string; filePath: string; lineStart?: number }>;
       };
+      expect(configBody.symbols.length).toBeGreaterThan(0);
       const serverPort = configBody.symbols.find(
         (symbol) => symbol.name === 'server.port'
       );
@@ -2030,11 +2161,13 @@ describe('RepoPulse chunks and config evidence', () => {
       const repoId = result.body.repo!.id;
 
       const configResponse = await fetch(
-        `${ctx.baseUrl}/api/repos/${repoId}/symbols?kind=config`
+        `${ctx.baseUrl}/api/repos/${repoId}/symbols?kind=dependency`
       );
       const configBody = (await configResponse.json()) as {
-        symbols: Array<{ name: string; filePath: string; lineStart?: number }>;
+        symbols: Array<{ kind: string; name: string; filePath: string; lineStart?: number }>;
       };
+      expect(configBody.symbols.length).toBeGreaterThan(0);
+      expect(configBody.symbols.every((symbol) => symbol.kind === 'dependency')).toBe(true);
       const starter = configBody.symbols.find(
         (symbol) => symbol.name === 'org.springframework.boot:spring-boot-starter-web'
       );

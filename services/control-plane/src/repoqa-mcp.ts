@@ -10,7 +10,7 @@ import { EventBus } from './events';
 import type { Repo } from './repoqa-repos';
 import { RepoQARepos, type RepoSymbol } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
-import { CallResolver, resolveCallChain } from './repoqa-callchain';
+import { resolveCallChain } from './repoqa-callchain';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildTours } from './repoqa-tours';
 import { matchConfigSymbols } from './repoqa-config';
@@ -35,7 +35,7 @@ import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-gra
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.5.0';
+export const MCP_SERVER_VERSION = '0.5.1';
 
 /** Dependencies required to serve MCP tools (subset of the control-plane stack). */
 export interface McpDeps {
@@ -258,7 +258,9 @@ export function mcpGetConfigEvidence(
   note: string;
 } {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
-  const configs = deps.repoqa.listSymbols(repo.id, 'config');
+  const configs = deps.repoqa
+    .listSymbols(repo.id)
+    .filter((symbol) => symbol.kind === 'config' || symbol.kind === 'dependency');
   const query = String(args.query ?? '').trim();
   const matched = query ? matchConfigSymbols(query, configs) : configs;
   return {
@@ -290,23 +292,7 @@ export function mcpReverseDeps(
   fallback: boolean;
 } {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
-  const symbolOrMethod = String(args.symbolOrMethod ?? '').trim();
-  if (!symbolOrMethod) throw new Error('symbolOrMethod is required');
-  const resolution = deps.worker.resolveStartSymbolForQuery(repo.id, symbolOrMethod);
-  if (!resolution) throw new Error(`Start symbol not found: ${symbolOrMethod}`);
-  const graph = deps.worker.getSymbolGraph(repo.id);
-  const callers = new CallResolver(graph.symbols, graph.index).reverseCallers(resolution.symbol);
-  return {
-    repoId: repo.id,
-    target: {
-      name: resolution.symbol.name,
-      file: resolution.symbol.filePath,
-      line: resolution.symbol.lineStart ?? 1
-    },
-    callers,
-    count: callers.length,
-    fallback: resolution.fallback
-  };
+  return deps.worker.reverseDeps(repo.id, String(args.symbolOrMethod ?? ''));
 }
 
 async function realpathOrResolve(candidate: string): Promise<string> {

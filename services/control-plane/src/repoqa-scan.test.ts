@@ -2,7 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isIgnoredDir, previewRepo, scanRepo } from './repoqa-scan';
+import {
+  detectSuggestedSubdirs,
+  isIgnoredDir,
+  previewRepo,
+  scanRepo
+} from './repoqa-scan';
 
 async function makeTree(root: string, dirs: string[]): Promise<void> {
   for (const dir of dirs) {
@@ -29,6 +34,12 @@ describe('isIgnoredDir', () => {
       '.scratch',
       '.penguin',
       '.tmp',
+      '.pytest_cache',
+      '.ruff_cache',
+      '.reasonix',
+      '.opencode',
+      '.codex',
+      '.workbuddy',
       'coverage',
       '__pycache__',
       'test-results'
@@ -47,6 +58,57 @@ describe('isIgnoredDir', () => {
     expect(isIgnoredDir('src')).toBe(false);
     expect(isIgnoredDir('api')).toBe(false);
     expect(isIgnoredDir('target-utils')).toBe(false); // prefix only, not the dir
+  });
+});
+
+describe('scanRepo SLOC budget (v0.5.1 D1)', () => {
+  it('counts source lines only and leaves data/doc files out of the line budget', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-sloc-'));
+    try {
+      await fs.mkdir(path.join(root, 'src'), { recursive: true });
+      await fs.writeFile(path.join(root, 'src', 'App.java'), 'class App {}\nclass B {}\n');
+      await fs.writeFile(
+        path.join(root, 'big.log'),
+        Array.from({ length: 10_000 }, () => 'x').join('\n')
+      );
+      await fs.writeFile(
+        path.join(root, 'data.json'),
+        JSON.stringify({ items: Array.from({ length: 5000 }, () => 'x') })
+      );
+
+      const stats = await scanRepo(root);
+      expect(stats.fileCount).toBe(3);
+      expect(stats.lineCount).toBe(2);
+      expect(stats.files.some((file) => file.endsWith('big.log'))).toBe(true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('counts .mjs as web source in preview', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mjs-'));
+    try {
+      await fs.mkdir(path.join(root, 'src'), { recursive: true });
+      await fs.writeFile(path.join(root, 'src', 'esm.mjs'), 'export const x = 1;\n');
+      const preview = await previewRepo(root);
+      expect(preview.webFileCount).toBe(1);
+      expect(preview.fileCount).toBe(1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('detectSuggestedSubdirs (v0.5.1 D1)', () => {
+  it('returns only existing src/packages/apps roots', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-suggest-'));
+    try {
+      await fs.mkdir(path.join(root, 'src'), { recursive: true });
+      await fs.mkdir(path.join(root, 'packages', 'a'), { recursive: true });
+      expect(await detectSuggestedSubdirs(root)).toEqual(['src', 'packages']);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });
 

@@ -41,6 +41,12 @@ export interface SubgraphContextOptions {
   readFile?: (filePath: string) => Promise<string>;
   /** Reuse an existing call index to avoid rebuilding it. */
   index?: SymbolIndex;
+  /**
+   * Extra symbols whose reverse callers are included (same-name methods, e.g.
+   * a controller route and a service impl). The primary `start` still drives
+   * callee traversal; caller roots only widen the "who uses this" side.
+   */
+  callerRoots?: RepoSymbol[];
 }
 
 export type SubgraphDirection = 'start' | 'caller' | 'callee';
@@ -312,9 +318,15 @@ export async function extractSubgraphContext(
   }
 
   const resolver = new CallResolver(symbols, index);
+  const callerRoots = options.callerRoots ?? [];
+  const callerNodes: GraphNode[] = [];
+  for (const root of callerRoots) {
+    callerNodes.push(...collectCallers(root, maxCallerDepth, symbols, resolver));
+  }
   const graphNodes = [
     ...collectCallees(started, maxCalleeDepth, resolver),
-    ...collectCallers(started, maxCallerDepth, symbols, resolver)
+    ...collectCallers(started, maxCallerDepth, symbols, resolver),
+    ...callerNodes
   ];
 
   const seen = new Set<string>();

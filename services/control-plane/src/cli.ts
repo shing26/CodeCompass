@@ -14,7 +14,7 @@ import { RepoQARepos } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
 import { extractSubgraphContext } from './repoqa-graphrag';
 
-export const VERSION = '0.5.0';
+export const VERSION = '0.5.1';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */

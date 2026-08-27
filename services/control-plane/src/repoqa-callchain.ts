@@ -89,6 +89,9 @@ export function normalizeRoutePath(raw: string): string {
   }
   if (!pathname.startsWith('/')) pathname = `/${pathname}`;
   pathname = pathname.replace(/\/+$/, '');
+  // v0.5.1 (D8): collapse Spring `{id}` / Express `:id` segments so a
+  // frontend template and a backend route pattern normalize to the same key.
+  pathname = pathname.replace(/\/\{[^/}]+\}/g, '/{}').replace(/\/:[A-Za-z0-9_]+/g, '/{}');
   return pathname === '' ? '/' : pathname;
 }
 
@@ -296,6 +299,7 @@ function effectiveStart(
   index: SymbolIndex
 ): RepoSymbol | undefined {
   if (start.kind === 'method') return start;
+  if (start.kind === 'route' && (start.calls?.length ?? 0) > 0) return start;
   if (TYPE_KINDS.has(start.kind)) {
     const info = index.types.get(start.name);
     if (info) {
@@ -370,12 +374,15 @@ function resolveHttpRoute(
 ): ResolveResult | undefined {
   if (!call.http) return undefined;
   const url = normalizeRoutePath(call.http.url);
-  const exact = index.routesByPath.get(url) ?? [];
-  const candidates = exact.length > 0
-    ? exact.slice()
-    : url.startsWith('/api/')
-      ? index.routesByPath.get(url.slice('/api'.length)) ?? []
-      : [];
+  const variants = new Set<string>([url]);
+  if (url.startsWith('/api/')) variants.add(url.slice('/api'.length));
+  if (url.startsWith('/api/v1')) variants.add(url.slice('/api/v1'.length));
+  variants.add(`/api${url}`);
+  variants.add(`/api/v1${url}`);
+  const candidates: Array<{ symbol: RepoSymbol; priority: number }> = [];
+  for (const variant of variants) {
+    candidates.push(...(index.routesByPath.get(variant) ?? []));
+  }
   if (candidates.length === 0) return undefined;
   candidates.sort((a, b) => b.priority - a.priority || (a.symbol.lineStart ?? 0) - (b.symbol.lineStart ?? 0));
   const topPriority = candidates[0].priority;

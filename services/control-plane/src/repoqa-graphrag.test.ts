@@ -155,6 +155,64 @@ describe('Issue 28 AST Graph RAG subgraph extractor', () => {
     expect(context.text).toContain('findOrders');
   });
 
+  it('includes cross-language callers through callerRoots (v0.5.1 D8)', async () => {
+    const backend = [
+      ...parseJavaSource(
+        [
+          '@RestController',
+          '@RequestMapping("/api/v1/posts")',
+          'class PostController {',
+          '  @PostMapping("/{id}/like")',
+          '  public void likePost(long id) {}',
+          '}'
+        ].join('\n'),
+        'backend/PostController.java',
+        'repo'
+      ),
+      ...parseJavaSource(
+        [
+          'class LikeCounterService {',
+          '  public void likePost(long id) {}',
+          '}'
+        ].join('\n'),
+        'backend/LikeCounterService.java',
+        'repo'
+      )
+    ];
+    const frontend = parseTypeScriptSource(
+      [
+        'export default function PostDetailPage() {',
+        '  const handleLike = async () => {',
+        "    await apiClient.post('/posts/' + id + '/like');",
+        '  };',
+        '}'
+      ].join('\n'),
+      'web/PostDetailPage.tsx',
+      'repo'
+    );
+    const symbols = [...backend, ...frontend];
+    for (const symbol of symbols) store(sourceFor(symbol), symbol.filePath);
+    const index = buildCallIndex(symbols);
+    const service = symbols.find(
+      (symbol) => symbol.name === 'likePost' && symbol.filePath.includes('LikeCounterService')
+    )!;
+    const controller = symbols.find(
+      (symbol) => symbol.name === 'likePost' && symbol.filePath.includes('PostController')
+    )!;
+
+    const context = await extractSubgraphContext(symbols, service, {
+      index,
+      callerRoots: [controller],
+      readFile: readFixture
+    });
+
+    const tsCaller = context.nodes.find(
+      (node) => node.name === 'handleLike' && node.file.endsWith('.tsx')
+    );
+    expect(tsCaller).toBeDefined();
+    expect(tsCaller?.direction).toBe('caller');
+  });
+
   it('folds class skeletons and prunes against a hard token budget', async () => {
     const classSymbol: RepoSymbol = {
       repoId: 'repo',
@@ -252,6 +310,32 @@ function sourceFor(symbol: RepoSymbol): string {
   }
   if (symbol.filePath === 'go/handler.go') {
     return 'package api\n\ntype OrderHandler struct{}\n\nfunc (h *OrderHandler) Handle() string {\n  return "orders"\n}\n';
+  }
+  if (symbol.filePath === 'backend/PostController.java') {
+    return [
+      '@RestController',
+      '@RequestMapping("/api/v1/posts")',
+      'class PostController {',
+      '  @PostMapping("/{id}/like")',
+      '  public void likePost(long id) {}',
+      '}'
+    ].join('\n');
+  }
+  if (symbol.filePath === 'backend/LikeCounterService.java') {
+    return [
+      'class LikeCounterService {',
+      '  public void likePost(long id) {}',
+      '}'
+    ].join('\n');
+  }
+  if (symbol.filePath === 'web/PostDetailPage.tsx') {
+    return [
+      'export default function PostDetailPage() {',
+      '  const handleLike = async () => {',
+      "    await apiClient.post('/posts/' + id + '/like');",
+      '  };',
+      '}'
+    ].join('\n');
   }
   return '';
 }

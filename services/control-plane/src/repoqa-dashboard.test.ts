@@ -4,6 +4,8 @@ import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { RepoSymbol } from './repoqa-repos';
 import { parseJavaFile } from './repoqa-parser';
+import { parsePythonSource } from './languages/PythonAdapter';
+import { parseTypeScriptSource } from './languages/TypeScriptAdapter';
 import { extractConfigSymbols } from './repoqa-config';
 import {
   buildDashboard,
@@ -393,5 +395,79 @@ describe('buildDashboard — library repo with nothing to aggregate', () => {
     expect(dashboard.config.topology).toEqual([]);
     expect(dashboard.config.maskedValues).toBe(true);
     expect(dashboard.topApis).toEqual([]);
+  });
+});
+
+describe('buildDashboard — v0.5.1 polyglot consumption (D3/D5)', () => {
+  it('builds tech stack from TypeScript and Python dependency symbols', () => {
+    const symbols: RepoSymbol[] = [
+      {
+        repoId: 'repo-poly',
+        kind: 'dependency',
+        name: 'express',
+        filePath: 'package.json',
+        lineStart: 2
+      },
+      {
+        repoId: 'repo-poly',
+        kind: 'dependency',
+        name: 'fastapi',
+        filePath: 'pyproject.toml',
+        lineStart: 2
+      },
+      {
+        repoId: 'repo-poly',
+        kind: 'dependency',
+        name: 'sqlalchemy',
+        filePath: 'pyproject.toml',
+        lineStart: 3
+      }
+    ];
+    const dashboard = buildDashboard({ repoId: 'repo-poly', symbols });
+
+    const framework = dashboard.techStack.summary.find(
+      (entry) => entry.category === 'framework'
+    );
+    expect(framework?.items.map((item) => item.name)).toEqual(['express', 'fastapi']);
+    expect(dashboard.techStack.highlights).toContain('Express');
+    expect(dashboard.techStack.highlights).toContain('FastAPI');
+    expect(dashboard.techStack.highlights).toContain('SQLAlchemy');
+    expect(dashboard.scale.configKeys).toBe(0);
+  });
+
+  it('ranks standalone Express and FastAPI route symbols as top APIs', () => {
+    const ts = parseTypeScriptSource(
+      [
+        "import express from 'express';",
+        'const app = express();',
+        "app.get('/owners', getOwners);",
+        'function getOwners() { return []; }'
+      ].join('\n'),
+      'src/app.ts',
+      'repo-ts'
+    );
+    const tsDashboard = buildDashboard({ repoId: 'repo-ts', symbols: ts });
+    expect(tsDashboard.topApis[0]).toMatchObject({
+      name: 'GET /owners',
+      filePath: 'src/app.ts'
+    });
+    expect(tsDashboard.topApis[0].depth).toBe(2);
+
+    const py = parsePythonSource(
+      [
+        "from fastapi import FastAPI",
+        "app = FastAPI()",
+        "@app.get('/posts')",
+        'async def list_posts():',
+        '    return []'
+      ].join('\n'),
+      'src/api.py',
+      'repo-py'
+    );
+    const pyDashboard = buildDashboard({ repoId: 'repo-py', symbols: py });
+    expect(pyDashboard.topApis[0]).toMatchObject({
+      name: 'GET /posts',
+      filePath: 'src/api.py'
+    });
   });
 });

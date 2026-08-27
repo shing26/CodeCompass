@@ -5,8 +5,20 @@ import { parsePomModules } from './repoqa-parser';
 export const MAX_FILES = 3000;
 export const MAX_LINES = 500_000;
 
+/** v0.5.1 — source extensions whose SLOC counts toward the line budget. */
+export const SOURCE_EXTENSIONS = new Set([
+  '.java',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.py',
+  '.go'
+]);
+
 /** Issue 25: web-family files parsed by the TypeScript/JavaScript adapter. */
-export const WEB_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+export const WEB_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
 
 /** Issue 26: Go source files parsed by the Go adapter. */
 export const GO_FILE_EXTENSIONS = new Set(['.go']);
@@ -31,6 +43,12 @@ const IGNORED_DIRS = new Set([
   '.scratch',
   '.penguin',
   '.tmp',
+  '.pytest_cache',
+  '.ruff_cache',
+  '.reasonix',
+  '.opencode',
+  '.codex',
+  '.workbuddy',
   'venv',
   '__pycache__',
   'test-results',
@@ -165,6 +183,8 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
         return { fileCount, lineCount, files, xmlFileCount };
       }
 
+      const extension = path.extname(entry.name.toLowerCase());
+      if (!SOURCE_EXTENSIONS.has(extension)) continue;
       try {
         const content = await fs.readFile(filePath, 'utf8');
         lineCount += countLines(content);
@@ -178,6 +198,20 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
   }
 
   return { fileCount, lineCount, files, xmlFileCount };
+}
+
+/**
+ * v0.5.1 (D1) — suggest importable subdirectories when a whole repo trips the
+ * file/line budget. Only directories that actually exist at the repo root are
+ * returned, in canonical order: `src`, `packages`, `apps`.
+ */
+export async function detectSuggestedSubdirs(root: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const name of ['src', 'packages', 'apps']) {
+    const stat = await fs.stat(path.join(root, name)).catch(() => null);
+    if (stat?.isDirectory()) out.push(name);
+  }
+  return out;
 }
 
 export interface RepoPreviewStats {

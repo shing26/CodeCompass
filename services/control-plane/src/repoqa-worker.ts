@@ -7,11 +7,24 @@ import type {
   RepoQaTraceHop,
   ServerEvent
 } from '../../../packages/contracts/src/index';
-import { MAX_FILES, MAX_LINES, scanRepo, detectMavenModules, mavenSourceRoots } from './repoqa-scan';
+import {
+  MAX_FILES,
+  MAX_LINES,
+  scanRepo,
+  detectMavenModules,
+  detectSuggestedSubdirs,
+  mavenSourceRoots
+} from './repoqa-scan';
 import { adapterFor } from './repoqa-parser';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { extractMapperSymbols } from './repoqa-mapper';
-import { buildCallIndex, resolveCallChain, type SymbolIndex } from './repoqa-callchain';
+import {
+  buildCallIndex,
+  CallResolver,
+  resolveCallChain,
+  type ReverseCaller,
+  type SymbolIndex
+} from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
 import {
   capPrompt,
@@ -163,6 +176,59 @@ export class RepoQAWorker {
 
   invalidate(repoId: string): void {
     this.symbolCache.delete(repoId);
+  }
+
+  /**
+   * v0.5.1 (D8) — shared reverse-dependency lookup used by both the REST API
+   * and the MCP `codecompass_reverse_deps` tool.
+   */
+  reverseDeps(
+    repoId: string,
+    symbolOrMethod: string
+  ): {
+    repoId: string;
+    target: { name: string; file: string; line: number };
+    callers: Array<{ file: string; method: string; line: number; callLine: number | null }>;
+    count: number;
+    fallback: boolean;
+  } {
+    const repo = this.repoqa.getRepo(repoId);
+    if (!repo) throw new Error(`Repo not found: ${repoId}`);
+    const query = symbolOrMethod.trim();
+    if (!query) throw new Error('symbolName is required');
+    const resolution = this.resolveStartSymbolForQuery(repo.id, query);
+    if (!resolution) throw new Error(`Start symbol not found: ${query}`);
+    const graph = this.getSymbolGraph(repo.id);
+    const resolver = new CallResolver(graph.symbols, graph.index);
+    // v0.5.1 (D8) — "who uses likePost" spans every same-named production
+    // method (controller route + service impl). Aggregating their callers keeps
+    // the HTTP twin and the MCP tool useful when a query matches a service
+    // method while the browser caller targets the controller route.
+    const candidates = this.resolveExactMethodCandidates(repo.id, query);
+    const seen = new Map<string, ReverseCaller>();
+    for (const candidate of candidates) {
+      for (const caller of resolver.reverseCallers(candidate)) {
+        const key = `${caller.file}|${caller.method}|${caller.line}|${caller.callLine ?? ''}`;
+        seen.set(key, caller);
+      }
+    }
+    const callers = [...seen.values()].sort(
+      (a, b) =>
+        a.file.localeCompare(b.file) ||
+        a.line - b.line ||
+        a.method.localeCompare(b.method)
+    );
+    return {
+      repoId: repo.id,
+      target: {
+        name: resolution.symbol.name,
+        file: resolution.symbol.filePath,
+        line: resolution.symbol.lineStart ?? 1
+      },
+      callers,
+      count: callers.length,
+      fallback: resolution.fallback
+    };
   }
 
   private setSymbolGraph(repoId: string, symbols: RepoSymbol[]): void {
@@ -397,7 +463,16 @@ export class RepoQAWorker {
         type: 'repoqa.index.error',
         payload: { error: message }
       } as any);
-      return { repo: this.repoqa.getRepo(repoId)!, created: upsert.created };
+      const baseRepo = this.repoqa.getRepo(repoId)!;
+      const suggestedSubdirs =
+        /exceeds \d+ (files|lines)/.test(message)
+          ? await detectSuggestedSubdirs(localPath)
+          : [];
+      const repo =
+        suggestedSubdirs.length > 0
+          ? { ...baseRepo, suggestedSubdirs }
+          : baseRepo;
+      return { repo, created: upsert.created };
     } finally {
       this.running.delete(taskId);
     }
@@ -557,7 +632,9 @@ export class RepoQAWorker {
     } else if (input.mode === 'environment') {
       const configs = matchConfigSymbols(
         input.question,
-        symbols.filter((symbol) => symbol.kind === 'config')
+        symbols.filter(
+          (symbol) => symbol.kind === 'config' || symbol.kind === 'dependency'
+        )
       );
       const chunks = this.repoqa.searchChunks(repo.id, input.question);
       environmentKeyCount = configs.length;
@@ -667,6 +744,27 @@ export class RepoQAWorker {
 
   findStartSymbolForQuery(repoId: string, query: string): RepoSymbol | undefined {
     return this.resolveStartSymbolForQuery(repoId, query)?.symbol;
+  }
+
+  /**
+   * v0.5.1 (D8) — every production method matching the query name. Reverse
+   * lookups ("who uses likePost") and subgraph context treat these as caller
+   * roots so a browser caller targeting the controller route is not hidden by
+   * the same-named service method.
+   */
+  resolveExactMethodCandidates(repoId: string, query: string): RepoSymbol[] {
+    const { symbols } = this.getSymbolGraph(repoId);
+    const name = query.trim().toLowerCase();
+    const prod = symbols.filter(
+      (symbol) =>
+        symbol.kind === 'method' &&
+        symbol.name.toLowerCase() === name &&
+        !this.isTestPath(symbol.filePath)
+    );
+    if (prod.length > 0) return prod;
+    return symbols.filter(
+      (symbol) => symbol.kind === 'method' && symbol.name.toLowerCase() === name
+    );
   }
 
   /** Test paths (src/test, test/java) rarely carry the chain the user asked

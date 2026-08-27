@@ -95,6 +95,197 @@ export function scanPom(source: string): ScannedKey[] {
   return keys;
 }
 
+function dedupeKeys(keys: ScannedKey[]): ScannedKey[] {
+  const seen = new Set<string>();
+  const out: ScannedKey[] = [];
+  for (const key of keys) {
+    const id = `${key.name}:${key.lineStart}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(key);
+  }
+  return out;
+}
+
+/** v0.5.1 (D3) — `package.json` dependency names with line numbers. */
+export function scanPackageJson(source: string): ScannedKey[] {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(source) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+  const keys: ScannedKey[] = [];
+  const seen = new Set<string>();
+  for (const section of [
+    'dependencies',
+    'devDependencies',
+    'peerDependencies',
+    'optionalDependencies'
+  ]) {
+    const deps = parsed[section];
+    if (!deps || typeof deps !== 'object') continue;
+    const marker = `"${section}"`;
+    const sectionOffset = source.indexOf(marker);
+    if (sectionOffset < 0) continue;
+    for (const name of Object.keys(deps as Record<string, unknown>)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const offset = source.indexOf(`"${name}"`, sectionOffset);
+      keys.push({ name, lineStart: offset >= 0 ? lineAt(source, offset) ?? 1 : 1 });
+    }
+  }
+  return keys;
+}
+
+/** v0.5.1 (D3) — pyproject.toml dependency names (PEP 621 + Poetry + groups). */
+export function scanPyprojectToml(source: string): ScannedKey[] {
+  const keys: ScannedKey[] = [];
+  const lines = source.split(/\r?\n/);
+  let section = '';
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    const sectionMatch = /^\s*\[([^\]]+)\]/.exec(line);
+    if (sectionMatch) {
+      section = sectionMatch[1].trim();
+      continue;
+    }
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const relevant =
+      section === 'project' ||
+      section === 'tool.poetry.dependencies' ||
+      section === 'dependency-groups' ||
+      section.startsWith('project.optional-dependencies') ||
+      section.startsWith('tool.poetry.group');
+    if (!relevant) continue;
+
+    if (section === 'project') {
+      if (/^dependencies\s*=/.test(trimmed)) {
+        for (let scan = index; scan < lines.length; scan += 1) {
+          for (const match of lines[scan].matchAll(/"([^"]+)"/g)) {
+            const name = match[1].split(/[<>=!~;[]/)[0].trim();
+            if (name) keys.push({ name, lineStart: scan + 1 });
+          }
+          if (lines[scan].includes(']')) break;
+        }
+      }
+      continue;
+    }
+    if (section === 'tool.poetry.dependencies') {
+      const match = /^"?([A-Za-z0-9_.-]+)"?\s*=\s*/.exec(trimmed);
+      if (match && match[1] !== 'python') {
+        keys.push({ name: match[1], lineStart: index + 1 });
+      }
+      continue;
+    }
+    for (const match of trimmed.matchAll(/"([^"]+)"/g)) {
+      const name = match[1].split(/[<>=!~;[]/)[0].trim();
+      if (name) keys.push({ name, lineStart: index + 1 });
+    }
+  }
+  return dedupeKeys(keys);
+}
+
+/** v0.5.1 (D3) — requirements.txt package names (versions/extras stripped). */
+export function scanRequirements(source: string): ScannedKey[] {
+  const keys: ScannedKey[] = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('-')) return;
+    const name = trimmed.split(/[[<>=!~;]/)[0].trim();
+    if (/^[A-Za-z0-9_.-]+$/.test(name)) {
+      keys.push({ name, lineStart: index + 1 });
+    }
+  });
+  return keys;
+}
+
+/** v0.5.1 (D3) — Pipfile `[packages]` / `[dev-packages]` keys. */
+export function scanPipfile(source: string): ScannedKey[] {
+  const keys: ScannedKey[] = [];
+  let inPackages = false;
+  source.split(/\r?\n/).forEach((line, index) => {
+    const section = /^\s*\[([^\]]+)\]/.exec(line)?.[1]?.trim();
+    if (section === 'packages' || section === 'dev-packages') {
+      inPackages = true;
+      return;
+    }
+    if (section) {
+      inPackages = false;
+      return;
+    }
+    if (!inPackages) return;
+    const match = /^"?([A-Za-z0-9_.-]+)"?\s*=\s*/.exec(line.trim());
+    if (match && match[1] !== 'python_version') {
+      keys.push({ name: match[1], lineStart: index + 1 });
+    }
+  });
+  return keys;
+}
+
+/** v0.5.1 (D4) — `.env` key names only; values are never scanned. */
+export function scanEnv(source: string): ScannedKey[] {
+  const keys: ScannedKey[] = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const body = trimmed.startsWith('export ') ? trimmed.slice('export '.length) : trimmed;
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(body);
+    if (match) keys.push({ name: match[1], lineStart: index + 1 });
+  });
+  return keys;
+}
+
+/** v0.5.1 (D4) — `settings.py` / `config.py` top-level assignment keys. */
+export function scanPythonSourceConfig(source: string): ScannedKey[] {
+  const keys: ScannedKey[] = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith('#') ||
+      trimmed.startsWith('import ') ||
+      trimmed.startsWith('from ') ||
+      /\b(?:def|class)\s+/.test(trimmed)
+    ) {
+      return;
+    }
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(trimmed);
+    if (match) keys.push({ name: match[1], lineStart: index + 1 });
+  });
+  return keys;
+}
+
+/** v0.5.1 (D4) — `config.ts` top-level exported assignment keys. */
+export function scanTypeScriptConfig(source: string): ScannedKey[] {
+  const keys: ScannedKey[] = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    const trimmed = line.trim();
+    const match =
+      /^export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(trimmed) ??
+      /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(trimmed);
+    if (match) keys.push({ name: match[1], lineStart: index + 1 });
+  });
+  return keys;
+}
+
+/** v0.5.1 (D4) — `appsettings.json` top-level property names. */
+export function scanAppSettingsJson(source: string): ScannedKey[] {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(source) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+  const keys: ScannedKey[] = [];
+  for (const name of Object.keys(parsed)) {
+    const offset = source.indexOf(`"${name}"`);
+    keys.push({ name, lineStart: offset >= 0 ? lineAt(source, offset) ?? 1 : 1 });
+  }
+  return keys;
+}
+
 const INTENT_RULES: Array<{ triggers: string[]; keyTerms: string[] }> = [
   {
     triggers: ['端口', 'port'],
@@ -166,7 +357,19 @@ export async function extractConfigSymbols(
       fileName.startsWith('application') &&
       (/\.ya?ml$/.test(fileName) || fileName.endsWith('.properties'));
     const isPom = fileName === 'pom.xml';
-    if (!isApplication && !isPom) continue;
+    const isPackageJson = fileName === 'package.json';
+    const isPyproject = fileName === 'pyproject.toml';
+    const isRequirements = /^requirements.*\.txt$/.test(fileName);
+    const isPipfile = fileName === 'pipfile';
+    const isEnv = /^\.env(?:\.example)?$/.test(fileName);
+    const isPythonConfig = fileName === 'settings.py' || fileName === 'config.py';
+    const isTsConfig = fileName === 'config.ts';
+    const isAppSettings = fileName === 'appsettings.json';
+    const isDependencyFile =
+      isPom || isPackageJson || isPyproject || isRequirements || isPipfile;
+    const isConfigFile =
+      isApplication || isEnv || isPythonConfig || isTsConfig || isAppSettings;
+    if (!isDependencyFile && !isConfigFile) continue;
 
     let source: string;
     try {
@@ -175,16 +378,32 @@ export async function extractConfigSymbols(
       continue;
     }
     const relativePath = path.relative(root, filePath).split(path.sep).join('/');
-    const scanned = isPom
-      ? scanPom(source)
-      : /\.ya?ml$/.test(fileName)
-        ? scanYaml(source)
-        : scanProperties(source);
+    const scanned = isDependencyFile
+      ? isPom
+        ? scanPom(source)
+        : isPackageJson
+          ? scanPackageJson(source)
+          : isPyproject
+            ? scanPyprojectToml(source)
+            : isRequirements
+              ? scanRequirements(source)
+              : scanPipfile(source)
+      : isApplication
+        ? /\.ya?ml$/.test(fileName)
+          ? scanYaml(source)
+          : scanProperties(source)
+        : isEnv
+          ? scanEnv(source)
+          : isPythonConfig
+            ? scanPythonSourceConfig(source)
+            : isTsConfig
+              ? scanTypeScriptConfig(source)
+              : scanAppSettingsJson(source);
 
     for (const key of scanned) {
       symbols.push({
         repoId,
-        kind: 'config',
+        kind: isDependencyFile ? 'dependency' : 'config',
         name: key.name,
         filePath: relativePath,
         lineStart: key.lineStart,

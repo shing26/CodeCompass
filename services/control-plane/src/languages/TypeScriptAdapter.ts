@@ -17,7 +17,7 @@ import type { LanguageAdapter } from './LanguageAdapter';
  * comment/string-masked view of the source with the same line numbers.
  */
 
-const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
+const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
 const EXPRESS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'all', 'use']);
 const AXIOS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch']);
 const HTTP_VERB_ANNOTATIONS = new Set([
@@ -77,6 +77,67 @@ function firstStringArg(node: SyntaxNode, source: string): string | undefined {
     child = child.nextSibling;
   }
   return undefined;
+}
+
+function firstArgumentNode(node: SyntaxNode): SyntaxNode | undefined {
+  const argList = node.getChild('ArgList');
+  if (!argList) return undefined;
+  let child = argList.firstChild;
+  while (child) {
+    if (child.name !== '(' && child.name !== ')' && child.name !== ',') return child;
+    child = child.nextSibling;
+  }
+  return undefined;
+}
+
+/** Turn a string/template/concatenation expression into a path pattern. */
+function dynamicPathPattern(node: SyntaxNode | undefined, source: string): string | undefined {
+  if (!node) return undefined;
+  if (node.name === 'String') return unquote(textOf(node, source));
+  const raw = textOf(node, source);
+  const tokens =
+    raw.match(
+      /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+|\d+|[A-Za-z_$][\w$]*/g
+    ) ?? [];
+  if (tokens.length === 0) return undefined;
+  const joined = tokens
+    .map((token) => {
+      if (
+        (token.startsWith('"') && token.endsWith('"')) ||
+        (token.startsWith("'") && token.endsWith("'"))
+      ) {
+        return unquote(token);
+      }
+      if (token.startsWith('`') && token.endsWith('`')) {
+        return token
+          .slice(1, -1)
+          .replace(/\$\{([^}]*)\}/g, (_, expression: string) => {
+            const name = /[A-Za-z_$][\w$]*/.exec(expression.trim())?.[0] ?? 'id';
+            return `{${name}}`;
+          });
+      }
+      if (/^\d+$/.test(token)) return '{id}';
+      if (token.includes('.')) {
+        const property = token.split('.').pop();
+        return property ? `{${property}}` : '{id}';
+      }
+      return `{${token}}`;
+    })
+    .join('');
+  return joined || undefined;
+}
+
+function requestMethod(node: SyntaxNode, source: string): string | undefined {
+  const args = argumentNodes(node);
+  const options = args[1];
+  if (!options) return undefined;
+  const match = /method\s*:\s*["']([A-Za-z]+)["']/.exec(textOf(options, source));
+  return match?.[1].toUpperCase();
+}
+
+function joinHttpUrl(baseUrl: string | undefined, path: string): string {
+  if (!baseUrl || /^https?:\/\//i.test(path)) return path;
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
 /** Non-punctuation arguments of a call expression. */
@@ -245,29 +306,46 @@ function callShape(node: SyntaxNode, source: string): CallShape {
   return {};
 }
 
-/** `fetch('/api/x')` / `axios.get('/api/x')` → HTTP call descriptor. */
+interface HttpClientRecord {
+  baseURL?: string;
+}
+
+/** `fetch('/api/x')` / `axios.get('/api/x')` / `apiClient.post(...)` → HTTP call descriptor. */
 function httpCallDescriptor(
   shape: CallShape,
   node: SyntaxNode,
   source: string,
   scope: MethodScope | undefined,
-  typeStack: TypeRecord[]
+  typeStack: TypeRecord[],
+  httpClients: Map<string, HttpClientRecord>
 ): { method: string; url: string } | undefined {
-  const firstArg = firstStringArg(node, source);
-  if (!firstArg) return undefined;
+  const path = dynamicPathPattern(firstArgumentNode(node), source);
+  if (!path) return undefined;
 
   if (shape.bareName === 'fetch') {
-    return { method: 'GET', url: firstArg };
+    return { method: 'GET', url: path };
   }
   if (shape.property === 'fetch' && (shape.base === 'window' || shape.base === 'globalThis')) {
-    return { method: 'GET', url: firstArg };
+    return { method: 'GET', url: path };
   }
-  if (!shape.property || !AXIOS_METHODS.has(shape.property.toLowerCase())) return undefined;
+  if (!shape.property) return undefined;
+  const property = shape.property.toLowerCase();
+  const base = shape.base ?? '';
+  const client = httpClients.get(base);
   const isAxiosClient =
-    shape.base === 'axios' ||
-    /Axios/.test(receiverTypeOf(shape.base, scope, typeStack) ?? '');
+    base === 'axios' ||
+    client !== undefined ||
+    /Axios/.test(receiverTypeOf(base, scope, typeStack) ?? '') ||
+    /^(api|http|client|request|fetcher)/i.test(base) ||
+    /(Client|Api|Http)$/i.test(base);
   if (!isAxiosClient) return undefined;
-  return { method: shape.property.toUpperCase(), url: firstArg };
+  if (property === 'request') {
+    const method = requestMethod(node, source);
+    if (!method) return undefined;
+    return { method, url: joinHttpUrl(client?.baseURL, path) };
+  }
+  if (!AXIOS_METHODS.has(property)) return undefined;
+  return { method: property.toUpperCase(), url: joinHttpUrl(client?.baseURL, path) };
 }
 
 /** Mask string literals and comments with same-length spaces (offsets stable). */
@@ -354,6 +432,7 @@ export function parseTypeScriptSource(
   const methodStack: RepoSymbol[] = [];
   const scopeStack: MethodScope[] = [];
   const moduleArrowPushed: boolean[] = [];
+  const httpClients = new Map<string, HttpClientRecord>();
   // The JS grammar parses a leading decorator as a bogus nameless
   // ClassDeclaration; carry its decorators forward to the real declaration.
   let pendingClassDecorators: Array<{ name: string; value?: string }> = [];
@@ -483,10 +562,20 @@ export function parseTypeScriptSource(
       }
 
       if (node.name === 'VariableDeclaration') {
-        const isModuleScope = typeStack.length === 0 && methodStack.length === 0;
-        const arrow = node.getChild('ArrowFunction');
+        const fn =
+          node.getChild('ArrowFunction') ?? node.getChild('FunctionExpression');
         const def = node.getChildren('VariableDefinition')[0];
-        if (isModuleScope && arrow && def) {
+        const initCall = node.getChild('CallExpression');
+        if (def && initCall) {
+          const initShape = callShape(initCall, source);
+          if (initShape.base === 'axios' && initShape.property === 'create') {
+            const baseURL = /baseURL\s*:\s*["']([^"']+)["']/.exec(
+              textOf(initCall, source)
+            )?.[1];
+            httpClients.set(textOf(def, source), { baseURL });
+          }
+        }
+        if (fn && def) {
           const name = textOf(def, source);
           const symbol: RepoSymbol = {
             repoId,
@@ -500,7 +589,7 @@ export function parseTypeScriptSource(
           };
           symbols.push(symbol);
           methodStack.push(symbol);
-          scopeStack.push(collectParams(arrow, source));
+          scopeStack.push(collectParams(fn, source));
           moduleArrowPushed.push(true);
         } else {
           moduleArrowPushed.push(false);
@@ -552,7 +641,7 @@ export function parseTypeScriptSource(
         if (methodStack.length === 0) return;
         const current = methodStack[methodStack.length - 1];
         const scope = scopeStack[scopeStack.length - 1];
-        const http = httpCallDescriptor(shape, node, source, scope, typeStack);
+        const http = httpCallDescriptor(shape, node, source, scope, typeStack, httpClients);
 
         if (http) {
           const call: RepoSymbolCall = {

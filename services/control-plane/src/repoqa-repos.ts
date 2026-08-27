@@ -16,6 +16,8 @@ export interface Repo {
   /** Live AST parsing progress while status is `indexing`. */
   indexParsed?: number;
   indexTotal?: number;
+  /** v0.5.1 (D1): candidate import roots when the repo trips a size limit. */
+  suggestedSubdirs?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -51,7 +53,8 @@ export interface RepoSymbol {
     | 'config'
     | 'field'
     | 'mapper'
-    | 'sql';
+    | 'sql'
+    | 'dependency';
   name: string;
   filePath: string;
   lineStart?: number;

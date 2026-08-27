@@ -41,6 +41,25 @@ export interface HttpDeps {
 
 const ACTIONS: TaskAction[] = ['pause', 'resume', 'cancel', 'approve', 'reject'];
 
+const SYMBOL_TYPE_BY_KIND: Record<string, string> = {
+  class: 'CLASS',
+  interface: 'INTERFACE',
+  method: 'FUNCTION',
+  route: 'ROUTE',
+  service: 'SERVICE',
+  repository: 'REPOSITORY',
+  advice: 'ADVICE',
+  config: 'CONFIG',
+  field: 'FIELD',
+  mapper: 'MAPPER',
+  sql: 'SQL',
+  dependency: 'DEPENDENCY'
+};
+
+function symbolTypeOf(kind: string): string {
+  return SYMBOL_TYPE_BY_KIND[kind] ?? 'UNKNOWN';
+}
+
 export function createHttpApp(deps: HttpDeps): express.Express {
   const app = express();
 
@@ -241,7 +260,32 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       typeof req.query.kind === 'string' && req.query.kind !== ''
         ? req.query.kind
         : undefined;
-    res.json({ symbols: deps.repoqa.listSymbols(repo.id, kind) });
+    const symbols = deps.repoqa.listSymbols(repo.id, kind).map((symbol) => ({
+      ...symbol,
+      symbolType: symbolTypeOf(symbol.kind)
+    }));
+    res.json({ symbols });
+  });
+
+  // v0.5.1 (D8): HTTP twin of MCP `codecompass_reverse_deps`.
+  app.get('/api/repos/:id/reverse-deps', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const symbolName =
+      typeof req.query.symbolName === 'string' ? req.query.symbolName.trim() : '';
+    if (!symbolName) {
+      res.status(400).json({ error: 'symbolName query parameter is required' });
+      return;
+    }
+    try {
+      res.json(deps.worker.reverseDeps(repo.id, symbolName));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(400).json({ error: message });
+    }
   });
 
   // Issue 11: AST-heuristic onboarding tours. Deterministic, no LLM involved.
@@ -313,6 +357,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       const context = await extractSubgraphContext(graph.symbols, resolution.symbol, {
         root: repo.localPath,
         index: graph.index,
+        callerRoots: deps.worker.resolveExactMethodCandidates(repo.id, query),
         ...(maxTokens === undefined ? {} : { maxTokens })
       });
       res.json({ context: maskEventPayload(context) });

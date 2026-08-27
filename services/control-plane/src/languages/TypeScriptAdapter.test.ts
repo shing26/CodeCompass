@@ -7,6 +7,7 @@ describe('TypeScriptAdapter — symbol extraction (Issue 25)', () => {
     expect(TypeScriptAdapter.canParse('src/app.tsx')).toBe(true);
     expect(TypeScriptAdapter.canParse('src/app.js')).toBe(true);
     expect(TypeScriptAdapter.canParse('src/app.jsx')).toBe(true);
+    expect(TypeScriptAdapter.canParse('src/app.mjs')).toBe(true);
     expect(TypeScriptAdapter.canParse('src/app.java')).toBe(false);
 
     const source = `
@@ -137,5 +138,78 @@ export async function loadPets() {
       dynamic: true,
       http: { method: 'GET', url: '/api/pets' }
     });
+  });
+
+  it('extracts apiClient aliases and dynamic path expressions (v0.5.1 D8)', () => {
+    const source = `
+import axios from 'axios';
+export const apiClient = axios.create({ baseURL: '/api/v1' });
+export async function likePost(id: string) {
+  await apiClient.post('/posts/' + id + '/like');
+}
+export async function fetchDetail(id: string) {
+  await apiClient.request('/posts/' + id, { method: 'DELETE' });
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/api.ts', 'repo');
+    const like = symbols.find((symbol) => symbol.name === 'likePost');
+    expect(like?.calls?.[0]?.http).toEqual({
+      method: 'POST',
+      url: '/api/v1/posts/{id}/like'
+    });
+    const detail = symbols.find((symbol) => symbol.name === 'fetchDetail');
+    expect(detail?.calls?.[0]?.http).toEqual({
+      method: 'DELETE',
+      url: '/api/v1/posts/{id}'
+    });
+  });
+
+  it('treats imported http client aliases as HTTP calls even without baseURL', () => {
+    const source = `
+export async function likePost(id: string) {
+  await apiClient.post('/posts/' + id + '/like');
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/PostDetailPage.tsx', 'repo');
+    const like = symbols.find((symbol) => symbol.name === 'likePost');
+    expect(like?.calls?.[0]?.http).toEqual({
+      method: 'POST',
+      url: '/posts/{id}/like'
+    });
+  });
+
+  it('promotes nested arrow handlers inside components to traceable methods (v0.5.1 D8)', () => {
+    const source = `
+export default function PostDetailPage() {
+  const handleLike = async () => {
+    await apiClient.post('/posts/' + id + '/like');
+  };
+  const handleDelete = function () {
+    return apiClient.delete('/posts/' + post.id);
+  };
+  return null;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/PostDetailPage.tsx', 'repo');
+
+    const handleLike = symbols.find((symbol) => symbol.name === 'handleLike');
+    expect(handleLike).toBeDefined();
+    expect(handleLike?.kind).toBe('method');
+    expect(handleLike?.calls?.[0]?.http).toEqual({
+      method: 'POST',
+      url: '/posts/{id}/like'
+    });
+
+    const handleDelete = symbols.find((symbol) => symbol.name === 'handleDelete');
+    expect(handleDelete).toBeDefined();
+    expect(handleDelete?.calls?.[0]?.http).toEqual({
+      method: 'DELETE',
+      url: '/posts/{id}'
+    });
+
+    const component = symbols.find((symbol) => symbol.name === 'PostDetailPage');
+    expect(component?.calls ?? []).not.toContainEqual(
+      expect.objectContaining({ http: { method: 'POST', url: '/posts/{id}/like' } })
+    );
   });
 });

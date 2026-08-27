@@ -6,8 +6,16 @@ import type { RepoSymbol } from './repoqa-repos';
 import {
   extractConfigSymbols,
   matchConfigSymbols,
+  scanAppSettingsJson,
+  scanEnv,
+  scanPackageJson,
+  scanPipfile,
+  scanPyprojectToml,
+  scanPythonSourceConfig,
   scanPom,
   scanProperties,
+  scanRequirements,
+  scanTypeScriptConfig,
   scanYaml
 } from './repoqa-config';
 
@@ -142,7 +150,8 @@ describe('extractConfigSymbols — repo wiring', () => {
       const symbols = await extractConfigSymbols('r', root, files);
       const byName = (name: string) => symbols.find((symbol) => symbol.name === name);
 
-      expect(symbols.every((symbol) => symbol.kind === 'config')).toBe(true);
+      expect(symbols.filter((symbol) => symbol.kind === 'config').length).toBe(3);
+      expect(symbols.filter((symbol) => symbol.kind === 'dependency').length).toBe(1);
       expect(byName('server.port')).toMatchObject({
         filePath: 'src/main/resources/application.yml',
         lineStart: 2
@@ -155,8 +164,108 @@ describe('extractConfigSymbols — repo wiring', () => {
         filePath: 'src/main/resources/application.properties',
         lineStart: 1
       });
-      expect(byName('com.demo:lib')).toMatchObject({ filePath: 'pom.xml', lineStart: 5 });
+      expect(byName('com.demo:lib')).toMatchObject({
+        kind: 'dependency',
+        filePath: 'pom.xml',
+        lineStart: 5
+      });
       expect(symbols.some((symbol) => symbol.filePath === 'README.md')).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('v0.5.1 — polyglot dependency and config key scanners', () => {
+  it('scans package.json dependency names with line numbers', () => {
+    const source = [
+      '{',
+      '  "name": "demo",',
+      '  "dependencies": {',
+      '    "express": "^4.18.0",',
+      '    "react": "^18.0.0"',
+      '  },',
+      '  "devDependencies": {',
+      '    "vite": "^5.0.0"',
+      '  }',
+      '}'
+    ].join('\n');
+    expect(scanPackageJson(source)).toEqual([
+      { name: 'express', lineStart: 4 },
+      { name: 'react', lineStart: 5 },
+      { name: 'vite', lineStart: 8 }
+    ]);
+  });
+
+  it('scans pyproject.toml, requirements.txt and Pipfile dependencies', () => {
+    const pyproject = [
+      '[project]',
+      'name = "demo"',
+      'dependencies = [',
+      '  "fastapi>=0.115.0",',
+      '  "pydantic-settings>=2.0.0"',
+      ']',
+      '',
+      '[project.optional-dependencies]',
+      'dev = ["pytest>=8.0.0"]',
+      '',
+      '[tool.poetry.dependencies]',
+      'requests = "^2.31.0"'
+    ].join('\n');
+    expect(scanPyprojectToml(pyproject).map((key) => key.name)).toEqual([
+      'fastapi',
+      'pydantic-settings',
+      'pytest',
+      'requests'
+    ]);
+
+    expect(scanRequirements('fastapi>=0.111\npytest[asyncio]>=8.0\n# comment\n')).toEqual([
+      { name: 'fastapi', lineStart: 1 },
+      { name: 'pytest', lineStart: 2 }
+    ]);
+    expect(scanPipfile('[packages]\nfastapi = ">=0.111"\n[dev-packages]\npytest = "*"\n')).toEqual([
+      { name: 'fastapi', lineStart: 2 },
+      { name: 'pytest', lineStart: 4 }
+    ]);
+  });
+
+  it('scans .env, settings.py, config.ts and appsettings.json keys without values', () => {
+    expect(scanEnv('OPENAI_API_KEY=sk-secret\nPORT=8080\n# comment\n')).toEqual([
+      { name: 'OPENAI_API_KEY', lineStart: 1 },
+      { name: 'PORT', lineStart: 2 }
+    ]);
+    expect(scanPythonSourceConfig('DEBUG = True\nDATABASE_URL = "postgres://x"\n')).toEqual([
+      { name: 'DEBUG', lineStart: 1 },
+      { name: 'DATABASE_URL', lineStart: 2 }
+    ]);
+    expect(scanTypeScriptConfig('export const PORT = 8080;\nconst NODE_ENV = "dev";\n')).toEqual([
+      { name: 'PORT', lineStart: 1 },
+      { name: 'NODE_ENV', lineStart: 2 }
+    ]);
+    expect(scanAppSettingsJson('{\n  "Logging": {},\n  "ConnectionStrings": {}\n}\n')).toEqual([
+      { name: 'Logging', lineStart: 2 },
+      { name: 'ConnectionStrings', lineStart: 3 }
+    ]);
+  });
+
+  it('extracts dependency symbols from package.json and pyproject.toml', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-poly-config-'));
+    try {
+      await fs.writeFile(
+        path.join(root, 'package.json'),
+        '{\n  "dependencies": { "express": "^4.18.0" }\n}\n'
+      );
+      await fs.writeFile(
+        path.join(root, 'pyproject.toml'),
+        '[project]\ndependencies = ["fastapi>=0.111"]\n'
+      );
+      const files = [
+        path.join(root, 'package.json'),
+        path.join(root, 'pyproject.toml')
+      ];
+      const symbols = await extractConfigSymbols('r', root, files);
+      expect(symbols.map((symbol) => symbol.kind)).toEqual(['dependency', 'dependency']);
+      expect(symbols.map((symbol) => symbol.name)).toEqual(['express', 'fastapi']);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

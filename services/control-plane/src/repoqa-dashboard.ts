@@ -102,14 +102,14 @@ export interface BuildDashboardOptions {
 const CATEGORY_RULES: Array<{ category: TechCategory; label: string; re: RegExp }> = [
   // Order matters: security before framework (starter-security contains spring-boot),
   // orm/database/cache before framework (spring-data-* / starter-data-*).
-  { category: 'security', label: 'Security', re: /security|shiro|\bjwt\b|jjwt/ },
-  { category: 'database', label: 'Database', re: /mysql|postgres|mariadb|sqlserver|oracle|sqlite|h2|mongodb|mongo-driver|\bjdbc\b/ },
-  { category: 'orm', label: 'ORM', re: /mybatis|data-jpa|spring-data|hibernate/ },
+  { category: 'security', label: 'Security', re: /security|shiro|\bjwt\b|jjwt|oauth|helmet|passport|authlib/ },
+  { category: 'database', label: 'Database', re: /mysql|postgres|mariadb|sqlserver|oracle|sqlite|h2|mongodb|mongo-driver|psycopg|pymysql|aiomysql|asyncpg|pymongo|\bmotor\b|\bjdbc\b/ },
+  { category: 'orm', label: 'ORM', re: /mybatis|data-jpa|spring-data|hibernate|sqlalchemy|sqlmodel|typeorm|prisma|sequelize/ },
   { category: 'cache', label: 'Cache', re: /redis|caffeine|ehcache|hazelcast/ },
-  { category: 'observability', label: 'Observability', re: /actuator|micrometer|prometheus|sleuth|zipkin|loki/ },
-  { category: 'test', label: 'Test', re: /junit|mockito|assertj|testcontainers/ },
-  { category: 'http', label: 'HTTP Client', re: /openfeign|\bfeign\b|resttemplate|webflux|okhttp|retrofit|httpclient/ },
-  { category: 'framework', label: 'Framework', re: /spring-boot|spring-cloud|^org\.springframework:|jakarta|^javax\.|quarkus|micronaut|vertx/ },
+  { category: 'observability', label: 'Observability', re: /actuator|micrometer|prometheus|sleuth|zipkin|loki|opentelemetry|sentry|winston|pino|loguru/ },
+  { category: 'test', label: 'Test', re: /junit|mockito|assertj|testcontainers|pytest|jest|vitest|playwright|mocha|cypress|supertest/ },
+  { category: 'http', label: 'HTTP Client', re: /openfeign|\bfeign\b|resttemplate|webflux|okhttp|retrofit|httpclient|axios|httpx|requests|urllib3|aiohttp/ },
+  { category: 'framework', label: 'Framework', re: /react|vue|angular|svelte|express|fastify|@nestjs|next|nuxt|vite|fastapi|flask|django|starlette|uvicorn|pydantic|tornado|gunicorn|spring-boot|spring-cloud|^org\.springframework:|jakarta|^javax\.|quarkus|micronaut|vertx/ },
   { category: 'other', label: 'Other', re: /./
   }
 ];
@@ -127,6 +127,16 @@ export function classifyDependency(name: string): TechCategory {
 
 const HIGHLIGHT_KEYWORDS: Record<TechCategory, Array<{ re: RegExp; label: string }>> = {
   framework: [
+    { re: /react/, label: 'React' },
+    { re: /vue/, label: 'Vue' },
+    { re: /express/, label: 'Express' },
+    { re: /@nestjs/, label: 'NestJS' },
+    { re: /^next$|^next\//, label: 'Next.js' },
+    { re: /vite/, label: 'Vite' },
+    { re: /fastapi/, label: 'FastAPI' },
+    { re: /flask/, label: 'Flask' },
+    { re: /django/, label: 'Django' },
+    { re: /pydantic/, label: 'Pydantic' },
     { re: /spring-boot/, label: 'Spring Boot' },
     { re: /spring-cloud/, label: 'Spring Cloud' },
     { re: /^org\.springframework:/, label: 'Spring Framework' },
@@ -139,6 +149,9 @@ const HIGHLIGHT_KEYWORDS: Record<TechCategory, Array<{ re: RegExp; label: string
     { re: /\bjwt\b|jjwt|java-jwt/, label: 'JWT' }
   ],
   orm: [
+    { re: /sqlalchemy/, label: 'SQLAlchemy' },
+    { re: /typeorm/, label: 'TypeORM' },
+    { re: /prisma/, label: 'Prisma' },
     { re: /mybatis/, label: 'MyBatis' },
     { re: /data-jpa|\bspring-data\b/, label: 'Spring Data JPA' },
     { re: /hibernate/, label: 'Hibernate' }
@@ -168,6 +181,8 @@ const HIGHLIGHT_KEYWORDS: Record<TechCategory, Array<{ re: RegExp; label: string
     { re: /testcontainers/, label: 'Testcontainers' }
   ],
   http: [
+    { re: /axios/, label: 'Axios' },
+    { re: /httpx/, label: 'HTTPX' },
     { re: /openfeign|\bfeign\b/, label: 'OpenFeign' },
     { re: /webflux/, label: 'WebFlux' },
     { re: /okhttp/, label: 'OkHttp' },
@@ -236,21 +251,40 @@ function routeClasses(symbols: RepoSymbol[]): RepoSymbol[] {
   return symbols.filter((symbol) => symbol.kind === 'route').sort(byLocation);
 }
 
-/** Methods declared inside @RestController classes, sorted by source location. */
-function routeMethods(symbols: RepoSymbol[]): RepoSymbol[] {
+/**
+ * v0.5.1 (D5) — API entry candidates across languages: standalone route
+ * symbols with handler edges (Express / FastAPI / Flask) plus methods declared
+ * inside route classes (Spring / NestJS). Deduplicated by source location.
+ */
+function apiEntryCandidates(symbols: RepoSymbol[]): RepoSymbol[] {
   const routeNames = new Set(routeClasses(symbols).map((symbol) => symbol.name));
-  return symbols
-    .filter(
-      (symbol) => symbol.kind === 'method' && symbol.parentType && routeNames.has(symbol.parentType)
-    )
-    .sort(byLocation);
+  const standalone = symbols.filter(
+    (symbol) =>
+      symbol.kind === 'route' &&
+      ((symbol.calls?.length ?? 0) > 0 ||
+        (/\.(ts|tsx|js|jsx|mjs)$/i.test(symbol.filePath) &&
+          /^(GET|POST|PUT|DELETE|PATCH|ALL|USE)\s+/.test(symbol.name)))
+  );
+  const methods = symbols.filter(
+    (symbol) =>
+      symbol.kind === 'method' && symbol.parentType && routeNames.has(symbol.parentType)
+  );
+  const seen = new Set<string>();
+  const out: RepoSymbol[] = [];
+  for (const symbol of [...standalone, ...methods]) {
+    const id = `${symbol.filePath}:${symbol.lineStart ?? 0}:${symbol.name}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(symbol);
+  }
+  return out.sort(byLocation);
 }
 
 function resolvedDepth(trace: RepoQaTraceHop[]): number {
   return trace.filter((hop) => !hop.break).length;
 }
 
-/** Top @RestController endpoints ranked by static call-chain depth, ties by source order. */
+/** Top API endpoints ranked by static call-chain depth, ties by source order. */
 export function pickTopApis(
   symbols: RepoSymbol[],
   maxDepth: number,
@@ -258,13 +292,13 @@ export function pickTopApis(
 ): TopApiEntry[] {
   const limit = Math.max(1, Math.min(topLimit, 100));
   const entries: TopApiEntry[] = [];
-  for (const method of routeMethods(symbols)) {
-    const trace = resolveCallChain(symbols, method, maxDepth);
+  for (const candidate of apiEntryCandidates(symbols)) {
+    const trace = resolveCallChain(symbols, candidate, maxDepth);
     entries.push({
-      name: method.name,
-      controller: method.parentType ?? '',
-      filePath: method.filePath,
-      lineStart: method.lineStart ?? 0,
+      name: candidate.name,
+      controller: candidate.parentType ?? '',
+      filePath: candidate.filePath,
+      lineStart: candidate.lineStart ?? 0,
       depth: resolvedDepth(trace),
       hops: trace.map((hop) => hop.method)
     });
@@ -278,9 +312,19 @@ export function pickTopApis(
   return entries.slice(0, limit);
 }
 
+function sourceOnlyLabel(symbols: RepoSymbol[]): string | undefined {
+  if (symbols.some((symbol) => symbol.filePath.endsWith('.java'))) return 'Java';
+  if (symbols.some((symbol) => /\.(ts|tsx|js|jsx|mjs)$/.test(symbol.filePath))) {
+    return 'TypeScript';
+  }
+  if (symbols.some((symbol) => symbol.filePath.endsWith('.py'))) return 'Python';
+  if (symbols.some((symbol) => symbol.filePath.endsWith('.go'))) return 'Go';
+  return undefined;
+}
+
 function buildTechStack(symbols: RepoSymbol[]): RepoDashboard['techStack'] {
   const items: TechStackItem[] = symbols
-    .filter((symbol) => symbol.kind === 'config' && symbol.name.includes(':'))
+    .filter((symbol) => symbol.kind === 'dependency')
     .sort(byLocation)
     .map((symbol) => ({
       name: symbol.name,
@@ -295,23 +339,32 @@ function buildTechStack(symbols: RepoSymbol[]): RepoDashboard['techStack'] {
     const label = CATEGORY_RULES.find((rule) => rule.category === category)!.label;
     summary.push({ category, label, count: grouped.length, items: grouped });
   }
-  const hasJavaSource = symbols.some((symbol) => symbol.filePath.endsWith('.java'));
-  if (summary.length === 0 && hasJavaSource) {
-    const firstJava = symbols.find((symbol) => symbol.filePath.endsWith('.java'))!;
+  const sourceLabel = sourceOnlyLabel(symbols);
+  if (summary.length === 0 && sourceLabel) {
+    const firstSource = symbols.find((symbol) =>
+      sourceLabel === 'Java'
+        ? symbol.filePath.endsWith('.java')
+        : sourceLabel === 'TypeScript'
+          ? /\.(ts|tsx|js|jsx|mjs)$/.test(symbol.filePath)
+          : sourceLabel === 'Python'
+            ? symbol.filePath.endsWith('.py')
+            : symbol.filePath.endsWith('.go')
+    )!;
+    const label = `${sourceLabel} (Source Only)`;
     summary.push({
       category: 'other',
-      label: 'Java (Source Only)',
+      label,
       count: 1,
       items: [
         {
-          name: 'Java (Source Only)',
+          name: label,
           category: 'other',
-          filePath: firstJava.filePath,
-          lineStart: firstJava.lineStart
+          filePath: firstSource.filePath,
+          lineStart: firstSource.lineStart
         }
       ]
     });
-    return { summary, highlights: ['Java (Source Only)'] };
+    return { summary, highlights: [label] };
   }
   return { summary, highlights: highlightLabels(items) };
 }
