@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.6.0] - 2026-08-27
+
+### Highlights
+
+- **Resilience**：超大文件（>3000 行或单行 >1000 字符）不再拖垮索引，降级为 Tier 3 轻量提取；MCP 进程致命失败时 stdout 仍保持合法 JSON-RPC，Agent 侧不会读到半截流。
+- **doctor 自诊断**：新增 `codecompass doctor`（`--json`），一键体检 Node 版本（>=24）、SQLite 原生 ABI/WAL、端口可绑定、数据目录可写与磁盘余量、本地 Ollama 健康。
+- **分阶段索引**：索引进度按 DISCOVERY → AST_EXTRACTION → CROSS_LANG_BRIDGE → FINALIZING 四阶段广播（SSE/WebSocket），前端 StatusStepper 实时呈现。
+- **架构差异视图**：`POST /api/repos/:id/architecture-delta` 返回新增/删除路由、断边、受影响 API 与 mermaid 图；Web 新增 ArchitectureDeltaView。
+
+### Added
+
+- `services/control-plane/src/doctor.ts`：五项只读体检（含临时探针文件自清理）。
+- `services/control-plane/src/large-file.ts`：大文件分级提取策略。
+- `packages/contracts/src/repoqa.ts`：`IndexingPhase` 与架构差异契约（含 `mermaid` 字段）。
+- Web：`ArchitectureDeltaView`（统计卡片 + 路由/断边/受影响 API 列表 + Markdown 报告复制）、`StatusStepper`。
+- PythonAdapter 增强：FastAPI/Flask 生态解析扩展（+161 行）。
+
+### Changed
+
+- 全部 package.json 与运行时版本同步到 `0.6.0`。
+
+## [0.5.1] - 2026-08-27
+
+### Highlights
+
+- **消费侧多语言化**（D3/D4/D5）：techStack 识别 Java/TypeScript/Python/Go；configKeys 支持 `package.json`、`pyproject.toml`（PEP 621 + Poetry）、`.env`、yaml/properties；topApis 覆盖 Express/FastAPI/Flask 路由——dashboard/tours/MCP 不再只对 Java 有效。
+- **跨语言桥接加固**（D8）：TypeScript 侧提取 `fetch`/`$fetch`/`ofetch`/`axios`（含 `axios.create`）与 `apiClient` 等封装；调用链按归一化路径（含 `/api`、`/api/v1` 变体）唯一匹配后端路由才连边，歧义显式 Static Analysis Break；新增 `GET /api/repos/:id/reverse-deps` HTTP 端点。
+- **大仓导入口径修正**（D1）：行数只计源码扩展名（`.java/.ts/.tsx/.js/.jsx/.mjs/.py/.go`），日志/文档/JSON 不再误伤；超限时返回 `suggestedSubdirs` 建议而非硬报错。
+- `/symbols` 返回真实 `symbolType` 枚举（CLASS/INTERFACE/FUNCTION/ROUTE/SERVICE/REPOSITORY/ADVICE/CONFIG/FIELD/MAPPER/SQL/DEPENDENCY），`.mjs` 纳入 TypeScript 解析与扫描范围（D6/D7）。
+
+### Changed
+
+- 全部 package.json 与运行时版本同步到 `0.5.1`。
+
 ## [0.5.0] - 2026-08-27
 
 ### Highlights

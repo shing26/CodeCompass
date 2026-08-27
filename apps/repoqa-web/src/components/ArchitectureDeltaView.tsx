@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
+import { MermaidDiagram } from './MermaidDiagram';
 import type {
   ArchitectureDeltaReport,
   ArchitectureDeltaSymbol,
@@ -9,6 +10,8 @@ import type {
 interface ArchitectureDeltaViewProps {
   repo: Repo | null;
   client: Pick<RepoQAClient, 'getArchitectureDelta'>;
+  /** v0.6 closeout: jump a delta node to the Inspector via code:// bindings. */
+  onNavigate?: (file: string, line: number) => void;
 }
 
 function routeLabel(symbol: ArchitectureDeltaSymbol): string {
@@ -32,7 +35,7 @@ async function copyText(text: string): Promise<void> {
 }
 
 /** v0.6.0 — 架构差异工作台：base/head ref 的路由增删、断边与风险分级。 */
-export function ArchitectureDeltaView({ repo, client }: ArchitectureDeltaViewProps) {
+export function ArchitectureDeltaView({ repo, client, onNavigate }: ArchitectureDeltaViewProps) {
   const [base, setBase] = useState('origin/main');
   const [head, setHead] = useState('HEAD');
   const [delta, setDelta] = useState<ArchitectureDeltaReport | null>(null);
@@ -220,6 +223,18 @@ export function ArchitectureDeltaView({ repo, client }: ArchitectureDeltaViewPro
                 Impacted APIs
               </span>
             </section>
+
+            {delta.mermaid && (
+              <section
+                data-testid="delta-diagram"
+                className="rounded-md border border-line bg-surface p-3"
+              >
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                  差异图
+                </h3>
+                <MermaidDiagram code={delta.mermaid} onNavigate={onNavigate} />
+              </section>
+            )}
 
             {delta.addedRoutes.length > 0 && (
               <section className="rounded-md border border-line bg-surface p-3">

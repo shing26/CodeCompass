@@ -314,3 +314,132 @@ describe('Inspector (ticket 05)', () => {
     expect(screen.getByTestId('inspector-token-budget')).toHaveTextContent('3,420 / 6,000 Tokens');
   });
 });
+
+describe('Inspector reverse-deps panel (v0.6 closeout)', () => {
+  beforeEach(() => {
+    editorProbe.clearAll();
+  });
+
+  const openFileProps = (overrides: Partial<InspectorProps> = {}): InspectorProps =>
+    baseProps({
+      file: 'src/main/java/OwnerController.java',
+      text: 'content',
+      symbolName: 'addOwner',
+      ...overrides
+    });
+
+  it('hides the panel when the navigation carries no symbol name', () => {
+    render(<Inspector {...baseProps({ file: 'A.java', text: 'content' })} />);
+    expect(screen.queryByTestId('inspector-reverse-deps')).not.toBeInTheDocument();
+  });
+
+  it('shows a loading hint while callers resolve', () => {
+    render(
+      <Inspector
+        {...openFileProps({
+          reverseDeps: { result: null, loading: true, error: null }
+        })}
+      />
+    );
+    expect(screen.getByTestId('reverse-deps-loading')).toBeInTheDocument();
+  });
+
+  it('renders caller chips with the call-site line and a count badge', () => {
+    render(
+      <Inspector
+        {...openFileProps({
+          reverseDeps: {
+            result: {
+              repoId: 'r1',
+              target: { name: 'addOwner', file: 'src/OwnerController.java', line: 30 },
+              callers: [
+                {
+                  file: 'src/main/java/OwnerUi.java',
+                  method: 'openAddForm',
+                  line: 12,
+                  callLine: 44
+                }
+              ],
+              count: 1,
+              fallback: false
+            },
+            loading: false,
+            error: null
+          }
+        })}
+      />
+    );
+    expect(screen.getByTestId('reverse-deps-count')).toHaveTextContent('1');
+    const chip = screen.getByTestId('reverse-deps-caller');
+    expect(chip).toHaveTextContent('openAddForm');
+    expect(chip).toHaveTextContent('OwnerUi.java L44');
+  });
+
+  it('shows an explicit empty state when the symbol has no static callers', () => {
+    render(
+      <Inspector
+        {...openFileProps({
+          reverseDeps: {
+            result: {
+              repoId: 'r1',
+              target: { name: 'main', file: 'src/App.java', line: 1 },
+              callers: [],
+              count: 0,
+              fallback: false
+            },
+            loading: false,
+            error: null
+          }
+        })}
+      />
+    );
+    expect(screen.getByTestId('reverse-deps-empty')).toBeInTheDocument();
+  });
+
+  it('falls back to a muted hint when the symbol cannot be resolved', () => {
+    render(
+      <Inspector
+        {...openFileProps({
+          reverseDeps: {
+            result: null,
+            loading: false,
+            error: 'listReverseDeps failed: 400 : Start symbol not found: nope'
+          }
+        })}
+      />
+    );
+    expect(screen.getByTestId('reverse-deps-error')).toBeInTheDocument();
+    expect(screen.queryByTestId('reverse-deps-count')).not.toBeInTheDocument();
+  });
+
+  it('navigates to the call site (callLine) with the caller method as symbol', () => {
+    const onOpenFile = vi.fn();
+    render(
+      <Inspector
+        {...openFileProps({
+          reverseDeps: {
+            result: {
+              repoId: 'r1',
+              target: { name: 'addOwner', file: 'src/OwnerController.java', line: 30 },
+              callers: [
+                { file: 'src/main/java/OwnerUi.java', method: 'openAddForm', line: 12, callLine: 44 }
+              ],
+              count: 1,
+              fallback: false
+            },
+            loading: false,
+            error: null
+          },
+          onOpenFile
+        })}
+      />
+    );
+    fireEvent.click(screen.getByTestId('reverse-deps-caller'));
+    expect(onOpenFile).toHaveBeenCalledWith(
+      'src/main/java/OwnerUi.java',
+      44,
+      undefined,
+      'openAddForm'
+    );
+  });
+});

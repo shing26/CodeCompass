@@ -78,7 +78,12 @@ describe('Sidebar source browsing (Issue 18)', () => {
     renderSidebar(onNavigate);
 
     await user.click(screen.getAllByTestId('route-item')[0]);
-    expect(onNavigate).toHaveBeenCalledWith('src/main/java/com/demo/OwnerController.java', 90);
+    expect(onNavigate).toHaveBeenCalledWith(
+      'src/main/java/com/demo/OwnerController.java',
+      90,
+      undefined,
+      '/owners'
+    );
   });
 
   it('opens a file, a type and a member symbol', async () => {
@@ -90,13 +95,28 @@ describe('Sidebar source browsing (Issue 18)', () => {
     await user.click(screen.getByTestId('symbols-toggle'));
 
     await user.click(screen.getByTestId('symbol-file'));
-    expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/com/demo/OwnerController.java', 1);
+    expect(onNavigate).toHaveBeenLastCalledWith(
+      'src/main/java/com/demo/OwnerController.java',
+      1,
+      undefined,
+      undefined
+    );
 
     await user.click(screen.getByTestId('symbol-type'));
-    expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/com/demo/OwnerController.java', 14);
+    expect(onNavigate).toHaveBeenLastCalledWith(
+      'src/main/java/com/demo/OwnerController.java',
+      14,
+      undefined,
+      'OwnerController'
+    );
 
     await user.click(screen.getByTestId('symbol-member'));
-    expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/com/demo/OwnerController.java', 30);
+    expect(onNavigate).toHaveBeenLastCalledWith(
+      'src/main/java/com/demo/OwnerController.java',
+      30,
+      undefined,
+      'createOwner'
+    );
   });
 
   it('member clicks do not bubble up to the file row', async () => {
@@ -108,7 +128,32 @@ describe('Sidebar source browsing (Issue 18)', () => {
     await user.click(screen.getByTestId('symbol-member'));
     // Only one call — the member's own handler, not the file row's.
     expect(onNavigate).toHaveBeenCalledTimes(1);
-    expect(onNavigate).toHaveBeenCalledWith('src/main/java/com/demo/OwnerController.java', 30);
+    expect(onNavigate).toHaveBeenCalledWith(
+      'src/main/java/com/demo/OwnerController.java',
+      30,
+      undefined,
+      'createOwner'
+    );
+  });
+
+  it('v0.6 closeout: kind filter narrows the symbol tree and combines with text search', async () => {
+    const user = userEvent.setup();
+    renderSidebar(vi.fn());
+
+    // Selecting a kind auto-reveals the tree (no Expand click needed).
+    await user.selectOptions(screen.getByTestId('symbol-kind-filter'), 'method');
+    expect(screen.getByTestId('symbol-member')).toBeInTheDocument();
+    expect(screen.queryByTestId('symbol-type')).not.toBeNull(); // type row stays as context
+    // class/interface-only types are filtered out: the route fixture disappears.
+    expect(screen.getByTestId('symbol-kind-filter')).toHaveValue('method');
+
+    // A kind with no matches in the tree shows the explicit empty state.
+    await user.selectOptions(screen.getByTestId('symbol-kind-filter'), 'sql');
+    expect(screen.getByText('无匹配符号')).toBeInTheDocument();
+
+    // Back to 'all' restores the unfiltered tree (collapsed again).
+    await user.selectOptions(screen.getByTestId('symbol-kind-filter'), 'all');
+    expect(screen.getByText(/files — expand to browse/)).toBeInTheDocument();
   });
 
   it('is a no-op without onNavigate', async () => {

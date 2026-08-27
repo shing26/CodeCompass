@@ -3,6 +3,8 @@ import { useRepoCatalog } from './hooks/useRepoCatalog';
 import { useChat } from './hooks/useChat';
 import { useSymbols } from './hooks/useSymbols';
 import { useInspector } from './hooks/useInspector';
+import { useReverseDeps } from './hooks/useReverseDeps';
+import { useSubgraphContext } from './hooks/useSubgraphContext';
 import { useTours } from './hooks/useTours';
 import { useDashboard } from './hooks/useDashboard';
 import { RepoQAClient, resolveBaseUrl } from './client/RepoQAClient';
@@ -96,6 +98,8 @@ export function App({ client: clientProp }: AppProps) {
     refreshSilent: refreshSymbolsSilent
   } = useSymbols(client, repoId);
   const inspector = useInspector(client, repoId);
+  const reverseDeps = useReverseDeps(client, repoId, inspector.symbolName);
+  const subgraph = useSubgraphContext(client, repoId, inspector.symbolName);
   const { tours, loading: toursLoading, error: toursError, refresh: refreshTours } = useTours(client, repoId);
   const {
     dashboard,
@@ -203,10 +207,13 @@ export function App({ client: clientProp }: AppProps) {
     return () => window.removeEventListener('popstate', onPopState);
   }, [currentRepo?.id, selectRepo]);
 
-  const handleImportLocal = async (name: string, localPath: string) => {
-    await importRepo(name, localPath);
-    setActiveTour(null);
-    setView('topo');
+  const handleImportLocal = async (name: string, localPath: string): Promise<Repo> => {
+    const repo = await importRepo(name, localPath);
+    if (repo.status !== 'error') {
+      setActiveTour(null);
+      setView('topo');
+    }
+    return repo;
   };
 
   // Issue 19: remote clone — POST /api/repos/clone returns once the clone
@@ -416,7 +423,11 @@ export function App({ client: clientProp }: AppProps) {
           ) : view === 'gate' ? (
             <CiGateView repo={currentRepo} dashboard={dashboard} />
           ) : view === 'delta' ? (
-            <ArchitectureDeltaView repo={currentRepo} client={client} />
+            <ArchitectureDeltaView
+              repo={currentRepo}
+              client={client}
+              onNavigate={inspector.openFile}
+            />
           ) : (
             <DashboardView
               repoName={currentRepo?.name ?? null}
@@ -436,6 +447,7 @@ export function App({ client: clientProp }: AppProps) {
           loading={inspector.loading}
           error={inspector.error}
           glow={inspector.glow}
+          symbolName={inspector.symbolName}
           onBack={inspector.goBack}
           onForward={inspector.goForward}
           canGoBack={inspector.canGoBack}
@@ -445,6 +457,9 @@ export function App({ client: clientProp }: AppProps) {
           onCopyAgentContext={handleCopyAgentContext}
           usage={totalUsage}
           slices={inspectorSlices}
+          reverseDeps={reverseDeps}
+          subgraph={subgraph}
+          onOpenFile={inspector.openFile}
         />
       </div>
       <footer

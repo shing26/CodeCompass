@@ -7,6 +7,10 @@ import type {
   Repo
 } from '../types';
 
+vi.mock('../client/mermaidRenderer', () => ({
+  renderMermaid: vi.fn(async () => '<svg />')
+}));
+
 const readyRepo: Repo = {
   id: 'repo-1',
   name: 'petclinic',
@@ -67,6 +71,8 @@ const delta: ArchitectureDeltaReport = {
   mermaid: '```mermaid\ngraph TD\n```'
 };
 
+const deltaWithoutMermaid: ArchitectureDeltaReport = { ...delta, mermaid: undefined };
+
 describe('ArchitectureDeltaView (v0.6.0)', () => {
   it('runs the delta analysis and renders added/removed/broken/impact sections', async () => {
     const user = userEvent.setup();
@@ -106,5 +112,37 @@ describe('ArchitectureDeltaView (v0.6.0)', () => {
       />
     );
     expect(screen.getByTestId('architecture-delta-empty')).toBeInTheDocument();
+  });
+
+  it('v0.6 closeout: renders the delta mermaid diagram when the field is present', async () => {
+    const user = userEvent.setup();
+    const getArchitectureDelta = vi.fn().mockResolvedValue(delta);
+    render(
+      <ArchitectureDeltaView
+        repo={readyRepo}
+        client={{ getArchitectureDelta }}
+      />
+    );
+    await user.click(screen.getByTestId('delta-run'));
+    await waitFor(() =>
+      expect(screen.getByTestId('delta-diagram')).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument()
+    );
+  });
+
+  it('v0.6 closeout: omits the diagram section when mermaid is missing', async () => {
+    const user = userEvent.setup();
+    const getArchitectureDelta = vi.fn().mockResolvedValue(deltaWithoutMermaid);
+    render(
+      <ArchitectureDeltaView
+        repo={readyRepo}
+        client={{ getArchitectureDelta }}
+      />
+    );
+    await user.click(screen.getByTestId('delta-run'));
+    await waitFor(() => expect(screen.getByTestId('delta-added')).toBeInTheDocument());
+    expect(screen.queryByTestId('delta-diagram')).not.toBeInTheDocument();
   });
 });

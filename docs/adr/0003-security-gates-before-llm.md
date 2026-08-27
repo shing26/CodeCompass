@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # 安全门禁先于任何 LLM 调用与前端渲染

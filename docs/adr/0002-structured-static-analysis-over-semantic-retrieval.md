@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Phase 1 承诺结构化静态分析，不承诺语义检索

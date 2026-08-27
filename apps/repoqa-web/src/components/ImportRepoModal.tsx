@@ -12,7 +12,9 @@ interface ImportRepoModalProps {
   /** Issue 19: standalone import dialog (was inline in TopBar). */
   open: boolean;
   onClose: () => void;
-  onImportLocal: (name: string, localPath: string) => Promise<void>;
+  /** Resolves with the created repo; an over-limit reject comes back as a
+   * `status: 'error'` repo carrying `suggestedSubdirs` (v0.5.1 D1). */
+  onImportLocal: (name: string, localPath: string) => Promise<Repo | void>;
   /** Round 2 B4: read-only preview of what a local import will index. */
   onPreviewLocal: (localPath: string) => Promise<RepoPreview>;
   /** Resolves with the newly created repo once the server-side clone landed
@@ -50,6 +52,8 @@ export function ImportRepoModal({
   const [localPath, setLocalPath] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  /** v0.5.1 (D1): importable subdirs offered after an over-limit reject. */
+  const [suggestedSubdirs, setSuggestedSubdirs] = useState<string[]>([]);
   const [preview, setPreview] = useState<RepoPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -120,6 +124,7 @@ export function ImportRepoModal({
     setLocalPath('');
     setLocalBusy(false);
     setLocalError(null);
+    setSuggestedSubdirs([]);
     setPreview(null);
     setPreviewLoading(false);
     setPreviewError(null);
@@ -147,13 +152,20 @@ export function ImportRepoModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repos, remotePhase, clonedRepoId]);
 
-  const submitLocal = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !localPath.trim() || localBusy) return;
+  const importLocal = async (nameArg: string, pathArg: string) => {
     setLocalBusy(true);
     setLocalError(null);
+    setSuggestedSubdirs([]);
     try {
-      await onImportLocal(name.trim(), localPath.trim());
+      const repo = await onImportLocal(nameArg, pathArg);
+      // v0.6 closeout: an over-limit reject resolves (not throws) with an
+      // error-status repo. Keep the dialog open and offer the backend's
+      // suggested subdirectories as one-click re-imports.
+      if (repo && repo.status === 'error') {
+        setLocalError(repo.error ?? '索引失败，请重试');
+        setSuggestedSubdirs(repo.suggestedSubdirs ?? []);
+        return;
+      }
       reset();
       onClose();
     } catch (err) {
@@ -161,6 +173,21 @@ export function ImportRepoModal({
     } finally {
       setLocalBusy(false);
     }
+  };
+
+  const submitLocal = (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !localPath.trim() || localBusy) return;
+    void importLocal(name.trim(), localPath.trim());
+  };
+
+  /** One-click re-import of a suggested subdirectory (joined onto the path). */
+  const applySuggestion = (dir: string) => {
+    if (localBusy) return;
+    const joined = `${localPath.trim().replace(/[\\/]+$/, '')}/${dir}`;
+    setLocalPath(joined);
+    runPreview(joined);
+    void importLocal(name.trim() || dir, joined);
   };
 
   const submitRemote = async (e: FormEvent) => {
@@ -337,6 +364,28 @@ export function ImportRepoModal({
               </p>
             )}
             {localError && <p className="mb-2 text-xs text-danger">{localError}</p>}
+            {suggestedSubdirs.length > 0 && (
+              <div
+                data-testid="import-suggested-subdirs"
+                className="mb-2 rounded-md border border-line bg-subtle px-2 py-1.5 text-xs text-muted"
+              >
+                <p className="mb-1">建议改为导入以下子目录：</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestedSubdirs.map((dir) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      data-testid="import-suggested-subdir"
+                      onClick={() => applySuggestion(dir)}
+                      disabled={localBusy}
+                      className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[11px] text-accent hover:border-accent/50 disabled:opacity-50"
+                    >
+                      {dir}/
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {localBusy &&
               (importingRepo ? (
                 <div

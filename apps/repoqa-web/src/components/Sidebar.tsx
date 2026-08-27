@@ -1,7 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RepoSymbol, RepoTour } from '../types';
+import type { RepoSymbol, RepoTour, SymbolKind } from '../types';
 import { buildSymbolTree, filterByKind } from '../hooks/useSymbols';
 import { QuickTours } from './QuickTours';
+
+/** v0.6 closeout: symbol-type filter options (client-side, AND with search). */
+const KIND_FILTER_OPTIONS: Array<{ value: SymbolKind | 'all'; label: string }> = [
+  { value: 'all', label: '全部类型' },
+  { value: 'route', label: 'route' },
+  { value: 'class', label: 'class' },
+  { value: 'interface', label: 'interface' },
+  { value: 'method', label: 'method' },
+  { value: 'service', label: 'service' },
+  { value: 'repository', label: 'repository' },
+  { value: 'mapper', label: 'mapper' },
+  { value: 'advice', label: 'advice' },
+  { value: 'field', label: 'field' },
+  { value: 'sql', label: 'sql' },
+  { value: 'config', label: 'config' },
+  { value: 'dependency', label: 'dependency' }
+];
 
 function matchesSymbol(symbol: RepoSymbol, query: string): boolean {
   return [
@@ -56,16 +73,21 @@ function lineRangeFor(symbol: RepoSymbol): string {
 
 function filterSymbolTree(
   tree: ReturnType<typeof buildSymbolTree>,
-  query: string
+  query: string,
+  kind: SymbolKind | 'all'
 ): ReturnType<typeof buildSymbolTree> {
-  if (!query) return tree;
+  const kindMatches = (symbol: RepoSymbol) => kind === 'all' || symbol.kind === kind;
+  if (!query && kind === 'all') return tree;
   return tree.flatMap((fileNode) => {
-    const fileMatches = fileNode.file.toLowerCase().includes(query);
+    const fileMatches = query !== '' && fileNode.file.toLowerCase().includes(query);
     const types = fileNode.types.flatMap((typeNode) => {
-      const typeMatches = matchesSymbol(typeNode.symbol, query);
+      const typeMatches =
+        matchesSymbol(typeNode.symbol, query) && kindMatches(typeNode.symbol);
       const members = typeMatches
         ? typeNode.members
-        : typeNode.members.filter((member) => matchesSymbol(member, query));
+        : typeNode.members.filter(
+            (member) => matchesSymbol(member, query) && kindMatches(member)
+          );
       if (!typeMatches && members.length === 0) return [];
       return [{ symbol: typeNode.symbol, members }];
     });
@@ -86,7 +108,7 @@ interface SidebarProps {
   /** Bug-04: narrow viewports render the sidebar as an off-canvas drawer. */
   open: boolean;
   /** Issue 18: jump a symbol / route into the Monaco Inspector. */
-  onNavigate?: (file: string, line: number) => void;
+  onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
 }
 
 /**
@@ -108,6 +130,8 @@ export function Sidebar({
 }: SidebarProps) {
   const [symbolsExpanded, setSymbolsExpanded] = useState(false);
   const [query, setQuery] = useState('');
+  /** v0.6 closeout: symbol-type filter ('all' = no kind constraint). */
+  const [kindFilter, setKindFilter] = useState<SymbolKind | 'all'>('all');
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -135,13 +159,14 @@ export function Sidebar({
   const visibleRoutes = normalizedQuery
     ? routes.filter((route) => matchesSymbol(route, normalizedQuery))
     : routes;
-  const visibleTree = filterSymbolTree(tree, normalizedQuery);
-  const symbolsVisible = normalizedQuery !== '' || symbolsExpanded;
+  const visibleTree = filterSymbolTree(tree, normalizedQuery, kindFilter);
+  const symbolsVisible =
+    normalizedQuery !== '' || symbolsExpanded || kindFilter !== 'all';
   const routeItems = visibleRoutes.slice(0, normalizedQuery ? 50 : 20);
   const symbolItems = visibleTree.slice(0, normalizedQuery ? 100 : 30);
 
-  const openAt = (file: string, line: number | null | undefined) => {
-    onNavigate?.(file, line ?? 1);
+  const openAt = (file: string, line: number | null | undefined, symbolName?: string) => {
+    onNavigate?.(file, line ?? 1, undefined, symbolName);
   };
 
   return (
@@ -198,7 +223,7 @@ export function Sidebar({
               <button
                 type="button"
                 data-testid="route-item"
-                onClick={() => openAt(r.filePath, r.lineStart)}
+                onClick={() => openAt(r.filePath, r.lineStart, r.name)}
                 title={`${r.displayPath ?? r.name} · ${r.filePath}:${r.lineStart ?? 1}`}
                 className="flex w-full items-center gap-2 rounded px-1 text-left font-mono text-xs text-muted hover:bg-accent/10 hover:text-accent"
               >
@@ -219,16 +244,31 @@ export function Sidebar({
       </section>
 
       <section className="p-3">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Symbols</h2>
-          <button
-            type="button"
-            data-testid="symbols-toggle"
-            onClick={() => setSymbolsExpanded((v) => !v)}
-            className="text-xs text-accent hover:underline"
-          >
-            {symbolsVisible ? 'Collapse' : 'Expand'}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <select
+              data-testid="symbol-kind-filter"
+              aria-label="按符号类型过滤"
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value as SymbolKind | 'all')}
+              className="h-6 rounded-md border border-line bg-surface px-1 text-[11px] text-muted outline-none focus:border-accent"
+            >
+              {KIND_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              data-testid="symbols-toggle"
+              onClick={() => setSymbolsExpanded((v) => !v)}
+              className="text-xs text-accent hover:underline"
+            >
+              {symbolsVisible ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
         </div>
         {loading && <p className="text-xs text-muted">Loading…</p>}
         {!loading && !symbolsVisible && (
@@ -262,7 +302,7 @@ export function Sidebar({
                         data-testid="symbol-type"
                         onClick={(e) => {
                           e.stopPropagation();
-                          openAt(typeNode.symbol.filePath, typeNode.symbol.lineStart);
+                          openAt(typeNode.symbol.filePath, typeNode.symbol.lineStart, typeNode.symbol.name);
                         }}
                         className="flex w-full items-center gap-2 rounded px-1 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
                         title={`${typeNode.symbol.filePath}:${typeNode.symbol.lineStart ?? 1}`}
@@ -289,7 +329,7 @@ export function Sidebar({
                                 data-testid="symbol-member"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  openAt(m.filePath, m.lineStart);
+                                  openAt(m.filePath, m.lineStart, m.name);
                                 }}
                                 className="flex w-full items-center gap-2 rounded px-1 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
                                 title={`${m.filePath}:${m.lineStart ?? 1}`}

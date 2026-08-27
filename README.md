@@ -30,8 +30,10 @@
 ## 快速上手
 
 ### 前置要求
-- Node.js 20+（开发环境已验证 v24）
+- Node.js 24+（`engines` 与 `codecompass doctor` 均按此约束；开发环境 v24）
+  > 原因：`better-sqlite3` 是原生模块，本地直接运行预编译 `dist` 时 Node 主版本必须与构建时 ABI 匹配（NODE_MODULE_VERSION），用 Node 20/22 启动 Node 24 构建的产物会直接报 ABI 错误。Docker 路径在镜像内重新 `npm ci` 重建原生模块，不受此限制。
 - 首次使用需要构建一次（`bin/codecompass.js` 依赖 `dist/` 产物）
+- 启动前可运行 `codecompass doctor --json` 自检环境（Node 版本 / SQLite ABI / 端口 / 数据目录 / 本地 Ollama）
 
 ### 方式一：CLI（推荐）
 
@@ -63,6 +65,15 @@ codecompass --version
 - **看板**：技术栈分类、架构指标、Top API
 - **调用链**：输入方法/资源名，模式选 `call-chain`，得到带溯源锚点的 mermaid 时序图（支持跨模块 3+ 跳）
 - **导出**：`ONBOARDING.md` 一键下载
+
+### 回归门禁
+
+```bash
+python scripts/e2e/closeout_gate.py   # API 级端到端基线（需 Node 24 + 已构建 dist + git）
+```
+
+一键构建多语言 fixture（Java+TS / Python / Go）并断言 11 项能力（doctor、版本一致性、
+消费面、跨语言桥接、SSE 调用链、masking、架构差异、热重载等），详见 `scripts/e2e/README.md`。
 
 `context` 子命令无需启动 Web 服务，适合直接在终端或 CI 里取上下文：
 

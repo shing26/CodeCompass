@@ -58,7 +58,7 @@ describe('useRepoCatalog import polling (Bug-12)', () => {
     const { result } = renderHook(() => useRepoCatalog(client, null));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let importPromise: Promise<void>;
+    let importPromise: Promise<Repo>;
     act(() => {
       importPromise = result.current.importRepo('big-repo', 'C:/projects/big-repo');
     });

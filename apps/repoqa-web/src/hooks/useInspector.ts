@@ -5,6 +5,8 @@ export interface NavEntry {
   file: string;
   line: number;
   lineEnd?: number;
+  /** Symbol name when the navigation originates from a symbol row/card. */
+  symbolName?: string;
 }
 
 export interface InspectorState {
@@ -13,10 +15,12 @@ export interface InspectorState {
   loading: boolean;
   error: string | null;
   glow: { line: number; lineEnd?: number } | null;
+  /** Symbol context for the reverse-deps panel (v0.6 closeout). */
+  symbolName: string | null;
 }
 
 export interface UseInspectorResult extends InspectorState {
-  openFile: (file: string, line: number, lineEnd?: number) => void;
+  openFile: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   goBack: () => void;
   goForward: () => void;
   canGoBack: boolean;
@@ -35,7 +39,8 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
     text: null,
     loading: false,
     error: null,
-    glow: null
+    glow: null,
+    symbolName: null
   });
   const [stack, setStack] = useState<NavEntry[]>([]);
   const [index, setIndex] = useState(-1);
@@ -48,7 +53,8 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
       text,
       loading: false,
       error: null,
-      glow: { line: entry.line, lineEnd: entry.lineEnd }
+      glow: { line: entry.line, lineEnd: entry.lineEnd },
+      symbolName: entry.symbolName ?? null
     }));
   }, []);
 
@@ -61,9 +67,9 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
   }, []);
 
   const openFile = useCallback(
-    (file: string, line: number, lineEnd?: number) => {
+    (file: string, line: number, lineEnd?: number, symbolName?: string) => {
       if (!repoId) return;
-      const entry: NavEntry = { file, line, lineEnd };
+      const entry: NavEntry = { file, line, lineEnd, symbolName };
       const cached = FILE_CACHE.get(file);
       if (cached !== undefined) {
         show(entry, cached);
@@ -139,7 +145,7 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
   useEffect(() => {
     setStack([]);
     setIndex(-1);
-    setState({ file: null, text: null, loading: false, error: null, glow: null });
+    setState({ file: null, text: null, loading: false, error: null, glow: null, symbolName: null });
   }, [repoId]);
 
   useEffect(

@@ -3,10 +3,15 @@ import Editor, { type OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { monaco } from '../client/monacoSetup';
 import type { InspectorState } from '../hooks/useInspector';
+import type { UseReverseDepsResult } from '../hooks/useReverseDeps';
+import type { UseSubgraphContextResult } from '../hooks/useSubgraphContext';
+import { EMPTY_SYMBOL_RESOURCE, isSymbolResolutionError } from '../hooks/useSymbolResource';
+import { SubgraphPanel } from './SubgraphPanel';
 import { useTheme } from '../hooks/useTheme';
 import type { Anchor, TokenUsage } from '../types';
 
-export interface InspectorProps extends InspectorState {
+export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
+  symbolName?: string | null;
   onBack: () => void;
   onForward: () => void;
   canGoBack: boolean;
@@ -21,6 +26,12 @@ export interface InspectorProps extends InspectorState {
   usage?: TokenUsage;
   /** Issue 31: 2-Hop caller/callee slices from the latest resolved trace. */
   slices?: Anchor[];
+  /** v0.6 closeout: reverse-dependency state for the focused symbol. */
+  reverseDeps?: UseReverseDepsResult;
+  /** v0.6 closeout: Graph RAG subgraph state for the focused symbol. */
+  subgraph?: UseSubgraphContextResult;
+  /** Navigate from a reverse-deps caller chip (same stack as diagram nodes). */
+  onOpenFile?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
 }
 
 const TOKEN_BUDGET = 6000;
@@ -66,6 +77,7 @@ export function Inspector({
   loading,
   error,
   glow,
+  symbolName,
   onBack,
   onForward,
   canGoBack,
@@ -74,7 +86,10 @@ export function Inspector({
   onClose,
   onCopyAgentContext,
   usage = { input: 0, output: 0, total: 0, source: 'estimate' },
-  slices = []
+  slices = [],
+  reverseDeps,
+  subgraph,
+  onOpenFile
 }: InspectorProps) {
   const language = useMemo(() => (file ? languageFor(file) : 'plaintext'), [file]);
   const { theme } = useTheme();
@@ -346,7 +361,100 @@ export function Inspector({
           )}
         </div>
       )}
+      {!loading && !error && file && text !== null && symbolName && (
+        <>
+          <ReverseDepsPanel
+            symbolName={symbolName}
+            state={reverseDeps ?? EMPTY_SYMBOL_RESOURCE}
+            onOpenCaller={onOpenFile}
+          />
+          <SubgraphPanel
+            state={subgraph ?? EMPTY_SYMBOL_RESOURCE}
+            onOpenFile={onOpenFile}
+          />
+        </>
+      )}
     </aside>
+  );
+}
+
+/**
+ * v0.6 closeout: static "who calls this symbol" panel backed by
+ * /api/repos/:id/reverse-deps. Caller chips hop the navigation stack to the
+ * call site, so the panel doubles as a caller-walk.
+ */
+export function ReverseDepsPanel({
+  symbolName,
+  state,
+  onOpenCaller
+}: {
+  symbolName: string;
+  state: UseReverseDepsResult;
+  onOpenCaller?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
+}) {
+  return (
+    <div
+      data-testid="inspector-reverse-deps"
+      className="border-t border-line bg-surface px-3 py-2"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+          反向依赖 · {symbolName}
+        </span>
+        {state.result && (
+          <span
+            data-testid="reverse-deps-count"
+            className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-medium text-accent"
+          >
+            {state.result.count}
+          </span>
+        )}
+      </div>
+      {state.loading && (
+        <p data-testid="reverse-deps-loading" className="mt-1 text-[11px] text-muted">
+          解析调用方…
+        </p>
+      )}
+      {!state.loading && state.error && (
+        <p data-testid="reverse-deps-error" className="mt-1 text-[11px] text-muted">
+          {isSymbolResolutionError(state.error)
+            ? '未定位到可解析符号，反向依赖不可用。'
+            : '反向依赖暂不可用，请稍后重试。'}
+        </p>
+      )}
+      {!state.loading && !state.error && state.result && (
+        <>
+          {state.result.fallback && (
+            <p className="mt-1 text-[10px] text-warning">
+              精确符号未命中，以下为默认入口推导结果。
+            </p>
+          )}
+          {state.result.callers.length === 0 ? (
+            <p data-testid="reverse-deps-empty" className="mt-1 text-[11px] text-muted">
+              没有静态调用方（entry point 或未被引用）。
+            </p>
+          ) : (
+            <div className="mt-1.5 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+              {state.result.callers.map((caller, idx) => (
+                <button
+                  key={`${caller.file}-${caller.line}-${caller.callLine ?? 'x'}-${idx}`}
+                  type="button"
+                  data-testid="reverse-deps-caller"
+                  onClick={() =>
+                    onOpenCaller?.(caller.file, caller.callLine ?? caller.line, undefined, caller.method)
+                  }
+                  title={`${caller.method} · ${caller.file}:${caller.callLine ?? caller.line}`}
+                  className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] text-accent hover:border-accent/50"
+                >
+                  {caller.method} · {caller.file.split(/[\\/]/).pop()} L
+                  {caller.callLine ?? caller.line}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

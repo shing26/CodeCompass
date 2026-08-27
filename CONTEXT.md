@@ -1,8 +1,15 @@
-# Multi-Harness Workbench — Context
+# CodeCompass — Context
 
 ## Status
-21 ADRs accepted. v1 implementation is complete with local verification gates
-passing; see docs/execution-plan.md for the execution plan.
+4 ADRs（0001–0003 accepted，0004 proposed）。当前版本 0.6.0，收口计划见
+`.scratch/v0.6-closeout/spec.md`。
+
+## Naming
+
+- **CodeCompass**：产品 canonical 名（仓库、bin、CHANGELOG、MCP 工具前缀 `codecompass_`）。
+- **RepoPulse**：曾用名，仅存于历史文档与 ADR 标题，等价于 CodeCompass。
+- **RepoQA**：代码命名空间（`apps/repoqa-web`、`RepoQAClient`、`repoqa-*` 模块），非独立产品名。
+- **MHW_***（Multi-Harness Workbench）：宿主工作台层的命名残留（环境变量 `MHW_CP_PORT`/`MHW_DATA_DIR` 与 `/tasks`、`/harnesses` 端点），指 Control Plane 承载的 harness 编排面。
 
 ## Glossary
 
@@ -20,11 +27,11 @@ passing; see docs/execution-plan.md for the execution plan.
 | Command Palette | Fast creation/dispatch entry point layered on top of templates and free-form input. |
 | Canvas | Visual task-flow surface for monitoring and selection, not primary creation in v1. |
 
-## RepoPulse Glossary
+## CodeCompass Glossary
 
 | Term | Definition |
 |------|------------|
-| RepoPulse | 只读代码智能工作台：导入仓库后生成 AST 符号、调用链、chunks，并围绕 SSE 问答提供可点击代码证据。 |
+| CodeCompass（曾用名 RepoPulse） | 只读代码智能工作台：导入仓库后生成 AST 符号、调用链、chunks，并围绕 SSE 问答提供可点击代码证据。 |
 | Repo Index | 某仓库在指定 commit 下的只读解析快照，包含元数据、symbols、chunks 与索引状态，不写回源码。 |
 | AST Symbol | 静态解析出的可定位代码单元，如 class、method、route、field，必须带 file/line range。 |
 | Call Edge | 静态解析出的调用关系；不等同于运行时链路，也不能推断接口动态绑定。 |
@@ -32,6 +39,8 @@ passing; see docs/execution-plan.md for the execution plan.
 | Route Chain | HTTP 请求从 Controller 到 Service/Mapper 的静态调用路径。 |
 | Anchor | 指向真实 file:line 的代码证据；只有 raw file 校验通过才能展示。 |
 | Static Analysis Break | 调用图无法继续解析的位置；必须明确标记，禁止自动补全猜测。 |
+| Reverse Deps（反向依赖） | 以某符号为目标的静态 Call Edge 反向查询，返回调用它的 caller 列表；正向桥接边不进入反向索引。 |
+| Subgraph（子图） | 以 start 符号为中心的双向静态邻接提取（1-Hop Caller + 1~3 Hop Callee），用于 Graph RAG 上下文与子图视图。 |
 | Chunk | 由 README、doc comment 等切分出的可检索文本单元；不默认等于 embedding。 |
 | Sensitive Context Masking | 代码或配置进入 LLM 前对 password、token、AK/SK、私钥等内容的确定性脱敏。 |
 | Evidence Plane | 用户行为、结果、反馈、错误与质量事件组成的本地只读事件层。 |

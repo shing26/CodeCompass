@@ -10,6 +10,7 @@ import type {
   RepoPreview,
   RepoSymbol,
   RepoTour,
+  ReverseDepsResult,
   RuntimeInfo,
   SubgraphContextResult,
   SymbolKind
@@ -187,6 +188,31 @@ export class RepoQAClient {
     if (!res.ok) throw new Error(`listSymbols failed: ${res.status}`);
     const body = (await res.json()) as { symbols?: RepoSymbol[] };
     return body.symbols ?? [];
+  }
+
+  /**
+   * v0.6 closeout: static reverse dependencies ("who calls this symbol"),
+   * HTTP twin of the MCP `codecompass_reverse_deps` tool. The backend answers
+   * 400 with `{ error }` when the symbol cannot be resolved at all.
+   */
+  async listReverseDeps(repoId: string, symbolName: string): Promise<ReverseDepsResult> {
+    const params = `?symbolName=${encodeURIComponent(symbolName)}`;
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/reverse-deps${params}`
+    );
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`listReverseDeps failed: ${res.status}${detail}`);
+    }
+    return (await res.json()) as ReverseDepsResult;
   }
 
   async getFileRaw(repoId: string, path: string): Promise<string> {

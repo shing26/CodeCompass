@@ -18,7 +18,7 @@ interface TopBarProps {
   error: string | null;
   onSelectRepo: (id: string) => void;
   /** Issue 19: local ingestion — name + local path (double-tab import dialog). */
-  onImportLocal: (name: string, localPath: string) => Promise<void>;
+  onImportLocal: (name: string, localPath: string) => Promise<Repo | void>;
   /** Round 2 B4: read-only pre-import preview for the local-path tab. */
   onPreviewLocal: (localPath: string) => Promise<RepoPreview>;
   /** Issue 19: remote ingestion — clone URL + optional branch. */

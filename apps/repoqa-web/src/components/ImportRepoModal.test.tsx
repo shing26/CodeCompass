@@ -334,6 +334,38 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     expect(screen.getByTestId('import-dialog')).toBeInTheDocument();
   });
 
+  it('v0.6 closeout: offers suggested subdirs after an over-limit reject and re-imports on click', async () => {
+    const user = userEvent.setup();
+    const overLimitRepo: Repo = {
+      ...readyRepo,
+      status: 'error',
+      error: 'repo exceeds 3000 files (found 4200); import a submodule or repo root instead',
+      suggestedSubdirs: ['packages', 'apps']
+    };
+    const onImportLocal = vi
+      .fn()
+      .mockResolvedValueOnce(overLimitRepo)
+      .mockResolvedValueOnce(readyRepo);
+    const onClose = vi.fn();
+    render(<ImportRepoModal {...baseProps({ onImportLocal, onClose })} />);
+
+    await user.type(screen.getByTestId('import-name'), 'monorepo');
+    await user.type(screen.getByTestId('import-path'), 'C:/big');
+    await user.click(screen.getByTestId('import-submit'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('import-suggested-subdirs')).toBeInTheDocument()
+    );
+    // The dialog stays open and shows the backend's real error.
+    expect(screen.getByTestId('import-dialog')).toHaveTextContent(/repo exceeds 3000 files/);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getAllByTestId('import-suggested-subdir')[0]);
+    await waitFor(() => expect(onImportLocal).toHaveBeenCalledTimes(2));
+    expect(onImportLocal).toHaveBeenLastCalledWith('monorepo', 'C:/big/packages');
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
   it('reports an indexing error once the cloned repo flips to error', async () => {
     const user = userEvent.setup();
     let releaseClone: (repo: Repo) => void = () => {};

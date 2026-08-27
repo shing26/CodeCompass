@@ -17,7 +17,7 @@ interface CanvasProps {
   /** Manual retry after permanent reconnect failure (ticket 07). */
   onRetry: () => void;
   /** code:// deep link routing; wired to the Inspector in ticket 05. */
-  onNavigate?: (file: string, line: number) => void;
+  onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** Issue 18: pinned "back to dashboard" entry inside the canvas. */
   onBackToDashboard?: () => void;
   /** Issue 31: symbol catalog for the workbench API/SQL impact counts. */
@@ -328,7 +328,7 @@ function FlowCards({
   onNavigate
 }: {
   anchors: Anchor[];
-  onNavigate?: (file: string, line: number) => void;
+  onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
 }) {
   const cards = anchors.slice(0, 3);
   return (
@@ -341,7 +341,7 @@ function FlowCards({
             <button
               type="button"
               data-testid="flow-card"
-              onClick={() => onNavigate?.(anchor.file, anchor.line)}
+              onClick={() => onNavigate?.(anchor.file, anchor.line, undefined, anchor.symbol)}
               className="min-w-0 flex-1 rounded-md border border-line bg-surface p-2 text-left hover:border-accent/50"
               title={`${anchor.file}:${anchor.line}`}
             >

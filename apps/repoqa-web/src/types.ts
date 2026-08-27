@@ -18,6 +18,8 @@ export interface Repo {
   updatedAt: string;
   /** Set when indexing failed; the backend answers every 4xx with it too. */
   error?: string;
+  /** v0.5.1 (D1): importable root-level dirs offered after an over-limit reject. */
+  suggestedSubdirs?: string[];
 }
 
 export type SymbolKind =
@@ -30,7 +32,9 @@ export type SymbolKind =
   | 'repository'
   | 'advice'
   | 'mapper'
-  | 'sql';
+  | 'sql'
+  | 'config'
+  | 'dependency';
 
 export interface RepoSymbol {
   id: number;
@@ -122,6 +126,23 @@ export interface Anchor {
   file: string;
   line: number;
   symbol: string;
+}
+
+/** v0.6 closeout: one static caller of a target symbol (reverse-deps). */
+export interface ReverseCaller {
+  file: string;
+  method: string;
+  line: number;
+  callLine: number | null;
+}
+
+/** Shape of `GET /api/repos/:id/reverse-deps?symbolName=...`. */
+export interface ReverseDepsResult {
+  repoId: string;
+  target: { name: string; file: string; line: number };
+  callers: ReverseCaller[];
+  count: number;
+  fallback: boolean;
 }
 
 export interface TokenUsage {

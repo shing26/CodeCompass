@@ -12,7 +12,9 @@ export interface UseRepoCatalogResult {
   loading: boolean;
   error: string | null;
   selectRepo: (id: string) => void;
-  importRepo: (name: string, localPath: string) => Promise<void>;
+  /** Resolves with the created repo (status may be `error` with
+   * `suggestedSubdirs` after an over-limit reject — v0.5.1 D1 contract). */
+  importRepo: (name: string, localPath: string) => Promise<Repo>;
   refresh: () => Promise<Repo[]>;
 }
 
@@ -111,6 +113,7 @@ export function useRepoCatalog(
         const repo = await repoPromise;
         setRepos((prev) => [repo, ...prev.filter((r) => r.id !== repo.id)]);
         setCurrentId(repo.id);
+        return repo;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         throw err;

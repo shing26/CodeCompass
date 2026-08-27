@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # RepoPulse 是只读、本地优先的代码智能工作台

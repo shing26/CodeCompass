@@ -15,3 +15,9 @@ Thumbs.db
 
 # Test runner artifacts.
 test-results/
+
+# Gate run output (regenerated on every run).
+scripts/e2e/e2e-result.json
+
+# Python bytecode.
+__pycache__/
