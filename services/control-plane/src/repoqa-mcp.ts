@@ -35,7 +35,29 @@ import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-gra
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.6.0';
+export const MCP_SERVER_VERSION = '0.8.0';
+
+/* ------------------------------------------------------------------ */
+/* Stdout protocol guard                                               */
+/* ------------------------------------------------------------------ */
+
+let stdioGuardInstalled = false;
+
+/**
+ * v0.8.0 — last-line stdout purity guard. The codebase's own logs already go
+ * through console.error, but third-party dependencies occasionally emit
+ * progress via console.log/info/warn; on the stdio transport a single such
+ * line corrupts the JSON-RPC handshake. Redirect the non-protocol console
+ * methods to stderr once, before any dependency is exercised. Idempotent.
+ */
+export function installStdioProtocolGuard(): void {
+  if (stdioGuardInstalled) return;
+  stdioGuardInstalled = true;
+  const toStderr = (...args: unknown[]) => console.error(...args);
+  console.log = toStderr;
+  console.info = toStderr;
+  console.warn = toStderr;
+}
 
 /** Dependencies required to serve MCP tools (subset of the control-plane stack). */
 export interface McpDeps {
@@ -443,6 +465,8 @@ export interface RunMcpServerOptions {
 export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<void> {
   // Stdout is the MCP message channel (newline-delimited JSON); human-readable
   // progress must go to stderr so it can never corrupt the protocol stream.
+  // The guard also traps stray console.log/info/warn from third-party deps.
+  installStdioProtocolGuard();
   const log = options.log ?? ((line: string) => console.error(line));
   const env = { ...(options.env ?? process.env) };
   if (options.dataDir) env.MHW_DATA_DIR = options.dataDir;

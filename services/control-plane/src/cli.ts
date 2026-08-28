@@ -14,12 +14,13 @@ import { RepoQARepos } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
 import { extractSubgraphContext } from './repoqa-graphrag';
 import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
+import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.8.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
-  command?: 'mcp' | 'diff' | 'pr-summary' | 'context' | 'doctor';
+  command?: 'mcp' | 'diff' | 'pr-summary' | 'context' | 'doctor' | 'install';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -40,6 +41,12 @@ export interface CliArgs {
   failOnBreak: boolean;
   /** Issue 29: fail `pr-summary` on impacted unauthenticated sensitive routes. */
   failOnAuthImpact: boolean;
+  /** `codecompass install --ide <ide>` — target IDE config. */
+  installIde?: string;
+  /** `codecompass install --dry-run` — preview without writing. */
+  dryRun: boolean;
+  /** `codecompass install --repo <path>` — repo the MCP entry indexes. */
+  installRepo?: string;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -63,6 +70,7 @@ Usage:
   codecompass pr-summary [options] <base> <head> [repoPath]
   codecompass context <query> [repoPath]
   codecompass doctor [--data-dir <path>] [--json]
+  codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
@@ -88,6 +96,13 @@ Subcommands:
   doctor                Diagnose Node/SQLite ABI, control-plane port, data
                         directory and Local LLM (Ollama) health. Exits 1 on a
                         fatal check failure.
+  install --ide <id>    Write the CodeCompass stdio MCP server entry into the
+                        host IDE's own MCP config (Cursor ~/.cursor/mcp.json
+                        with a tool auto-approve allowlist, ZCode CLI config,
+                        Claude Desktop). Merges idempotently, backs up the
+                        previous file, and resolves the Node runtime absolute
+                        path automatically. "--ide all" configures every
+                        supported IDE.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -98,6 +113,10 @@ Options:
   --data-dir <dir>      Data directory (default: MHW_DATA_DIR or ~/.mhw)
   --no-browser          Do not auto-open the browser
   --no-watch            Disable FS watcher hot reload for ready repos
+  --ide <id>            With install: cursor | zcode | claude | all
+  --repo <path>         With install: repository the MCP entry indexes
+                        (default: current directory)
+  --dry-run             With install: preview the config write without touching disk
   --json                With doctor, emit a structured JSON report
   --output <fmt>        Diff report format: markdown | json (default: markdown)
   --file <path>         Write the diff report to a file instead of stdout
@@ -116,6 +135,7 @@ export function parseArgs(argv: string[]): ParseResult {
     noBrowser: false,
     noWatch: false,
     doctorJson: false,
+    dryRun: false,
     failOnBreak: false,
     failOnAuthImpact: false,
     help: false,
@@ -212,9 +232,32 @@ export function parseArgs(argv: string[]): ParseResult {
       args.doctorJson = true;
       continue;
     }
+    if (arg === '--dry-run') {
+      args.dryRun = true;
+      continue;
+    }
 
     const inline = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : undefined;
     const flag = inline !== undefined ? arg.slice(0, arg.indexOf('=')) : arg;
+
+    if (flag === '--ide') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || value === '') {
+        return { ok: false, error: '--ide expects cursor | zcode | claude | all' };
+      }
+      args.installIde = value;
+      continue;
+    }
+    if (flag === '--repo') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || value === '') {
+        return { ok: false, error: '--repo expects a repository directory path' };
+      }
+      args.installRepo = value;
+      continue;
+    }
 
     if (flag === '--port') {
       const { value, next } = nextValue(i, flag, inline);
@@ -272,17 +315,18 @@ export function parseArgs(argv: string[]): ParseResult {
     if (arg.startsWith('-')) {
       return { ok: false, error: `Unknown option: ${arg}` };
     }
-    if (
-      args.command === undefined &&
-      args.targetPath === undefined &&
-      (
-        arg === 'mcp' ||
-        arg === 'diff' ||
-        arg === 'pr-summary' ||
-        arg === 'context' ||
-        arg === 'doctor'
-      )
-    ) {
+      if (
+        args.command === undefined &&
+        args.targetPath === undefined &&
+        (
+          arg === 'mcp' ||
+          arg === 'diff' ||
+          arg === 'pr-summary' ||
+          arg === 'context' ||
+          arg === 'doctor' ||
+          arg === 'install'
+        )
+      ) {
       args.command = arg;
       continue;
     }
@@ -511,6 +555,28 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       cockpitUrl: null,
       exitCode: report.status === 'error' ? 1 : 0
     };
+  }
+
+  if (args.command === 'install') {
+    const ide = args.installIde;
+    if (!ide) {
+      throw new Error('codecompass install requires --ide <cursor|zcode|claude|all>\n\n' + USAGE);
+    }
+    const targets: IdeId[] =
+      ide === 'all' ? [...INSTALL_IDES] : [ide as IdeId];
+    if (ide !== 'all' && !INSTALL_IDES.includes(targets[0])) {
+      throw new Error(`Unknown IDE: ${ide} (expected cursor | zcode | claude | all)`);
+    }
+    const repoPath = args.installRepo ?? args.targetPath ?? process.cwd();
+    for (const target of targets) {
+      await installIdeConfig({
+        ide: target,
+        repoPath,
+        dryRun: args.dryRun,
+        log
+      });
+    }
+    return { server: null, cockpitUrl: null };
   }
 
   if (args.command === 'mcp') {
