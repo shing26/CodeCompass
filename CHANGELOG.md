@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.8.0] - 2026-08-29
+
+### Highlights
+
+- **专精 Agent 复合工具**：`codecompass_diagnose`（跨栈根因穿透：前端组件 → 路由 → Service → MyBatis XML，逐层 VERIFIED/BROKEN/SUSPECT）与 `codecompass_refactor_plan`（重构爆炸半径：直接/间接调用方、受波及路由与前端组件、风险评级与迁移步骤）。两者 100% 确定性、零 LLM、可单测可重放。
+- **Zero-Config 安装器**：`codecompass install --ide <cursor|zcode|claude|all>` 把 stdio MCP 入口写入各 IDE 配置（Cursor 含 autoApprove 白名单），幂等合并 + 自动备份 + `--dry-run`。
+- **驾驶舱深链**：`?focus=<symbol>&traceId=<id>` 现场还原、`?mode=diff` 直达架构差异视图，workbench tab 与 URL 双向同步。
+- **单文件 HTML 工件**：`codecompass export` 输出自包含诊断工件（内联 mermaid 运行时，断网可渲染，可随 PR 归档），断链在拓扑图中红色描边。
+
+### Added
+
+- `services/control-plane/src/diagnose-engine.ts`：4 层可降级穿透引擎（Java 全栈四层全开，其他语言按实际索引层级输出），确定性 traceId 与 cockpitDeepLink、代码切片。
+- `services/control-plane/src/blast-radius.ts`：覆盖全部符号（含路由）的反向邻接 + BFS 间接调用方聚合 + 风险打分（路由暴露 ×2、前端组件 ×3、REMOVAL 加权）。
+- `services/control-plane/src/installer.ts`：Cursor（mcp.json + autoApprove）/ZCode（mcp.servers）/Claude Desktop 三家适配器，幂等 merge、备份、dry-run。
+- `services/control-plane/src/export-artifact.ts`：自包含 HTML 渲染器，monorepo 内解析本地 mermaid，找不到时回退 CDN 并告警。
+- MCP 注册 `codecompass_diagnose`、`codecompass_refactor_plan`（现共 10 工具）；内置 ReAct 编排挂载 `diagnose_chain`/`blast_radius` 工具。
+- CLI 新增 `diagnose` / `refactor-plan` / `export` 子命令（CI 可直接消费 JSON/HTML）。
+- e2e 门禁新增 MCP stdio 复合工具往返、CLI 三命令与 install --dry-run 检查，并接入 `npm run e2e`。
+
+### Changed
+
+- `repoqa-callchain.ts`：路由匹配将数字路径段按 `{id}` 折叠（与既有 `{id}`/`:id` 归一化同一语义），前端具体 URL 可桥接到占位符路由。
+- MCP 启动时安装全局 console 劫持（log/info/warn → stderr），第三方依赖无法污染 JSON-RPC 流；新增真实子进程 stdout 纯净性测试。
+
+
 ## [0.6.0] - 2026-08-27
 
 ### Highlights

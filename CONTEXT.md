@@ -1,8 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-4 ADRs（0001–0003 accepted，0004 proposed）。当前版本 0.6.0，收口计划见
-`.scratch/v0.6-closeout/spec.md`。
+7 ADRs（0001–0003、0005–0007 accepted，0004 proposed）。当前版本 0.8.0。
 
 ## Naming
 
@@ -50,6 +49,11 @@
 | Recall@K | 真实调用链/符号出现在返回 top-K 证据中的比例，K 必须固定。 |
 | Quick Tour | 基于真实 symbols 生成的单个预填问题流程，目标是让用户一次看懂一个调用链。 |
 | Onboarding Dashboard | 索引后生成的一屏仓库简报；当前是待验证功能，不是 Ready 的同义词。 |
+| Composite Tool（复合工具） | 由多个确定性图谱查询组合成的 MCP 工具（`codecompass_diagnose`、`codecompass_refactor_plan`）；零 LLM、可单测可重放，叙述与补丁由 LLM 编排层生成（ADR-0005/0006）。 |
+| Diagnose Chain（穿透链路） | 从入口符号（方法名或 "METHOD /route/path"）出发的分层链：FRONTEND_COMPONENT → HTTP_ROUTER → SERVICE → DATA_MAPPER；每层标 VERIFIED / BROKEN / SUSPECT，层级按语言可降级，缺层不硬凑。 |
+| Blast Radius（爆炸半径） | 以目标符号为根的反向递归调用方聚合，含直接/间接计数、受波及对外路由、桥接受波及的前端组件与 HIGH/MEDIUM/LOW 风险评级。 |
+| Deep-Link（驾驶舱深链） | 带 `?repo=&focus=&traceId=&mode=diff` 的工作台 URL，用于现场还原一条链路或差异视图；深链落在卡片流上（ADR-0007）。 |
+| HTML Artifact（诊断工件） | `codecompass export` 输出的单文件自包含 HTML：内联 mermaid 运行时、链路步骤与代码切片，断网可渲染、可随 PR 归档。 |
 
 ## Open Decisions
 - Post-v1: remote sync backend, advanced approval/guardrail automation, and

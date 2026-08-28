@@ -42,6 +42,20 @@
 - **热重载**：FS watcher 增量刷新符号与调用边，编辑即所见，无需重导。
 - **大文件降级**：超大文件自动降级为轻量提取，不拖垮索引。
 
+### 8. 专精 Agent 复合工具（v0.8）
+两大**确定性、零 LLM** 的复合工具，替代分散的单点查询：
+- **根因穿透**：`codecompass_diagnose` 从方法名或 `"POST /api/owners"` 出发，穿透 前端组件 → 路由 → Service → Mapper/XML SQL，逐层标 `VERIFIED / BROKEN / SUSPECT`；Java 全栈四层全开，其他语言按实际索引层级降级输出，缺层不硬凑。CLI 同款：`codecompass diagnose <symbol> [repoPath]`（输出 JSON，CI 可直接消费）。
+- **爆炸半径**：`codecompass_refactor_plan` 递归聚合直接/间接调用方，上卷受波及对外路由与桥接前端组件，给出 HIGH/MEDIUM/LOW 风险评级与迁移步骤。CLI 同款：`codecompass refactor-plan <symbol> [--change-type <t>]`。
+- **诊断工件**：`codecompass export <symbol> [--file out.html]` 输出单文件自包含 HTML（内联 mermaid 运行时，断网可渲染，可随 PR 归档），断链在拓扑图中红色描边。
+- **深链现场还原**：工具结果的 `cockpitDeepLink` 携带 `?focus=<symbol>&traceId=<id>&mode=diff`，打开即闪烁聚焦目标卡片 / 直达架构差异视图。
+补丁类生成内容归 LLM 编排层并显式标注（ADR-0006）；链路追踪 100% 确定性（ADR-0005）。
+
+### 9. Zero-Config 安装器（v0.8）
+```bash
+codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
+```
+把 stdio MCP 入口写入各 IDE 自有配置（Cursor `~/.cursor/mcp.json` 并注入工具 autoApprove 白名单、ZCode `~/.zcode/cli/config.json`、Claude Desktop），自动解析 Node 运行时绝对路径；幂等合并、写前自动备份、`--dry-run` 预览。
+
 ## 快速上手
 
 ### 前置要求
@@ -90,13 +104,14 @@ codecompass --version
 ### 回归门禁
 
 ```bash
-python scripts/e2e/closeout_gate.py   # API 级端到端基线（需 Node 24 + 已构建 dist + git）
+npm run e2e   # = python scripts/e2e/closeout_gate.py（需 Node 24 + 已构建 dist + git + python3）
 ```
 
-一键构建多语言 fixture（Java+TS / Python / Go）并断言 19 项能力：doctor、版本一致性、
+一键构建多语言 fixture（Java+TS / Python / Go）并断言 26 项能力：doctor、版本一致性、
 多语言消费面、Module Scope、扫描过滤（venv/二进制）、跨语言桥接、reverse-deps、
 确定性调用链、SSE 流（mermaid + 锚点）、symbolType 枚举、架构差异、ADR-0003 脱敏
-门禁、FastAPI Depends、Go 隐式接口、热重载等。详见 `scripts/e2e/README.md`。
+门禁、FastAPI Depends、Go 隐式接口、热重载，以及 v0.8 的 MCP stdio 复合工具往返、
+CLI diagnose / refactor-plan / export 与 install --dry-run。详见 `scripts/e2e/README.md`。
 
 ### 方式二：Docker（容器开发）
 
@@ -115,7 +130,7 @@ docker run --rm -p 43110:43110 \
 
 ## MCP 工具接入
 
-`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 8 个确定性工具：
+`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 10 个确定性工具：
 
 | 工具 | 用途 |
 | --- | --- |
@@ -127,6 +142,8 @@ docker run --rm -p 43110:43110 \
 | `codecompass_reverse_deps` | who-uses 反向调用者查询 |
 | `codecompass_get_pr_impact` | Git PR 架构影响面分析 |
 | `codecompass_get_subgraph_context` | **Graph RAG 子图提取**：1-Hop Caller + 1~3 Hop Callee、骨架折叠、Token 剪枝与凭据脱敏 |
+| `codecompass_diagnose` | **跨栈根因穿透**：前端组件 → 路由 → Service → Mapper 分层链路，逐层 VERIFIED/BROKEN/SUSPECT |
+| `codecompass_refactor_plan` | **重构爆炸半径**：直接/间接调用方、受波及路由与前端组件、风险评级与迁移步骤 |
 
 ### Cursor
 
@@ -189,4 +206,4 @@ docs/adr/                   # 架构决策记录；术语表见 CONTEXT.md
 
 ## 版本
 
-当前版本：`v0.6.0`（CHANGELOG 含 0.5.x / 0.6.0 完整条目）。语义化版本规则见 `docs/adr/`。
+当前版本：`v0.8.0`（CHANGELOG 含 0.5.x–0.8.0 完整条目）。语义化版本规则见 `docs/adr/`。

@@ -18,6 +18,10 @@ v0.5.1/v0.6.0 claim:
   9.  /symbols symbolType is a real enum (>90% non-UNKNOWN)
   10. architecture-delta between two git refs reports added routes + mermaid
   11. FS-watcher hot reload: a new method appears without re-import
+  12. v0.8 MCP stdio: codecompass_diagnose + codecompass_refactor_plan answer
+      over the raw JSON-RPC handshake with deterministic layers/status
+  13. v0.8 CLI: diagnose / refactor-plan print JSON; export writes a
+      self-contained HTML artifact; install --dry-run previews without writing
 
 Usage:
   python scripts/e2e/closeout_gate.py [--cli node services/control-plane/dist/cli.js]
@@ -578,6 +582,213 @@ def check_hot_reload(base: str, repo_id: str, repo_path: Path) -> None:
     record("FS-watcher hot reload indexes the new method without re-import", False, "timeout after 25s")
 
 
+# ------------------------------------------------------- v0.8 composite tools
+
+
+def _mcp_roundtrip(
+    node: str, cli: Path, repo_path: Path, data_dir: Path, requests: list[dict]
+) -> dict[int, dict]:
+    """Minimal MCP stdio client: send JSON-RPC lines, collect id→response."""
+    proc = subprocess.Popen(
+        [node, str(cli), "mcp", str(repo_path), "--data-dir", str(data_dir)],
+        cwd=ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    lines: list[str] = []
+    try:
+        assert proc.stdin and proc.stdout
+        for request in requests:
+            proc.stdin.write(json.dumps(request) + "\n")
+        proc.stdin.flush()
+
+        import threading
+
+        done = threading.Event()
+
+        def reader() -> None:
+            assert proc.stdout
+            for raw in proc.stdout:
+                lines.append(raw)
+            done.set()
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        deadline = time.time() + 90
+        want = {str(r["id"]) for r in requests if r.get("id") is not None}
+        while time.time() < deadline and not done.is_set():
+            have = set()
+            for raw in lines:
+                try:
+                    have.add(str(json.loads(raw).get("id")))
+                except json.JSONDecodeError:
+                    continue
+            if want <= have:
+                break
+            time.sleep(0.2)
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    responses: dict[int, dict] = {}
+    for raw in lines:
+        try:
+            message = json.loads(raw)
+        except json.JSONDecodeError:
+            record("MCP stdio stdout stays pure JSON-RPC", False, raw[:160])
+            continue
+        if isinstance(message.get("id"), int) and "result" in message:
+            responses[message["id"]] = message
+    return responses
+
+
+def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: Path) -> None:
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "gate", "version": "0.0.0"},
+            },
+        },
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_diagnose",
+                "arguments": {"repoId": "demo-polyglot", "entrySymbol": "listOwners"},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_refactor_plan",
+                "arguments": {
+                    "repoId": "demo-polyglot",
+                    "targetSymbol": "findOwners",
+                    "changeType": "SIGNATURE_CHANGE",
+                },
+            },
+        },
+    ]
+    responses = _mcp_roundtrip(node, cli, repo_path, data_dir, requests)
+
+    names = [
+        tool.get("name")
+        for tool in responses.get(2, {}).get("result", {}).get("tools", [])
+    ]
+    record(
+        "v0.8 MCP tools/list exposes the composite tools (10 total)",
+        "codecompass_diagnose" in names and "codecompass_refactor_plan" in names and len(names) >= 10,
+        f"tools={len(names)}",
+    )
+
+    diagnose_text = ""
+    for item in responses.get(3, {}).get("result", {}).get("content", []):
+        diagnose_text += item.get("text", "")
+    layers_ok = '"HTTP_ROUTER"' in diagnose_text and '"SERVICE"' in diagnose_text
+    verified_ok = '"VERIFIED"' in diagnose_text
+    record(
+        "v0.8 codecompass_diagnose returns layered deterministic chain",
+        layers_ok and verified_ok and "traceId" in diagnose_text,
+        f"layers_ok={layers_ok} verified={verified_ok} len={len(diagnose_text)}",
+    )
+
+    refactor_text = ""
+    for item in responses.get(4, {}).get("result", {}).get("content", []):
+        refactor_text += item.get("text", "")
+    record(
+        "v0.8 codecompass_refactor_plan returns risk + routes + steps",
+        '"riskLevel"' in refactor_text and '"impactedRoutes"' in refactor_text
+        and '"migrationSteps"' in refactor_text,
+        f"len={len(refactor_text)}",
+    )
+
+
+def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path) -> None:
+    def run(*extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [node, str(cli), *extra, "--data-dir", str(data_dir)],
+            cwd=ROOT, capture_output=True, text=True, timeout=300,
+        )
+
+    def last_json(text: str) -> dict:
+        decoder = json.JSONDecoder()
+        split = text.splitlines()
+        for idx, line in enumerate(split):
+            if line.strip() == "{":
+                obj, _ = decoder.raw_decode("\n".join(split[idx:]))
+                return obj
+        obj, _ = decoder.raw_decode(text[text.find("{"):])
+        return obj
+
+    diagnose = run("diagnose", "listOwners", str(repo_path))
+    try:
+        result = last_json(diagnose.stdout)
+        layers = [step["layer"] for step in result["verifiedChain"]]
+        ok = (
+            diagnose.returncode == 0
+            and "HTTP_ROUTER" in layers
+            and "SERVICE" in layers
+            and result["verifiedChain"][0]["status"] in ("VERIFIED", "SUSPECT")
+            and result["cockpitDeepLink"].startswith("http://localhost:")
+        )
+        detail = f"layers={layers} traceId={result.get('traceId')}"
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{exc}: {diagnose.stdout[-200:]} {diagnose.stderr[-200:]}"
+    record("v0.8 CLI diagnose prints layered JSON with deep link", ok, detail)
+
+    refactor = run(
+        "refactor-plan", "findOwners", str(repo_path), "--change-type", "SIGNATURE_CHANGE"
+    )
+    try:
+        result = last_json(refactor.stdout)
+        ok = (
+            refactor.returncode == 0
+            and result["directCallersCount"] >= 1
+            and len(result["impactedRoutes"]) >= 1
+            and result["riskLevel"] in ("HIGH", "MEDIUM", "LOW")
+            and len(result["migrationSteps"]) >= 2
+        )
+        detail = (
+            f"direct={result['directCallersCount']} routes={result['impactedRoutes']} "
+            f"risk={result['riskLevel']}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{exc}: {refactor.stdout[-200:]} {refactor.stderr[-200:]}"
+    record("v0.8 CLI refactor-plan prints blast-radius JSON", ok, detail)
+
+    artifact = tmp / "artifact.html"
+    export = run("export", "listOwners", str(repo_path), "--file", str(artifact))
+    content = artifact.read_text(encoding="utf-8") if artifact.exists() else ""
+    record(
+        "v0.8 CLI export writes a self-contained HTML artifact",
+        export.returncode == 0 and artifact.exists() and "mermaid" in content
+        and "<!DOCTYPE html>" in content,
+        f"bytes={len(content)}",
+    )
+
+    install = run("install", "--ide", "cursor", "--repo", str(repo_path), "--dry-run")
+    record(
+        "v0.8 CLI install --dry-run previews without writing",
+        install.returncode == 0 and "dry-run" in install.stdout,
+        (install.stdout or install.stderr).strip().splitlines()[-1][:120] if (install.stdout or install.stderr) else "",
+    )
+
+
 # ----------------------------------------------------------------------- main
 
 
@@ -643,6 +854,10 @@ def main() -> int:
         _go = import_repo(base, "demo-go", go_repo)
         check_dashboard(base, _go["id"], "go/gin", expect_config=False)
         check_go_implicit_interface(base, _go["id"])
+
+        # v0.8 — composite tools over MCP stdio and the CLI surface.
+        check_mcp_composite_tools(args.node, cli, polyglot, data_dir)
+        check_cli_composite(args.node, cli, polyglot, data_dir, tmp)
 
         if not args.skip_hot_reload:
             check_hot_reload(base, py_repo["id"], polyglot)
