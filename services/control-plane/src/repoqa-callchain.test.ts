@@ -3,13 +3,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { RepoSymbol } from './repoqa-repos';
+import { applyModuleScopes } from './repoqa-repos';
 import { parseJavaFile } from './repoqa-parser';
 import {
   buildCallIndex,
   CallResolver,
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
-  resolveCallChain
+  resolveCallChain,
+  applyImplicitInterfaces
 } from './repoqa-callchain';
 
 async function parseTree(files: Record<string, string>): Promise<RepoSymbol[]> {
@@ -891,5 +893,53 @@ describe('CallResolver reverse callers (Sprint 1)', () => {
     expect(resolver.reverseCallers(findAll).map((caller) => caller.method)).toEqual([
       'findOrders'
     ]);
+  });
+});
+
+
+describe('v0.7 — applyImplicitInterfaces (Go duck typing)', () => {
+  it('backfills interfaces for structs whose method set matches signatures', () => {
+    const symbols: RepoSymbol[] = [
+      { repoId: 'r', kind: 'interface', name: 'Storage', filePath: 'store.go', lineStart: 1, lineEnd: 5 },
+      {
+        repoId: 'r', kind: 'method', name: 'Save', filePath: 'store.go', lineStart: 2, lineEnd: 3,
+        signature: 'Save(path string) error', parentType: 'Storage', calls: []
+      },
+      { repoId: 'r', kind: 'class', name: 'FileStorage', filePath: 'fs.go', lineStart: 10, lineEnd: 30 },
+      {
+        repoId: 'r', kind: 'method', name: 'Save', filePath: 'fs.go', lineStart: 11, lineEnd: 13,
+        signature: 'func (s *FileStorage) Save(path string) error', parentType: 'FileStorage', calls: []
+      },
+      { repoId: 'r', kind: 'class', name: 'MemStore', filePath: 'mem.go', lineStart: 40, lineEnd: 60 },
+      {
+        repoId: 'r', kind: 'method', name: 'SaveAll', filePath: 'mem.go', lineStart: 41, lineEnd: 43,
+        signature: 'func (m *MemStore) SaveAll(paths []string) error', parentType: 'MemStore', calls: []
+      }
+    ];
+    applyImplicitInterfaces(symbols);
+    expect(symbols.find((s) => s.name === 'FileStorage')?.interfaces).toContain('Storage');
+    expect(symbols.find((s) => s.name === 'MemStore')?.interfaces ?? []).not.toContain('Storage');
+  });
+});
+
+describe('v0.7 — applyModuleScopes (Module Scope)', () => {
+  it('annotates qualified names only for multi-module repos', () => {
+    const multi: RepoSymbol[] = [
+      { repoId: 'r', kind: 'class', name: 'ConfigService', filePath: 'order-service/src/main/java/com/demo/ConfigService.java', lineStart: 1, lineEnd: 2 },
+      { repoId: 'r', kind: 'method', name: 'init', filePath: 'order-service/src/main/java/com/demo/ConfigService.java', lineStart: 2, lineEnd: 3, parentType: 'ConfigService' },
+      { repoId: 'r', kind: 'class', name: 'ConfigService', filePath: 'user-service/src/main/java/com/demo/ConfigService.java', lineStart: 1, lineEnd: 2 }
+    ];
+    applyModuleScopes(multi);
+    expect(multi[0].moduleName).toBe('order-service');
+    expect(multi[0].qualifiedName).toBe('order-service::ConfigService');
+    expect(multi[1].qualifiedName).toBe('order-service::ConfigService.init');
+    expect(multi[2].moduleName).toBe('user-service');
+
+    const single: RepoSymbol[] = [
+      { repoId: 'r', kind: 'class', name: 'App', filePath: 'src/main/java/com/demo/App.java', lineStart: 1, lineEnd: 2 }
+    ];
+    applyModuleScopes(single);
+    expect(single[0].moduleName).toBeUndefined();
+    expect(single[0].qualifiedName).toBeUndefined();
   });
 });

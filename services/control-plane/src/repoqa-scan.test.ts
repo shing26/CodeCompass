@@ -213,3 +213,30 @@ describe('previewRepo (Round 2 B4)', () => {
     );
   });
 });
+
+
+describe('v0.7 — ignore patterns & binary budget', () => {
+  it('ignores virtualenv directory variants without hitting business dirs', () => {
+    expect(isIgnoredDir('env_py310')).toBe(true);
+    expect(isIgnoredDir('poetry_env')).toBe(true);
+    expect(isIgnoredDir('.conda')).toBe(true);
+    expect(isIgnoredDir('venv311')).toBe(true);
+    expect(isIgnoredDir('environments')).toBe(false);
+    expect(isIgnoredDir('env-config')).toBe(false);
+    expect(isIgnoredDir('envoy')).toBe(false);
+    expect(isIgnoredDir('src')).toBe(false);
+  });
+
+  it('excludes binary assets from the file budget but reports them', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-binary-'));
+    await fs.writeFile(path.join(root, 'main.py'), 'def main():\n    pass\n');
+    await fs.writeFile(path.join(root, 'model.pt'), 'binary');
+    await fs.writeFile(path.join(root, 'data.parquet'), 'binary');
+    const stats = await scanRepo(root);
+    expect(stats.fileCount).toBe(1);
+    expect(stats.skippedBinary).toBe(2);
+    const preview = await previewRepo(root);
+    expect(preview.fileCount).toBe(1);
+    expect(preview.skippedBinaryCount).toBe(2);
+  });
+});

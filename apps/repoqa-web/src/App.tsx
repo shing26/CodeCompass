@@ -18,6 +18,7 @@ import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { TourPlayer } from './components/TourPlayer';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
+import { CopyMaskingToast } from './components/CopyMaskingToast';
 import type {
   Anchor,
   IndexingProgress,
@@ -265,12 +266,17 @@ export function App({ client: clientProp }: AppProps) {
     downloadTextFile(`${currentRepo.name}-ONBOARDING.md`, markdown);
   };
 
+  // v0.7 — masking disclosure: raised after every successful agent-context
+  // copy so both entry points (TopBar / Inspector) share one toast.
+  const [maskingToastAt, setMaskingToastAt] = useState(0);
+
   const handleCopyAgentContext = async () => {
     if (!repoId || !inspector.file) return;
     const query = inspector.file.split(/[\\/]/).pop() ?? inspector.file;
     const context = await client.getSubgraphContext(repoId, query);
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(context.text);
+      setMaskingToastAt(Date.now());
       return;
     }
     const textarea = document.createElement('textarea');
@@ -281,6 +287,7 @@ export function App({ client: clientProp }: AppProps) {
     textarea.select();
     document.execCommand('copy');
     textarea.remove();
+    setMaskingToastAt(Date.now());
   };
 
   const handleReindex = async (repo: Repo) => {
@@ -462,6 +469,7 @@ export function App({ client: clientProp }: AppProps) {
           onOpenFile={inspector.openFile}
         />
       </div>
+      <CopyMaskingToast trigger={maskingToastAt} />
       <footer
         data-testid="footer-status"
         className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-line bg-surface px-3 text-[10px] text-muted"

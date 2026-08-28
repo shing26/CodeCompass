@@ -122,6 +122,8 @@ export interface RepoQaTraceHop {
   break?: true;
   /** Human-readable break marker, e.g. '[Static Analysis Break: Dynamic/RPC Dispatch]'. */
   reason?: string;
+  /** v0.7 — hop entered via a `go fn(...)` Goroutine dispatch. */
+  async?: true;
 }
 
 export interface RepoQaQueryDone {

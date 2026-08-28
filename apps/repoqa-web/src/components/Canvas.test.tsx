@@ -121,3 +121,25 @@ describe('Canvas topology flow cards (Issue 31)', () => {
     expect(screen.getByText('Callee')).toBeInTheDocument();
   });
 });
+
+
+describe('Canvas Top API focus flash (v0.7 issue 12)', () => {
+  it('flashes the start flow card once when a trace lands', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'msg-focus',
+        role: 'assistant',
+        text: '',
+        status: 'done',
+        anchors: [
+          { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
+          { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' }
+        ]
+      }
+    ];
+    renderCanvas({ messages });
+    const cards = screen.getAllByTestId('flow-card');
+    expect(cards[0].className).toContain('focus-flash');
+    expect(cards[1].className).not.toContain('focus-flash');
+  });
+});

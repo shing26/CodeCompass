@@ -201,11 +201,19 @@ export function parseGoSource(
   const moduleRouters = new Map<string, string | undefined>();
   const inferredImpls: Array<{ iface: string; impl: string }> = [];
   let functionDepth = 0;
+  // v0.7 — nesting depth inside `go ...` statements; calls made here are
+  // concurrent branches and get the async marker on their edge.
+  let goDepth = 0;
 
   const tree = parser.parse(source);
   tree.iterate({
     enter(ref) {
       const node = ref.node;
+
+      if (node.name === 'GoStatement') {
+        goDepth += 1;
+        return;
+      }
 
       if (node.name === 'TypeDecl') {
         const spec = node.getChild('TypeSpec');
@@ -491,6 +499,9 @@ export function parseGoSource(
         }
 
         if (!call) return;
+        // v0.7 — a call inside `go ...` is a concurrent branch: keep the edge
+        // (the chain does NOT break) and mark it async for display.
+        if (goDepth > 0) call.async = true;
         const calls = current.calls ?? [];
         if (
           !calls.some(
@@ -507,6 +518,10 @@ export function parseGoSource(
     },
     leave(ref) {
       const node = ref.node;
+      if (node.name === 'GoStatement') {
+        goDepth -= 1;
+        return;
+      }
       if (node.name === 'MethodDecl' || node.name === 'FunctionDecl') {
         methodStack.pop();
         scopeStack.pop();

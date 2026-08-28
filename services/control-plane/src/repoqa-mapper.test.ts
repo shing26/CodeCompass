@@ -129,3 +129,37 @@ describe('MyBatis mapper symbol extraction', () => {
     }
   });
 });
+
+
+describe('v0.7 — dynamic SQL shape in summaries', () => {
+  it('censuses dynamic tags and keeps them visible in the summary', () => {
+    const source = [
+      '<mapper namespace="com.demo.UserMapper">',
+      '  <select id="findUsers" resultType="User">',
+      '    SELECT * FROM users',
+      '    <where>',
+      '      <if test="name != null">AND name = #{name}</if>',
+      '      <choose>',
+      '        <when test="age != null">AND age = #{age}</when>',
+      '        <otherwise>AND age &gt;= 18</otherwise>',
+      '      </choose>',
+      '    </where>',
+      '    <foreach collection="ids" item="id" open="(" close=")" separator=",">#{id}</foreach>',
+      '  </select>',
+      '</mapper>'
+    ].join('\n');
+    const file = parseMapperXml(source);
+    const summary = file?.statements[0].sqlSummary ?? '';
+    expect(summary).toContain('[dynamic: choose×1, when×1, otherwise×1, foreach×1, if×1, where×1]');
+  });
+
+  it('omits the marker for static SQL', () => {
+    const source = [
+      '<mapper namespace="com.demo.ItemMapper">',
+      '  <select id="allItems">SELECT * FROM items</select>',
+      '</mapper>'
+    ].join('\n');
+    const file = parseMapperXml(source);
+    expect(file?.statements[0].sqlSummary ?? '').not.toContain('[dynamic:');
+  });
+});

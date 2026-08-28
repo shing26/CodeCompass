@@ -131,3 +131,19 @@ body {
     opacity: 1;
   }
 }
+
+/* v0.7 — one-shot highlight for the trace's start node: dashboard Top API
+ * click lands on the workbench and flashes the focused card (issue 12). */
+.focus-flash {
+  animation: focus-flash 1.5s ease-out;
+}
+
+@keyframes focus-flash {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.9);
+  }
+  100% {
+    box-shadow: none;
+  }
+}

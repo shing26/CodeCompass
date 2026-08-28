@@ -174,3 +174,27 @@ describe('GoAdapter — symbol extraction (Issue 26)', () => {
     expect(trace[1].file).toBe('demo/service.go');
   });
 });
+
+
+describe('v0.7 — go statement async marker', () => {
+  it('marks goroutine dispatch edges without dropping them', () => {
+    const source = [
+      'package main',
+      '',
+      'type Worker struct{}',
+      '',
+      'func (w *Worker) Process(msg string) {}',
+      '',
+      'func main() {',
+      '  w := &Worker{}',
+      '  go w.Process("job")',
+      '  w.Process("sync")',
+      '}'
+    ].join('\n');
+    const symbols = parseGoSource(source, 'main.go', 'r1');
+    const main = symbols.find((symbol) => symbol.name === 'main');
+    const processCalls = (main?.calls ?? []).filter((call) => call.method === 'Process');
+    expect(processCalls.length).toBe(2);
+    expect(processCalls.filter((call) => call.async).length).toBe(1);
+  });
+});

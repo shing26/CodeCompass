@@ -218,17 +218,21 @@ WEB_PACKAGE_JSON = json.dumps(
     indent=2,
 )
 
-PYTHON_APP = '''from fastapi import FastAPI
+PYTHON_APP = '''from fastapi import FastAPI, Depends
 
 app = FastAPI()
 
 
+def get_db():
+    return {}
+
+
 @app.get("/api/pets")
-def list_pets():
-    return pet_list()
+def list_pets(db=Depends(get_db)):
+    return pet_list(db)
 
 
-def pet_list():
+def pet_list(db):
     return []
 '''
 
@@ -242,14 +246,30 @@ GO_MAIN = '''package main
 
 import "github.com/gin-gonic/gin"
 
+type Store interface {
+	Save(path string) error
+}
+
+type FileStore struct{}
+
+func (s *FileStore) Save(path string) error {
+	return nil
+}
+
+func persist(s Store) {
+	_ = s.Save("demo.txt")
+}
+
 func main() {
-    r := gin.Default()
-    r.GET("/api/health", healthHandler)
-    r.Run()
+	r := gin.Default()
+	r.GET("/api/health", healthHandler)
+	s := &FileStore{}
+	go persist(s)
+	r.Run()
 }
 
 func healthHandler(c *gin.Context) {
-    c.JSON(200, gin.H{"ok": true})
+	c.JSON(200, gin.H{"ok": true})
 }
 '''
 
@@ -276,6 +296,7 @@ def build_polyglot_repo(root: Path) -> Path:
     write(repo / "src/main/java/com/demo/Owner.java", JAVA_MODEL)
     write(repo / "src/main/resources/application.properties", SPRING_PROPS)
     write(repo / "web/src/api-client.ts", TS_API_CLIENT)
+    write(repo / "weights.pt", "binary-model-weights")
     write(repo / "web/src/server.ts", TS_SERVER)
     write(repo / "web/package.json", WEB_PACKAGE_JSON)
     _git(repo, ["init"])
@@ -294,6 +315,8 @@ def build_python_repo(root: Path) -> Path:
     write(repo / "app.py", PYTHON_APP)
     write(repo / "pyproject.toml", PYTHON_PYPROJECT)
     write(repo / ".env", PYTHON_ENV)
+    # v0.7 — non-standard virtualenv dir must be skipped by the scanner.
+    write(repo / "env_py310/lib/site-packages/junk.py", "import os\n")
     return repo
 
 
@@ -452,6 +475,60 @@ def check_config_masking(base: str, py_repo_id: str) -> None:
     )
 
 
+def check_module_scope(base: str, repo_id: str) -> None:
+    symbols = http_json("GET", f"{base}/api/repos/{repo_id}/symbols")["symbols"]
+    load = next((s for s in symbols if s["name"] == "loadOwners"), None)
+    ok = bool(load) and load.get("moduleName") == "web" and load.get("qualifiedName") == "web::loadOwners"
+    record(
+        "Module Scope: symbols carry moduleName/qualifiedName",
+        ok,
+        f"loadOwners={(load and (load.get('moduleName'), load.get('qualifiedName')))}",
+    )
+
+
+def check_scan_filters(base: str, polyglot_path) -> None:
+    preview = http_json(
+        "POST", f"{base}/api/repos/preview", {"localPath": str(polyglot_path)}
+    )["preview"]
+    record(
+        "binary filter: weights.pt excluded from budget, reported as skipped",
+        preview.get("skippedBinaryCount", 0) >= 1,
+        f"fileCount={preview['fileCount']} skippedBinary={preview.get('skippedBinaryCount')}",
+    )
+
+
+def check_venv_filtered(base: str, py_repo_id: str) -> None:
+    symbols = http_json("GET", f"{base}/api/repos/{py_repo_id}/symbols")["symbols"]
+    leaked = [s["filePath"] for s in symbols if "env_py310" in s["filePath"]]
+    record(
+        "venv filter: env_py310/ contents never indexed",
+        not leaked,
+        f"leaked={leaked[:2]}",
+    )
+
+
+def check_depends_edges(base: str, py_repo_id: str) -> None:
+    ctx = http_json(
+        "GET", f"{base}/api/repos/{py_repo_id}/subgraph-context?query=list_pets"
+    )["context"]
+    names = [n["name"] for n in ctx.get("nodes", [])]
+    record(
+        "FastAPI Depends: endpoint chains into get_db, no dead Depends node",
+        "get_db" in names and "Depends" not in names,
+        f"nodes={names}",
+    )
+
+
+def check_go_implicit_interface(base: str, go_repo_id: str) -> None:
+    symbols = http_json("GET", f"{base}/api/repos/{go_repo_id}/symbols")["symbols"]
+    store = next((s for s in symbols if s["name"] == "FileStore"), None)
+    record(
+        "Go implicit interface: FileStore satisfies Store",
+        bool(store) and "Store" in (store.get("interfaces") or []),
+        f"interfaces={store and store.get('interfaces')}",
+    )
+
+
 def check_symbols_typed(base: str, repo_id: str) -> None:
     symbols = http_json("GET", f"{base}/api/repos/{repo_id}/symbols")["symbols"]
     total = len(symbols)
@@ -549,6 +626,8 @@ def main() -> int:
         wait_health(base)
         py_repo = import_repo(base, "demo-polyglot", polyglot)
         check_dashboard(base, py_repo["id"], "java+ts polyglot")
+        check_module_scope(base, py_repo["id"])
+        check_scan_filters(base, polyglot)
         check_cross_language_bridge(base, py_repo["id"])
         check_call_chain(base, py_repo["id"])
         check_sse_query(base, py_repo["id"])
@@ -558,9 +637,12 @@ def main() -> int:
         _py = import_repo(base, "demo-python", python_repo)
         check_dashboard(base, _py["id"], "python/fastapi")
         check_config_masking(base, _py["id"])
+        check_venv_filtered(base, _py["id"])
+        check_depends_edges(base, _py["id"])
 
         _go = import_repo(base, "demo-go", go_repo)
         check_dashboard(base, _go["id"], "go/gin", expect_config=False)
+        check_go_implicit_interface(base, _go["id"])
 
         if not args.skip_hot_reload:
             check_hot_reload(base, py_repo["id"], polyglot)

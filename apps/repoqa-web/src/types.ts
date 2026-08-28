@@ -52,6 +52,10 @@ export interface RepoSymbol {
   parentType?: string;
   /** Raw declaration annotations, e.g. `@GetMapping("/owners")` or `router.get`. */
   annotations?: string[];
+  /** v0.7 — physical module scope (multi-module repos only). */
+  moduleName?: string;
+  /** v0.7 — `<module>::[Parent.]Name`, shown on same-name collisions. */
+  qualifiedName?: string;
 }
 
 export type QueryMode = 'architecture' | 'call-chain' | 'environment';

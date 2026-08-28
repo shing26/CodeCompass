@@ -31,6 +31,28 @@ export const GO_FILE_EXTENSIONS = new Set(['.go']);
 export const PYTHON_FILE_EXTENSIONS = new Set(['.py']);
 
 /**
+ * v0.7 — model/binary assets excluded from the file budget entirely: they are
+ * never parsed (no adapter owns them) and would only burn MAX_FILES slots and
+ * pollute the file list. `.jar` is deliberately absent: jars are build
+ * artifacts already covered by the ignored `target`/`build`/`dist` directories.
+ */
+export const BINARY_EXTENSIONS = new Set([
+  '.bin',
+  '.pt',
+  '.onnx',
+  '.parquet',
+  '.pkl',
+  '.pickle',
+  '.gguf',
+  '.safetensors',
+  '.h5',
+  '.pb',
+  '.ckpt',
+  '.npy',
+  '.npz'
+]);
+
+/**
  * Issue 18 — directories that are never indexed. Matching is case-insensitive
  * (`Target` ≡ `target`) because the same repo is often checked out on macOS
  * (exact case) and Windows (case-insensitive filesystem).
@@ -43,6 +65,7 @@ const IGNORED_DIRS = new Set([
   '.vscode',
   '.cache',
   '.next',
+  '.conda',
   '.venv',
   '.scratch',
   '.penguin',
@@ -54,6 +77,7 @@ const IGNORED_DIRS = new Set([
   '.codex',
   '.workbuddy',
   'venv',
+  'env',
   '__pycache__',
   'test-results',
   'node_modules',
@@ -64,9 +88,20 @@ const IGNORED_DIRS = new Set([
   'coverage'
 ]);
 
+/**
+ * v0.7 — pattern layer on top of IGNORED_DIRS for virtualenv directory naming
+ * variants teams actually use (`venv_py310`, `.venv311`, `env_py310`,
+ * `poetry_env`). Deliberately narrow so business directories never match:
+ * `environments/`, `env-config/`, `envoy/` all stay indexed.
+ */
+const IGNORED_DIR_PATTERNS: RegExp[] = [/^venv/, /^\.venv/, /^env[\d_]/, /_env$/];
+
 /** True when a directory entry name must be skipped by the scan. */
 export function isIgnoredDir(name: string): boolean {
-  return IGNORED_DIRS.has(name.toLowerCase());
+  const lower = name.toLowerCase();
+  return (
+    IGNORED_DIRS.has(lower) || IGNORED_DIR_PATTERNS.some((pattern) => pattern.test(lower))
+  );
 }
 
 export interface RepoScanStats {
@@ -77,6 +112,8 @@ export interface RepoScanStats {
   xmlFileCount: number;
   /** v0.6.0: source files classified as LARGE_GENERATED_FILE. */
   largeFiles: string[];
+  /** v0.7: binary assets excluded from the budget (kept for observability). */
+  skippedBinary: number;
 }
 
 /**
@@ -161,6 +198,7 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
   let fileCount = 0;
   let lineCount = 0;
   let xmlFileCount = 0;
+  let skippedBinary = 0;
   const files: string[] = [];
   const largeFiles: string[] = [];
   const stack = [root];
@@ -182,12 +220,18 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
       }
       if (!entry.isFile()) continue;
 
+      // v0.7 — model/binary assets never counted, listed, or read.
+      if (BINARY_EXTENSIONS.has(path.extname(entry.name.toLowerCase()))) {
+        skippedBinary += 1;
+        continue;
+      }
+
       fileCount += 1;
       const filePath = path.join(dir, entry.name);
       files.push(filePath);
       if (entry.name.toLowerCase().endsWith('.xml')) xmlFileCount += 1;
       if (fileCount > MAX_FILES) {
-        return { fileCount, lineCount, files, xmlFileCount, largeFiles };
+        return { fileCount, lineCount, files, xmlFileCount, largeFiles, skippedBinary };
       }
 
       const extension = path.extname(entry.name.toLowerCase());
@@ -209,12 +253,12 @@ export async function scanRepo(root: string): Promise<RepoScanStats> {
         // Unreadable files still count toward the index limit.
       }
       if (lineCount > MAX_LINES) {
-        return { fileCount, lineCount, files, xmlFileCount, largeFiles };
+        return { fileCount, lineCount, files, xmlFileCount, largeFiles, skippedBinary };
       }
     }
   }
 
-  return { fileCount, lineCount, files, xmlFileCount, largeFiles };
+  return { fileCount, lineCount, files, xmlFileCount, largeFiles, skippedBinary };
 }
 
 /**
@@ -240,6 +284,8 @@ export interface RepoPreviewStats {
   xmlFileCount: number;
   skippedDirCount: number;
   skippedDirs: string[];
+  /** v0.7: binary assets excluded from the count (observability). */
+  skippedBinaryCount: number;
 }
 
 /**
@@ -261,6 +307,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
   let pythonFileCount = 0;
   let xmlFileCount = 0;
   let skippedDirCount = 0;
+  let skippedBinaryCount = 0;
   const skippedDirs = new Set<string>();
   const stack = [root];
 
@@ -286,6 +333,11 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
       }
       if (!entry.isFile()) continue;
 
+      if (BINARY_EXTENSIONS.has(path.extname(entry.name.toLowerCase()))) {
+        skippedBinaryCount += 1;
+        continue;
+      }
+
       fileCount += 1;
       if (entry.name.toLowerCase().endsWith('.java')) javaFileCount += 1;
       const extension = path.extname(entry.name.toLowerCase());
@@ -302,7 +354,8 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
           pythonFileCount,
           xmlFileCount,
           skippedDirCount,
-          skippedDirs: [...skippedDirs].sort()
+          skippedDirs: [...skippedDirs].sort(),
+          skippedBinaryCount
         };
       }
     }
@@ -316,6 +369,7 @@ export async function previewRepo(root: string): Promise<RepoPreviewStats> {
     pythonFileCount,
     xmlFileCount,
     skippedDirCount,
-    skippedDirs: [...skippedDirs].sort()
+    skippedDirs: [...skippedDirs].sort(),
+    skippedBinaryCount
   };
 }

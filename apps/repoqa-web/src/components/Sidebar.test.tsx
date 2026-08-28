@@ -243,3 +243,22 @@ describe('Sidebar / shortcut (Sprint 2)', () => {
     expect(screen.getByTestId('sidebar-search')).toHaveValue('/');
   });
 });
+
+
+describe('Sidebar Module Scope disambiguation (v0.7 issue 01)', () => {
+  it('shows qualified names only for same-name symbol collisions', async () => {
+    const user = userEvent.setup();
+    const collisions: RepoSymbol[] = [
+      symbol({ id: 10, kind: 'class', name: 'ConfigService', filePath: 'order-service/src/ConfigService.java', lineStart: 1, lineEnd: 20, qualifiedName: 'order-service::ConfigService', moduleName: 'order-service' }),
+      symbol({ id: 11, kind: 'class', name: 'ConfigService', filePath: 'user-service/src/ConfigService.java', lineStart: 1, lineEnd: 20, qualifiedName: 'user-service::ConfigService', moduleName: 'user-service' }),
+      symbol({ id: 12, kind: 'method', name: 'uniqueHelper', filePath: 'order-service/src/ConfigService.java', lineStart: 5, lineEnd: 6, parentType: 'ConfigService' })
+    ];
+    renderSidebar(vi.fn(), collisions);
+    await user.click(screen.getByTestId('symbols-toggle'));
+
+    expect(screen.getAllByText('order-service::ConfigService').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('user-service::ConfigService').length).toBeGreaterThan(0);
+    // Unique names stay bare.
+    expect(screen.getByText('uniqueHelper')).toBeInTheDocument();
+  });
+});

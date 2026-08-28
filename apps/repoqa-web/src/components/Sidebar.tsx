@@ -1,7 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RepoSymbol, RepoTour, SymbolKind } from '../types';
 import { buildSymbolTree, filterByKind } from '../hooks/useSymbols';
 import { QuickTours } from './QuickTours';
+
+/**
+ * v0.7 Module Scope — names that occur more than once in the catalog get
+ * displayed as `module::Name` (when available) so cross-module collisions
+ * (two `ConfigService`) stay distinguishable in the tree.
+ */
+function useDuplicateNames(symbols: RepoSymbol[]): Set<string> {
+  return useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const symbol of symbols) {
+      counts.set(symbol.name, (counts.get(symbol.name) ?? 0) + 1);
+    }
+    return new Set(
+      [...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name)
+    );
+  }, [symbols]);
+}
+
+function displayLabel(symbol: RepoSymbol, duplicates: Set<string>): string {
+  return duplicates.has(symbol.name) ? (symbol.qualifiedName ?? symbol.name) : symbol.name;
+}
 
 /** v0.6 closeout: symbol-type filter options (client-side, AND with search). */
 const KIND_FILTER_OPTIONS: Array<{ value: SymbolKind | 'all'; label: string }> = [
@@ -155,6 +176,7 @@ export function Sidebar({
 
   const routes = filterByKind(symbols, 'route');
   const tree = buildSymbolTree(symbols);
+  const duplicateNames = useDuplicateNames(symbols);
   const normalizedQuery = query.trim().toLowerCase();
   const visibleRoutes = normalizedQuery
     ? routes.filter((route) => matchesSymbol(route, normalizedQuery))
@@ -314,7 +336,7 @@ export function Sidebar({
                         )}
                         <span className="min-w-0 flex-1 truncate">
                           <span className="text-muted">{typeNode.symbol.kind}</span>{' '}
-                          {typeNode.symbol.name}
+                          {displayLabel(typeNode.symbol, duplicateNames)}
                         </span>
                         <span className="shrink-0 font-mono text-[10px] text-muted">
                           {lineRangeFor(typeNode.symbol)}
@@ -339,7 +361,9 @@ export function Sidebar({
                                     {httpMethodFor(m)}
                                   </span>
                                 )}
-                                <span className="min-w-0 flex-1 truncate">{m.name}</span>
+                                <span className="min-w-0 flex-1 truncate">
+                                  {displayLabel(m, duplicateNames)}
+                                </span>
                                 <span className="shrink-0 font-mono text-[10px] text-muted">
                                   {lineRangeFor(m)}
                                 </span>

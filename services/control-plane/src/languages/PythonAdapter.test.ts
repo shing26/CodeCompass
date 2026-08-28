@@ -183,3 +183,27 @@ describe('PythonAdapter — symbol extraction (Issue 27)', () => {
     });
   });
 });
+
+
+describe('v0.7 — FastAPI Depends/Security parameter edges', () => {
+  it('wires endpoint -> dependency fn and drops the Depends dead edge', () => {
+    const source = [
+      'from fastapi import FastAPI, Depends',
+      '',
+      'app = FastAPI()',
+      '',
+      'def get_db():',
+      '    return {}',
+      '',
+      '@app.get("/users")',
+      'def list_users(db=Depends(get_db)):',
+      '    return query_users(db)'
+    ].join('\n');
+    const symbols = parsePythonSource(source, 'app.py', 'r1');
+    const endpoint = symbols.find((symbol) => symbol.name === 'list_users');
+    expect(endpoint).toBeDefined();
+    const methods = (endpoint?.calls ?? []).map((call) => call.method);
+    expect(methods).toContain('get_db');
+    expect(methods).not.toContain('Depends');
+  });
+});

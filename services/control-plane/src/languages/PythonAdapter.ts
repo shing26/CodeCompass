@@ -112,6 +112,28 @@ function collectParams(
   return params;
 }
 
+/**
+ * v0.7 — FastAPI dependency-injection extraction: `db: Session =
+ * Depends(get_db)` / `user = Security(auth)` wire the endpoint to its
+ * dependency functions. Text-based over the param list on purpose: the default
+ * expression's grammar shape varies between TypeDef/sibling placements, and
+ * the callee pattern is stable (`= [fastapi.]Depends(name)`).
+ */
+function collectParamDependencies(
+  paramList: SyntaxNode | null | undefined,
+  source: string
+): string[] {
+  if (!paramList) return [];
+  const text = textOf(paramList, source);
+  const out: string[] = [];
+  const re = /=\s*(?:[A-Za-z_][\w.]*\.)?(?:Depends|Security)\(\s*([A-Za-z_]\w*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (!out.includes(match[1])) out.push(match[1]);
+  }
+  return out;
+}
+
 function isRouterBase(base: string): boolean {
   return ROUTER_NAMES.has(base) || /(?:app|router|blueprint|api)$/i.test(base);
 }
@@ -401,6 +423,22 @@ export function parsePythonSource(
           locals: new Map(),
           selfType: parentType
         });
+        // v0.7 — FastAPI DI: endpoint -> dependency function edges from
+        // `param: T = Depends(fn)` / `Security(fn)` parameter defaults.
+        const dependencies = collectParamDependencies(node.getChild('ParamList'), source);
+        if (dependencies.length > 0) {
+          const calls = symbol.calls ?? [];
+          for (const dep of dependencies) {
+            if (calls.some((existing) => existing.method === dep)) continue;
+            calls.push({
+              file: relativePath,
+              method: dep,
+              line: symbol.lineStart ?? lineAt(source, node.from) ?? 1,
+              dynamic: false
+            });
+          }
+          symbol.calls = calls;
+        }
         return;
       }
 
@@ -474,6 +512,19 @@ export function parsePythonSource(
         const current = methodStack[methodStack.length - 1];
         const scope = scopeStack[scopeStack.length - 1];
         const line = lineAt(source, node.from);
+
+        // v0.7 — `Depends(...)`/`Security(...)` wrappers are DI markers, not
+        // calls: the real edge (endpoint -> dependency fn) is built from the
+        // parameter defaults above. Recording them would create calls to a
+        // symbol that does not exist.
+        const calleeName =
+          first?.name === 'VariableName'
+            ? textOf(first, source)
+            : first?.name === 'MemberExpression'
+              ? (memberParts(first, source).pop() ?? '')
+              : '';
+        if (calleeName === 'Depends' || calleeName === 'Security') return;
+
         let call: RepoSymbolCall | undefined;
 
         if (first?.name === 'VariableName') {
@@ -496,7 +547,10 @@ export function parsePythonSource(
             line,
             receiver: scope?.selfType ? 'this' : undefined,
             receiverType: scope?.selfType,
-            dynamic: !scope?.selfType
+            // v0.7 — a bare name is a plain function reference, statically
+            // resolvable by same-file-then-global name lookup (Issue 15 pick).
+            // The old `dynamic: true` here silenced every module-level call.
+            dynamic: false
           };
         } else if (first?.name === 'MemberExpression') {
           const parts = memberParts(first, source);

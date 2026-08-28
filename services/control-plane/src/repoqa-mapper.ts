@@ -40,14 +40,42 @@ function attributeValue(attrs: string, name: string): string | undefined {
   return match?.[1];
 }
 
+/**
+ * v0.7 — dynamic-tag census injected into the summary header so MyBatis
+ * `<choose>/<foreach>/<if>` structure survives flattening. Runtime semantics
+ * stay out of scope (unchanged): this only preserves the *shape*.
+ */
+const DYNAMIC_TAG_NAMES = [
+  'choose',
+  'when',
+  'otherwise',
+  'foreach',
+  'if',
+  'where',
+  'trim',
+  'set'
+] as const;
+
+function dynamicTagCensus(body: string): string {
+  const parts: string[] = [];
+  for (const tag of DYNAMIC_TAG_NAMES) {
+    const matches = body.match(new RegExp(`<${tag}\\b`, 'g'));
+    if (matches && matches.length > 0) parts.push(`${tag}×${matches.length}`);
+  }
+  return parts.length > 0 ? `[dynamic: ${parts.join(', ')}] ` : '';
+}
+
 function summarizeSql(body: string): string {
-  return body
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<!\[CDATA\[|\]\]>/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240);
+  const census = dynamicTagCensus(body);
+  return (
+    census +
+    body
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<!\[CDATA\[|\]\]>/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  ).slice(0, 1024);
 }
 
 /**

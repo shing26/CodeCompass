@@ -41,6 +41,8 @@
 | Static Analysis Break | 调用图无法继续解析的位置；必须明确标记，禁止自动补全猜测。 |
 | Reverse Deps（反向依赖） | 以某符号为目标的静态 Call Edge 反向查询，返回调用它的 caller 列表；正向桥接边不进入反向索引。 |
 | Subgraph（子图） | 以 start 符号为中心的双向静态邻接提取（1-Hop Caller + 1~3 Hop Callee），用于 Graph RAG 上下文与子图视图。 |
+| Module Scope（模块作用域） | 多模块仓库（Maven 多模块 / monorepo 工作区）中符号的物理所属模块；仅在仓库跨越多个模块时标注，用于消解同名符号歧义。 |
+| Aggregate Node（聚合节点） | 画布规模控制下代表被收拢的深层节点/边的单个占位节点；它不是静态符号，不携带锚点。 |
 | Chunk | 由 README、doc comment 等切分出的可检索文本单元；不默认等于 embedding。 |
 | Sensitive Context Masking | 代码或配置进入 LLM 前对 password、token、AK/SK、私钥等内容的确定性脱敏。 |
 | Evidence Plane | 用户行为、结果、反馈、错误与质量事件组成的本地只读事件层。 |

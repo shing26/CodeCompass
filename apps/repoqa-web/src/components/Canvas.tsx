@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ChatMessage } from '../hooks/useChat';
 import type { Anchor, QueryMode, Repo, RepoSymbol, TokenUsage } from '../types';
 import { Markdown } from './Markdown';
@@ -57,6 +57,20 @@ export function Canvas({
     }
     return null;
   }, [messages]);
+
+  // v0.7 (issue 12) — one-shot highlight of the trace's start node: a Top API
+  // click lands here and the focused card flashes once instead of blending in.
+  const focusKey = latestTrace?.anchors?.[0]
+    ? `${latestTrace.id}:${latestTrace.anchors[0].file}:${latestTrace.anchors[0].line}`
+    : '';
+  const [focusFlash, setFocusFlash] = useState(false);
+  useEffect(() => {
+    if (!focusKey) return;
+    setFocusFlash(true);
+    const timer = window.setTimeout(() => setFocusFlash(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [focusKey]);
+
   const flowAnchors = latestTrace?.anchors ?? [];
   const selectedNode = flowAnchors[0]?.symbol ?? repo?.name ?? '—';
   const affectedCount = flowAnchors.length;
@@ -131,9 +145,12 @@ export function Canvas({
               </div>
             )}
             {flowAnchors.length > 0 && (
-              <FlowCards anchors={flowAnchors} onNavigate={onNavigate} />
-            )}
-            <div
+              <FlowCards
+                anchors={flowAnchors}
+                onNavigate={onNavigate}
+                flashFirst={focusFlash}
+              />
+            )}            <div
               data-testid="offline-hint"
               className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-xs text-muted"
             >
@@ -162,6 +179,11 @@ export function Canvas({
                   key={m.id}
                   message={m}
                   onNavigate={onNavigate}
+                  highlightNode={
+                    focusFlash && latestTrace?.id === m.id
+                      ? latestTrace.anchors?.[0]?.symbol
+                      : undefined
+                  }
                   onOffRamp={{
                     suggested: (q) => onSubmit(q),
                     continue: () => inputRef.current?.focus(),
@@ -325,10 +347,13 @@ function basename(file: string): string {
 /** Caller -> Target -> Callee topology cards with animated dashed connectors. */
 function FlowCards({
   anchors,
-  onNavigate
+  onNavigate,
+  flashFirst = false
 }: {
   anchors: Anchor[];
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
+  /** v0.7 (issue 12): one-shot highlight on the start card. */
+  flashFirst?: boolean;
 }) {
   const cards = anchors.slice(0, 3);
   return (
@@ -341,8 +366,10 @@ function FlowCards({
             <button
               type="button"
               data-testid="flow-card"
+              className={`min-w-0 flex-1 rounded-md border border-line bg-surface p-2 text-left hover:border-accent/50 ${
+                idx === 0 && flashFirst ? 'focus-flash' : ''
+              }`}
               onClick={() => onNavigate?.(anchor.file, anchor.line, undefined, anchor.symbol)}
-              className="min-w-0 flex-1 rounded-md border border-line bg-surface p-2 text-left hover:border-accent/50"
               title={`${anchor.file}:${anchor.line}`}
             >
               <div className="flex items-center gap-1.5">
@@ -395,10 +422,13 @@ interface OffRampActions {
 function MessageBubble({
   message,
   onNavigate,
+  highlightNode,
   onOffRamp
 }: {
   message: ChatMessage;
-  onNavigate?: (file: string, line: number) => void;
+  onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
+  /** v0.7 (issue 12): symbol flashed in this message's diagram. */
+  highlightNode?: string;
   onOffRamp: OffRampActions;
 }) {
   if (message.role === 'user') {
@@ -418,7 +448,13 @@ function MessageBubble({
         ) : (
           <span className="text-muted">…</span>
         )}
-        {message.diagram && <MermaidDiagram code={message.diagram} onNavigate={onNavigate} />}
+        {message.diagram && (
+          <MermaidDiagram
+            code={message.diagram}
+            onNavigate={onNavigate}
+            highlightNode={highlightNode}
+          />
+        )}
         {message.anchors && (
           <SourceTraceDrawer anchors={message.anchors} onNavigate={onNavigate} />
         )}

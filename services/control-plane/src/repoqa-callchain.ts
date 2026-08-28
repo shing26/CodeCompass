@@ -209,6 +209,105 @@ function autowiredNameBean(
   return undefined;
 }
 
+/**
+ * v0.7 — Go implicit interface satisfaction (duck typing): a struct whose
+ * method set covers an interface's method set — with per-method normalized
+ * signatures matching — gets `interfaces` backfilled, so the existing
+ * `implsOfInterface`/`resolveCall` path resolves interface-typed calls.
+ * Conservative by design: first-line signatures that don't compare equal
+ * (multiline declarations, embedded promotions) are skipped, and the explicit
+ * `var x Iface = &Impl{}` inference upstream always wins.
+ */
+export function applyImplicitInterfaces(symbols: RepoSymbol[]): void {
+  const goMethodKey = (signature: string | null | undefined, name: string): string | null => {
+    if (!signature) return null;
+    let body = signature.trim();
+    if (body.startsWith('func')) {
+      if (body.startsWith('func (')) {
+        const close = body.indexOf(')');
+        if (close < 0) return null;
+        body = body.slice(close + 1);
+      } else {
+        body = body.slice('func'.length);
+      }
+    }
+    // MethodDecl first lines carry the body's opening brace; interface
+    // MethodElem signatures do not.
+    body = body.replace(/\s*\{\s*$/, '').replace(/\s+/g, ' ').trim();
+    return body.length > 0 ? `${name} ${body}` : null;
+  };
+
+  // Method name+key sets per declaring type (interface or struct receiver).
+  const methodsByType = new Map<string, Map<string, Set<string>>>();
+  for (const symbol of symbols) {
+    if (symbol.kind !== 'method' || !symbol.parentType || !symbol.signature) continue;
+    const key = goMethodKey(symbol.signature, symbol.name);
+    if (!key) continue;
+    let bucket = methodsByType.get(symbol.parentType);
+    if (!bucket) {
+      bucket = new Map();
+      methodsByType.set(symbol.parentType, bucket);
+    }
+    const keys = bucket.get(symbol.name) ?? new Set<string>();
+    keys.add(key);
+    bucket.set(symbol.name, keys);
+  }
+
+  const typeKinds = new Set(['class', 'service', 'repository']);
+  const structNames = new Set(
+    symbols.filter((s) => typeKinds.has(s.kind)).map((s) => s.name)
+  );
+  if (structNames.size === 0) return;
+
+  for (const iface of symbols) {
+    if (iface.kind !== 'interface') continue;
+    const required = methodsByType.get(iface.name);
+    if (!required || required.size === 0) continue;
+
+    // Candidate structs: those declaring every required method name.
+    let candidates: Set<string> | undefined;
+    for (const [methodName, keys] of required) {
+      const owners = new Set<string>();
+      for (const structName of structNames) {
+        const bucket = methodsByType.get(structName);
+        if (bucket?.has(methodName)) owners.add(structName);
+      }
+      if (owners.size === 0) {
+        candidates = new Set();
+        break;
+      }
+      candidates = candidates
+        ? new Set([...candidates].filter((name) => owners.has(name)))
+        : owners;
+    }
+    if (!candidates || candidates.size === 0) continue;
+
+    for (const structName of candidates) {
+      const bucket = methodsByType.get(structName)!;
+      let satisfied = true;
+      for (const [methodName, keys] of required) {
+        const structKeys = bucket.get(methodName)!;
+        if (![...keys].some((key) => structKeys.has(key))) {
+          satisfied = false;
+          break;
+        }
+      }
+      if (!satisfied) continue;
+      const impl = symbols.find(
+        (symbol) =>
+          symbol.name === structName &&
+          (symbol.kind === 'class' || symbol.kind === 'service' || symbol.kind === 'repository')
+      );
+      if (!impl) continue;
+      const interfaces = impl.interfaces ?? [];
+      if (!interfaces.includes(iface.name)) {
+        interfaces.push(iface.name);
+        impl.interfaces = interfaces;
+      }
+    }
+  }
+}
+
 export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
   const types = new Map<string, TypeInfo>();
   const implsOfInterface = new Map<string, string[]>();
@@ -527,7 +626,8 @@ export function resolveCallChain(
         method: target.name,
         line: target.lineStart ?? 1,
         lineEnd: target.lineEnd,
-        callLine: call.line
+        callLine: call.line,
+        async: call.async || undefined
       });
       visited.add(identity(target));
       current = target;

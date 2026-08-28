@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RepoQARepos, Repo, RepoSymbol, RepoChunk } from './repoqa-repos';
+import { applyModuleScopes } from './repoqa-repos';
 import type { EventBus } from './events';
 import type {
   RepoQaAnchor,
@@ -25,7 +26,8 @@ import {
   CallResolver,
   resolveCallChain,
   type ReverseCaller,
-  type SymbolIndex
+  type SymbolIndex,
+  applyImplicitInterfaces
 } from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
 import {
@@ -176,6 +178,10 @@ export class RepoQAWorker {
     const cached = this.symbolCache.get(repoId);
     if (cached) return cached;
     const symbols = this.repoqa.listSymbols(repoId);
+    // v0.7 — the cache-miss path must run the same backfills as
+    // setSymbolGraph, or a cold process serves unannotated symbols.
+    applyImplicitInterfaces(symbols);
+    applyModuleScopes(symbols);
     const graph = { symbols, index: buildCallIndex(symbols) };
     this.symbolCache.set(repoId, graph);
     return graph;
@@ -239,6 +245,12 @@ export class RepoQAWorker {
   }
 
   private setSymbolGraph(repoId: string, symbols: RepoSymbol[]): void {
+    // v0.7 — Go duck typing: backfill `interfaces` from method-set matching
+    // before the call index consumes them (explicit `var x I = &T{}` inference
+    // already ran per-file in the adapter; this covers the cross-file case).
+    applyImplicitInterfaces(symbols);
+    // v0.7 — Module Scope: annotate multi-module repos at graph-build time.
+    applyModuleScopes(symbols);
     this.symbolCache.set(repoId, { symbols, index: buildCallIndex(symbols) });
   }
 
@@ -407,7 +419,9 @@ export class RepoQAWorker {
           repoId,
           phase: 'DISCOVERY',
           phaseLabel: '发现文件',
-          detail: `Found ${stats.fileCount} files`,
+          detail: `Found ${stats.fileCount} files${
+            stats.skippedBinary > 0 ? `, ${stats.skippedBinary} binary skipped` : ''
+          }`,
           processedFiles: stats.fileCount,
           totalFiles: stats.fileCount,
           percent: 5
@@ -924,7 +938,13 @@ export class RepoQAWorker {
     const names = [startName, ...trace.slice(1).map((hop) => hop.method)];
     for (let index = 0; index < names.length - 1; index += 1) {
       const hop = trace[index + 1];
-      const label = hop?.break ? (hop.reason ?? 'break').replace(/[\[\]]/g, '') : undefined;
+      // v0.7 — break markers take precedence; async hops get an [async] edge
+      // label so Goroutine dispatch stays visible in the deterministic chain.
+      const label = hop?.break
+        ? (hop.reason ?? 'break').replace(/[\[\]]/g, '')
+        : hop?.async
+          ? 'async'
+          : undefined;
       const edge = label ? `-->|${label}|` : '-->';
       lines.push(`  ${names[index]}[${names[index]}] ${edge} ${names[index + 1]}[${names[index + 1]}]`);
     }

@@ -118,3 +118,48 @@ describe('MermaidDiagram', () => {
     expect(onNavigate).toHaveBeenCalledWith('src/OwnerRepository.java', 7);
   });
 });
+
+
+describe('MermaidDiagram workbench layer (v0.7 issues 09-11)', () => {
+  beforeEach(() => {
+    mockedRender.mockClear();
+  });
+
+  it('renders the toolbar with zoom controls and a node search box', async () => {
+    render(<MermaidDiagram code="flowchart LR" />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    expect(screen.getByTestId('mermaid-toolbar')).toBeInTheDocument();
+    expect(screen.getByTestId('mermaid-zoom-in')).toBeInTheDocument();
+    expect(screen.getByTestId('mermaid-zoom-out')).toBeInTheDocument();
+    expect(screen.getByTestId('mermaid-zoom-reset')).toBeInTheDocument();
+    expect(screen.getByTestId('mermaid-search')).toBeInTheDocument();
+    expect(screen.getByTestId('mermaid-minimap')).toBeInTheDocument();
+  });
+
+  it('highlights matching nodes and shows the hit counter while searching', async () => {
+    const user = userEvent.setup();
+    render(<MermaidDiagram code="flowchart LR" />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+
+    await user.type(screen.getByTestId('mermaid-search'), 'owner');
+    expect(screen.getByTestId('mermaid-hit-count')).toHaveTextContent('1/2');
+
+    await user.clear(screen.getByTestId('mermaid-search'));
+    await user.type(screen.getByTestId('mermaid-search'), 'nothing-matches');
+    expect(screen.getByTestId('mermaid-hit-count')).toHaveTextContent('0/0');
+  });
+
+  it('caps oversized graphs with an aggregate notice', async () => {
+    const lines = ['flowchart LR'];
+    for (let i = 1; i <= 70; i += 1) {
+      lines.push('  n' + i + '[node ' + i + '] --> n' + (i + 1) + '[node ' + (i + 1) + ']');
+    }
+    render(<MermaidDiagram code={lines.join('\n')} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-notice')).toBeInTheDocument());
+    expect(screen.getByTestId('mermaid-notice')).toHaveTextContent(/70 .* 10 |已聚合/);
+    expect(vi.mocked(renderMermaid)).toHaveBeenCalled();
+    const passedCode = vi.mocked(renderMermaid).mock.calls[0][1] as string;
+    expect(passedCode).toContain('ccx_aggregate');
+    expect(passedCode).not.toContain('n70[');
+  });
+});

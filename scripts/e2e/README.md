@@ -21,14 +21,19 @@ polyglot 仓库带两个 git commit），用随机空闲端口启动构建产物
 1. `doctor --json` 全部检查通过（Node/SQLite ABI/端口/数据目录/Ollama）
 2. 版本一致性：root package.json == cli.ts VERSION == CHANGELOG 顶部，engines >=24
 3. Java+TS / Python / Go 三仓 dashboard 消费面非空（techStack / configKeys / routes / topApis）
-4. 跨语言桥接（正向）：TS axios 调用点 → Java 路由的链路连通
-5. reverse-deps 端点解析同语言 caller
-6. 确定性调用链：route → service → repository hop
-7. `/query` SSE 流：call-chain 产出 mermaid 图 + 源码锚点（模拟 Web 客户端消费）
-8. `/symbols` 的 symbolType 真实枚举（>90% 非 UNKNOWN）
-9. architecture-delta：新增 controller 类产生 addedRoutes + mermaid
-10. FS watcher 热重载：新方法无需重导即被索引
-11. ADR-0003 masking：`.env` 的 key 名可见、值（SECRET_KEY）不出现在任何 API 载荷
+4. Module Scope：符号带 moduleName/qualifiedName（v0.7）
+5. 扫描过滤：`weights.pt` 不计入预算并上报 skippedBinaryCount（v0.7）
+6. 跨语言桥接（正向）：TS axios 调用点 → Java 路由的链路连通
+7. reverse-deps 端点解析同语言 caller
+8. 确定性调用链：route → service → repository hop
+9. `/query` SSE 流：call-chain 产出 mermaid 图 + 源码锚点（模拟 Web 客户端消费）
+10. `/symbols` 的 symbolType 真实枚举（>90% 非 UNKNOWN）
+11. architecture-delta：新增 controller 类产生 addedRoutes + mermaid
+12. ADR-0003 masking：`.env` 的 key 名可见、值（SECRET_KEY）不出现在任何 API 载荷
+13. venv 过滤：`env_py310/` 内容不入索引（v0.7）
+14. FastAPI Depends：endpoint 链入 get_db，无 "Depends" 死节点（v0.7）
+15. Go 隐式接口：FileStore 满足 Store 接口（v0.7）
+16. FS watcher 热重载：新方法无需重导即被索引
 
 ## 已知边界（断言按实际能力建模，限制记录在 issue）
 

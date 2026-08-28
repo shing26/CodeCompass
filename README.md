@@ -93,9 +93,10 @@ codecompass --version
 python scripts/e2e/closeout_gate.py   # API 级端到端基线（需 Node 24 + 已构建 dist + git）
 ```
 
-一键构建多语言 fixture（Java+TS / Python / Go）并断言 14 项能力：doctor、版本一致性、
-多语言消费面、跨语言桥接、reverse-deps、确定性调用链、SSE 流（mermaid + 锚点）、
-symbolType 枚举、架构差异、ADR-0003 脱敏门禁、热重载等。详见 `scripts/e2e/README.md`。
+一键构建多语言 fixture（Java+TS / Python / Go）并断言 19 项能力：doctor、版本一致性、
+多语言消费面、Module Scope、扫描过滤（venv/二进制）、跨语言桥接、reverse-deps、
+确定性调用链、SSE 流（mermaid + 锚点）、symbolType 枚举、架构差异、ADR-0003 脱敏
+门禁、FastAPI Depends、Go 隐式接口、热重载等。详见 `scripts/e2e/README.md`。
 
 ### 方式二：Docker（容器开发）
 

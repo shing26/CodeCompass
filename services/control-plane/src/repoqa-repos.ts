@@ -37,6 +37,8 @@ export interface RepoSymbolCall {
   dynamic?: boolean;
   /** Issue 25: browser-side HTTP call (`fetch`, `axios`) for cross-language route bridging. */
   http?: { method: string; url: string };
+  /** v0.7 — invoked as `go fn(...)` (Goroutine concurrent branch). */
+  async?: boolean;
 }
 
 export interface RepoSymbol {
@@ -66,6 +68,13 @@ export interface RepoSymbol {
   type?: string;
   /** For class symbols: implemented interface names. */
   interfaces?: string[];
+  /**
+   * v0.7 — physical module scope (Maven module / monorepo workspace dir),
+   * derived at graph-build time; empty for single-module repos.
+   */
+  moduleName?: string;
+  /** v0.7 — `<module>::[Parent.]Name`, shown when same-name symbols collide. */
+  qualifiedName?: string;
   /** Bug-09: URL path rendered for routing symbols (e.g. `/api/owners`). */
   displayPath?: string;
   /**
@@ -630,5 +639,54 @@ export class RepoQARepos {
     `;
     const rows = this.db.prepare(sql).all(repoId, filePath, methodName, repoId, depth) as any[];
     return rows.map((row) => ({ file: row.file, method: row.method, line: row.line }));
+  }
+}
+
+
+/**
+ * v0.7 — Module Scope: derive each symbol's physical module from its path and
+ * annotate `moduleName`/`qualifiedName` when the repo actually spans multiple
+ * modules. Purely view-time (SQLite rows stay untouched); single-module repos
+ * are left bare so ordinary projects never grow noisy prefixes.
+ *
+ * Rules:
+ *  - module = first path segment, except under generic grouping dirs
+ *    (`apps/`, `packages/`, `libs/`, `services/`, `modules/`, `projects/`,
+ *    `src/`) where the second segment is the module — `apps/web/...` → `web`,
+ *    `order-service/src/main/java/...` → `order-service`.
+ *  - annotation only fires when ≥2 distinct modules are present.
+ */
+export const GENERIC_GROUP_DIRS = new Set([
+  'apps',
+  'packages',
+  'libs',
+  'services',
+  'modules',
+  'projects',
+  'src'
+]);
+
+export function moduleOfPath(filePath: string): string | undefined {
+  const segments = filePath.split(/[\/]/).filter(Boolean);
+  if (segments.length < 2) return undefined;
+  const first = segments[0].toLowerCase();
+  if (GENERIC_GROUP_DIRS.has(first)) {
+    return segments.length >= 3 ? segments[1] : undefined;
+  }
+  return segments[0];
+}
+
+export function applyModuleScopes(symbols: RepoSymbol[]): void {
+  const modules = new Set<string>();
+  for (const symbol of symbols) {
+    const moduleName = moduleOfPath(symbol.filePath);
+    if (moduleName) modules.add(moduleName);
+  }
+  if (modules.size < 2) return;
+  for (const symbol of symbols) {
+    const moduleName = moduleOfPath(symbol.filePath);
+    if (!moduleName) continue;
+    symbol.moduleName = moduleName;
+    symbol.qualifiedName = `${moduleName}::${symbol.parentType ? `${symbol.parentType}.` : ''}${symbol.name}`;
   }
 }

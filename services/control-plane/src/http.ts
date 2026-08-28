@@ -261,10 +261,16 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       typeof req.query.kind === 'string' && req.query.kind !== ''
         ? req.query.kind
         : undefined;
-    const symbols = deps.repoqa.listSymbols(repo.id, kind).map((symbol) => ({
-      ...symbol,
-      symbolType: symbolTypeOf(symbol.kind)
-    }));
+    // v0.7 — serve the symbol graph (not raw DB rows) so view-time
+    // annotations (moduleName/qualifiedName, implicit interfaces) reach the
+    // UI and MCP consumers.
+    const { symbols: graphSymbols } = deps.worker.getSymbolGraph(repo.id);
+    const symbols = graphSymbols
+      .filter((symbol) => !kind || symbol.kind === kind)
+      .map((symbol) => ({
+        ...symbol,
+        symbolType: symbolTypeOf(symbol.kind)
+      }));
     res.json({ symbols });
   });
 
