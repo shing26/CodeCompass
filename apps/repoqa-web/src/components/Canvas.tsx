@@ -22,6 +22,12 @@ interface CanvasProps {
   onBackToDashboard?: () => void;
   /** Issue 31: symbol catalog for the workbench API/SQL impact counts. */
   symbols?: RepoSymbol[];
+  /**
+   * v0.8 — deep-link focus (?focus=&traceId=): flashes and scrolls to the
+   * matching trace card once a trace has resolved for the linked symbol.
+   */
+  deepLinkFocus?: string | null;
+  deepLinkTraceId?: string | null;
 }
 
 /**
@@ -43,7 +49,9 @@ export function Canvas({
   onRetry,
   onNavigate,
   onBackToDashboard,
-  symbols = []
+  symbols = [],
+  deepLinkFocus = null,
+  deepLinkTraceId = null
 }: CanvasProps) {
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<QueryMode>('call-chain');
@@ -70,6 +78,16 @@ export function Canvas({
     const timer = window.setTimeout(() => setFocusFlash(false), 1500);
     return () => window.clearTimeout(timer);
   }, [focusKey]);
+
+  // v0.8 — deep-link restore: when the cockpit is opened with ?focus=&traceId=,
+  // flash the matching trace card (first card as fallback) once a trace lands.
+  const [deepLinkFlash, setDeepLinkFlash] = useState(false);
+  useEffect(() => {
+    if (!deepLinkFocus || !latestTrace?.anchors?.length) return;
+    setDeepLinkFlash(true);
+    const timer = window.setTimeout(() => setDeepLinkFlash(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [deepLinkFocus, latestTrace?.id, latestTrace?.anchors?.length]);
 
   const flowAnchors = latestTrace?.anchors ?? [];
   const selectedNode = flowAnchors[0]?.symbol ?? repo?.name ?? '—';
@@ -144,13 +162,26 @@ export function Canvas({
                 </button>
               </div>
             )}
+            {deepLinkFocus && (
+              <div
+                data-testid="deeplink-focus"
+                className="mx-auto mb-3 flex max-w-2xl items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning"
+              >
+                <span aria-hidden="true">🎯</span>
+                <span className="min-w-0 flex-1 truncate">
+                  深度链接焦点：{deepLinkFocus}
+                  {deepLinkTraceId ? ` · trace ${deepLinkTraceId}` : ''}
+                </span>
+              </div>
+            )}
             {flowAnchors.length > 0 && (
               <FlowCards
                 anchors={flowAnchors}
                 onNavigate={onNavigate}
                 flashFirst={focusFlash}
+                flashSymbol={deepLinkFlash ? deepLinkFocus : undefined}
               />
-            )}            <div
+            )}  <div
               data-testid="offline-hint"
               className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-xs text-muted"
             >
@@ -348,18 +379,27 @@ function basename(file: string): string {
 function FlowCards({
   anchors,
   onNavigate,
-  flashFirst = false
+  flashFirst = false,
+  flashSymbol
 }: {
   anchors: Anchor[];
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** v0.7 (issue 12): one-shot highlight on the start card. */
   flashFirst?: boolean;
+  /** v0.8 deep link: flash the card matching this symbol (fallback: first). */
+  flashSymbol?: string | null;
 }) {
   const cards = anchors.slice(0, 3);
+  const flashIndex = flashSymbol
+    ? cards.findIndex((anchor) => anchor.symbol === flashSymbol)
+    : -1;
   return (
     <div data-testid="flow-cards" className="mb-4 flex items-stretch gap-2">
       {cards.map((anchor, idx) => {
         const role = idx === 0 ? 'Caller' : idx === cards.length - 1 ? 'Callee' : 'Target';
+        const flash =
+          (flashFirst && idx === 0) ||
+          (flashSymbol !== undefined && flashSymbol !== null && idx === flashIndex);
         return (
           <Fragment key={`${anchor.file}-${anchor.line}-${idx}`}>
             {idx > 0 && <div data-testid="flow-arrow" className="topo-line self-center" />}
@@ -367,7 +407,7 @@ function FlowCards({
               type="button"
               data-testid="flow-card"
               className={`min-w-0 flex-1 rounded-md border border-line bg-surface p-2 text-left hover:border-accent/50 ${
-                idx === 0 && flashFirst ? 'focus-flash' : ''
+                flash ? 'focus-flash' : ''
               }`}
               onClick={() => onNavigate?.(anchor.file, anchor.line, undefined, anchor.symbol)}
               title={`${anchor.file}:${anchor.line}`}

@@ -17,6 +17,7 @@ import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
 import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
+import { renderArtifactHtml, writeArtifactFile } from './export-artifact';
 
 export const VERSION = '0.8.0';
 
@@ -30,7 +31,8 @@ export interface CliArgs {
     | 'doctor'
     | 'install'
     | 'diagnose'
-    | 'refactor-plan';
+    | 'refactor-plan'
+    | 'export';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -83,6 +85,7 @@ Usage:
   codecompass context <query> [repoPath]
   codecompass diagnose <symbol|route> [repoPath]
   codecompass refactor-plan <symbol> [repoPath] [--change-type <t>]
+  codecompass export <symbol|route> [repoPath] [--file <out.html>]
   codecompass doctor [--data-dir <path>] [--json]
   codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
 
@@ -115,6 +118,9 @@ Subcommands:
                         Deterministic blast-radius plan: direct/indirect
                         callers, impacted routes and frontend components,
                         risk level and migration steps. Prints JSON.
+  export <symbol>       Render the diagnose result as a single self-contained
+                        HTML artifact (inlined mermaid runtime, chain steps,
+                        code slices) for offline review and PR archiving.
   doctor                Diagnose Node/SQLite ABI, control-plane port, data
                         directory and Local LLM (Ollama) health. Exits 1 on a
                         fatal check failure.
@@ -357,7 +363,8 @@ export function parseArgs(argv: string[]): ParseResult {
           arg === 'doctor' ||
           arg === 'install' ||
           arg === 'diagnose' ||
-          arg === 'refactor-plan'
+          arg === 'refactor-plan' ||
+          arg === 'export'
         )
       ) {
       args.command = arg;
@@ -369,7 +376,7 @@ export function parseArgs(argv: string[]): ParseResult {
       }
       continue;
     }
-    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan') {
+    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan' || args.command === 'export') {
       if (!assignContextPositional(arg)) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       }
@@ -432,7 +439,24 @@ interface ContextCommandOptions {
 
 /** Query-style commands share the `<query> [repoPath]` positional shape. */
 function isQueryCommand(command: CliArgs['command']): boolean {
-  return command === 'context' || command === 'diagnose' || command === 'refactor-plan';
+  return (
+    command === 'context' ||
+    command === 'diagnose' ||
+    command === 'refactor-plan' ||
+    command === 'export'
+  );
+}
+
+/** Build a Mermaid flowchart from a diagnose chain (BROKEN steps red). */
+function chainMermaid(result: ReturnType<typeof runDiagnose>): string {
+  const lines = ['flowchart LR'];
+  result.verifiedChain.forEach((step, i) => {
+    const label = `${step.layer}: ${step.symbol}`;
+    lines.push(`  n${i}["${label.replace(/"/g, "'")}"]${step.status === 'BROKEN' ? ':::broken' : ''}`);
+    if (i > 0) lines.push(`  n${i - 1} --> n${i}`);
+  });
+  lines.push('  classDef broken stroke:#f7768e,stroke-width:2px,color:#f7768e;');
+  return lines.join('\n');
 }
 
 /** Boot the analysis stack for one-shot commands (context/diagnose/refactor-plan). */
@@ -648,7 +672,7 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       {
         env: ctx.env,
         dataDir: args.dataDir,
-        repoPath: args.targetPath ?? process.cwd(),
+        repoPath: args.installRepo ?? args.targetPath ?? process.cwd(),
         log
       },
       async ({ repoId, worker, localPath }) => {
@@ -672,6 +696,67 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
                 baseUrl
               });
         log(JSON.stringify(result, null, 2));
+      }
+    );
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'export') {
+    if (!args.contextQuery) {
+      throw new Error(
+        `codecompass export requires a <symbol> (or "METHOD /route/path")\n\n${USAGE}`
+      );
+    }
+    const env = { ...(ctx.env ?? process.env) };
+    const baseUrl = `http://localhost:${loadConfig(env).port}`;
+    await withAnalysisStack(
+      {
+        env: ctx.env,
+        dataDir: args.dataDir,
+        repoPath: args.installRepo ?? args.targetPath ?? process.cwd(),
+        log
+      },
+      async ({ repoId, worker, localPath, repoqa }) => {
+        const repo = repoqa.getRepo(repoId)!;
+        const graph = worker.getSymbolGraph(repoId);
+        const result = runDiagnose({
+          repoId,
+          entrySymbol: args.contextQuery!,
+          symbols: graph.symbols,
+          index: graph.index,
+          baseUrl,
+          snippetRoot: localPath
+        });
+        const chainText = result.verifiedChain
+          .map(
+            (step, i) =>
+              `${i + 1}. [${step.status}] ${step.layer} ${step.symbol} — ${step.filePath}:${step.line}` +
+              (step.diagnosticNotes ? `\n   ${step.diagnosticNotes}` : '')
+          )
+          .join('\n');
+        const html = renderArtifactHtml({
+          title: `Diagnose: ${result.entrySymbol}`,
+          repoName: repo.name,
+          generatedAt: new Date().toISOString(),
+          mermaid: chainMermaid(result),
+          summary: result.rootCauseSummary,
+          deepLink: result.cockpitDeepLink,
+          sections: [
+            { heading: 'Chain', body: chainText, kind: 'code' },
+            ...result.verifiedChain
+              .filter((step) => step.codeSnippet)
+              .slice(0, 4)
+              .map((step) => ({
+                heading: `${step.symbol} (${step.filePath}:${step.line})`,
+                body: step.codeSnippet!,
+                kind: 'code' as const
+              }))
+          ]
+        });
+        const outPath =
+          args.diffFile ?? `codecompass-diagnose-${result.traceId}.html`;
+        const written = writeArtifactFile(html, outPath);
+        log(`Artifact written to ${written}`);
       }
     );
     return { server: null, cockpitUrl: null };

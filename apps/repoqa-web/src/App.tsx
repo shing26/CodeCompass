@@ -62,6 +62,20 @@ export function App({ client: clientProp }: AppProps) {
       return null;
     }
   }, []);
+  // v0.8 — deep links: ?focus=<symbol>&traceId=<id> restore the trace scene in
+  // the topology canvas; ?mode=diff opens the delta workbench tab directly.
+  const deepLink = useMemo(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        focus: params.get('focus'),
+        mode: params.get('mode'),
+        traceId: params.get('traceId')
+      };
+    } catch {
+      return { focus: null, mode: null, traceId: null };
+    }
+  }, []);
   const { repos, currentRepo, loading, error, selectRepo, importRepo, refresh } = useRepoCatalog(
     client,
     initialRepoId
@@ -153,7 +167,9 @@ export function App({ client: clientProp }: AppProps) {
 
   // Issue 31: the three-pane workbench is the default; the dashboard and CI
   // gate are explicit TopBar tabs.
-  const [view, setView] = useState<MainView>('topo');
+  const [view, setView] = useState<MainView>(
+    deepLink.mode === 'diff' ? 'delta' : 'topo'
+  );
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   const [indexingProgress, setIndexingProgress] = useState<IndexingProgress | null>(null);
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
@@ -207,6 +223,20 @@ export function App({ client: clientProp }: AppProps) {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, [currentRepo?.id, selectRepo]);
+
+  // v0.8 — keep the URL's mode param in step with the workbench tab so a
+  // refreshed deep link lands on the same view (delta ↔ mode=diff).
+  useEffect(() => {
+    if (view === 'tour') return;
+    try {
+      const url = new URL(window.location.href);
+      if (view === 'delta') url.searchParams.set('mode', 'diff');
+      else url.searchParams.delete('mode');
+      window.history.replaceState(null, '', url.toString());
+    } catch {
+      // history/URL unavailable (rare test env) — view state still works
+    }
+  }, [view]);
 
   const handleImportLocal = async (name: string, localPath: string): Promise<Repo> => {
     const repo = await importRepo(name, localPath);
@@ -419,6 +449,8 @@ export function App({ client: clientProp }: AppProps) {
               onRetry={retry}
               onNavigate={inspector.openFile}
               symbols={symbols}
+              deepLinkFocus={deepLink.focus}
+              deepLinkTraceId={deepLink.traceId}
             />
           ) : view === 'tour' && activeTour ? (
             <TourPlayer
