@@ -16,6 +16,8 @@ import { buildTours } from './repoqa-tours';
 import { matchConfigSymbols } from './repoqa-config';
 import { analyzeDiff } from './repoqa-diff';
 import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-graphrag';
+import { runDiagnose } from './diagnose-engine';
+import { runBlastRadius } from './blast-radius';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -74,6 +76,10 @@ export interface McpToolHandlerArgs {
   head?: unknown;
   repoPath?: unknown;
   maxTokens?: unknown;
+  entrySymbol?: unknown;
+  symptomDescription?: unknown;
+  targetSymbol?: unknown;
+  changeType?: unknown;
 }
 
 /* ------------------------------------------------------------------ */
@@ -197,6 +203,42 @@ export const MCP_TOOLS: McpToolMeta[] = [
         maxTokens: { type: 'number', description: 'Optional soft output budget in estimated tokens (default 6000)' }
       },
       required: ['repoId', 'query']
+    }
+  },
+  {
+    name: 'codecompass_diagnose',
+    description:
+      'Cross-stack root-cause traversal (deterministic, zero-LLM): frontend components → HTTP router → ' +
+      'service → data mapper. Every hop is a statically bound graph edge; unresolvable hops are reported ' +
+      'BROKEN with the deterministic reason. Entry is a method name or "METHOD /route/path". ' +
+      'Returns a layer-annotated chain, a root-cause summary and a cockpit deep link.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name' },
+        entrySymbol: { type: 'string', description: 'Entry symbol, e.g. "handleLike" or "POST /api/v1/posts/:id/like"' },
+        symptomDescription: { type: 'string', description: 'Optional free-text symptom carried into the report' }
+      },
+      required: ['repoId', 'entrySymbol']
+    }
+  },
+  {
+    name: 'codecompass_refactor_plan',
+    description:
+      'Blast-radius refactor planning (deterministic, zero-LLM): recursively aggregates direct/indirect ' +
+      'callers of a target symbol, lifts impacted API routes and bridged frontend components, scores risk ' +
+      'HIGH/MEDIUM/LOW and emits migration steps plus a cockpit deep link.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name' },
+        targetSymbol: { type: 'string', description: 'Target symbol, e.g. "PostService.deletePost" or "deletePost"' },
+        changeType: {
+          type: 'string',
+          description: 'One of SIGNATURE_CHANGE | REMOVAL | LOGIC_REFACTOR'
+        }
+      },
+      required: ['repoId', 'targetSymbol', 'changeType']
     }
   }
 ];
@@ -378,6 +420,38 @@ export async function mcpGetSubgraphContext(
   return { context };
 }
 
+/** v0.8.0 — deterministic cross-stack root-cause traversal. */
+export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  return runDiagnose({
+    repoId: repo.id,
+    entrySymbol: String(args.entrySymbol ?? ''),
+    ...(args.symptomDescription === undefined
+      ? {}
+      : { symptomDescription: String(args.symptomDescription) }),
+    symbols: graph.symbols,
+    index: graph.index,
+    snippetRoot: repo.localPath
+  }) as unknown as Record<string, unknown>;
+}
+
+/** v0.8.0 — deterministic blast-radius refactor planning. */
+export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  return runBlastRadius({
+    repoId: repo.id,
+    targetSymbol: String(args.targetSymbol ?? ''),
+    changeType: String(args.changeType ?? 'SIGNATURE_CHANGE') as
+      | 'SIGNATURE_CHANGE'
+      | 'REMOVAL'
+      | 'LOGIC_REFACTOR',
+    symbols: graph.symbols,
+    index: graph.index
+  }) as unknown as Record<string, unknown>;
+}
+
 /* ------------------------------------------------------------------ */
 /* MCP server (SDK)                                                    */
 /* ------------------------------------------------------------------ */
@@ -415,7 +489,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_get_tours: (args) => mcpGetTours(deps, args),
     codecompass_reverse_deps: (args) => mcpReverseDeps(deps, args),
     codecompass_get_pr_impact: (args) => mcpGetPrImpact(deps, args),
-    codecompass_get_subgraph_context: (args) => mcpGetSubgraphContext(deps, args)
+    codecompass_get_subgraph_context: (args) => mcpGetSubgraphContext(deps, args),
+    codecompass_diagnose: (args) => mcpDiagnose(deps, args),
+    codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a

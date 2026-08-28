@@ -30,6 +30,8 @@ import {
   applyImplicitInterfaces
 } from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
+import { runDiagnose } from './diagnose-engine';
+import { runBlastRadius } from './blast-radius';
 import {
   capPrompt,
   runReActAgent,
@@ -974,7 +976,7 @@ export class RepoQAWorker {
     return runReActAgent({
       question,
       context: this.buildReActContext(repoId, question, symbols),
-      tools: this.buildAgentTools(symbols),
+      tools: this.buildAgentTools(repoId, symbols),
       env: process.env,
       onFirstToken
     });
@@ -1002,7 +1004,51 @@ export class RepoQAWorker {
   }
 
   /** Issue 10: Agent Tools wired into the ReAct loop. */
-  private buildAgentTools(symbols: RepoSymbol[]): AgentTool[] {
+  private buildAgentTools(repoId: string, symbols: RepoSymbol[]): AgentTool[] {
+    const compositeTools: AgentTool[] = [
+      {
+        name: 'diagnose_chain',
+        description:
+          'v0.8 composite root-cause tool: deterministic frontend→router→service→data-mapper traversal ' +
+          'for an entry symbol or "METHOD /route/path". Returns layer-annotated steps with VERIFIED/BROKEN status.',
+        parameters: 'entrySymbol: string',
+        execute: (args) => {
+          const entrySymbol = String(args.entrySymbol ?? args.query ?? '');
+          if (!entrySymbol) return { error: 'entrySymbol is required' };
+          try {
+            return runDiagnose({
+              repoId,
+              entrySymbol,
+              ...(args.symptom !== undefined ? { symptomDescription: String(args.symptom) } : {}),
+              symbols,
+              index: this.getSymbolGraph(repoId).index
+            });
+          } catch (error) {
+            return { error: (error as Error).message };
+          }
+        }
+      },
+      {
+        name: 'blast_radius',
+        description:
+          'v0.8 composite refactor tool: deterministic direct/indirect caller aggregation, impacted routes, ' +
+          'bridged frontend components, risk score and migration steps for a target symbol.',
+        parameters: 'targetSymbol: string, changeType: "SIGNATURE_CHANGE" | "REMOVAL" | "LOGIC_REFACTOR"',
+        execute: (args) => {
+          const targetSymbol = String(args.targetSymbol ?? args.query ?? '');
+          if (!targetSymbol) return { error: 'targetSymbol is required' };
+          const changeType = String(args.changeType ?? 'SIGNATURE_CHANGE') as
+            | 'SIGNATURE_CHANGE'
+            | 'REMOVAL'
+            | 'LOGIC_REFACTOR';
+          try {
+            return runBlastRadius({ repoId, targetSymbol, changeType, symbols, index: this.getSymbolGraph(repoId).index });
+          } catch (error) {
+            return { error: (error as Error).message };
+          }
+        }
+      }
+    ];
     return [
       {
         name: 'trace_call_chain',
@@ -1046,7 +1092,8 @@ export class RepoQAWorker {
           'Mask sensitive content (passwords, tokens, API keys, private keys) in arbitrary text before it is shown to users.',
         parameters: 'text: string',
         execute: (args) => maskSensitiveText(String(args.text ?? ''))
-      }
+      },
+      ...compositeTools
     ];
   }
 

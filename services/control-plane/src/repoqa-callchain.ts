@@ -478,6 +478,11 @@ function resolveHttpRoute(
   if (url.startsWith('/api/v1')) variants.add(url.slice('/api/v1'.length));
   variants.add(`/api${url}`);
   variants.add(`/api/v1${url}`);
+  // v0.8.0: numeric path segments are resource ids, never literals — fold
+  // them like {id}/:id so a concrete call URL bridges to the route pattern.
+  for (const variant of [...variants]) {
+    variants.add(variant.replace(/\/\d+(?=\/|$)/g, '/{}'));
+  }
   const candidates: Array<{ symbol: RepoSymbol; priority: number }> = [];
   for (const variant of variants) {
     candidates.push(...(index.routesByPath.get(variant) ?? []));

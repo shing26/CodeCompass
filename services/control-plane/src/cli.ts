@@ -15,12 +15,22 @@ import { RepoQAWorker } from './repoqa-worker';
 import { extractSubgraphContext } from './repoqa-graphrag';
 import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
 import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
+import { runDiagnose } from './diagnose-engine';
+import { runBlastRadius } from './blast-radius';
 
 export const VERSION = '0.8.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
-  command?: 'mcp' | 'diff' | 'pr-summary' | 'context' | 'doctor' | 'install';
+  command?:
+    | 'mcp'
+    | 'diff'
+    | 'pr-summary'
+    | 'context'
+    | 'doctor'
+    | 'install'
+    | 'diagnose'
+    | 'refactor-plan';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -47,6 +57,8 @@ export interface CliArgs {
   dryRun: boolean;
   /** `codecompass install --repo <path>` — repo the MCP entry indexes. */
   installRepo?: string;
+  /** `codecompass refactor-plan --change-type <t>` (default SIGNATURE_CHANGE). */
+  changeType?: 'SIGNATURE_CHANGE' | 'REMOVAL' | 'LOGIC_REFACTOR';
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -69,6 +81,8 @@ Usage:
   codecompass diff [options] <base> <head> [repoPath]
   codecompass pr-summary [options] <base> <head> [repoPath]
   codecompass context <query> [repoPath]
+  codecompass diagnose <symbol|route> [repoPath]
+  codecompass refactor-plan <symbol> [repoPath] [--change-type <t>]
   codecompass doctor [--data-dir <path>] [--json]
   codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
 
@@ -93,6 +107,14 @@ Subcommands:
                         start symbol: 1-hop callers, 1-3 hop callees, class
                         skeletons, token pruning and credential masking.
                         [repoPath] defaults to the current directory.
+  diagnose <symbol>     Deterministic cross-stack root-cause traversal
+                        (frontend → router → service → data mapper). Accepts
+                        a method name or "METHOD /route/path". Prints a JSON
+                        DiagnoseResult with layer-annotated chain steps.
+  refactor-plan <symbol>
+                        Deterministic blast-radius plan: direct/indirect
+                        callers, impacted routes and frontend components,
+                        risk level and migration steps. Prints JSON.
   doctor                Diagnose Node/SQLite ABI, control-plane port, data
                         directory and Local LLM (Ollama) health. Exits 1 on a
                         fatal check failure.
@@ -187,7 +209,7 @@ export function parseArgs(argv: string[]): ParseResult {
     if (positionalOnly) {
       if (args.command === 'diff' || args.command === 'pr-summary') {
         if (!assignDiffPositional(arg)) return { ok: false, error: `Unexpected extra argument: ${arg}` };
-      } else if (args.command === 'context') {
+      } else if (isQueryCommand(args.command)) {
         if (!assignContextPositional(arg)) return { ok: false, error: `Unexpected extra argument: ${arg}` };
       } else if (args.targetPath !== undefined) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
@@ -258,6 +280,15 @@ export function parseArgs(argv: string[]): ParseResult {
       args.installRepo = value;
       continue;
     }
+    if (flag === '--change-type') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value !== 'SIGNATURE_CHANGE' && value !== 'REMOVAL' && value !== 'LOGIC_REFACTOR') {
+        return { ok: false, error: '--change-type expects SIGNATURE_CHANGE | REMOVAL | LOGIC_REFACTOR' };
+      }
+      args.changeType = value;
+      continue;
+    }
 
     if (flag === '--port') {
       const { value, next } = nextValue(i, flag, inline);
@@ -324,7 +355,9 @@ export function parseArgs(argv: string[]): ParseResult {
           arg === 'pr-summary' ||
           arg === 'context' ||
           arg === 'doctor' ||
-          arg === 'install'
+          arg === 'install' ||
+          arg === 'diagnose' ||
+          arg === 'refactor-plan'
         )
       ) {
       args.command = arg;
@@ -336,7 +369,7 @@ export function parseArgs(argv: string[]): ParseResult {
       }
       continue;
     }
-    if (args.command === 'context') {
+    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan') {
       if (!assignContextPositional(arg)) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       }
@@ -395,6 +428,52 @@ interface ContextCommandOptions {
   repoPath: string;
   query: string;
   log: (line: string) => void;
+}
+
+/** Query-style commands share the `<query> [repoPath]` positional shape. */
+function isQueryCommand(command: CliArgs['command']): boolean {
+  return command === 'context' || command === 'diagnose' || command === 'refactor-plan';
+}
+
+/** Boot the analysis stack for one-shot commands (context/diagnose/refactor-plan). */
+async function withAnalysisStack<T>(
+  options: { env?: NodeJS.ProcessEnv; dataDir?: string; repoPath: string; log: (line: string) => void },
+  fn: (ctx: { repoqa: RepoQARepos; worker: RepoQAWorker; repoId: string; localPath: string }) => Promise<T>
+): Promise<T> {
+  const env = { ...(options.env ?? process.env) };
+  if (options.dataDir) env.MHW_DATA_DIR = options.dataDir;
+  const config = loadConfig(env);
+  await backupDb(config.dbPath);
+  const db = openDb(config.dbPath);
+  ensureDefaultWorkspace(db, config.dataDir);
+  const repoqa = new RepoQARepos(db);
+  repoqa.resetInterrupted();
+  const worker = new RepoQAWorker(repoqa, new EventBus());
+
+  try {
+    const normalizedTarget = path.resolve(options.repoPath);
+    const existing = repoqa.listRepos().find((repo) => {
+      try {
+        return path.resolve(repo.localPath).toLowerCase() === normalizedTarget.toLowerCase();
+      } catch {
+        return false;
+      }
+    });
+    let repo = existing?.status === 'ready' ? existing : undefined;
+    if (!repo) {
+      options.log(`CodeCompass: indexing ${normalizedTarget}`);
+      const result = await worker.indexRepo({ localPath: normalizedTarget });
+      repo = result.repo;
+    }
+    return await fn({
+      repoqa,
+      worker,
+      repoId: repo.id,
+      localPath: repo.localPath
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /** `codecompass context <query> [repoPath]` — one-shot Graph RAG extraction. */
@@ -555,6 +634,47 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       cockpitUrl: null,
       exitCode: report.status === 'error' ? 1 : 0
     };
+  }
+
+  if (args.command === 'diagnose' || args.command === 'refactor-plan') {
+    if (!args.contextQuery) {
+      throw new Error(
+        `codecompass ${args.command} requires a <symbol> (or "METHOD /route/path" for diagnose)\n\n${USAGE}`
+      );
+    }
+    const env = { ...(ctx.env ?? process.env) };
+    const baseUrl = `http://localhost:${loadConfig(env).port}`;
+    await withAnalysisStack(
+      {
+        env: ctx.env,
+        dataDir: args.dataDir,
+        repoPath: args.targetPath ?? process.cwd(),
+        log
+      },
+      async ({ repoId, worker, localPath }) => {
+        const graph = worker.getSymbolGraph(repoId);
+        const result =
+          args.command === 'diagnose'
+            ? runDiagnose({
+                repoId,
+                entrySymbol: args.contextQuery!,
+                symbols: graph.symbols,
+                index: graph.index,
+                baseUrl,
+                snippetRoot: localPath
+              })
+            : runBlastRadius({
+                repoId,
+                targetSymbol: args.contextQuery!,
+                changeType: args.changeType ?? 'SIGNATURE_CHANGE',
+                symbols: graph.symbols,
+                index: graph.index,
+                baseUrl
+              });
+        log(JSON.stringify(result, null, 2));
+      }
+    );
+    return { server: null, cockpitUrl: null };
   }
 
   if (args.command === 'install') {

@@ -227,14 +227,16 @@ async function rawCallTool(
 }
 
 describe('Issue 20 MCP tool metadata', () => {
-  it('exposes the eight required tools with JSON Schema input contracts', () => {
+  it('exposes the ten required tools with JSON Schema input contracts', () => {
     expect(MCP_TOOLS.map((tool) => tool.name).sort()).toEqual([
+      'codecompass_diagnose',
       'codecompass_get_config_evidence',
       'codecompass_get_dashboard',
       'codecompass_get_pr_impact',
       'codecompass_get_subgraph_context',
       'codecompass_get_tours',
       'codecompass_list_repos',
+      'codecompass_refactor_plan',
       'codecompass_reverse_deps',
       'codecompass_trace_call_chain'
     ]);
@@ -283,12 +285,14 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       await rawInitialize(clientTransport);
       const list = await rawRequest(clientTransport, 'tools/list', {});
       expect(list.result.tools.map((tool: { name: string }) => tool.name).sort()).toEqual([
+        'codecompass_diagnose',
         'codecompass_get_config_evidence',
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
         'codecompass_get_subgraph_context',
         'codecompass_get_tours',
         'codecompass_list_repos',
+        'codecompass_refactor_plan',
         'codecompass_reverse_deps',
         'codecompass_trace_call_chain'
       ]);
@@ -307,7 +311,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
     }
   });
 
-  it('tools/list via the SDK Client exposes the same eight tools', async () => {
+  it('tools/list via the SDK Client exposes the same ten tools', async () => {
     const { deps } = await setupIndexedRepo();
     const { server, clientTransport } = await startServerPair(deps);
     try {
@@ -315,12 +319,14 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       await client.connect(clientTransport);
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
+        'codecompass_diagnose',
         'codecompass_get_config_evidence',
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
         'codecompass_get_subgraph_context',
         'codecompass_get_tours',
         'codecompass_list_repos',
+        'codecompass_refactor_plan',
         'codecompass_reverse_deps',
         'codecompass_trace_call_chain'
       ]);
@@ -597,6 +603,7 @@ describe('Issue 20 MCP CLI wiring', () => {
         noBrowser: false,
         noWatch: false,
         doctorJson: false,
+        dryRun: false,
         failOnBreak: false,
         failOnAuthImpact: false,
         help: false,
