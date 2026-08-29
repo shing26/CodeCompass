@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  deriveBadges,
   locateMermaidScript,
   renderArtifactHtml,
   writeArtifactFile,
@@ -14,6 +15,12 @@ const baseInput: ArtifactInput = {
   repoName: 'petclinic',
   generatedAt: '2026-08-29T00:00:00.000Z',
   mermaid: 'flowchart LR\n  n0["HTTP_ROUTER: likePost"] --> n1["SERVICE: doLike"]',
+  sequence: 'sequenceDiagram\n  participant P0 as likePost\n  P0->>P1: call',
+  badges: ['Spring', 'MySQL'],
+  storyBeats: [
+    { label: 'Step 1: HTTP_ROUTER likePost', detail: 'VERIFIED — PostController.java:12', code: '1: likePost()' },
+    { label: 'Step 2: SERVICE doLike', detail: 'VERIFIED — PostService.java:20', code: '1: doLike()' }
+  ],
   summary: 'Chain of 2 step(s) fully verified.',
   deepLink: 'http://localhost:43110/?repo=r1&focus=handleLike',
   sections: [
@@ -48,6 +55,37 @@ describe('export-artifact (v0.8)', () => {
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).toContain('&amp; quotes');
+  });
+
+  it('renders view tabs with lazy sequence source and honest placeholders', () => {
+    const html = renderArtifactHtml(baseInput);
+    expect(html).toContain('data-view="arch"');
+    expect(html).toContain('data-view="sequence"');
+    // Sequence renders lazily from a raw text source (no zero-width renders).
+    expect(html).toContain('id="sequence-src"');
+    expect(html).toContain('mermaid.run');
+    // Lifecycle/Dataflow are placeholders until their AST evidence ships.
+    expect(html).toContain('Lifecycle (v1.0)');
+    expect(html).toContain('Dataflow (v1.0)');
+    expect(html).toContain('mermaid.initialize({ startOnLoad: true');
+  });
+
+  it('renders brand badges and the story beats stepper', () => {
+    const html = renderArtifactHtml(baseInput);
+    expect(html).toContain('aria-label="Spring"');
+    expect(html).toContain('aria-label="MySQL"');
+    expect(html).toContain('id="story-beats"');
+    expect(html).toContain('id="beat-next"');
+    expect(html).toContain('Step 1: HTTP_ROUTER likePost');
+    expect(html).toContain('story-beats-data');
+  });
+
+  it('derives badges from dependency keyword evidence', () => {
+    expect(deriveBadges('org.mybatis:mybatis org.springframework.boot spring-boot-starter-web')).toEqual([
+      'Spring',
+      'MyBatis'
+    ]);
+    expect(deriveBadges('no stack here')).toEqual([]);
   });
 
   it('writes the artifact to disk', async () => {

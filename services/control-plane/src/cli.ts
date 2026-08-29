@@ -19,7 +19,7 @@ import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
-import { renderArtifactHtml, writeArtifactFile, locateMermaidScript } from './export-artifact';
+import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadges } from './export-artifact';
 
 export const VERSION = '0.8.0';
 
@@ -499,6 +499,22 @@ function chainMermaid(result: ReturnType<typeof runDiagnose>): string {
   return lines.join('\n');
 }
 
+/** Build a Mermaid sequenceDiagram from a diagnose chain (v0.9 Sequence view). */
+function chainSequence(result: ReturnType<typeof runDiagnose>): string {
+  const lines = ['sequenceDiagram'];
+  result.verifiedChain.forEach((step, i) => {
+    const pid = `P${i}`;
+    lines.push(`  participant ${pid} as ${step.symbol} (${step.layer})`);
+    if (i > 0) {
+      lines.push(`  P${i - 1}->>${pid}: ${step.status === 'BROKEN' ? 'broken call' : 'call'}`);
+    }
+    if (step.status === 'BROKEN') {
+      lines.push(`  Note over ${pid}: ${step.diagnosticNotes ?? 'static analysis break'}`);
+    }
+  });
+  return lines.join('\n');
+}
+
 /** Boot the analysis stack for one-shot commands (context/diagnose/refactor-plan). */
 async function withAnalysisStack<T>(
   options: { env?: NodeJS.ProcessEnv; dataDir?: string; repoPath: string; log: (line: string) => void },
@@ -752,6 +768,15 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
           repoName: repo.name,
           generatedAt: new Date().toISOString(),
           mermaid: chainMermaid(result),
+          sequence: chainSequence(result),
+          badges: deriveBadges(graph.symbols.map((symbol) => symbol.name).join(' ')),
+          storyBeats: result.verifiedChain.map((step, i) => ({
+            label: `Step ${i + 1}: ${step.layer} ${step.symbol}`,
+            detail:
+              `${step.status} — ${step.filePath}:${step.line}` +
+              (step.diagnosticNotes ? ` — ${step.diagnosticNotes}` : ''),
+            ...(step.codeSnippet ? { code: step.codeSnippet } : {})
+          })),
           summary: result.rootCauseSummary,
           deepLink: result.cockpitDeepLink,
           sections: [
