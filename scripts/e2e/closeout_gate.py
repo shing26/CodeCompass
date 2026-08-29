@@ -683,6 +683,28 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
                 },
             },
         },
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_domain_radar",
+                "arguments": {"repoId": "demo-polyglot", "query": "owners"},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_module_evolution",
+                "arguments": {
+                    "repoId": "demo-polyglot",
+                    "intentType": "DEPRECATE",
+                    "targetSymbolOrModule": "web",
+                },
+            },
+        },
     ]
     responses = _mcp_roundtrip(node, cli, repo_path, data_dir, requests)
 
@@ -691,8 +713,10 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         for tool in responses.get(2, {}).get("result", {}).get("tools", [])
     ]
     record(
-        "v0.8 MCP tools/list exposes the composite tools (10 total)",
-        "codecompass_diagnose" in names and "codecompass_refactor_plan" in names and len(names) >= 10,
+        "v0.8 MCP tools/list exposes the composite tools (12 total since v0.9)",
+        "codecompass_diagnose" in names and "codecompass_refactor_plan" in names
+        and "codecompass_domain_radar" in names and "codecompass_module_evolution" in names
+        and len(names) >= 12,
         f"tools={len(names)}",
     )
 
@@ -715,6 +739,25 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         '"riskLevel"' in refactor_text and '"impactedRoutes"' in refactor_text
         and '"migrationSteps"' in refactor_text,
         f"len={len(refactor_text)}",
+    )
+
+    radar_text = ""
+    for item in responses.get(5, {}).get("result", {}).get("content", []):
+        radar_text += item.get("text", "")
+    record(
+        "v0.9 codecompass_domain_radar returns hubs + anchors over MCP",
+        '"hubNodes"' in radar_text and '"topApis"' in radar_text
+        and '"matchedAnchors"' in radar_text,
+        f"len={len(radar_text)}",
+    )
+
+    evolution_text = ""
+    for item in responses.get(6, {}).get("result", {}).get("content", []):
+        evolution_text += item.get("text", "")
+    record(
+        "v0.9 codecompass_module_evolution returns checklists over MCP",
+        '"checklists"' in evolution_text and '"orphanedSymbols"' in evolution_text,
+        f"len={len(evolution_text)}",
     )
 
 
@@ -789,6 +832,108 @@ def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, t
     )
 
 
+def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path) -> None:
+    """v0.9: domain radar, module evolution and multi-view artifact checks."""
+
+    def run(*extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [node, str(cli), *extra, "--data-dir", str(data_dir)],
+            cwd=ROOT, capture_output=True, text=True, timeout=300,
+        )
+
+    def last_json(text: str) -> dict:
+        decoder = json.JSONDecoder()
+        split = text.splitlines()
+        for idx, line in enumerate(split):
+            if line.strip() == "{":
+                obj, _ = decoder.raw_decode("\n".join(split[idx:]))
+                return obj
+        obj, _ = decoder.raw_decode(text[text.find("{"):])
+        return obj
+
+    radar = run("radar", "owners", str(repo_path))
+    try:
+        result = last_json(radar.stdout)
+        ok = (
+            radar.returncode == 0
+            and len(result["hubNodes"]) >= 1
+            and len(result["topApis"]) >= 1
+            and len(result["persistenceEntities"]) >= 1
+        )
+        detail = f"hubs={len(result['hubNodes'])} apis={len(result['topApis'])} entities={result['persistenceEntities'][:3]}"
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{exc}: {radar.stdout[-200:]} {radar.stderr[-200:]}"
+    record("v0.9 radar prints hubs, top APIs and persistence entities", ok, detail)
+
+    radar_intent = run("radar", "owners", str(repo_path))
+    try:
+        result = last_json(radar_intent.stdout)
+        anchors = result["matchedAnchors"]
+        ok = (
+            radar_intent.returncode == 0
+            and len(anchors) >= 1
+            # The exact-match entity class wins score 100; the route/service
+            # methods must at least appear in the top-3 with a solid score.
+            and any("listOwners" in anchor["symbol"] and anchor["relevanceScore"] > 40
+                    for anchor in anchors[:3])
+        )
+        detail = f"anchors={[(a['symbol'], a['relevanceScore']) for a in anchors]}"
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{exc}: {radar_intent.stdout[-200:]}"
+    record("v0.9 radar intent anchor hits the matching entry symbol", ok, detail)
+
+    deprecate = run("evolve", "--intent", "deprecate", "--target", "web", str(repo_path))
+    try:
+        result = last_json(deprecate.stdout)
+        ok = (
+            deprecate.returncode == 0
+            and isinstance(result["blastRadius"]["orphanedSymbols"], list)
+            and len(result["checklists"]) >= 1
+            and result.get("suggestedPatch") is None
+        )
+        detail = (
+            f"checklists={len(result['checklists'])} "
+            f"routes={result['blastRadius']['impactedRoutes'][:2]} "
+            f"risk={result['riskLevel']}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{exc}: {deprecate.stdout[-200:]} {deprecate.stderr[-200:]}"
+    record("v0.9 evolve deprecate emits checklist with no LLM patch", ok, detail)
+
+    extend = run(
+        "evolve", "--intent", "extend", "--target", "findOwners",
+        "--goal", "异步敏感词审查", str(repo_path),
+    )
+    try:
+        result = last_json(extend.stdout)
+        ok = (
+            extend.returncode == 0
+            and len(result["scaffoldTemplates"]) >= 1
+            and result["scaffoldTemplates"][0]["suggestedPattern"] == "SPRING_EVENT_ASYNC"
+            and result.get("suggestedPatch") is None
+        )
+        record(
+            "v0.9 evolve extend matches async pattern with no LLM patch",
+            ok,
+            f"pattern={result['scaffoldTemplates'][0]['suggestedPattern']}" if ok else extend.stdout[-200:],
+        )
+    except Exception as exc:  # noqa: BLE001
+        record("v0.9 evolve extend matches async pattern with no LLM patch", False, f"{exc}: {extend.stdout[-200:]}")
+
+    artifact = tmp / "artifact-v09.html"
+    export = run("export", "listOwners", str(repo_path), "--file", str(artifact))
+    content = artifact.read_text(encoding="utf-8") if artifact.exists() else ""
+    record(
+        "v0.9 export artifact carries views, badges, beats and placeholders",
+        export.returncode == 0
+        and 'data-view="sequence"' in content
+        and 'id="sequence-src"' in content
+        and "Story Beats" in content
+        and "Lifecycle (v1.0)" in content,
+        f"bytes={len(content)}",
+    )
+
+
 # ----------------------------------------------------------------------- main
 
 
@@ -858,6 +1003,8 @@ def main() -> int:
         # v0.8 — composite tools over MCP stdio and the CLI surface.
         check_mcp_composite_tools(args.node, cli, polyglot, data_dir)
         check_cli_composite(args.node, cli, polyglot, data_dir, tmp)
+        # v0.9 — domain radar, module evolution, multi-view artifacts.
+        check_v09_radar_evolve(args.node, cli, polyglot, data_dir, tmp)
 
         if not args.skip_hot_reload:
             check_hot_reload(base, py_repo["id"], polyglot)

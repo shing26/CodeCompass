@@ -50,7 +50,12 @@
 - **深链现场还原**：工具结果的 `cockpitDeepLink` 携带 `?focus=<symbol>&traceId=<id>&mode=diff`，打开即闪烁聚焦目标卡片 / 直达架构差异视图。
 补丁类生成内容归 LLM 编排层并显式标注（ADR-0006）；链路追踪 100% 确定性（ADR-0005）。
 
-### 9. Zero-Config 安装器（v0.8）
+### 9. 模块演进副驾与领域雷达（v0.9）
+- **安全下线推演**：`codecompass evolve --intent deprecate --target <module>` —— 模块聚类 → 全图反向引用 → **固定点级联孤立死代码**（被独占的公共工具一并标出）→ 五类清理 Checklist。
+- **扩展挂载推演**：`codecompass evolve --intent extend --target <symbol> [--goal "..."]` —— 挂载点定位、方法/类/接口三级 `@Transactional` 事务边界证据、解耦模式匹配（Spring Event 异步 / AOP 切面 / 直接注入）+ 确定性代码脚手架（补丁仍归 LLM 层，ADR-0006）。
+- **领域雷达**：`codecompass radar [query]` —— Hub 节点（出入度 + 确定性 PageRank，悬挂节点权重不外泄、桥接边计入入度）、Top APIs、持久化底座；中文意图靠 doc-chunk 证据确定性桥接，零 embedding。
+
+### 10. Zero-Config 安装器（v0.8）
 ```bash
 codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
 ```
@@ -107,11 +112,11 @@ codecompass --version
 npm run e2e   # = python scripts/e2e/closeout_gate.py（需 Node 24 + 已构建 dist + git + python3）
 ```
 
-一键构建多语言 fixture（Java+TS / Python / Go）并断言 26 项能力：doctor、版本一致性、
+一键构建多语言 fixture（Java+TS / Python / Go）并断言 33 项能力：doctor、版本一致性、
 多语言消费面、Module Scope、扫描过滤（venv/二进制）、跨语言桥接、reverse-deps、
 确定性调用链、SSE 流（mermaid + 锚点）、symbolType 枚举、架构差异、ADR-0003 脱敏
 门禁、FastAPI Depends、Go 隐式接口、热重载，以及 v0.8 的 MCP stdio 复合工具往返、
-CLI diagnose / refactor-plan / export 与 install --dry-run。详见 `scripts/e2e/README.md`。
+CLI diagnose / refactor-plan / export 与 install --dry-run，以及 v0.9 的 radar 全景与意图锚点、evolve 双意图与多视图工件断言（含 MCP stdio 往返）。详见 `scripts/e2e/README.md`。
 
 ### 方式二：Docker（容器开发）
 
@@ -130,7 +135,7 @@ docker run --rm -p 43110:43110 \
 
 ## MCP 工具接入
 
-`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 10 个确定性工具：
+`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 12 个确定性工具：
 
 | 工具 | 用途 |
 | --- | --- |
@@ -144,6 +149,8 @@ docker run --rm -p 43110:43110 \
 | `codecompass_get_subgraph_context` | **Graph RAG 子图提取**：1-Hop Caller + 1~3 Hop Callee、骨架折叠、Token 剪枝与凭据脱敏 |
 | `codecompass_diagnose` | **跨栈根因穿透**：前端组件 → 路由 → Service → Mapper 分层链路，逐层 VERIFIED/BROKEN/SUSPECT |
 | `codecompass_refactor_plan` | **重构爆炸半径**：直接/间接调用方、受波及路由与前端组件、风险评级与迁移步骤 |
+| `codecompass_domain_radar` | **领域全景雷达**：出入度 + 确定性 PageRank 的 Hub 节点、Top APIs、持久化底座与意图锚点（零 embedding） |
+| `codecompass_module_evolution` | **模块演进推演**：DEPRECATE 固定点级联孤立死代码 + 清理 Checklist；EXTEND 事务边界证据 + 解耦模式脚手架 |
 
 ### Cursor
 
@@ -206,4 +213,4 @@ docs/adr/                   # 架构决策记录；术语表见 CONTEXT.md
 
 ## 版本
 
-当前版本：`v0.8.0`（CHANGELOG 含 0.5.x–0.8.0 完整条目）。语义化版本规则见 `docs/adr/`。
+当前版本：`v0.9.0`（CHANGELOG 含 0.5.x–0.9.0 完整条目）。语义化版本规则见 `docs/adr/`。

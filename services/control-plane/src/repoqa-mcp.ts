@@ -39,7 +39,7 @@ import { runModuleEvolution } from './module-evolution-engine';
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.8.0';
+export const MCP_SERVER_VERSION = '0.9.0';
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */

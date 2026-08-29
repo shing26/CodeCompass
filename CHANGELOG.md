@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.0] - 2026-08-29
+
+### Highlights
+
+- **模块演进副驾**：`codecompass_module_evolution` —— DEPRECATE 管线做模块聚类、全图反向引用扫描与**固定点级联孤立死代码检测**（被独占的公共工具会被二次波及一并标出），输出五类清理 Checklist；EXTEND 管线定位挂载点、回溯方法/类/接口三级 `@Transactional` 事务边界证据，按可解释规则匹配解耦模式（Spring Event 异步 / AOP 切面 / 直接注入）并产出确定性代码脚手架。
+- **领域全景雷达**：`codecompass_domain_radar` —— 全图出入度统计 + 确定性 PageRank（阻尼 0.85、悬挂节点权重每轮均匀重分配不外泄、TS fetch→Controller 桥接边计入 Controller 入度），三栏全景（Top APIs / Hub 节点 / 持久化底座）；自然语言意图锚点 = 标识符模糊匹配链 + doc-chunk 证据（中文意图的确定性桥接）+ 图排名增益，**零 embedding**。
+- **多视图工件**：`codecompass export` 升级为 Architecture + Sequence 双视图 Tab（Sequence 惰性渲染，规避隐藏容器 0 宽高陷阱）；Lifecycle/Dataflow 以"v1.0 证据采集排期中"占位——没有方法体级 AST 证据就绝不渲染假图；品牌徽标（Spring/Redis/MySQL 等，依依赖关键词贴标）与 Story Beats 分步演播带（Prev/Next 联动代码切片）。
+- MCP 工具升至 **12 个**；CLI 新增 `radar` 与 `evolve` 子命令。
+
+### Added
+
+- `services/control-plane/src/domain-radar-engine.ts`：度数聚合、确定性 PageRank、意图锚点融合打分（+7 单测）。
+- `services/control-plane/src/module-evolution-engine.ts`：DEPRECATE/EXTEND 双管线（+9 单测）。
+- e2e 门禁新增 6 项 v0.9 检查（radar 全景/意图锚点、evolve 双意图、多视图工件断言），总检查 **33 项**。
+
+### Changed
+
+- `export-artifact.ts` 重构为多视图渲染器；CLI `export` 输出 sequence 视图、品牌徽标与 Story Beats。
+
+
 ## [0.8.0] - 2026-08-29
 
 ### Highlights

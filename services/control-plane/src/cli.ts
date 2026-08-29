@@ -21,7 +21,7 @@ import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
 import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadges } from './export-artifact';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.9.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
@@ -69,6 +69,8 @@ export interface CliArgs {
   evolveIntent?: 'DEPRECATE' | 'EXTEND';
   /** `codecompass evolve --target <module|symbol>`. */
   evolveTarget?: string;
+  /** `codecompass evolve --goal <text>` (EXTEND only). */
+  evolveGoal?: string;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -140,6 +142,10 @@ Subcommands:
                         teardown checklist; --intent extend emits the attach
                         point, transaction boundaries and a decoupling
                         pattern with code scaffolds. Prints JSON.
+  --intent <t>          With evolve: deprecate | extend
+  --target <t>          With evolve: module name/directory (deprecate) or
+                        attach-point symbol (extend)
+  --goal <text>         With evolve --intent extend: free-text extension goal
   doctor                Diagnose Node/SQLite ABI, control-plane port, data
                         directory and Local LLM (Ollama) health. Exits 1 on a
                         fatal check failure.
@@ -330,6 +336,15 @@ export function parseArgs(argv: string[]): ParseResult {
         return { ok: false, error: '--target expects a module name/directory or a symbol' };
       }
       args.evolveTarget = value;
+      continue;
+    }
+    if (flag === '--goal') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || value === '') {
+        return { ok: false, error: '--goal expects an extension goal description' };
+      }
+      args.evolveGoal = value;
       continue;
     }
 
@@ -825,6 +840,7 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
           repoId,
           intentType: args.evolveIntent!,
           targetSymbolOrModule: args.evolveTarget!,
+          ...(args.evolveGoal ? { extensionGoal: args.evolveGoal } : {}),
           symbols: graph.symbols,
           index: graph.index,
           baseUrl
