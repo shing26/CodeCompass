@@ -758,7 +758,9 @@ function buildDeltaMermaid(delta: {
   if (nodeLines.length === 0 && edgeLines.length === 0) {
     return '```mermaid\ngraph TD\n    empty["无架构差异"]\n```';
   }
-  return ['```mermaid', 'graph TD', ...nodeLines, ...edgeLines, '```'].join('\n');
+  // v0.8: every edge in the delta graph is a broken edge — paint them red.
+  const styleLines = edgeLines.map((_, i) => `    linkStyle ${i} stroke:#f7768e,stroke-width:2px,color:#f7768e;`);
+  return ['```mermaid', 'graph TD', ...nodeLines, ...edgeLines, ...styleLines, '```'].join('\n');
 }
 
 /**

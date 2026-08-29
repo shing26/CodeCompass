@@ -17,7 +17,7 @@ import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
 import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
-import { renderArtifactHtml, writeArtifactFile } from './export-artifact';
+import { renderArtifactHtml, writeArtifactFile, locateMermaidScript } from './export-artifact';
 
 export const VERSION = '0.8.0';
 
@@ -142,8 +142,8 @@ Options:
   --no-browser          Do not auto-open the browser
   --no-watch            Disable FS watcher hot reload for ready repos
   --ide <id>            With install: cursor | zcode | claude | all
-  --repo <path>         With install: repository the MCP entry indexes
-                        (default: current directory)
+  --repo <path>         Repository directory for install / diagnose /
+                        refactor-plan / export (default: current directory)
   --dry-run             With install: preview the config write without touching disk
   --json                With doctor, emit a structured JSON report
   --output <fmt>        Diff report format: markdown | json (default: markdown)
@@ -502,45 +502,18 @@ async function withAnalysisStack<T>(
 
 /** `codecompass context <query> [repoPath]` — one-shot Graph RAG extraction. */
 async function runContextCommand(options: ContextCommandOptions): Promise<void> {
-  const env = { ...(options.env ?? process.env) };
-  if (options.dataDir) env.MHW_DATA_DIR = options.dataDir;
-  const config = loadConfig(env);
-  await backupDb(config.dbPath);
-  const db = openDb(config.dbPath);
-  ensureDefaultWorkspace(db, config.dataDir);
-  const repoqa = new RepoQARepos(db);
-  repoqa.resetInterrupted();
-  const worker = new RepoQAWorker(repoqa, new EventBus());
-
-  try {
-    const normalizedTarget = path.resolve(options.repoPath);
-    const existing = repoqa.listRepos().find((repo) => {
-      try {
-        return path.resolve(repo.localPath).toLowerCase() === normalizedTarget.toLowerCase();
-      } catch {
-        return false;
-      }
-    });
-    let repo = existing?.status === 'ready' ? existing : undefined;
-    if (!repo) {
-      options.log(`CodeCompass context: indexing ${normalizedTarget}`);
-      const result = await worker.indexRepo({ localPath: normalizedTarget });
-      repo = result.repo;
-    }
-
-    const resolution = worker.resolveStartSymbolForQuery(repo.id, options.query);
+  await withAnalysisStack(options, async ({ repoId, worker, localPath }) => {
+    const resolution = worker.resolveStartSymbolForQuery(repoId, options.query);
     if (!resolution) {
       throw new Error(`Start symbol not found: ${options.query}`);
     }
-    const graph = worker.getSymbolGraph(repo.id);
+    const graph = worker.getSymbolGraph(repoId);
     const context = await extractSubgraphContext(graph.symbols, resolution.symbol, {
-      root: repo.localPath,
+      root: localPath,
       index: graph.index
     });
     options.log(context.text);
-  } finally {
-    db.close();
-  }
+  });
 }
 
 /**
@@ -755,6 +728,9 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         });
         const outPath =
           args.diffFile ?? `codecompass-diagnose-${result.traceId}.html`;
+        if (!locateMermaidScript()) {
+          log('Warning: local mermaid runtime not found — the artifact falls back to CDN and will not render offline.');
+        }
         const written = writeArtifactFile(html, outPath);
         log(`Artifact written to ${written}`);
       }

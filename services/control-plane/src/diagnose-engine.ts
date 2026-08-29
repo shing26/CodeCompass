@@ -12,6 +12,7 @@ import {
   symbolIdentity,
   type SymbolIndex
 } from './repoqa-callchain';
+import { maskSensitiveText } from './repoqa-masking';
 import type { RepoSymbol } from './repoqa-repos';
 
 /**
@@ -27,7 +28,7 @@ import type { RepoSymbol } from './repoqa-repos';
 export const DEFAULT_COCKPIT_BASE = 'http://localhost:43110';
 
 /** Mirrors RepoQAWorker.isTestPath: production symbols win over test helpers. */
-function isTestPath(filePath: string): boolean {
+export function isTestPath(filePath: string): boolean {
   const p = filePath.replace(/\\/g, '/').toLowerCase();
   return p.includes('/test/') || p.includes('/src/test') || p.includes('test/java');
 }
@@ -107,10 +108,12 @@ export function readSnippet(root: string | undefined, file: string, line: number
     const lines = content.split(/\r?\n/);
     const start = Math.max(0, line - 3);
     const end = Math.min(lines.length, line + 9);
-    return lines
-      .slice(start, end)
-      .map((text, i) => `${start + i + 1}: ${text}`)
-      .join('\n');
+    return maskSensitiveText(
+      lines
+        .slice(start, end)
+        .map((text, i) => `${start + i + 1}: ${text}`)
+        .join('\n')
+    );
   } catch {
     return undefined;
   }

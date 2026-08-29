@@ -211,13 +211,15 @@ export function App({ client: clientProp }: AppProps) {
 
   // Bug-08: restore the selected repo when the user navigates back/forward
   // in browser history (the URL is the single source of truth for selection).
+  // v0.8: the mode param rides along, so back/forward also restores delta view.
   useEffect(() => {
     const onPopState = () => {
-      const id = new URLSearchParams(window.location.search).get('repo');
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('repo');
       if (id && id !== currentRepo?.id) {
         selectRepo(id);
         setActiveTour(null);
-        setView('topo');
+        setView(params.get('mode') === 'diff' ? 'delta' : 'topo');
       }
     };
     window.addEventListener('popstate', onPopState);

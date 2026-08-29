@@ -4,6 +4,7 @@ import type { RepoSymbol } from './repoqa-repos';
 import {
   cockpitLink,
   frontendCallersForRoute,
+  isTestPath,
   stableTraceId,
   DEFAULT_COCKPIT_BASE
 } from './diagnose-engine';
@@ -31,12 +32,6 @@ export interface BlastRadiusInput {
   baseUrl?: string;
 }
 
-function isTestPath(filePath: string): boolean {
-  const p = filePath.replace(/\\/g, '/').toLowerCase();
-  return p.includes('/test/') || p.includes('/src/test') || p.includes('test/java');
-}
-
-/** Route path lifted from a symbol (method-level path wins over class path). */
 function routePathOf(symbol: RepoSymbol, index: SymbolIndex): string | undefined {
   if (symbol.displayPath) return symbol.displayPath;
   const parent = symbol.parentType ? index.types.get(symbol.parentType)?.symbol : undefined;

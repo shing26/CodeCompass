@@ -80,7 +80,8 @@ export function Canvas({
   }, [focusKey]);
 
   // v0.8 — deep-link restore: when the cockpit is opened with ?focus=&traceId=,
-  // flash the matching trace card (first card as fallback) once a trace lands.
+  // flash and scroll to the matching trace card once a trace lands. traceId is
+  // scene metadata surfaced in the banner (chat messages don't carry trace ids).
   const [deepLinkFlash, setDeepLinkFlash] = useState(false);
   useEffect(() => {
     if (!deepLinkFocus || !latestTrace?.anchors?.length) return;
@@ -181,7 +182,8 @@ export function Canvas({
                 flashFirst={focusFlash}
                 flashSymbol={deepLinkFlash ? deepLinkFocus : undefined}
               />
-            )}  <div
+            )}
+            <div
               data-testid="offline-hint"
               className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-xs text-muted"
             >
@@ -386,13 +388,22 @@ function FlowCards({
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** v0.7 (issue 12): one-shot highlight on the start card. */
   flashFirst?: boolean;
-  /** v0.8 deep link: flash the card matching this symbol (fallback: first). */
+  /** v0.8 deep link: flash and scroll to the card matching this symbol. */
   flashSymbol?: string | null;
 }) {
   const cards = anchors.slice(0, 3);
   const flashIndex = flashSymbol
     ? cards.findIndex((anchor) => anchor.symbol === flashSymbol)
     : -1;
+  const flashRef = useRef<HTMLButtonElement | null>(null);
+  // Deep-link restore: bring the focused card into view (jsdom-safe).
+  useEffect(() => {
+    const el = flashRef.current;
+    if (!flashSymbol || !el) return;
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [flashSymbol]);
   return (
     <div data-testid="flow-cards" className="mb-4 flex items-stretch gap-2">
       {cards.map((anchor, idx) => {
@@ -406,6 +417,7 @@ function FlowCards({
             <button
               type="button"
               data-testid="flow-card"
+              ref={idx === flashIndex ? flashRef : undefined}
               className={`min-w-0 flex-1 rounded-md border border-line bg-surface p-2 text-left hover:border-accent/50 ${
                 flash ? 'focus-flash' : ''
               }`}

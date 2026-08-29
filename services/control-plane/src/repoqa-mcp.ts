@@ -424,6 +424,8 @@ export async function mcpGetSubgraphContext(
 export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
+  // Deep links must honor the actually-bound control-plane port, not a guess.
+  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
   return runDiagnose({
     repoId: repo.id,
     entrySymbol: String(args.entrySymbol ?? ''),
@@ -432,6 +434,7 @@ export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<str
       : { symptomDescription: String(args.symptomDescription) }),
     symbols: graph.symbols,
     index: graph.index,
+    baseUrl,
     snippetRoot: repo.localPath
   }) as unknown as Record<string, unknown>;
 }
@@ -440,6 +443,7 @@ export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<str
 export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
+  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
   return runBlastRadius({
     repoId: repo.id,
     targetSymbol: String(args.targetSymbol ?? ''),
@@ -448,7 +452,8 @@ export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record
       | 'REMOVAL'
       | 'LOGIC_REFACTOR',
     symbols: graph.symbols,
-    index: graph.index
+    index: graph.index,
+    baseUrl
   }) as unknown as Record<string, unknown>;
 }
 

@@ -37,8 +37,7 @@ export function locateMermaidScript(fromDir = path.resolve(__dirname, '..')): st
     path.resolve(fromDir, 'node_modules', 'mermaid', 'dist', 'mermaid.js'),
     // From services/control-plane: the web app's hoisted dependency.
     path.resolve(fromDir, '..', '..', 'apps', 'repoqa-web', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js'),
-    path.resolve(fromDir, '..', 'apps', 'repoqa-web', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js'),
-    path.resolve(fromDir, 'node_modules', 'mermaid', 'dist', 'mermaid.min.js')
+    path.resolve(fromDir, '..', 'apps', 'repoqa-web', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js')
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
@@ -53,9 +52,14 @@ function escapeHtml(text: string): string {
 
 export function renderArtifactHtml(input: ArtifactInput): string {
   const mermaidScript = locateMermaidScript();
+  const offlineReady = Boolean(mermaidScript);
   const mermaidTag = mermaidScript
     ? `<script>${fs.readFileSync(mermaidScript, 'utf8')}</script>`
-    : `<script src="${CDN_MERMAID}"></script><!-- offline fallback unavailable: mermaid loaded from CDN -->`;
+    : `<script src="${CDN_MERMAID}"></script>`;
+
+  const offlineWarning = offlineReady
+    ? ''
+    : `<div class="offline-warning">⚠️ 本工件未找到本地 mermaid 运行时，已回退 CDN 加载：断网打开时拓扑图不会渲染。在仓库内构建后重新导出即可自包含。</div>`;
 
   const sections = input.sections
     .map(
@@ -102,6 +106,9 @@ export function renderArtifactHtml(input: ArtifactInput): string {
           border-radius: 6px; padding: 10px 12px; overflow-x: auto;
           font: 12px/1.5 Consolas, monospace; color: #c0caf5; }
   p.summary { max-width: 960px; }
+  .offline-warning { max-width: 960px; margin-bottom: 14px; padding: 10px 12px;
+          border: 1px solid #e0af68; border-radius: 6px; color: #e0af68;
+          background: rgba(224, 175, 104, .08); font-size: 12px; }
   .deeplink { font-size: 12px; color: #8b93a7; }
   .deeplink a { color: #7aa2f7; }
 </style>
@@ -111,6 +118,7 @@ ${mermaidTag}
 <body>
 <h1>${escapeHtml(input.title)}</h1>
 <p class="meta">repo ${escapeHtml(input.repoName)} · generated ${escapeHtml(input.generatedAt ?? new Date().toISOString())} · CodeCompass v0.8</p>
+${offlineWarning}
 ${summary}
 ${deepLink}
 ${diagram}

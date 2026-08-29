@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { buildCallIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
 import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
@@ -156,6 +159,34 @@ describe('runDiagnose', () => {
     expect(a.cockpitDeepLink).toContain('repo=r1');
     expect(a.cockpitDeepLink).toContain('focus=doLike');
     expect(a.cockpitDeepLink).toContain(`traceId=${a.traceId}`);
+  });
+
+  it('masks sensitive content in code snippets (ADR-0003)', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-snippet-'));
+    try {
+      const serviceFile = path.join(dir, 'PostService.java');
+      await fs.writeFile(
+        serviceFile,
+        'public void doLike() {\n  String password = "super-secret-123";\n}\n',
+        'utf8'
+      );
+      const symbols = SYMBOLS.map((symbol) =>
+        symbol === DO_LIKE ? { ...symbol, filePath: 'PostService.java' } : symbol
+      );
+      const index = buildCallIndex(symbols);
+      const result = runDiagnose({
+        repoId: 'r1',
+        entrySymbol: 'doLike',
+        symbols,
+        index,
+        snippetRoot: dir
+      });
+      const snippet = result.verifiedChain.find((step) => step.symbol === 'doLike')?.codeSnippet;
+      expect(snippet).toBeDefined();
+      expect(snippet).not.toContain('super-secret-123');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 });
 
