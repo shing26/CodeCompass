@@ -132,6 +132,20 @@ export interface Anchor {
   symbol: string;
 }
 
+/** v0.10 — one hop of a resolved trace, consumed from the SSE done payload. */
+export interface TraceStep {
+  file: string;
+  line: number;
+  lineEnd?: number;
+  symbol: string;
+  /** BROKEN for a static-analysis break hop, otherwise VERIFIED. */
+  status: 'BROKEN' | 'VERIFIED';
+  /** v0.7 — hop entered via a goroutine dispatch. */
+  async?: boolean;
+  /** v0.10 — browser HTTP bridge method (GET/POST) when the hop is bridged. */
+  httpMethod?: string;
+}
+
 /** v0.6 closeout: one static caller of a target symbol (reverse-deps). */
 export interface ReverseCaller {
   file: string;

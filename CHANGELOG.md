@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.0] - 2026-08-30
+
+### Highlights
+
+- **Mermaid 质感对齐**：画布跟随 clean/cyber 主题注入 themeVariables（暗色不再白底），节点圆角统一 8px；主题切换即时重渲染，不再残留旧主题缓存。
+- **语义边与状态胶囊**：查询 trace 的 BROKEN/HTTP/async 证据直接渲染为红脉冲虚线边、紫青流光 HTTP 边与黄虚线异步边；节点标签追加 GET/POST/BROKEN 胶囊，一眼分辨调用链状态。
+- **trace 契约前置**：`RepoQaTraceHop.http` 字段（optional）把浏览器 HTTP 桥接方法/URL 带给前端，控制面在 AST 证据层确定性标注（零 LLM 猜测），旧序列化不受影响。
+
+### Added
+
+- `apps/repoqa-web/src/client/mermaidRenderer.ts`：按主题注入 mermaid themeVariables，主题键驱动重新 initialize（+6 单测）。
+- `apps/repoqa-web/src/client/mermaidGraph.ts`：`escapeMermaidLabel` 与 `edgeAnnotationsForTrace`，标签转义覆盖 `[]"` 与中文路径，trace 边语义有序映射（+4 单测）。
+- `apps/repoqa-web/src/components/MermaidDiagram.tsx`：消费 `traceSteps`，向 SVG `g.edgePath`/`g.node` 注入语义 class（+4 单测）。
+- `services/control-plane/src/repoqa-worker.ts`：`annotateTraceHttpMethods` 将 `frontendCallersForRoute` 桥接证据写入 trace hop（+4 单测）。
+- `index.css`：BROKEN 脉冲、HTTP 流光、async 虚线、节点状态胶囊，全部走设计 token（无硬编码 hex）。
+
+### Changed
+
+- `packages/contracts/v1.ts`：`RepoQaTraceHop` 新增 optional `http` 字段。
+- `useChat` 消费 `done.payload.trace` 归一化为 `TraceStep[]`，供画布语义注入与后续演播带使用。
+
+
 ## [0.9.0] - 2026-08-29
 
 ### Highlights

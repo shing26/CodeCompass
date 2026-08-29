@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMermaid } from '../client/mermaidRenderer';
-import { trimMermaidGraph } from '../client/mermaidGraph';
+import { trimMermaidGraph, edgeAnnotationsForTrace } from '../client/mermaidGraph';
+import { useTheme } from '../hooks/useTheme';
+import type { TraceStep } from '../types';
 
 export interface ParsedDeepLink {
   file: string;
@@ -32,6 +34,8 @@ interface MermaidDiagramProps {
   maxNodes?: number;
   /** v0.7 (issue 12) — symbol name to flash once after render/trace landing. */
   highlightNode?: string;
+  /** v0.10 — resolved trace hops; drives BROKEN/HTTP edge + node styling. */
+  traceSteps?: TraceStep[];
 }
 
 const ZOOM_MIN = 0.4;
@@ -60,8 +64,10 @@ export function MermaidDiagram({
   code,
   onNavigate,
   maxNodes = 60,
-  highlightNode
+  highlightNode,
+  traceSteps
 }: MermaidDiagramProps) {
+  const { theme } = useTheme();
   const trimmed = useMemo(() => trimMermaidGraph(code, maxNodes), [code, maxNodes]);
   const [svgHtml, setSvgHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -78,6 +84,37 @@ export function MermaidDiagram({
   const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const uidRef = useRef(0);
 
+  // v0.10 (Stage 1) — semantic styling: annotate the rendered SVG edges and
+  // node labels from the resolved trace (BROKEN pulse / HTTP flow / GET/POST).
+  // Runs after every render because mermaid regenerates the DOM on code change.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || svgHtml === null || !traceSteps || traceSteps.length < 2) return;
+    const edgeViews = edgeAnnotationsForTrace(traceSteps);
+    el.querySelectorAll('g.edgePath').forEach((edge, index) => {
+      const view = edgeViews[index];
+      if (!view) return;
+      if (view.broken) edge.classList.add('ccx-edge-broken');
+      if (view.httpMethod) edge.classList.add('ccx-edge-http');
+      if (view.async) edge.classList.add('ccx-edge-async');
+    });
+    const symbolByLabel = new Map<string, TraceStep>();
+    for (const step of traceSteps) {
+      symbolByLabel.set(step.symbol.toLowerCase(), step);
+    }
+    el.querySelectorAll('g.node').forEach((node) => {
+      const labelEl = node.querySelector('.label');
+      const text = labelEl?.textContent?.trim();
+      if (!text) return;
+      const step = symbolByLabel.get(text.toLowerCase());
+      if (!step) return;
+      if (step.status === 'BROKEN') node.classList.add('ccx-node-broken');
+      if (step.httpMethod) {
+        node.classList.add(step.httpMethod === 'POST' ? 'ccx-node-post' : 'ccx-node-get');
+      }
+    });
+  }, [svgHtml, traceSteps]);
+
   useEffect(() => {
     let cancelled = false;
     const uid = `mmd-${++uidRef.current}`;
@@ -85,7 +122,7 @@ export function MermaidDiagram({
     setFailed(false);
     setView(IDENTITY);
     naturalRef.current = null;
-    renderMermaid(uid, trimmed.code)
+    renderMermaid(uid, trimmed.code, theme)
       .then((svg) => {
         if (!cancelled) setSvgHtml(svg);
       })
@@ -95,7 +132,7 @@ export function MermaidDiagram({
     return () => {
       cancelled = true;
     };
-  }, [trimmed.code]);
+  }, [trimmed.code, theme]);
 
   const bindings = useRef(parseClickBindings(trimmed.code));
   bindings.current = parseClickBindings(trimmed.code);

@@ -7,6 +7,7 @@ import { EventBus } from './events';
 import type { RepoSymbol } from './repoqa-repos';
 import { RepoQARepos } from './repoqa-repos';
 import {
+  annotateTraceHttpMethods,
   findFuzzyStartSymbol,
   fuzzyMatchScore,
   splitIdentifier,
@@ -269,4 +270,80 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   }, 20_000);
+});
+
+describe('annotateTraceHttpMethods (v0.10 Stage 1)', () => {
+  it('leaves hops without a route displayPath untouched', () => {
+    const trace = [
+      {
+        file: 'src/main/java/com/demo/Service.java',
+        method: 'save',
+        line: 10,
+        lineEnd: 12
+      }
+    ];
+    const symbols = [symbol({ name: 'save', kind: 'method' })];
+    expect(annotateTraceHttpMethods(trace, symbols)).toEqual(trace);
+  });
+
+  it('attaches HTTP bridge evidence to a matching route hop', () => {
+    const route = symbol({
+      name: 'likePost',
+      kind: 'route',
+      filePath: 'src/main/java/com/demo/PostController.java',
+      displayPath: '/api/v1/posts/:id/like',
+      annotations: ['@PostMapping("/api/v1/posts/{id}/like")']
+    });
+    const bridge = symbol({
+      name: 'likePost',
+      kind: 'method',
+      filePath: 'src/components/PostCard.tsx',
+      lineStart: 30,
+      lineEnd: 42,
+      parentType: 'PostCard',
+      calls: [
+        {
+          file: 'src/components/PostCard.tsx',
+          method: 'likePost',
+          line: 41,
+          http: { method: 'POST', url: '/api/v1/posts/45/like' }
+        }
+      ]
+    });
+    const trace = [
+      {
+        file: route.filePath,
+        method: route.name,
+        line: 12,
+        lineEnd: 20
+      }
+    ];
+    const annotated = annotateTraceHttpMethods(trace, [route, bridge]);
+    expect(annotated).toHaveLength(1);
+    expect(annotated[0].http).toEqual({ method: 'POST', url: '/api/v1/posts/45/like' });
+  });
+
+  it('preserves an existing http field without re-annotating', () => {
+    const trace = [
+      {
+        file: 'src/main/java/com/demo/PostController.java',
+        method: 'likePost',
+        http: { method: 'GET', url: '/api/v1/posts/1' }
+      }
+    ];
+    const symbols = [symbol({ name: 'likePost', kind: 'route', displayPath: '/api/v1/posts/:id' })];
+    expect(annotateTraceHttpMethods(trace, symbols)).toEqual(trace);
+  });
+
+  it('keeps the hop unchanged when no frontend bridge matches', () => {
+    const route = symbol({
+      name: 'likePost',
+      kind: 'route',
+      filePath: 'src/main/java/com/demo/PostController.java',
+      displayPath: '/api/v1/posts/:id/like'
+    });
+    const trace = [{ file: route.filePath, method: route.name, line: 12 }];
+    const annotated = annotateTraceHttpMethods(trace, [route]);
+    expect(annotated[0].http).toBeUndefined();
+  });
 });

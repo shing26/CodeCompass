@@ -30,7 +30,7 @@ import {
   applyImplicitInterfaces
 } from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
-import { runDiagnose } from './diagnose-engine';
+import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
@@ -55,6 +55,37 @@ export type IndexProgressPayload = {
   processedFiles?: number;
   percent?: number;
 };
+
+/**
+ * v0.10 — annotate trace hops that resolve to a route symbol with the browser
+ * HTTP bridge method/url. Pure and deterministic: the method comes from the
+ * AST-evidence bridge resolver (`frontendCallersForRoute`), never guessed
+ * (ADR-0002). Hops without a displayPath or matching bridge stay untouched.
+ *
+ * Key is `${filePath}:${name}` (not `symbolIdentity`, which also carries
+ * lineStart) because `resolveCallChain` emits `hop.file` = `symbol.filePath`
+ * and `hop.method` = `symbol.name` without lineStart. Route symbols are
+ * unique enough per file+name for this two-part key to be safe.
+ */
+export function annotateTraceHttpMethods(
+  trace: RepoQaTraceHop[],
+  symbols: RepoSymbol[]
+): RepoQaTraceHop[] {
+  const byFileAndName = new Map<string, RepoSymbol>();
+  for (const symbol of symbols) {
+    if (!symbol.displayPath) continue;
+    byFileAndName.set(`${symbol.filePath}:${symbol.name}`, symbol);
+  }
+  return trace.map((hop) => {
+    if (hop.http) return hop;
+    const symbol = byFileAndName.get(`${hop.file}:${hop.method}`);
+    if (!symbol?.displayPath) return hop;
+    const bridges = frontendCallersForRoute(symbols, symbol.displayPath);
+    const bridge = bridges[0];
+    if (!bridge) return hop;
+    return { ...hop, http: { method: bridge.http.method, url: bridge.http.url } };
+  });
+}
 
 export type StartSymbolResolution = {
   symbol: RepoSymbol;
@@ -698,6 +729,9 @@ export class RepoQAWorker {
       if (start) {
         route = start;
         trace = resolveCallChain(symbols, start, 4, this.getSymbolGraph(repo.id).index);
+        // v0.10 — surface browser HTTP bridge methods on route hops so the
+        // frontend can render GET/POST capsules from deterministic evidence.
+        trace = annotateTraceHttpMethods(trace, symbols);
         candidateAnchors = trace
           .filter((hop) => !hop.break && hop.line)
           .map((hop) => ({

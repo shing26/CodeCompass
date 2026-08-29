@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MermaidDiagram, parseClickBindings, parseDeepLink } from './MermaidDiagram';
+import type { TraceStep } from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
   renderMermaid: vi.fn(async (_uid: string, code: string) => {
@@ -161,5 +162,79 @@ describe('MermaidDiagram workbench layer (v0.7 issues 09-11)', () => {
     const passedCode = vi.mocked(renderMermaid).mock.calls[0][1] as string;
     expect(passedCode).toContain('ccx_aggregate');
     expect(passedCode).not.toContain('n70[');
+  });
+});
+
+describe('MermaidDiagram trace injection (v0.10 Stage 1)', () => {
+  beforeEach(() => {
+    mockedRender.mockClear();
+    // Override the mock SVG to include g.edgePath and g.node .label elements
+    // that the trace injection effect queries.
+    mockedRender.mockResolvedValue(
+      [
+        '<svg viewBox="0 0 400 200">',
+        '<g class="edgePath"><path d="M10,10 L100,10" /></g>',
+        '<g class="edgePath"><path d="M10,20 L100,20" /></g>',
+        '<g class="node"><text class="label">OwnerController</text></g>',
+        '<g class="node"><text class="label">OwnerRepository</text></g>',
+        '</svg>'
+      ].join('')
+    );
+  });
+
+  it('injects broken edge class when the target hop is BROKEN', async () => {
+    const traceSteps: TraceStep[] = [
+      { file: 'A.java', line: 1, symbol: 'OwnerController', status: 'VERIFIED' },
+      { file: 'B.java', line: 2, symbol: 'OwnerRepository', status: 'BROKEN' }
+    ];
+    render(<MermaidDiagram code="flowchart LR" traceSteps={traceSteps} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+    const edges = container.querySelectorAll('g.edgePath');
+    // First edge connects hop 0→1, whose target hop is BROKEN.
+    expect(edges[0].classList.contains('ccx-edge-broken')).toBe(true);
+    const node = container.querySelectorAll('g.node .label')[1]!.closest('g.node')!;
+    expect(node.classList.contains('ccx-node-broken')).toBe(true);
+  });
+
+  it('injects HTTP edge and POST node classes from trace evidence', async () => {
+    const traceSteps: TraceStep[] = [
+      { file: 'A.java', line: 1, symbol: 'OwnerController', status: 'VERIFIED' },
+      {
+        file: 'B.java',
+        line: 2,
+        symbol: 'OwnerRepository',
+        status: 'VERIFIED',
+        httpMethod: 'POST'
+      }
+    ];
+    render(<MermaidDiagram code="flowchart LR" traceSteps={traceSteps} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+    const edges = container.querySelectorAll('g.edgePath');
+    expect(edges[0].classList.contains('ccx-edge-http')).toBe(true);
+    const node = container.querySelectorAll('g.node .label')[1]!.closest('g.node')!;
+    expect(node.classList.contains('ccx-node-post')).toBe(true);
+  });
+
+  it('injects nothing for a single-hop trace', async () => {
+    const traceSteps: TraceStep[] = [
+      { file: 'A.java', line: 1, symbol: 'OwnerController', status: 'VERIFIED' }
+    ];
+    render(<MermaidDiagram code="flowchart LR" traceSteps={traceSteps} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+    const edges = container.querySelectorAll('g.edgePath');
+    expect(edges[0].classList.contains('ccx-edge-broken')).toBe(false);
+    expect(edges[0].classList.contains('ccx-edge-http')).toBe(false);
+  });
+
+  it('keeps the canvas clean when traceSteps is undefined', async () => {
+    render(<MermaidDiagram code="flowchart LR" />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+    const edges = container.querySelectorAll('g.edgePath');
+    expect(edges[0].classList.contains('ccx-edge-broken')).toBe(false);
+    expect(edges[0].classList.contains('ccx-edge-http')).toBe(false);
   });
 });

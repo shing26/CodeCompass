@@ -27,6 +27,50 @@ export interface TrimResult {
   hiddenLabels: string[];
 }
 
+/** v0.10 — minimal structural view of a trace hop for the semantics helper. */
+export interface TraceHopView {
+  symbol: string;
+  status: 'BROKEN' | 'VERIFIED';
+  httpMethod?: string;
+  async?: boolean;
+}
+
+/** v0.10 — semantic annotation for one rendered SVG edge. */
+export interface MermaidEdgeView {
+  broken: boolean;
+  httpMethod?: string;
+  async?: boolean;
+}
+
+/**
+ * v0.10 — escape a node label for safe mermaid source embedding. Mermaid
+ * flowchart labels accept `#`, `()` and Unicode paths, but `[`, `]` and
+ * double quotes must be neutralized so a label never terminates the node
+ * declaration early (RISK-2).
+ */
+export function escapeMermaidLabel(label: string): string {
+  return label.replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
+}
+
+/**
+ * v0.10 — derive edge semantics from an ordered trace. Edge `i` connects hop
+ * `i` to hop `i+1`; its attributes come from the target hop (`i+1`), matching
+ * the backend `traceToMermaid` convention. Backend traces are depth-capped
+ * (4 hops), so the index mapping survives the 60-node render cap in practice.
+ */
+export function edgeAnnotationsForTrace(trace: TraceHopView[]): MermaidEdgeView[] {
+  const edges: MermaidEdgeView[] = [];
+  for (let i = 0; i < trace.length - 1; i += 1) {
+    const target = trace[i + 1];
+    edges.push({
+      broken: target.status === 'BROKEN',
+      ...(target.httpMethod ? { httpMethod: target.httpMethod } : {}),
+      ...(target.async ? { async: true } : {})
+    });
+  }
+  return edges;
+}
+
 export function trimMermaidGraph(code: string, maxNodes = 60): TrimResult {
   const lines = code.split('\n');
   const nodeOrder: string[] = [];

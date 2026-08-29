@@ -124,6 +124,11 @@ export interface RepoQaTraceHop {
   reason?: string;
   /** v0.7 — hop entered via a `go fn(...)` Goroutine dispatch. */
   async?: true;
+  /** v0.10 — browser HTTP bridge evidence for the hop (method + URL). */
+  http?: {
+    method: string;
+    url?: string;
+  };
 }
 
 export interface RepoQaQueryDone {

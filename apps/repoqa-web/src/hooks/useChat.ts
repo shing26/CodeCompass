@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Anchor, QueryMode, QueryStart, TokenUsage } from '../types';
+import type { Anchor, QueryMode, QueryStart, TokenUsage, TraceStep } from '../types';
 import type { QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
 
 export interface ChatMessage {
@@ -20,6 +20,8 @@ export interface ChatMessage {
   confidence?: number;
   /** Provider or estimated token usage for this single message. */
   usage?: TokenUsage;
+  /** v0.10 — ordered trace hops from the SSE done payload (live step strip). */
+  traceSteps?: TraceStep[];
 }
 
 let nextId = 1;
@@ -65,6 +67,36 @@ function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {
     total: left.total + right.total,
     source: left.source === 'provider' && right.source === 'provider' ? 'provider' : 'estimate'
   };
+}
+
+/** v0.10 — normalize the SSE done.payload.trace into TraceStep[] (defensive). */
+function parseTraceSteps(payload: Record<string, unknown> | undefined): TraceStep[] | undefined {
+  const raw = payload?.trace;
+  if (!Array.isArray(raw)) return undefined;
+  const steps: TraceStep[] = [];
+  for (const hop of raw) {
+    if (!hop || typeof hop !== 'object') continue;
+    const h = hop as {
+      file?: unknown;
+      method?: unknown;
+      line?: unknown;
+      lineEnd?: unknown;
+      break?: unknown;
+      async?: unknown;
+      http?: { method?: unknown };
+    };
+    if (typeof h.file !== 'string' || typeof h.method !== 'string') continue;
+    steps.push({
+      file: h.file,
+      line: typeof h.line === 'number' ? h.line : 1,
+      ...(typeof h.lineEnd === 'number' ? { lineEnd: h.lineEnd } : {}),
+      symbol: h.method,
+      status: h.break === true ? 'BROKEN' : 'VERIFIED',
+      ...(h.async === true ? { async: true } : {}),
+      ...(typeof h.http?.method === 'string' ? { httpMethod: h.http.method } : {})
+    });
+  }
+  return steps.length > 0 ? steps : undefined;
 }
 
 /**
@@ -178,12 +210,14 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
         const lowConfidence = event.payload?.lowConfidence === true;
         const confidence =
           typeof event.payload?.confidence === 'number' ? event.payload.confidence : undefined;
+        const traceSteps = parseTraceSteps(event.payload);
         if (
           suggestedAction ||
           usage ||
           provenance !== undefined ||
           lowConfidence ||
-          confidence !== undefined
+          confidence !== undefined ||
+          traceSteps !== undefined
         ) {
           withAssistant((m) => ({
             ...m,
@@ -191,7 +225,8 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
             usage,
             provenance,
             lowConfidence,
-            confidence
+            confidence,
+            traceSteps
           }));
         }
         if (usage) {
