@@ -19,6 +19,7 @@ import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-gra
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
+import { runModuleEvolution } from './module-evolution-engine';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -81,6 +82,9 @@ export interface McpToolHandlerArgs {
   symptomDescription?: unknown;
   targetSymbol?: unknown;
   changeType?: unknown;
+  intentType?: unknown;
+  targetSymbolOrModule?: unknown;
+  extensionGoal?: unknown;
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,6 +224,28 @@ export const MCP_TOOLS: McpToolMeta[] = [
         query: { type: 'string', description: 'Optional intent phrase, e.g. "用户点赞" or "like"' }
       },
       required: ['repoId']
+    }
+  },
+  {
+    name: 'codecompass_module_evolution',
+    description:
+      'Module evolution planning (deterministic, zero-LLM). DEPRECATE: clusters a module, computes ' +
+      'external references, cascades orphaned public code with a fixed-point scan and emits a ' +
+      'teardown checklist. EXTEND: locates the attach point, surfaces declaration-level transaction ' +
+      'boundaries (method/class/interface) and emits a decoupling pattern with code scaffolds. ' +
+      'Patches are never produced here (ADR-0006).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name' },
+        intentType: { type: 'string', description: 'DEPRECATE | EXTEND' },
+        targetSymbolOrModule: {
+          type: 'string',
+          description: 'Module name/directory for DEPRECATE; main-flow symbol for EXTEND'
+        },
+        extensionGoal: { type: 'string', description: 'Optional free-text goal for EXTEND' }
+      },
+      required: ['repoId', 'intentType', 'targetSymbolOrModule']
     }
   },
   {
@@ -458,6 +484,23 @@ export function mcpDomainRadar(deps: McpDeps, args: McpToolHandlerArgs): Record<
   }) as unknown as Record<string, unknown>;
 }
 
+/** v0.9.0 — deterministic module evolution planning (deprecate / extend). */
+export function mcpModuleEvolution(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const intentType = String(args.intentType ?? 'DEPRECATE') as 'DEPRECATE' | 'EXTEND';
+  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  return runModuleEvolution({
+    repoId: repo.id,
+    intentType,
+    targetSymbolOrModule: String(args.targetSymbolOrModule ?? ''),
+    ...(args.extensionGoal === undefined ? {} : { extensionGoal: String(args.extensionGoal) }),
+    symbols: graph.symbols,
+    index: graph.index,
+    baseUrl
+  }) as unknown as Record<string, unknown>;
+}
+
 /** v0.8.0 — deterministic cross-stack root-cause traversal. */
 export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
@@ -534,6 +577,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_get_pr_impact: (args) => mcpGetPrImpact(deps, args),
     codecompass_get_subgraph_context: (args) => mcpGetSubgraphContext(deps, args),
     codecompass_domain_radar: (args) => mcpDomainRadar(deps, args),
+    codecompass_module_evolution: (args) => mcpModuleEvolution(deps, args),
     codecompass_diagnose: (args) => mcpDiagnose(deps, args),
     codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args)
   };

@@ -18,6 +18,7 @@ import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
+import { runModuleEvolution } from './module-evolution-engine';
 import { renderArtifactHtml, writeArtifactFile, locateMermaidScript } from './export-artifact';
 
 export const VERSION = '0.8.0';
@@ -34,7 +35,8 @@ export interface CliArgs {
     | 'diagnose'
     | 'refactor-plan'
     | 'export'
-    | 'radar';
+    | 'radar'
+    | 'evolve';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -63,6 +65,10 @@ export interface CliArgs {
   installRepo?: string;
   /** `codecompass refactor-plan --change-type <t>` (default SIGNATURE_CHANGE). */
   changeType?: 'SIGNATURE_CHANGE' | 'REMOVAL' | 'LOGIC_REFACTOR';
+  /** `codecompass evolve --intent <deprecate|extend>`. */
+  evolveIntent?: 'DEPRECATE' | 'EXTEND';
+  /** `codecompass evolve --target <module|symbol>`. */
+  evolveTarget?: string;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -89,6 +95,7 @@ Usage:
   codecompass refactor-plan <symbol> [repoPath] [--change-type <t>]
   codecompass export <symbol|route> [repoPath] [--file <out.html>]
   codecompass radar [query] [repoPath]
+  codecompass evolve --intent <deprecate|extend> --target <module|symbol> [repoPath]
   codecompass doctor [--data-dir <path>] [--json]
   codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
 
@@ -128,6 +135,11 @@ Subcommands:
                         PageRank), top external APIs, persistence layer and,
                         with a query, the top-3 intent anchor symbols.
                         Prints JSON.
+  evolve                Module evolution planning. --intent deprecate emits
+                        orphaned public code (fixed-point cascade) and a
+                        teardown checklist; --intent extend emits the attach
+                        point, transaction boundaries and a decoupling
+                        pattern with code scaffolds. Prints JSON.
   doctor                Diagnose Node/SQLite ABI, control-plane port, data
                         directory and Local LLM (Ollama) health. Exits 1 on a
                         fatal check failure.
@@ -302,6 +314,24 @@ export function parseArgs(argv: string[]): ParseResult {
       args.changeType = value;
       continue;
     }
+    if (flag === '--intent') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value !== 'deprecate' && value !== 'extend') {
+        return { ok: false, error: '--intent expects deprecate | extend' };
+      }
+      args.evolveIntent = value.toUpperCase() as 'DEPRECATE' | 'EXTEND';
+      continue;
+    }
+    if (flag === '--target') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || value === '') {
+        return { ok: false, error: '--target expects a module name/directory or a symbol' };
+      }
+      args.evolveTarget = value;
+      continue;
+    }
 
     if (flag === '--port') {
       const { value, next } = nextValue(i, flag, inline);
@@ -372,7 +402,8 @@ export function parseArgs(argv: string[]): ParseResult {
           arg === 'diagnose' ||
           arg === 'refactor-plan' ||
           arg === 'export' ||
-          arg === 'radar'
+          arg === 'radar' ||
+          arg === 'evolve'
         )
       ) {
       args.command = arg;
@@ -742,6 +773,38 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         }
         const written = writeArtifactFile(html, outPath);
         log(`Artifact written to ${written}`);
+      }
+    );
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'evolve') {
+    if (!args.evolveIntent || !args.evolveTarget) {
+      throw new Error(
+        'codecompass evolve requires --intent <deprecate|extend> and --target <module|symbol>\n\n' +
+          USAGE
+      );
+    }
+    const env = { ...(ctx.env ?? process.env) };
+    const baseUrl = `http://localhost:${loadConfig(env).port}`;
+    await withAnalysisStack(
+      {
+        env: ctx.env,
+        dataDir: args.dataDir,
+        repoPath: args.installRepo ?? args.targetPath ?? process.cwd(),
+        log
+      },
+      async ({ repoId, worker }) => {
+        const graph = worker.getSymbolGraph(repoId);
+        const result = runModuleEvolution({
+          repoId,
+          intentType: args.evolveIntent!,
+          targetSymbolOrModule: args.evolveTarget!,
+          symbols: graph.symbols,
+          index: graph.index,
+          baseUrl
+        });
+        log(JSON.stringify(result, null, 2));
       }
     );
     return { server: null, cockpitUrl: null };
