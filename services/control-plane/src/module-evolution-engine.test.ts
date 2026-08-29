@@ -276,10 +276,16 @@ describe('transactionBoundaryFor (reminder #4)', () => {
       name: 'transfer',
       filePath: 'src/TxService.java',
       parentType: 'TxServiceImpl',
-      interfaces: ['TxService'],
       annotations: []
     }),
-    moduleSymbol({ kind: 'service', name: 'TxServiceImpl', filePath: 'src/TxService.java' }),
+    // Real adapters write `interfaces` on the CLASS declaration only — the
+    // method symbol carries none. The lookup must read the impl's list.
+    moduleSymbol({
+      kind: 'service',
+      name: 'TxServiceImpl',
+      filePath: 'src/TxService.java',
+      interfaces: ['TxService']
+    }),
     moduleSymbol({
       kind: 'interface',
       name: 'TxService',

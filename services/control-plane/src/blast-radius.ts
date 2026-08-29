@@ -1,5 +1,5 @@
 import type { RefactorPlanParams, RefactorPlanResult } from '../../../packages/contracts/src/index';
-import { CallResolver, symbolIdentity, type SymbolIndex } from './repoqa-callchain';
+import { symbolIdentity, buildFullCallersIndex, type SymbolIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
 import {
   cockpitLink,
@@ -107,31 +107,14 @@ export function runBlastRadius(input: BlastRadiusInput): RefactorPlanResult {
     throw new Error(`Start symbol not found: ${target}`);
   }
 
-  const resolver = new CallResolver(symbols, index);
-  const identityMap = new Map<string, RepoSymbol>();
-  for (const symbol of symbols) identityMap.set(symbolIdentity(symbol), symbol);
-
-  // CallResolver's prebuilt reverse index only walks `method` callers, so
-  // route symbols' outgoing edges are missing there. Build the full reverse
-  // adjacency over every symbol with calls (routes included) via the same
-  // deterministic single-edge resolver.
-  const callerKey = (file: string, line: number, method: string) =>
-    `${file}:${line}:${method}`;
-  const callersById = new Map<string, Array<{ key: string; symbol?: RepoSymbol }>>();
-  for (const caller of symbols) {
-    for (const call of caller.calls ?? []) {
-      const resolved = resolver.resolve(caller, call);
-      if (!('target' in resolved)) continue;
-      const id = symbolIdentity(resolved.target);
-      const list = callersById.get(id) ?? [];
-      list.push({
-        key: callerKey(caller.filePath, caller.lineStart ?? 1, caller.name),
-        symbol: caller
-      });
-      callersById.set(id, list);
-    }
-  }
-  const revCallers = (symbol: RepoSymbol) => callersById.get(symbolIdentity(symbol)) ?? [];
+  // Full reverse adjacency over every symbol with calls (routes included) —
+  // shared implementation with the radar and evolution engines.
+  const { identityMap, callersOf } = buildFullCallersIndex(symbols, index);
+  const revCallers = (symbol: RepoSymbol) =>
+    (callersOf.get(symbolIdentity(symbol)) ?? []).map((caller) => ({
+      key: `${caller.filePath}:${caller.lineStart ?? 1}:${caller.name}`,
+      symbol: caller
+    }));
 
   // Direct callers: one edge away from any target twin.
   const directCallerIds = new Set<string>();

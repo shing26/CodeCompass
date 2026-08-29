@@ -13,7 +13,7 @@
 
 - `services/control-plane/src/domain-radar-engine.ts`：度数聚合、确定性 PageRank、意图锚点融合打分（+7 单测）。
 - `services/control-plane/src/module-evolution-engine.ts`：DEPRECATE/EXTEND 双管线（+9 单测）。
-- e2e 门禁新增 6 项 v0.9 检查（radar 全景/意图锚点、evolve 双意图、多视图工件断言），总检查 **33 项**。
+- e2e 门禁新增 7 项 v0.9 检查（radar 全景/意图锚点、evolve 双意图、多视图工件断言、两个新工具的 MCP stdio 往返），总检查 **33 项**。
 
 ### Changed
 

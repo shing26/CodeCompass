@@ -499,8 +499,7 @@ function resolveCall(
   index: SymbolIndex,
   caller: RepoSymbol,
   call: RepoSymbolCall
-): ResolveResult {
-  if (call.http) {
+): ResolveResult {  if (call.http) {
     const httpTarget = resolveHttpRoute(index, call);
     if (httpTarget) return httpTarget;
     return {
@@ -709,4 +708,54 @@ export class CallResolver {
         a.method.localeCompare(b.method)
     );
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* v0.9 — full reverse adjacency (routes and bridges included)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Deterministic single-edge resolver for callers that need raw edge walks
+ * (radar degree counting, blast radius, module evolution). Same resolution
+ * rule as {@link CallResolver.resolve}; exposed so composite engines share
+ * ONE reverse-adjacency implementation instead of copying the loop.
+ */
+export function resolveCallEdge(
+  index: SymbolIndex,
+  caller: RepoSymbol,
+  call: RepoSymbolCall
+): { target: RepoSymbol } | { reason: string } {
+  return resolveCall(index, caller, call);
+}
+
+export interface FullCallersIndex {
+  /** symbolIdentity -> symbol, for every indexed symbol. */
+  identityMap: Map<string, RepoSymbol>;
+  /** symbolIdentity(target) -> caller symbols, routes included. */
+  callersOf: Map<string, RepoSymbol[]>;
+}
+
+/**
+ * Full reverse adjacency over every symbol with calls — unlike CallResolver's
+ * prebuilt index, which only walks `method` callers and therefore drops the
+ * outgoing edges of route symbols.
+ */
+export function buildFullCallersIndex(
+  symbols: RepoSymbol[],
+  index: SymbolIndex
+): FullCallersIndex {
+  const identityMap = new Map<string, RepoSymbol>();
+  for (const symbol of symbols) identityMap.set(symbolIdentity(symbol), symbol);
+  const callersOf = new Map<string, RepoSymbol[]>();
+  for (const caller of symbols) {
+    for (const call of caller.calls ?? []) {
+      const resolved = resolveCallEdge(index, caller, call);
+      if (!('target' in resolved)) continue;
+      const id = symbolIdentity(resolved.target);
+      const list = callersOf.get(id) ?? [];
+      list.push(caller);
+      callersOf.set(id, list);
+    }
+  }
+  return { identityMap, callersOf };
 }

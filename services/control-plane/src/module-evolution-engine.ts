@@ -3,7 +3,7 @@ import type {
   EvolutionScaffoldTemplate,
   ModuleEvolutionResult
 } from '../../../packages/contracts/src/index';
-import { CallResolver, symbolIdentity, type SymbolIndex } from './repoqa-callchain';
+import { buildFullCallersIndex, resolveCallEdge, symbolIdentity, type SymbolIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
 import {
   cockpitLink,
@@ -80,23 +80,37 @@ export function transactionBoundaryFor(
   const hasTransactional = (annotations?: string[]) =>
     Boolean(annotations?.some((annotation => /@Transactional\b/.test(annotation))));
   const out: ModuleEvolutionResult['transactionBoundaries'] = [];
-  const push = (scope: 'METHOD' | 'CLASS' | 'INTERFACE', symbol: RepoSymbol) =>
+  const push = (scope: 'METHOD' | 'CLASS' | 'INTERFACE', owner: RepoSymbol) =>
     out.push({
-      symbol: symbol.parentType ? `${symbol.parentType}.${symbol.name}` : symbol.name,
-      filePath: symbol.filePath,
-      line: symbol.lineStart ?? 1,
+      symbol: owner.parentType ? `${owner.parentType}.${owner.name}` : owner.name,
+      filePath: owner.filePath,
+      line: owner.lineStart ?? 1,
       scope
     });
-  if (hasTransactional(symbol.annotations)) push('METHOD', symbol);
-  if (symbol.parentType) {
-    const parent = index.types.get(symbol.parentType)?.symbol;
-    if (parent && hasTransactional(parent.annotations)) push('CLASS', parent);
-    // Interface-level @Transactional(readOnly=true) lives on the interface,
-    // which the impl only references through its `interfaces` list.
-    for (const ifaceName of symbol.interfaces ?? []) {
-      const iface = index.types.get(ifaceName)?.symbol;
-      if (iface && hasTransactional(iface.annotations)) push('INTERFACE', iface);
-    }
+
+  const isMethod = symbol.kind === 'method';
+  if (isMethod && hasTransactional(symbol.annotations)) push('METHOD', symbol);
+
+  // CLASS level: the enclosing type for methods, the symbol itself otherwise.
+  const classSymbol = isMethod
+    ? symbol.parentType
+      ? index.types.get(symbol.parentType)?.symbol
+      : undefined
+    : symbol;
+  if (classSymbol && hasTransactional(classSymbol.annotations)) push('CLASS', classSymbol);
+
+  // INTERFACE level: Spring allows @Transactional on the interface. Method
+  // symbols never carry `interfaces` (adapters only write it on type
+  // declarations), so read the implementing class's list instead.
+  const implSymbol = isMethod
+    ? symbol.parentType
+      ? index.types.get(symbol.parentType)?.symbol
+      : undefined
+    : symbol;
+  const interfaceNames = symbol.interfaces ?? implSymbol?.interfaces ?? [];
+  for (const ifaceName of interfaceNames) {
+    const iface = index.types.get(ifaceName)?.symbol;
+    if (iface && hasTransactional(iface.annotations)) push('INTERFACE', iface);
   }
   return out;
 }
@@ -209,21 +223,9 @@ function runDeprecate(
   }
   const moduleIds = new Set(moduleSymbols.map((symbol) => symbolIdentity(symbol)));
 
-  // Full reverse adjacency over every symbol (routes included), like blast-radius.
-  const resolver = new CallResolver(symbols, index);
-  const identityMap = new Map<string, RepoSymbol>();
-  for (const symbol of symbols) identityMap.set(symbolIdentity(symbol), symbol);
-  const callersOf = new Map<string, RepoSymbol[]>();
-  for (const caller of symbols) {
-    for (const call of caller.calls ?? []) {
-      const resolved = resolver.resolve(caller, call);
-      if (!('target' in resolved)) continue;
-      const id = symbolIdentity(resolved.target);
-      const list = callersOf.get(id) ?? [];
-      list.push(caller);
-      callersOf.set(id, list);
-    }
-  }
+  // Full reverse adjacency over every symbol (routes included) — shared
+  // implementation with the radar and blast-radius engines.
+  const { identityMap, callersOf } = buildFullCallersIndex(symbols, index);
 
   // External symbols that reference the module.
   const externalReferrers = new Set<string>();
@@ -410,26 +412,18 @@ function runExtend(
     throw new Error(`Attach point not found: ${target}`);
   }
   const primary = candidates[0];
-  const transactionBoundaries =
-    primary.kind === 'method'
-      ? candidates.flatMap((candidate) => transactionBoundaryFor(candidate, index))
-      : primary.annotations?.some((annotation) => /@Transactional\b/.test(annotation))
-        ? [
-            {
-              symbol: primary.name,
-              filePath: primary.filePath,
-              line: primary.lineStart ?? 1,
-              scope: 'CLASS' as const
-            }
-          ]
-        : [];
+  // METHOD/CLASS/INTERFACE lookup is unified in transactionBoundaryFor, which
+  // now also handles class-level attach points (scope CLASS via own
+  // annotations, INTERFACE via the class's implements list).
+  const transactionBoundaries = candidates.flatMap((candidate) =>
+    transactionBoundaryFor(candidate, index)
+  );
 
   // Fan-out evidence: resolved service callees of the attach point.
-  const resolver = new CallResolver(symbols, index);
   const serviceCallees = new Set<string>();
   for (const candidate of candidates) {
     for (const call of candidate.calls ?? []) {
-      const resolved = resolver.resolve(candidate, call);
+      const resolved = resolveCallEdge(index, candidate, call);
       if (!('target' in resolved)) continue;
       if (resolved.target.kind === 'service') {
         serviceCallees.add(symbolIdentity(resolved.target));
@@ -441,6 +435,15 @@ function runExtend(
     primary.kind !== 'method',
     serviceCallees.size
   );
+
+  // Real direct callers of the attach point (field name promises callers,
+  // not the candidate count).
+  const candidateIds = new Set(candidates.map((candidate) => symbolIdentity(candidate)));
+  const directCallers = new Set<string>();
+  for (const [targetId, callers] of buildFullCallersIndex(symbols, index).callersOf) {
+    if (!candidateIds.has(targetId)) continue;
+    for (const caller of callers) directCallers.add(symbolIdentity(caller));
+  }
   const scaffoldTemplates = scaffoldFor(pattern, primary, input.extensionGoal);
 
   const checklists: EvolutionChecklistItem[] = [
@@ -468,7 +471,7 @@ function runExtend(
     target,
     riskLevel: transactionBoundaries.length > 0 ? 'MEDIUM' : 'LOW',
     blastRadius: {
-      impactedCallersCount: candidates.length,
+      impactedCallersCount: directCallers.size,
       impactedRoutes: [],
       impactedComponents: [],
       orphanedSymbols: []

@@ -68,39 +68,30 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Deterministic dependency keyword → badge brand color evidence. */
-const BADGE_COLORS: Record<string, string> = {
-  Spring: '#6db33f',
-  React: '#61dafb',
-  Redis: '#dc382d',
-  MySQL: '#4479a1',
-  MyBatis: '#000000',
-  FastAPI: '#009688',
-  Kafka: '#231f20',
-  Express: '#52636b',
-  Gin: '#00acd7'
-};
+/** Deterministic badge registry: dependency/config keyword → brand color.
+ *  Single source of truth for both matching and rendering. */
+const BADGE_REGISTRY: Array<{ name: string; keyword: string; color: string }> = [
+  { name: 'Spring', keyword: 'spring', color: '#6db33f' },
+  { name: 'React', keyword: 'react', color: '#61dafb' },
+  { name: 'Redis', keyword: 'redis', color: '#dc382d' },
+  { name: 'MySQL', keyword: 'mysql', color: '#4479a1' },
+  { name: 'MyBatis', keyword: 'mybatis', color: '#000000' },
+  { name: 'FastAPI', keyword: 'fastapi', color: '#009688' },
+  { name: 'Kafka', keyword: 'kafka', color: '#231f20' },
+  { name: 'Express', keyword: 'express', color: '#52636b' },
+  { name: 'Gin', keyword: 'gin', color: '#00acd7' }
+];
 
 export function deriveBadges(evidenceText: string): string[] {
-  const badges: string[] = [];
-  for (const [name, keyword] of [
-    ['Spring', 'spring'],
-    ['React', 'react'],
-    ['Redis', 'redis'],
-    ['MySQL', 'mysql'],
-    ['MyBatis', 'mybatis'],
-    ['FastAPI', 'fastapi'],
-    ['Kafka', 'kafka'],
-    ['Express', 'express'],
-    ['Gin', 'gin-gonic']
-  ] as const) {
-    if (evidenceText.toLowerCase().includes(keyword)) badges.push(name);
-  }
-  return badges;
+  const lower = evidenceText.toLowerCase();
+  return BADGE_REGISTRY.filter((badge) => lower.includes(badge.keyword)).map(
+    (badge) => badge.name
+  );
 }
 
 function badgeSvg(name: string): string {
-  const color = BADGE_COLORS[name] ?? '#7aa2f7';
+  const color =
+    BADGE_REGISTRY.find((badge) => badge.name === name)?.color ?? '#7aa2f7';
   const width = 14 + name.length * 8;
   return (
     `<svg class="badge" width="${width}" height="22" viewBox="0 0 ${width} 22" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escapeHtml(name)}">` +
@@ -162,6 +153,9 @@ const VIEWS_JS = `
   document.querySelectorAll('.tab').forEach(function (el) {
     el.addEventListener('click', function () { activate(el.dataset.view); });
   });
+  // Sequence-only artifacts open on the sequence tab — render it immediately.
+  var initial = document.querySelector('.tab.active');
+  if (initial && initial.dataset.view === 'sequence') activate('sequence');
 })();
 `;
 

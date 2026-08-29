@@ -32,6 +32,8 @@ import {
 import { maskSensitiveText } from './repoqa-masking';
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
+import { runDomainRadar } from './domain-radar-engine';
+import { runModuleEvolution } from './module-evolution-engine';
 import {
   capPrompt,
   runReActAgent,
@@ -1006,6 +1008,61 @@ export class RepoQAWorker {
   /** Issue 10: Agent Tools wired into the ReAct loop. */
   private buildAgentTools(repoId: string, symbols: RepoSymbol[]): AgentTool[] {
     const compositeTools: AgentTool[] = [
+      {
+        name: 'domain_radar',
+        description:
+          'v0.9 composite panorama tool: hub nodes (degree + deterministic PageRank), top external ' +
+          'APIs, persistence layer and — with an intent query — top-3 anchor symbols. Zero embeddings.',
+        parameters: 'query?: string',
+        execute: (args) => {
+          const query = args.query === undefined ? undefined : String(args.query ?? '').trim();
+          try {
+            const chunkHitFiles = query
+              ? this.repoqa
+                  .searchChunks(repoId, query)
+                  .map((chunk) => chunk.filePath)
+                  .filter((file): file is string => Boolean(file))
+              : undefined;
+            return runDomainRadar({
+              repoId,
+              ...(query ? { query } : {}),
+              symbols,
+              index: this.getSymbolGraph(repoId).index,
+              ...(chunkHitFiles ? { chunkHitFiles } : {})
+            });
+          } catch (error) {
+            return { error: (error as Error).message };
+          }
+        }
+      },
+      {
+        name: 'module_evolution',
+        description:
+          'v0.9 composite evolution tool: DEPRECATE emits orphaned public code (fixed-point cascade) ' +
+          'and a teardown checklist; EXTEND emits the attach point, transaction boundaries and a ' +
+          'decoupling pattern with code scaffolds. Patches are never produced here (ADR-0006).',
+        parameters:
+          'intentType: "DEPRECATE" | "EXTEND", targetSymbolOrModule: string, extensionGoal?: string',
+        execute: (args) => {
+          const intentType = String(args.intentType ?? 'DEPRECATE') as 'DEPRECATE' | 'EXTEND';
+          const targetSymbolOrModule = String(args.targetSymbolOrModule ?? args.target ?? '');
+          if (!targetSymbolOrModule) return { error: 'targetSymbolOrModule is required' };
+          try {
+            return runModuleEvolution({
+              repoId,
+              intentType,
+              targetSymbolOrModule,
+              ...(args.extensionGoal === undefined
+                ? {}
+                : { extensionGoal: String(args.extensionGoal) }),
+              symbols,
+              index: this.getSymbolGraph(repoId).index
+            });
+          } catch (error) {
+            return { error: (error as Error).message };
+          }
+        }
+      },
       {
         name: 'diagnose_chain',
         description:

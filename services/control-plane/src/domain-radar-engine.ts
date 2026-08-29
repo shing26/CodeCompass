@@ -3,7 +3,7 @@ import type {
   DomainRadarHub,
   DomainRadarResult
 } from '../../../packages/contracts/src/index';
-import { CallResolver, symbolIdentity, type SymbolIndex } from './repoqa-callchain';
+import { symbolIdentity, buildFullCallersIndex, type SymbolIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
 import { fuzzyMatchScore } from './repoqa-worker';
 import { layerOf, isTestPath } from './diagnose-engine';
@@ -60,7 +60,7 @@ const PRODUCTION_KINDS = new Set([
 
 /** Resolve every call edge once (routes and HTTP bridges included). */
 export function buildRadarGraph(symbols: RepoSymbol[], index: SymbolIndex): RadarGraph {
-  const resolver = new CallResolver(symbols, index);
+  const { identityMap, callersOf } = buildFullCallersIndex(symbols, index);
   const symbolsById = new Map<string, RepoSymbol>();
   for (const symbol of symbols) {
     if (PRODUCTION_KINDS.has(symbol.kind) && !isTestPath(symbol.filePath)) {
@@ -76,14 +76,12 @@ export function buildRadarGraph(symbols: RepoSymbol[], index: SymbolIndex): Rada
     inDegree.set(id, 0);
     outDegree.set(id, 0);
   }
-  for (const caller of symbols) {
-    if (!symbolsById.has(symbolIdentity(caller))) continue;
-    for (const call of caller.calls ?? []) {
-      const resolved = resolver.resolve(caller, call);
-      if (!('target' in resolved)) continue;
+  for (const [targetId, callers] of callersOf) {
+    if (!symbolsById.has(targetId)) continue;
+    for (const caller of callers) {
       const from = symbolIdentity(caller);
-      const to = symbolIdentity(resolved.target);
-      if (from === to || !symbolsById.has(to)) continue;
+      const to = targetId;
+      if (from === to || !symbolsById.has(from)) continue;
       const key = `${from}=>${to}`;
       if (edgeSet.has(key)) continue;
       edgeSet.add(key);

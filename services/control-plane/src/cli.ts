@@ -784,7 +784,14 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
           generatedAt: new Date().toISOString(),
           mermaid: chainMermaid(result),
           sequence: chainSequence(result),
-          badges: deriveBadges(graph.symbols.map((symbol) => symbol.name).join(' ')),
+          // CONTEXT.md: badges are dependency/config keyword evidence, not
+          // decoration — feed indexed dependency/config symbol names only.
+          badges: deriveBadges(
+            graph.symbols
+              .filter((symbol) => symbol.kind === 'dependency' || symbol.kind === 'config')
+              .map((symbol) => symbol.name)
+              .join(' ')
+          ),
           storyBeats: result.verifiedChain.map((step, i) => ({
             label: `Step ${i + 1}: ${step.layer} ${step.symbol}`,
             detail:
