@@ -17,6 +17,7 @@ import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
 import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
+import { runDomainRadar } from './domain-radar-engine';
 import { renderArtifactHtml, writeArtifactFile, locateMermaidScript } from './export-artifact';
 
 export const VERSION = '0.8.0';
@@ -32,7 +33,8 @@ export interface CliArgs {
     | 'install'
     | 'diagnose'
     | 'refactor-plan'
-    | 'export';
+    | 'export'
+    | 'radar';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -86,6 +88,7 @@ Usage:
   codecompass diagnose <symbol|route> [repoPath]
   codecompass refactor-plan <symbol> [repoPath] [--change-type <t>]
   codecompass export <symbol|route> [repoPath] [--file <out.html>]
+  codecompass radar [query] [repoPath]
   codecompass doctor [--data-dir <path>] [--json]
   codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
 
@@ -121,6 +124,10 @@ Subcommands:
   export <symbol>       Render the diagnose result as a single self-contained
                         HTML artifact (inlined mermaid runtime, chain steps,
                         code slices) for offline review and PR archiving.
+  radar [query]         Domain panorama: hub nodes (degree + deterministic
+                        PageRank), top external APIs, persistence layer and,
+                        with a query, the top-3 intent anchor symbols.
+                        Prints JSON.
   doctor                Diagnose Node/SQLite ABI, control-plane port, data
                         directory and Local LLM (Ollama) health. Exits 1 on a
                         fatal check failure.
@@ -364,7 +371,8 @@ export function parseArgs(argv: string[]): ParseResult {
           arg === 'install' ||
           arg === 'diagnose' ||
           arg === 'refactor-plan' ||
-          arg === 'export'
+          arg === 'export' ||
+          arg === 'radar'
         )
       ) {
       args.command = arg;
@@ -376,7 +384,7 @@ export function parseArgs(argv: string[]): ParseResult {
       }
       continue;
     }
-    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan' || args.command === 'export') {
+    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan' || args.command === 'export' || args.command === 'radar') {
       if (!assignContextPositional(arg)) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       }
@@ -443,7 +451,8 @@ function isQueryCommand(command: CliArgs['command']): boolean {
     command === 'context' ||
     command === 'diagnose' ||
     command === 'refactor-plan' ||
-    command === 'export'
+    command === 'export' ||
+    command === 'radar'
   );
 }
 
@@ -733,6 +742,37 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         }
         const written = writeArtifactFile(html, outPath);
         log(`Artifact written to ${written}`);
+      }
+    );
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'radar') {
+    const env = { ...(ctx.env ?? process.env) };
+    await withAnalysisStack(
+      {
+        env: ctx.env,
+        dataDir: args.dataDir,
+        repoPath: args.installRepo ?? args.targetPath ?? process.cwd(),
+        log
+      },
+      async ({ repoId, repoqa, worker }) => {
+        const query = args.contextQuery?.trim() || undefined;
+        const graph = worker.getSymbolGraph(repoId);
+        const chunkHitFiles = query
+          ? repoqa
+              .searchChunks(repoId, query)
+              .map((chunk) => chunk.filePath)
+              .filter((file): file is string => Boolean(file))
+          : undefined;
+        const result = runDomainRadar({
+          repoId,
+          ...(query ? { query } : {}),
+          symbols: graph.symbols,
+          index: graph.index,
+          ...(chunkHitFiles ? { chunkHitFiles } : {})
+        });
+        log(JSON.stringify(result, null, 2));
       }
     );
     return { server: null, cockpitUrl: null };

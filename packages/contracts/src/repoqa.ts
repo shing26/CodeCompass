@@ -164,3 +164,101 @@ export interface RefactorPlanResult {
   migrationSteps: string[];
   cockpitDeepLink: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* v0.9.0 — Module evolution & domain radar (deterministic engines)    */
+/* ------------------------------------------------------------------ */
+
+export interface ModuleEvolutionParams {
+  repoId: string;
+  /** `DEPRECATE` plans a safe teardown; `EXTEND` plans a decoupled attach. */
+  intentType: 'DEPRECATE' | 'EXTEND';
+  /** Module name / directory, or a main-flow symbol for EXTEND. */
+  targetSymbolOrModule: string;
+  /** Free-text extension goal, e.g. "异步敏感词审查"; never used for guessing. */
+  extensionGoal?: string;
+}
+
+export interface EvolutionChecklistItem {
+  category: 'FRONTEND' | 'CONTROLLER' | 'SERVICE' | 'PERSISTENCE' | 'CONFIG';
+  action: 'DELETE' | 'MODIFY' | 'CREATE';
+  filePath: string;
+  description: string;
+}
+
+export interface EvolutionScaffoldTemplate {
+  suggestedPattern: 'SPRING_EVENT_ASYNC' | 'AOP_ASPECT' | 'DIRECT_INJECTION';
+  filePath: string;
+  codeSnippet: string;
+}
+
+export interface ModuleEvolutionResult {
+  schemaVersion: number;
+  repoId: string;
+  intentType: 'DEPRECATE' | 'EXTEND';
+  target: string;
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+  blastRadius: {
+    impactedCallersCount: number;
+    impactedRoutes: string[];
+    impactedComponents: string[];
+    /** Public symbols that die with the module (fixed-point transitive scan). */
+    orphanedSymbols: Array<{ name: string; filePath: string; line: number }>;
+  };
+  checklists: EvolutionChecklistItem[];
+  /**
+   * Deterministic scaffolds for EXTEND (recommended shapes, not patches).
+   * Empty on DEPRECATE.
+   */
+  scaffoldTemplates?: EvolutionScaffoldTemplate[];
+  /**
+   * Empty on the deterministic engine by design (ADR-0006): patches belong to
+   * the LLM orchestration layer and are marked llm-generated there.
+   */
+  suggestedPatch?: string;
+  suggestedPatchSource?: 'llm-generated';
+  /** Transaction boundary evidence (declaration-level only). */
+  transactionBoundaries: Array<{
+    symbol: string;
+    filePath: string;
+    line: number;
+    /** METHOD / CLASS / INTERFACE declaration site of the annotation. */
+    scope: 'METHOD' | 'CLASS' | 'INTERFACE';
+  }>;
+  cockpitDeepLink: string;
+}
+
+export interface DomainRadarParams {
+  repoId: string;
+  /** Optional natural-language intent, e.g. "用户点赞". */
+  query?: string;
+}
+
+export interface DomainRadarAnchor {
+  symbol: string;
+  type: 'CONTROLLER' | 'SERVICE' | 'ENTITY';
+  /** 0..100 deterministic score: fuzzyMatchScore blended with graph rank. */
+  relevanceScore: number;
+  filePath: string;
+  line: number;
+}
+
+export interface DomainRadarHub {
+  symbol: string;
+  inDegree: number;
+  outDegree: number;
+  /** Deterministic pagerank 0..1 (damping 0.85, sink mass redistributed). */
+  pagerank: number;
+  role: string;
+}
+
+export interface DomainRadarResult {
+  schemaVersion: number;
+  repoId: string;
+  matchedAnchors: DomainRadarAnchor[];
+  hubNodes: DomainRadarHub[];
+  /** Route entries sorted by graph rank, e.g. "GET /api/owners — listOwners". */
+  topApis: string[];
+  /** Mapper/repository symbols plus the model classes they declare. */
+  persistenceEntities: string[];
+}

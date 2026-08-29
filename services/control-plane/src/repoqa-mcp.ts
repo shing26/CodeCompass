@@ -18,6 +18,7 @@ import { analyzeDiff } from './repoqa-diff';
 import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-graphrag';
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
+import { runDomainRadar } from './domain-radar-engine';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -203,6 +204,22 @@ export const MCP_TOOLS: McpToolMeta[] = [
         maxTokens: { type: 'number', description: 'Optional soft output budget in estimated tokens (default 6000)' }
       },
       required: ['repoId', 'query']
+    }
+  },
+  {
+    name: 'codecompass_domain_radar',
+    description:
+      'Domain panorama over the symbol graph (deterministic, zero-LLM): hub nodes by degree and ' +
+      'deterministic PageRank (damping 0.85, sink mass redistributed), top external APIs, the ' +
+      'persistence layer, and — with a natural-language intent — the top-3 anchor symbols blended ' +
+      'from identifier fuzzy matching, doc-chunk evidence and graph rank. No embeddings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name' },
+        query: { type: 'string', description: 'Optional intent phrase, e.g. "用户点赞" or "like"' }
+      },
+      required: ['repoId']
     }
   },
   {
@@ -420,6 +437,27 @@ export async function mcpGetSubgraphContext(
   return { context };
 }
 
+/** v0.9.0 — deterministic domain panorama (hubs, top APIs, intent anchors). */
+export function mcpDomainRadar(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const query = args.query === undefined ? undefined : String(args.query ?? '').trim();
+  // Chunk LIKE hits bridge Chinese/colloquial intents to symbol-bearing files.
+  const chunkHitFiles = query
+    ? deps.repoqa
+        .searchChunks(repo.id, query)
+        .map((chunk) => chunk.filePath)
+        .filter((file): file is string => Boolean(file))
+    : undefined;
+  return runDomainRadar({
+    repoId: repo.id,
+    ...(query ? { query } : {}),
+    symbols: graph.symbols,
+    index: graph.index,
+    ...(chunkHitFiles ? { chunkHitFiles } : {})
+  }) as unknown as Record<string, unknown>;
+}
+
 /** v0.8.0 — deterministic cross-stack root-cause traversal. */
 export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
@@ -495,6 +533,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_reverse_deps: (args) => mcpReverseDeps(deps, args),
     codecompass_get_pr_impact: (args) => mcpGetPrImpact(deps, args),
     codecompass_get_subgraph_context: (args) => mcpGetSubgraphContext(deps, args),
+    codecompass_domain_radar: (args) => mcpDomainRadar(deps, args),
     codecompass_diagnose: (args) => mcpDiagnose(deps, args),
     codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args)
   };
