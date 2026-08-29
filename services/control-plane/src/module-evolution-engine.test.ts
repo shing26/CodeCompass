@@ -184,6 +184,37 @@ describe('runModuleEvolution DEPRECATE', () => {
       })
     ).toThrow(/Module not found/);
   });
+
+  it('does not sweep sibling controllers in the same package (Nexus regression)', () => {
+    // Two independent controllers in one directory; decommissioning one must
+    // not cluster the other (regression: directory-level fallback).
+    const demoRoute = moduleSymbol({
+      kind: 'route',
+      name: 'burstLike',
+      filePath: 'src/main/java/com/shop/controller/DemoController.java',
+      parentType: 'DemoController',
+      displayPath: '/api/demo/burst-like'
+    });
+    const businessRoute = moduleSymbol({
+      kind: 'route',
+      name: 'listPosts',
+      filePath: 'src/main/java/com/shop/controller/PostController.java',
+      parentType: 'PostController',
+      displayPath: '/api/v1/posts'
+    });
+    const symbols = [demoRoute, businessRoute];
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'DEPRECATE',
+      targetSymbolOrModule: 'DemoController',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    expect(result.blastRadius.impactedRoutes).toEqual(['/api/demo/burst-like']);
+    expect(result.checklists.map((item) => item.filePath)).toEqual([
+      'src/main/java/com/shop/controller/DemoController.java'
+    ]);
+  });
 });
 
 describe('runModuleEvolution EXTEND', () => {

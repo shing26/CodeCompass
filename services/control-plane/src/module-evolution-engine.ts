@@ -54,17 +54,22 @@ function inModuleScope(symbol: RepoSymbol, module: string): boolean {
 }
 
 function collectModuleSymbols(symbols: RepoSymbol[], target: string): RepoSymbol[] {
+  // Explicit module name or directory prefix.
   const scoped = symbols.filter((symbol) => inModuleScope(symbol, target));
   if (scoped.length > 0) return scoped;
-  // Fallback: a symbol name stands for the module owning it (by moduleName or directory).
+  // Symbol-name target: cluster the anchor's own FILE. Never widen to the
+  // moduleName here — on single-root Maven repos the backfilled scope is a
+  // directory fragment ("src/main"), which would sweep the whole backend.
+  // Transitive exclusive helpers are handled by the orphan cascade instead.
   const name = target.toLowerCase();
-  const anchor = symbols.find((symbol) => symbol.name.toLowerCase() === name && !isTestPath(symbol.filePath));
+  const anchor = symbols.find(
+    (symbol) =>
+      !isTestPath(symbol.filePath) &&
+      (symbol.name.toLowerCase() === name || symbol.parentType?.toLowerCase() === name)
+  );
   if (!anchor) return [];
-  const moduleName = anchor.moduleName;
-  const byModule = symbols.filter((symbol) => moduleName && symbol.moduleName === moduleName);
-  if (byModule.length > 0) return byModule;
-  const dir = anchor.filePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-  return dir ? symbols.filter((symbol) => inModuleScope(symbol, dir)) : [anchor];
+  const normalized = anchor.filePath.replace(/\\/g, '/').toLowerCase();
+  return symbols.filter((symbol) => symbol.filePath.replace(/\\/g, '/').toLowerCase() === normalized);
 }
 
 /** Transaction boundary lookup: METHOD → CLASS → INTERFACE declaration. */
