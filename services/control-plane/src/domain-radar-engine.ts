@@ -260,6 +260,7 @@ export function runDomainRadar(input: DomainRadarInput): DomainRadarResult {
         (a.symbol.lineStart ?? 0) - (b.symbol.lineStart ?? 0)
     );
     for (const entry of scored.slice(0, 3)) {
+      const id = symbolIdentity(entry.symbol);
       matchedAnchors.push({
         symbol: entry.symbol.parentType
           ? `${entry.symbol.parentType}.${entry.symbol.name}`
@@ -267,7 +268,11 @@ export function runDomainRadar(input: DomainRadarInput): DomainRadarResult {
         type: anchorType(entry.symbol, index),
         relevanceScore: entry.score,
         filePath: entry.symbol.filePath,
-        line: entry.symbol.lineStart ?? 1
+        line: entry.symbol.lineStart ?? 1,
+        // v0.11 — expose graph degree on anchors so the Cmd+K palette can show
+        // inbound/outbound call counts without a second graph traversal.
+        inDegree: graph.inDegree.get(id) ?? 0,
+        outDegree: graph.outDegree.get(id) ?? 0
       });
     }
   }

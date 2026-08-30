@@ -241,6 +241,10 @@ export interface DomainRadarAnchor {
   relevanceScore: number;
   filePath: string;
   line: number;
+  /** v0.11 — incoming call count from the static symbol graph. */
+  inDegree: number;
+  /** v0.11 — outgoing call count from the static symbol graph. */
+  outDegree: number;
 }
 
 export interface DomainRadarHub {

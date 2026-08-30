@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.11.0] - 2026-08-30
+
+### Highlights
+
+- **技术栈品牌徽标**：Mermaid 图节点按 `filePath` 扩展名 / `kind` / `annotations` 自动推断技术栈并注入内联 SVG 徽标（Spring / MyBatis / FastAPI / React / TS / Go / SQL 等），`?badges=0` 可关闭；徽标走后渲染 DOM 注入，绕开 mermaid 标签白名单，点击跳转与节点搜索不受影响。
+- **Cmd+K 命令面板**：居中磨砂玻璃面板，300ms 防抖请求后端确定性雷达（复用 `runDomainRadar` + doc-chunk 证据），符号结果带出入度徽标；内置"切换主题 / 返回看板"命令；Enter 触发射击式画布居中 + Inspector 同步。
+- **Inspector 面包屑 + 实时演播带**：Inspector 顶部 `Repo > 文件 > 符号` 可点击面包屑；Canvas 底部浮动"调用链步进"条（Prev / Step N/M / Next），步进时联动画布居中 + Monaco 切片高亮，BROKEN/HTTP 状态即时可见。
+
+### Added
+
+- `apps/repoqa-web/src/brand-marks.ts`：品牌推断 + 内联 SVG 徽标映射 + `?badges=0` 降级（+11 单测）。
+- `apps/repoqa-web/src/components/CommandPalette.tsx`：Cmd/Ctrl+K 全局快捷键、防抖雷达检索、键盘导航（↑/↓/Enter/Esc）（+7 单测）。
+- `services/control-plane/src/http.ts`：`GET /api/repos/:id/radar?query=` 路由 + 60s `(repoId, query)` TTL 缓存。
+- `apps/repoqa-web/src/client/RepoQAClient.ts`：`radar(repoId, query)` 方法。
+
+### Changed
+
+- `packages/contracts/src/repoqa.ts`：`DomainRadarAnchor` 新增 `inDegree` / `outDegree`；`domain-radar-engine.ts` 在锚点输出中携带图度数。
+- `apps/repoqa-web/src/components/MermaidDiagram.tsx`：新增 `symbols` / `focusRequest` 受控 prop，注入品牌徽标并支持外部画布居中。
+- `apps/repoqa-web/src/components/Canvas.tsx`：传符号目录给图元、托管焦点请求、新增实时演播带（+2 单测）。
+- `apps/repoqa-web/src/components/Inspector.tsx`：新增 `repoName` / `onBackToDashboard` 与面包屑（+4 单测）。
+- `scripts/e2e/closeout_gate.py`：新增 radar HTTP 返回结构断言。
+
+
 ## [0.10.0] - 2026-08-30
 
 ### Highlights

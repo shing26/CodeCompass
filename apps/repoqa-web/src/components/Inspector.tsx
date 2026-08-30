@@ -12,6 +12,8 @@ import type { Anchor, TokenUsage } from '../types';
 
 export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
   symbolName?: string | null;
+  /** v0.11 (Stage 4) — repo name for the breadcrumb first segment. */
+  repoName?: string | null;
   onBack: () => void;
   onForward: () => void;
   canGoBack: boolean;
@@ -32,6 +34,8 @@ export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
   subgraph?: UseSubgraphContextResult;
   /** Navigate from a reverse-deps caller chip (same stack as diagram nodes). */
   onOpenFile?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
+  /** v0.11 (Stage 4) — repo-name breadcrumb click jumps back to the dashboard. */
+  onBackToDashboard?: () => void;
 }
 
 const TOKEN_BUDGET = 6000;
@@ -78,6 +82,7 @@ export function Inspector({
   error,
   glow,
   symbolName,
+  repoName = null,
   onBack,
   onForward,
   canGoBack,
@@ -89,7 +94,8 @@ export function Inspector({
   slices = [],
   reverseDeps,
   subgraph,
-  onOpenFile
+  onOpenFile,
+  onBackToDashboard
 }: InspectorProps) {
   const language = useMemo(() => (file ? languageFor(file) : 'plaintext'), [file]);
   const { theme } = useTheme();
@@ -252,6 +258,55 @@ export function Inspector({
             ✕
           </button>
         </div>
+        {file && (
+          <div
+            data-testid="inspector-breadcrumb"
+            className="flex min-w-0 items-center gap-1.5 border-t border-line px-3 py-1 text-[10px] text-muted"
+          >
+            {repoName && (
+              <>
+                <button
+                  type="button"
+                  data-testid="breadcrumb-repo"
+                  onClick={onBackToDashboard}
+                  className="shrink-0 truncate text-accent hover:underline"
+                  title={repoName}
+                >
+                  {repoName}
+                </button>
+                <span aria-hidden="true" className="shrink-0 text-muted/50">
+                  ›
+                </span>
+              </>
+            )}
+            <button
+              type="button"
+              data-testid="breadcrumb-file"
+              onClick={() => onOpenFile?.(file, 1)}
+              className="min-w-0 truncate hover:underline"
+              title={file}
+            >
+              {file}
+            </button>
+            {symbolName && (
+              <>
+                <span aria-hidden="true" className="shrink-0 text-muted/50">
+                  ›
+                </span>
+                <button
+                  type="button"
+                  data-testid="breadcrumb-symbol"
+                  onClick={() =>
+                    onOpenFile?.(file, glow?.line ?? 1, glow?.lineEnd, symbolName)
+                  }
+                  className="shrink-0 truncate font-mono text-ink hover:underline"
+                >
+                  {symbolName}
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {file && (
           <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
             <span

@@ -143,3 +143,66 @@ describe('Canvas Top API focus flash (v0.7 issue 12)', () => {
     expect(cards[1].className).not.toContain('focus-flash');
   });
 });
+
+describe('Canvas live trace strip (v0.11 Stage 4)', () => {
+  it('hides the strip when the latest message has no trace steps', () => {
+    const messages: ChatMessage[] = [
+      {
+        id: 'msg-plain',
+        role: 'assistant',
+        text: 'done',
+        status: 'done',
+        anchors: [{ file: 'A.java', line: 1, symbol: 'a' }]
+      }
+    ];
+    renderCanvas({ messages });
+    expect(screen.queryByTestId('trace-strip')).not.toBeInTheDocument();
+  });
+
+  it('steps through trace steps and navigates the Inspector', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const messages: ChatMessage[] = [
+      {
+        id: 'msg-trace',
+        role: 'assistant',
+        text: 'done',
+        status: 'done',
+        anchors: [{ file: 'A.java', line: 1, symbol: 'a' }],
+        traceSteps: [
+          { file: 'src/main/java/Controller.java', line: 10, symbol: 'listOrders', status: 'VERIFIED' },
+          {
+            file: 'src/main/java/Service.java',
+            line: 20,
+            symbol: 'findOrders',
+            status: 'VERIFIED',
+            httpMethod: 'GET'
+          },
+          { file: 'src/main/java/Mapper.java', line: 30, symbol: 'findAll', status: 'BROKEN' }
+        ]
+      }
+    ];
+    renderCanvas({ messages, onNavigate });
+
+    const strip = screen.getByTestId('trace-strip');
+    expect(strip).toBeInTheDocument();
+    // Starts at step 1 of 3.
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 1/3');
+
+    await user.click(screen.getByTestId('trace-step-next'));
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 2/3');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('GET');
+    expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/Service.java', 20, undefined, 'findOrders');
+
+    await user.click(screen.getByTestId('trace-step-next'));
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 3/3');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('BROKEN');
+    expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/Mapper.java', 30, undefined, 'findAll');
+
+    // The Next button is disabled at the final step.
+    expect(screen.getByTestId('trace-step-next')).toBeDisabled();
+
+    await user.click(screen.getByTestId('trace-step-prev'));
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 2/3');
+  });
+});

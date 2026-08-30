@@ -9,8 +9,8 @@ vi.mock('../client/mermaidRenderer', () => ({
     if (code.includes('INVALID')) throw new Error('parse error');
     return [
       '<svg id="diagram">',
-      '<text>OwnerController</text>',
-      '<foreignObject><div xmlns="http://www.w3.org/1999/xhtml">OwnerRepository</div></foreignObject>',
+      '<g class="node"><text class="label">OwnerController</text></g>',
+      '<g class="node"><foreignObject><div class="label" xmlns="http://www.w3.org/1999/xhtml">OwnerRepository</div></foreignObject></g>',
       '</svg>'
     ].join('');
   })
@@ -236,5 +236,122 @@ describe('MermaidDiagram trace injection (v0.10 Stage 1)', () => {
     const edges = container.querySelectorAll('g.edgePath');
     expect(edges[0].classList.contains('ccx-edge-broken')).toBe(false);
     expect(edges[0].classList.contains('ccx-edge-http')).toBe(false);
+  });
+});
+
+describe('MermaidDiagram brand badges (v0.11 Stage 2)', () => {
+  beforeEach(() => {
+    mockedRender.mockClear();
+  });
+
+  it('injects a brand badge from the symbol catalog', async () => {
+    const symbols = [
+      {
+        id: 1,
+        repoId: 'repo-1',
+        kind: 'service' as const,
+        name: 'OwnerRepository',
+        filePath: 'src/main/java/OwnerRepository.java',
+        lineStart: 7,
+        lineEnd: 12,
+        signature: null,
+        calls: null,
+        annotations: ['@Service']
+      }
+    ];
+    const code = [
+      'flowchart LR',
+      '  OwnerController --> OwnerRepository',
+      '  click OwnerRepository "code://src/main/java/OwnerRepository.java#7"'
+    ].join('\n');
+    render(<MermaidDiagram code={code} symbols={symbols} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+    await waitFor(() => {
+      expect(container.querySelector('.ccx-brand-badge')).not.toBeNull();
+    });
+    const badge = container.querySelector('.ccx-brand-badge');
+    expect(badge?.getAttribute('data-brand')).toBe('spring');
+    expect(badge?.innerHTML).toContain('<svg');
+  });
+
+  it('falls back to file-extension hints from click bindings', async () => {
+    const code = [
+      'flowchart LR',
+      '  OwnerController --> OwnerRepository',
+      '  click OwnerRepository "code://src/main/java/OwnerRepository.java#7"'
+    ].join('\n');
+    // No symbols prop: brand inferred from the code:// file extension (.java → spring).
+    render(<MermaidDiagram code={code} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+    await waitFor(() => {
+      expect(container.querySelector('.ccx-brand-badge')).not.toBeNull();
+    });
+    expect(container.querySelector('.ccx-brand-badge')?.getAttribute('data-brand')).toBe('spring');
+  });
+
+  it('skips badges when ?badges=0 is present', async () => {
+    const originalSearch = window.location.search;
+    try {
+      window.history.replaceState(null, '', '/?badges=0');
+      const symbols = [
+        {
+          id: 1,
+          repoId: 'repo-1',
+          kind: 'service' as const,
+          name: 'OwnerRepository',
+          filePath: 'src/main/java/OwnerRepository.java',
+          lineStart: 7,
+          lineEnd: 12,
+          signature: null,
+          calls: null,
+          annotations: ['@Service']
+        }
+      ];
+      render(
+        <MermaidDiagram
+          code="flowchart LR\n  OwnerController --> OwnerRepository"
+          symbols={symbols}
+        />
+      );
+      await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+      const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
+      expect(container.querySelector('.ccx-brand-badge')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', originalSearch || '/');
+    }
+  });
+});
+
+describe('MermaidDiagram focusRequest (v0.11 Stage 3)', () => {
+  beforeEach(() => {
+    mockedRender.mockClear();
+  });
+
+  it('centers and flashes the matching node label', async () => {
+    render(
+      <MermaidDiagram
+        code="flowchart LR\n  OwnerController --> OwnerRepository"
+        focusRequest={{ symbol: 'OwnerController', requestId: 1 }}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    await waitFor(() => {
+      const label = screen.getByText('OwnerController');
+      expect(label.style.outline).toContain('2px solid');
+    });
+  });
+
+  it('ignores an empty focus symbol', async () => {
+    render(
+      <MermaidDiagram
+        code="flowchart LR\n  OwnerController --> OwnerRepository"
+        focusRequest={{ symbol: '', requestId: 1 }}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const label = screen.getByText('OwnerController');
+    expect(label.style.outline).toBe('');
   });
 });

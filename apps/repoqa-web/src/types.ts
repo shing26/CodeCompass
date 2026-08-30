@@ -327,3 +327,35 @@ export interface SubgraphContextResult {
   /** Agent-ready Markdown with masked source slices and class skeletons. */
   text: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* v0.11: Cmd+K domain-radar symbols                                   */
+/* ------------------------------------------------------------------ */
+
+export interface DomainRadarAnchor {
+  symbol: string;
+  type: 'CONTROLLER' | 'SERVICE' | 'ENTITY';
+  /** 0..100 deterministic score. */
+  relevanceScore: number;
+  filePath: string;
+  line: number;
+  /** Incoming call count from the static symbol graph. */
+  inDegree: number;
+  /** Outgoing call count from the static symbol graph. */
+  outDegree: number;
+}
+
+export interface DomainRadarResult {
+  schemaVersion: number;
+  repoId: string;
+  matchedAnchors: DomainRadarAnchor[];
+  hubNodes: Array<{
+    symbol: string;
+    inDegree: number;
+    outDegree: number;
+    pagerank: number;
+    role: string;
+  }>;
+  topApis: string[];
+  persistenceEntities: string[];
+}

@@ -1425,6 +1425,72 @@ describe('RepoPulse dashboard HTTP API', () => {
   });
 });
 
+describe('Domain radar HTTP API (v0.11)', () => {
+  it('serves radar anchors with graph degrees over the wire', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-radar-http-'));
+    try {
+      await makeDashboardRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/radar?query=${encodeURIComponent('listOrders')}`
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        radar?: {
+          schemaVersion: number;
+          repoId: string;
+          matchedAnchors: Array<{
+            symbol: string;
+            type: string;
+            filePath: string;
+            line: number;
+            inDegree: number;
+            outDegree: number;
+          }>;
+          hubNodes: Array<{ symbol: string; inDegree: number; outDegree: number }>;
+        };
+        error?: string;
+      };
+      expect(body.error).toBeUndefined();
+      expect(body.radar?.repoId).toBe(repoId);
+      expect(body.radar?.matchedAnchors.length).toBeGreaterThan(0);
+      const anchor = body.radar!.matchedAnchors[0];
+      expect(anchor.symbol).toContain('listOrders');
+      expect(typeof anchor.inDegree).toBe('number');
+      expect(typeof anchor.outDegree).toBe('number');
+      expect(anchor.inDegree + anchor.outDegree).toBeGreaterThan(0);
+      expect(body.radar?.hubNodes.length).toBeGreaterThan(0);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers 404 for an unknown repo and 500-safe empty query', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-radar-missing-'));
+    try {
+      const missing = await fetch(`${ctx.baseUrl}/api/repos/missing-repo/radar?query=x`);
+      expect(missing.status).toBe(404);
+
+      await makeDashboardRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+      const empty = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/radar`);
+      expect(empty.status).toBe(200);
+      const body = (await empty.json()) as { radar?: { matchedAnchors: unknown[] } };
+      expect(body.radar?.matchedAnchors).toEqual([]);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('Issue 28 subgraph context HTTP API', () => {
   it('resolves a query into masked Graph RAG agent context', async () => {
     const ctx = await startServer();

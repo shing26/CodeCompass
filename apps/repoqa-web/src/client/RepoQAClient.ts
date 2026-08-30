@@ -1,6 +1,7 @@
 import type {
   Anchor,
   ArchitectureDeltaReport,
+  DomainRadarResult,
   ImportRepoInput,
   QueryEvent,
   QueryMode,
@@ -234,6 +235,19 @@ export class RepoQAClient {
     }
     const body = (await res.json()) as { dashboard?: RepoDashboard };
     return body.dashboard ?? null;
+  }
+
+  /** v0.11 — Cmd+K symbol radar: deterministic domain-radar anchors. */
+  async radar(repoId: string, query: string): Promise<DomainRadarResult> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/radar?query=${encodeURIComponent(query)}`
+    );
+    if (!res.ok) {
+      throw new Error(`radar failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { radar?: DomainRadarResult };
+    if (!body.radar) throw new Error('radar failed: missing radar in response');
+    return body.radar;
   }
 
   /** v0.6.0 — architecture delta between two git refs of a repo. */

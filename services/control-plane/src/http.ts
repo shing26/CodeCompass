@@ -23,6 +23,7 @@ import { previewRepo } from './repoqa-scan';
 import { llmRuntimeInfo, maskHostname } from './repoqa-llm';
 import { extractSubgraphContext } from './repoqa-graphrag';
 import { analyzeDiff } from './repoqa-diff';
+import { runDomainRadar } from './domain-radar-engine';
 
 export interface HttpDeps {
   repos: Repos;
@@ -41,6 +42,15 @@ export interface HttpDeps {
 }
 
 const ACTIONS: TaskAction[] = ['pause', 'resume', 'cancel', 'approve', 'reject'];
+
+const RADAR_CACHE_TTL_MS = 60_000;
+
+/**
+ * v0.11 — per-(repoId, query) domain-radar cache. A simple TTL Map (no Redis):
+ * the Cmd+K palette debounces keystrokes to 300ms, so repeated identical
+ * queries hit this cache instead of recomputing PageRank.
+ */
+const radarCache = new Map<string, { data: unknown; expiresAt: number }>();
 
 const SYMBOL_TYPE_BY_KIND: Record<string, string> = {
   class: 'CLASS',
@@ -322,6 +332,46 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const dashboard = buildDashboard({ repoId: repo.id, repoName: repo.name, symbols });
     res.json({ dashboard: maskEventPayload(dashboard) });
+  });
+
+  // v0.11 — Cmd+K symbol radar. Deterministic (no LLM): the same
+  // `runDomainRadar` path the ReAct agent uses, with doc-chunk evidence and a
+  // 60s per-(repoId, query) cache so the palette's 300ms-debounced keystrokes
+  // do not recompute PageRank on every hit.
+  app.get('/api/repos/:id/radar', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const query = typeof req.query.query === 'string' ? req.query.query.trim() : '';
+    try {
+      const key = `${repo.id}\u0000${query}`;
+      const cached = radarCache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        res.json({ radar: cached.data });
+        return;
+      }
+      const { symbols, index } = deps.worker.getSymbolGraph(repo.id);
+      const chunkHitFiles = query
+        ? deps.repoqa
+            .searchChunks(repo.id, query)
+            .map((chunk) => chunk.filePath)
+            .filter((file): file is string => Boolean(file))
+        : undefined;
+      const radar = runDomainRadar({
+        repoId: repo.id,
+        ...(query ? { query } : {}),
+        symbols,
+        index,
+        ...(chunkHitFiles ? { chunkHitFiles } : {})
+      });
+      radarCache.set(key, { data: radar, expiresAt: Date.now() + RADAR_CACHE_TTL_MS });
+      res.json({ radar: maskEventPayload(radar) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
   });
 
   // v0.6.0 — Architecture Delta: base/head 两个 git ref 的多语言路由增删、

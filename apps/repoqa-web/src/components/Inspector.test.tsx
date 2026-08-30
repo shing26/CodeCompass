@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Inspector, type InspectorProps } from './Inspector';
 
 // Fake Monaco editor surface, shared between the mocked Editor component and
@@ -312,6 +313,84 @@ describe('Inspector (ticket 05)', () => {
     );
     expect(screen.getByTestId('inspector-line')).toHaveTextContent('88 ~ 112');
     expect(screen.getByTestId('inspector-token-budget')).toHaveTextContent('3,420 / 6,000 Tokens');
+  });
+});
+
+describe('Inspector breadcrumb (v0.11 Stage 4)', () => {
+  beforeEach(() => {
+    editorProbe.clearAll();
+  });
+
+  it('renders repo > file > symbol segments for the open file', () => {
+    render(
+      <Inspector
+        {...baseProps({
+          repoName: 'petclinic',
+          file: 'src/main/java/OwnerController.java',
+          text: 'content',
+          symbolName: 'listOwners'
+        })}
+      />
+    );
+    expect(screen.getByTestId('inspector-breadcrumb')).toBeInTheDocument();
+    expect(screen.getByTestId('breadcrumb-repo')).toHaveTextContent('petclinic');
+    expect(screen.getByTestId('breadcrumb-file')).toHaveTextContent(
+      'src/main/java/OwnerController.java'
+    );
+    expect(screen.getByTestId('breadcrumb-symbol')).toHaveTextContent('listOwners');
+  });
+
+  it("navigates to the file's first line when the file segment is clicked", async () => {
+    const onOpenFile = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Inspector
+        {...baseProps({
+          repoName: 'petclinic',
+          file: 'src/main/java/OwnerController.java',
+          text: 'content',
+          onOpenFile
+        })}
+      />
+    );
+    await user.click(screen.getByTestId('breadcrumb-file'));
+    expect(onOpenFile).toHaveBeenCalledWith('src/main/java/OwnerController.java', 1);
+  });
+
+  it('invokes onBackToDashboard when the repo segment is clicked', async () => {
+    const onBackToDashboard = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Inspector
+        {...baseProps({
+          repoName: 'petclinic',
+          file: 'A.java',
+          text: 'content',
+          onBackToDashboard
+        })}
+      />
+    );
+    await user.click(screen.getByTestId('breadcrumb-repo'));
+    expect(onBackToDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the current line when the symbol segment is clicked', async () => {
+    const onOpenFile = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Inspector
+        {...baseProps({
+          repoName: 'petclinic',
+          file: 'A.java',
+          text: 'content',
+          glow: { line: 42 },
+          symbolName: 'listOwners',
+          onOpenFile
+        })}
+      />
+    );
+    await user.click(screen.getByTestId('breadcrumb-symbol'));
+    expect(onOpenFile).toHaveBeenCalledWith('A.java', 42, undefined, 'listOwners');
   });
 });
 

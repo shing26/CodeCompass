@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent
+} from 'react';
 import type { ChatMessage } from '../hooks/useChat';
 import type { Anchor, QueryMode, Repo, RepoSymbol, TokenUsage } from '../types';
 import { Markdown } from './Markdown';
@@ -28,6 +36,12 @@ interface CanvasProps {
    */
   deepLinkFocus?: string | null;
   deepLinkTraceId?: string | null;
+  /**
+   * v0.11 (Stage 3) — external focus request owned by App (Cmd+K palette).
+   * Canvas forwards it to the diagram layer; the trace-step strip uses its own
+   * internal focus request, and external requests take precedence.
+   */
+  focusRequest?: { symbol: string; requestId: number } | null;
 }
 
 /**
@@ -51,10 +65,15 @@ export function Canvas({
   onBackToDashboard,
   symbols = [],
   deepLinkFocus = null,
-  deepLinkTraceId = null
+  deepLinkTraceId = null,
+  focusRequest: externalFocusRequest = null
 }: CanvasProps) {
   const [draft, setDraft] = useState('');
   const [mode, setMode] = useState<QueryMode>('call-chain');
+  const [localFocusRequest, setLocalFocusRequest] = useState<{
+    symbol: string;
+    requestId: number;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -116,6 +135,57 @@ export function Canvas({
     if (typeof el.scrollTo === 'function') el.scrollTo({ top: 0 });
     else el.scrollTop = 0;
   };
+
+  // v0.11 (Stage 3/4) — forward an external focus request to the diagrams.
+  // The requestId increments every dispatch so re-focusing the same symbol
+  // still retriggers the MermaidDiagram focus effect.
+  const handleFocusDiagram = useCallback((symbol: string) => {
+    setLocalFocusRequest((prev) => ({ symbol, requestId: (prev?.requestId ?? 0) + 1 }));
+  }, []);
+  // v0.11 (Stage 3) — an external Cmd+K focus request overrides the local one.
+  const effectiveFocusRequest = externalFocusRequest ?? localFocusRequest;
+
+  // v0.11 (Stage 4) — live trace steps come from the latest assistant message
+  // that carried a resolved trace (useChat already parses done.payload.trace).
+  const traceSteps = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.role === 'assistant' && message.traceSteps && message.traceSteps.length > 0) {
+        return message.traceSteps;
+      }
+    }
+    return null;
+  }, [messages]);
+  const [traceStepIdx, setTraceStepIdx] = useState(0);
+  useEffect(() => {
+    if (!traceSteps || traceSteps.length === 0) {
+      setTraceStepIdx(0);
+      return;
+    }
+    setTraceStepIdx((prev) => Math.min(prev, traceSteps.length - 1));
+  }, [traceSteps]);
+  const visibleTraceStep = traceSteps?.[traceStepIdx] ?? null;
+
+  const jumpToTraceStep = useCallback(
+    (index: number) => {
+      if (!traceSteps) return;
+      const clamped = Math.max(0, Math.min(traceSteps.length - 1, index));
+      setTraceStepIdx(clamped);
+      const step = traceSteps[clamped];
+      if (!step) return;
+      handleFocusDiagram(step.symbol);
+      onNavigate?.(step.file, step.line, step.lineEnd, step.symbol);
+    },
+    [traceSteps, handleFocusDiagram, onNavigate]
+  );
+  const stepPrev = useCallback(() => {
+    if (!traceSteps) return;
+    jumpToTraceStep(traceStepIdx - 1);
+  }, [traceSteps, traceStepIdx, jumpToTraceStep]);
+  const stepNext = useCallback(() => {
+    if (!traceSteps) return;
+    jumpToTraceStep(traceStepIdx + 1);
+  }, [traceSteps, traceStepIdx, jumpToTraceStep]);
 
   return (
     <main data-testid="canvas" className="flex flex-1 flex-col overflow-hidden">
@@ -208,16 +278,18 @@ export function Canvas({
             )}
             <div className="space-y-4">
               {messages.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  message={m}
-                  onNavigate={onNavigate}
-                  highlightNode={
-                    focusFlash && latestTrace?.id === m.id
-                      ? latestTrace.anchors?.[0]?.symbol
-                      : undefined
+               <MessageBubble
+                 key={m.id}
+                 message={m}
+                 onNavigate={onNavigate}
+                  symbols={symbols}
+                 highlightNode={
+                   focusFlash && latestTrace?.id === m.id
+                     ? latestTrace.anchors?.[0]?.symbol
+                     : undefined
                   }
-                  onOffRamp={{
+                  focusRequest={effectiveFocusRequest}
+                 onOffRamp={{
                     suggested: (q) => onSubmit(q),
                     continue: () => inputRef.current?.focus(),
                     top: scrollToTop
@@ -277,6 +349,58 @@ export function Canvas({
               </div>
             )}
           </div>
+          {traceSteps && traceSteps.length > 1 && (
+            <div
+              data-testid="trace-strip"
+              className="border-t border-line bg-surface/95 px-3 py-1.5 backdrop-blur"
+            >
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  data-testid="trace-step-prev"
+                  onClick={stepPrev}
+                  disabled={traceStepIdx === 0}
+                  className="rounded border border-line bg-subtle px-2 py-0.5 text-muted hover:border-accent/40 disabled:opacity-30"
+                >
+                  ← Prev
+                </button>
+                <span
+                  data-testid="trace-step-label"
+                  className="min-w-0 flex-1 truncate font-mono"
+                >
+                  Step {traceStepIdx + 1}/{traceSteps.length}
+                  {visibleTraceStep && (
+                    <span className="ml-2 text-muted">
+                      {visibleTraceStep.symbol}
+                      {visibleTraceStep.status === 'BROKEN' && (
+                        <span className="ml-1.5 text-danger">BROKEN</span>
+                      )}
+                      {visibleTraceStep.httpMethod && (
+                        <span
+                          className={`ml-1.5 ${
+                            visibleTraceStep.httpMethod === 'POST'
+                              ? 'text-success'
+                              : 'text-accent'
+                          }`}
+                        >
+                          {visibleTraceStep.httpMethod}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  data-testid="trace-step-next"
+                  onClick={stepNext}
+                  disabled={traceStepIdx >= traceSteps.length - 1}
+                  className="rounded border border-line bg-subtle px-2 py-0.5 text-muted hover:border-accent/40 disabled:opacity-30"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
           <form
             onSubmit={submit}
             className="flex items-center gap-2 border-t border-line bg-surface p-3"
@@ -475,12 +599,18 @@ function MessageBubble({
   message,
   onNavigate,
   highlightNode,
+  symbols,
+  focusRequest,
   onOffRamp
 }: {
   message: ChatMessage;
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** v0.7 (issue 12): symbol flashed in this message's diagram. */
   highlightNode?: string;
+  /** v0.11 (Stage 2) — symbol catalog for brand-badge inference. */
+  symbols?: RepoSymbol[];
+  /** v0.11 (Stage 3) — external focus request for Cmd+K / trace-step centering. */
+  focusRequest?: { symbol: string; requestId: number } | null;
   onOffRamp: OffRampActions;
 }) {
   if (message.role === 'user') {
@@ -505,6 +635,8 @@ function MessageBubble({
             code={message.diagram}
             onNavigate={onNavigate}
             highlightNode={highlightNode}
+            symbols={symbols}
+            focusRequest={focusRequest ?? undefined}
           />
         )}
         {message.anchors && (

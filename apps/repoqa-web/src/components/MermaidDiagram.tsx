@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMermaid } from '../client/mermaidRenderer';
 import { trimMermaidGraph, edgeAnnotationsForTrace } from '../client/mermaidGraph';
 import { useTheme } from '../hooks/useTheme';
-import type { TraceStep } from '../types';
+import type { RepoSymbol, TraceStep } from '../types';
+import {
+  inferBrand,
+  brandMarkSVG,
+  brandLabel,
+  badgesEnabledFromUrl
+} from '../brand-marks';
 
 export interface ParsedDeepLink {
   file: string;
@@ -36,6 +42,17 @@ interface MermaidDiagramProps {
   highlightNode?: string;
   /** v0.10 — resolved trace hops; drives BROKEN/HTTP edge + node styling. */
   traceSteps?: TraceStep[];
+  /**
+   * v0.11 (Stage 2) — symbol catalog used to infer tech-stack brand badges.
+   * Optional: when absent, badges fall back to code:// file-extension hints.
+   */
+  symbols?: RepoSymbol[];
+  /**
+   * v0.11 (Stage 3) — controlled focus request from an external surface
+   * (Cmd+K). The parent increments `requestId` to re-trigger repeated focus
+   * on the same symbol.
+   */
+  focusRequest?: { symbol: string; requestId: number };
 }
 
 const ZOOM_MIN = 0.4;
@@ -65,9 +82,12 @@ export function MermaidDiagram({
   onNavigate,
   maxNodes = 60,
   highlightNode,
-  traceSteps
+  traceSteps,
+  symbols = [],
+  focusRequest
 }: MermaidDiagramProps) {
   const { theme } = useTheme();
+  const badgesEnabled = badgesEnabledFromUrl();
   const trimmed = useMemo(() => trimMermaidGraph(code, maxNodes), [code, maxNodes]);
   const [svgHtml, setSvgHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -83,6 +103,7 @@ export function MermaidDiagram({
   const hitsRef = useRef<Element[]>([]);
   const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const uidRef = useRef(0);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // v0.10 (Stage 1) — semantic styling: annotate the rendered SVG edges and
   // node labels from the resolved trace (BROKEN pulse / HTTP flow / GET/POST).
@@ -136,6 +157,87 @@ export function MermaidDiagram({
 
   const bindings = useRef(parseClickBindings(trimmed.code));
   bindings.current = parseClickBindings(trimmed.code);
+
+  // v0.11 (Stage 2) — inject technology brand badges into node labels from the
+  // rendered SVG. Post-render injection (like the Stage 1 trace styling) avoids
+  // mermaid's label sanitization: mermaid strict securityLevel strips inline
+  // SVG from source labels, so we append the mark to the live DOM instead.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || svgHtml === null || !badgesEnabled) return;
+    const symbolByLabel = new Map<string, RepoSymbol>();
+    for (const symbol of symbols) {
+      symbolByLabel.set(symbol.name.toLowerCase(), symbol);
+      if (symbol.parentType) {
+        symbolByLabel.set(`${symbol.parentType}.${symbol.name}`.toLowerCase(), symbol);
+      }
+    }
+    const fileByLabel = new Map<string, string>();
+    for (const [nodeName, url] of bindings.current) {
+      const parsed = parseDeepLink(url);
+      if (parsed) fileByLabel.set(nodeName.toLowerCase(), parsed.file);
+    }
+    el.querySelectorAll('g.node').forEach((node) => {
+      const labelEl = node.querySelector('.label');
+      const text = labelEl?.textContent?.trim();
+      if (!text) return;
+      if (node.querySelector('.ccx-brand-badge')) return;
+      const key = text.toLowerCase();
+      const symbol = symbolByLabel.get(key);
+      const brand = symbol
+        ? inferBrand({
+            filePath: symbol.filePath,
+            kind: symbol.kind,
+            name: symbol.name,
+            annotations: symbol.annotations
+          })
+        : inferBrand({
+            filePath: fileByLabel.get(key) ?? '',
+            name: text
+          });
+      const mark = brandMarkSVG(brand);
+      if (!mark) return;
+      const host =
+        (labelEl?.querySelector('div') as HTMLElement | null) ??
+        (labelEl as HTMLElement | null);
+      if (!host) return;
+      const badge = document.createElement('span');
+      badge.className = 'ccx-brand-badge';
+      badge.dataset.brand = brand;
+      badge.title = brandLabel(brand);
+      badge.innerHTML = mark;
+      host.appendChild(badge);
+    });
+  }, [svgHtml, symbols, badgesEnabled]);
+
+  // v0.11 (Stage 3) — external focus request: center + flash the matching node.
+  useEffect(() => {
+    if (!focusRequest) return;
+    const el = containerRef.current;
+    if (!el || svgHtml === null) return;
+    const needle = focusRequest.symbol.trim().toLowerCase();
+    if (!needle) return;
+    let target: Element | undefined;
+    el.querySelectorAll('g.node').forEach((node) => {
+      if (target) return;
+      const labelEl = node.querySelector('.label');
+      if (!labelEl) return;
+      const text = labelEl.textContent?.trim() ?? '';
+      if (text.toLowerCase() === needle || text.toLowerCase().includes(needle)) {
+        target = node;
+      }
+    });
+    if (!target) return;
+    const labelEl = target.querySelector('.label') as HTMLElement | null;
+    if (labelEl) {
+      labelEl.style.outline = '2px solid var(--color-accent, #f59e0b)';
+      if (focusTimer.current) window.clearTimeout(focusTimer.current);
+      focusTimer.current = window.setTimeout(() => {
+        labelEl.style.outline = '';
+      }, 1600);
+    }
+    centerOn(target);
+  }, [svgHtml, focusRequest]);
 
   // Click delegation: match the clicked label against click bindings. mermaid
   // 11 renders node labels as <text> (htmlLabels:false) by default in some

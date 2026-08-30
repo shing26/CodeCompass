@@ -1,6 +1,6 @@
 {
   "name": "codecompass",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Local-first static Java architecture cockpit: index a repo and get an AST-driven dashboard, call chains, tours and PR impact analysis.",
   "bin": {
     "codecompass": "./bin/codecompass.js"

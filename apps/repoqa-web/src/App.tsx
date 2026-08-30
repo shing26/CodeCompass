@@ -7,6 +7,7 @@ import { useReverseDeps } from './hooks/useReverseDeps';
 import { useSubgraphContext } from './hooks/useSubgraphContext';
 import { useTours } from './hooks/useTours';
 import { useDashboard } from './hooks/useDashboard';
+import { useTheme } from './hooks/useTheme';
 import { RepoQAClient, resolveBaseUrl } from './client/RepoQAClient';
 import { downloadTextFile } from './utils/download';
 import { TopBar } from './components/TopBar';
@@ -17,6 +18,7 @@ import { DashboardView } from './components/DashboardView';
 import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { TourPlayer } from './components/TourPlayer';
+import { CommandPalette } from './components/CommandPalette';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
 import { CopyMaskingToast } from './components/CopyMaskingToast';
 import type {
@@ -48,6 +50,7 @@ function repoUpdatedWebSocketUrl(baseUrl: string): string {
 type MainView = WorkbenchTab | 'tour';
 
 export function App({ client: clientProp }: AppProps) {
+  const { toggleTheme } = useTheme();
   // Build the default client once: constructing it during render (e.g. in a
   // default parameter) yields a new instance on every render, which changes
   // hook dependencies and causes an infinite effect loop (max update depth).
@@ -175,6 +178,30 @@ export function App({ client: clientProp }: AppProps) {
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // v0.11 (Stage 3) — Cmd+K command palette + diagram focus request.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteFocus, setPaletteFocus] = useState<{
+    symbol: string;
+    requestId: number;
+  } | null>(null);
+
+  // v0.11 (Stage 3) — global Cmd/Ctrl+K toggles the palette.
+  useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') {
+        ev.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const handlePaletteSelect = (symbol: string, filePath: string, line: number) => {
+    // Open the Inspector at the symbol's source line and center the diagram.
+    inspector.openFile(filePath, line, undefined, symbol);
+    setPaletteFocus((prev) => ({ symbol, requestId: (prev?.requestId ?? 0) + 1 }));
+  };
 
   // Opening a file (diagram node / anchor / tour step) auto-reveals the
   // Inspector on mobile; on desktop the drawer classes are inert (md:static).
@@ -394,6 +421,18 @@ export function App({ client: clientProp }: AppProps) {
           onCancel={() => setConsentPending(null)}
         />
       )}
+      <CommandPalette
+        open={paletteOpen}
+        client={client}
+        repoId={repoId}
+        onClose={() => setPaletteOpen(false)}
+        onSelectSymbol={handlePaletteSelect}
+        onToggleTheme={toggleTheme}
+        onBackToDashboard={() => {
+          setActiveTour(null);
+          setView('topo');
+        }}
+      />
       <div className="relative flex min-h-0 flex-1">
         {sidebarOpen && (
           <div
@@ -453,6 +492,7 @@ export function App({ client: clientProp }: AppProps) {
               symbols={symbols}
               deepLinkFocus={deepLink.focus}
               deepLinkTraceId={deepLink.traceId}
+              focusRequest={paletteFocus}
             />
           ) : view === 'tour' && activeTour ? (
             <TourPlayer
@@ -483,6 +523,7 @@ export function App({ client: clientProp }: AppProps) {
           )}
         </div>
         <Inspector
+          repoName={currentRepo?.name ?? null}
           file={inspector.file}
           text={inspector.text}
           loading={inspector.loading}
@@ -501,6 +542,7 @@ export function App({ client: clientProp }: AppProps) {
           reverseDeps={reverseDeps}
           subgraph={subgraph}
           onOpenFile={inspector.openFile}
+          onBackToDashboard={goTopology}
         />
       </div>
       <CopyMaskingToast trigger={maskingToastAt} />

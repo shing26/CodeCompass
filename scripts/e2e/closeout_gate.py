@@ -59,6 +59,12 @@ def record(name: str, ok: bool, detail: str = "") -> bool:
     return ok
 
 
+def _tail(proc: subprocess.CompletedProcess, limit: int = 200) -> str:
+    out = (proc.stdout or "")[-limit:]
+    err = (proc.stderr or "")[-limit:]
+    return f"{out} {err}".strip()
+
+
 # ---------------------------------------------------------------- HTTP utils
 
 
@@ -430,6 +436,31 @@ def check_call_chain(base: str, repo_id: str) -> None:
     )
 
 
+def check_radar_http(base: str, repo_id: str) -> None:
+    """v0.11: GET /api/repos/:id/radar returns deterministic anchors with
+    inDegree/outDegree for the Cmd+K palette."""
+    radar = http_json(
+        "GET",
+        f"{base}/api/repos/{repo_id}/radar?query=listOwners",
+    ).get("radar", {})
+    anchors = radar.get("matchedAnchors", [])
+    hub_nodes = radar.get("hubNodes", [])
+    ok = (
+        radar.get("repoId") == repo_id
+        and len(anchors) >= 1
+        and all(
+            isinstance(a.get("inDegree"), int) and isinstance(a.get("outDegree"), int)
+            for a in anchors
+        )
+        and len(hub_nodes) >= 1
+    )
+    detail = (
+        f"anchors={[(a['symbol'], a.get('inDegree'), a.get('outDegree')) for a in anchors[:2]]} "
+        f"hubs={len(hub_nodes)}"
+    )
+    record("radar HTTP endpoint returns anchors with graph degrees", ok, detail)
+
+
 def check_sse_query(base: str, repo_id: str) -> None:
     """Consume the SSE /query stream like the web client does and assert the
     deterministic call-chain produces a mermaid diagram plus anchors."""
@@ -596,6 +627,7 @@ def _mcp_roundtrip(
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        encoding="utf-8",
     )
     lines: list[str] = []
     try:
@@ -765,7 +797,7 @@ def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, t
     def run(*extra: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [node, str(cli), *extra, "--data-dir", str(data_dir)],
-            cwd=ROOT, capture_output=True, text=True, timeout=300,
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=300,
         )
 
     def last_json(text: str) -> dict:
@@ -791,7 +823,7 @@ def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, t
         )
         detail = f"layers={layers} traceId={result.get('traceId')}"
     except Exception as exc:  # noqa: BLE001
-        ok, detail = False, f"{exc}: {diagnose.stdout[-200:]} {diagnose.stderr[-200:]}"
+        ok, detail = False, f"{exc}: {_tail(diagnose)}"
     record("v0.8 CLI diagnose prints layered JSON with deep link", ok, detail)
 
     refactor = run(
@@ -811,7 +843,7 @@ def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, t
             f"risk={result['riskLevel']}"
         )
     except Exception as exc:  # noqa: BLE001
-        ok, detail = False, f"{exc}: {refactor.stdout[-200:]} {refactor.stderr[-200:]}"
+        ok, detail = False, f"{exc}: {_tail(refactor)}"
     record("v0.8 CLI refactor-plan prints blast-radius JSON", ok, detail)
 
     artifact = tmp / "artifact.html"
@@ -838,7 +870,7 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
     def run(*extra: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [node, str(cli), *extra, "--data-dir", str(data_dir)],
-            cwd=ROOT, capture_output=True, text=True, timeout=300,
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=300,
         )
 
     def last_json(text: str) -> dict:
@@ -862,7 +894,7 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
         )
         detail = f"hubs={len(result['hubNodes'])} apis={len(result['topApis'])} entities={result['persistenceEntities'][:3]}"
     except Exception as exc:  # noqa: BLE001
-        ok, detail = False, f"{exc}: {radar.stdout[-200:]} {radar.stderr[-200:]}"
+        ok, detail = False, f"{exc}: {_tail(radar)}"
     record("v0.9 radar prints hubs, top APIs and persistence entities", ok, detail)
 
     radar_intent = run("radar", "owners", str(repo_path))
@@ -879,7 +911,7 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
         )
         detail = f"anchors={[(a['symbol'], a['relevanceScore']) for a in anchors]}"
     except Exception as exc:  # noqa: BLE001
-        ok, detail = False, f"{exc}: {radar_intent.stdout[-200:]}"
+        ok, detail = False, f"{exc}: {_tail(radar_intent)}"
     record("v0.9 radar intent anchor hits the matching entry symbol", ok, detail)
 
     deprecate = run("evolve", "--intent", "deprecate", "--target", "web", str(repo_path))
@@ -897,7 +929,7 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
             f"risk={result['riskLevel']}"
         )
     except Exception as exc:  # noqa: BLE001
-        ok, detail = False, f"{exc}: {deprecate.stdout[-200:]} {deprecate.stderr[-200:]}"
+        ok, detail = False, f"{exc}: {_tail(deprecate)}"
     record("v0.9 evolve deprecate emits checklist with no LLM patch", ok, detail)
 
     extend = run(
@@ -915,10 +947,10 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
         record(
             "v0.9 evolve extend matches async pattern with no LLM patch",
             ok,
-            f"pattern={result['scaffoldTemplates'][0]['suggestedPattern']}" if ok else extend.stdout[-200:],
+            f"pattern={result['scaffoldTemplates'][0]['suggestedPattern']}" if ok else _tail(extend),
         )
     except Exception as exc:  # noqa: BLE001
-        record("v0.9 evolve extend matches async pattern with no LLM patch", False, f"{exc}: {extend.stdout[-200:]}")
+        record("v0.9 evolve extend matches async pattern with no LLM patch", False, f"{exc}: {_tail(extend)}")
 
     artifact = tmp / "artifact-v09.html"
     export = run("export", "listOwners", str(repo_path), "--file", str(artifact))
@@ -961,7 +993,7 @@ def main() -> int:
     # 1) doctor BEFORE the server occupies the port.
     doctor = subprocess.run(
         [args.node, str(cli), "doctor", "--json", "--data-dir", str(data_dir)],
-        cwd=ROOT, capture_output=True, text=True, timeout=120,
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=120,
     )
     try:
         doctor_json = json.loads(doctor.stdout)
@@ -986,6 +1018,7 @@ def main() -> int:
         check_scan_filters(base, polyglot)
         check_cross_language_bridge(base, py_repo["id"])
         check_call_chain(base, py_repo["id"])
+        check_radar_http(base, py_repo["id"])
         check_sse_query(base, py_repo["id"])
         check_symbols_typed(base, py_repo["id"])
         check_architecture_delta(base, py_repo["id"])
