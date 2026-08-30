@@ -3,7 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { resolveCallChain } from './repoqa-callchain';
+import { buildCallIndex, resolveCallChain } from './repoqa-callchain';
+import { runDiagnose } from './diagnose-engine';
+import { runDomainRadar } from './domain-radar-engine';
+import { runModuleEvolution } from './module-evolution-engine';
 import { openDb } from './db';
 import { EventBus } from './events';
 import { RepoQARepos } from './repoqa-repos';
@@ -37,17 +40,37 @@ interface EvalFixture {
 interface EvalQuestion {
   id: string;
   fixture: string;
-  mode: 'route-chain' | 'config' | 'architecture';
+  mode:
+    | 'route-chain'
+    | 'config'
+    | 'architecture'
+    | 'intent-anchor'
+    | 'diagnose-chain'
+    | 'evolution';
   question: string;
   expected: string[];
+  /** diagnose-chain: whether the golden chain SHOULD contain a BROKEN hop. */
+  expectedBreak?: boolean;
+  /** evolution: names that must NOT appear (e.g. live code never orphaned). */
+  expectedAbsent?: string[];
+  /** evolution EXTEND: free-text extension goal fed to the pattern matcher. */
+  goal?: string;
 }
+
+export type EvalBucketName =
+  | 'route-chain'
+  | 'config'
+  | 'architecture'
+  | 'intent-anchor'
+  | 'diagnose-chain'
+  | 'evolution';
 
 export type EvalReport = {
   passed: boolean;
   totalQuestions: number;
   fixtureCommits: Record<string, string>;
   buckets: Record<
-    'route-chain' | 'config' | 'architecture',
+    EvalBucketName,
     {
       total: number;
       recallAtK: number;
@@ -103,7 +126,157 @@ const repoC: EvalFixture = {
   }
 };
 
-export const GOLDEN_FIXTURES: EvalFixture[] = [repoA, repoB, repoC];
+
+/**
+ * v0.13 — full-stack "like" fixture exercising the v0.8/v0.9 composite
+ * engines: a React caller bridged to a Java route, a MyBatis XML mapper
+ * (deterministic DATA_MAPPER hop), Chinese javadoc (doc-chunk intent
+ * bridge), a legacy module with transitively orphaned helpers (fixed-point
+ * cascade) and three @Transactional declaration levels.
+ */
+const repoD: EvalFixture = {
+  name: 'repo-d',
+  files: {
+    'pom.xml': '<project><groupId>com.demo</groupId><artifactId>social</artifactId></project>\n',
+    'web/src/PostList.tsx': [
+      "import axios from 'axios';",
+      'const api = axios.create({ baseURL: "/api" });',
+      'export function handleLike(id: number) {',
+      '  return api.post("/posts/" + id + "/like");',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/LikeController.java': [
+      'package com.demo;',
+      'import org.springframework.web.bind.annotation.*;',
+      '@RestController',
+      '@RequestMapping("/posts")',
+      'public class LikeController {',
+      '  private final LikeService likeService = new LikeService();',
+      '  @PostMapping("/{id}/like")',
+      '  public String likePost(@PathVariable Long id) {',
+      '    return likeService.doLike(id);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/LikeService.java': [
+      'package com.demo;',
+      'import org.springframework.stereotype.Service;',
+      'import org.springframework.transaction.annotation.Transactional;',
+      '@Service',
+      'public class LikeService {',
+      '  private final LikeMapper likeMapper = new LikeMapperImpl();',
+      '  /** 用户点赞主流程 */',
+      '  @Transactional',
+      '  public String doLike(long id) {',
+      '    likeMapper.insertLike(id);',
+      '    return "ok";',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    // No Java impl on purpose: a bare @Mapper interface is backed by XML, and
+    // the chain must land on the mapperStatements DATA_MAPPER hop.
+    'src/main/java/com/demo/LikeMapper.java': [
+      'package com.demo;',
+      'import org.apache.ibatis.annotations.Mapper;',
+      '@Mapper',
+      'public interface LikeMapper {',
+      '  void insertLike(long id);',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/resources/mapper/LikeMapper.xml': [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<mapper namespace="com.demo.LikeMapper">',
+      '  <insert id="insertLike">',
+      '    INSERT INTO likes(post_id) VALUES (#{id})',
+      '  </insert>',
+      '</mapper>',
+      ''
+    ].join('\n'),
+    // Interface-level @Transactional: the impl method carries no annotation.
+    'src/main/java/com/demo/TxService.java': [
+      'package com.demo;',
+      'import org.springframework.transaction.annotation.Transactional;',
+      'public interface TxService {',
+      '  @Transactional(readOnly = true)',
+      '  String transfer(long id);',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/TxServiceImpl.java': [
+      'package com.demo;',
+      'public class TxServiceImpl implements TxService {',
+      '  public String transfer(long id) { return "moved"; }',
+      '}',
+      ''
+    ].join('\n'),
+    // Legacy module being decommissioned, with a two-wave orphan cascade.
+    'src/main/java/com/demo/legacy/LegacyController.java': [
+      'package com.demo.legacy;',
+      'import org.springframework.web.bind.annotation.*;',
+      '@RestController',
+      '@RequestMapping("/legacy")',
+      'public class LegacyController {',
+      '  private final LegacyService legacyService = new LegacyService();',
+      '  @GetMapping',
+      '  public String legacyPing() {',
+      '    return legacyService.doLegacy();',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/legacy/LegacyService.java': [
+      'package com.demo.legacy;',
+      'public class LegacyService {',
+      '  public String doLegacy() {',
+      '    return LegacyHelper.formatLegacy("x");',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/common/LegacyHelper.java': [
+      'package com.demo.common;',
+      'public class LegacyHelper {',
+      '  public static String formatLegacy(String value) {',
+      '    return LegacyPad.padDay(value);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/common/LegacyPad.java': [
+      'package com.demo.common;',
+      'public class LegacyPad {',
+      '  public static String padDay(String value) { return value; }',
+      '}',
+      ''
+    ].join('\n'),
+    // Live code keeps its own DTO alive — must NOT be reported orphaned.
+    'src/main/java/com/demo/MoneyDto.java': [
+      'package com.demo;',
+      'public class MoneyDto {',
+      '  public String amount;',
+      '}',
+      ''
+    ].join('\n'),
+    'src/main/java/com/demo/LiveService.java': [
+      'package com.demo;',
+      'public class LiveService {',
+      '  public String pay(MoneyDto money) { return money.amount; }',
+      '}',
+      ''
+    ].join('\n'),
+    'README.md': [
+      '# Social Demo',
+      '',
+      '包含用户点赞主流程与遗留打卡模块。',
+      ''
+    ].join('\n')
+  }
+};
+export const GOLDEN_FIXTURES: EvalFixture[] = [repoA, repoB, repoC, repoD];
 
 export const GOLDEN_DATASET: EvalQuestion[] = [
   ...Array.from({ length: 20 }, (_, index) => ({
@@ -137,6 +310,74 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
       index < 6 ? ['Controller', 'DemoService'] :
       index < 11 ? ['OrderController', 'OrderService'] :
       index % 2 === 0 ? ['Calculator', 'add', 'subtract'] : ['StringUtils', 'slugify']
+  })),
+  // v0.13 — composite-engine buckets (real engine calls, not name lookups).
+  ...[
+    { id: 'intent-1', query: '用户点赞', expected: ['doLike'] },
+    { id: 'intent-2', query: 'doLike', expected: ['doLike'] },
+    { id: 'intent-3', query: 'likePost', expected: ['likePost'] },
+    { id: 'intent-4', query: 'transfer', expected: ['transfer'] },
+    { id: 'intent-5', query: 'legacyPing', expected: ['legacyPing'] }
+  ].map((item) => ({
+    id: item.id,
+    fixture: 'repo-d',
+    mode: 'intent-anchor' as const,
+    question: item.query,
+    expected: item.expected
+  })),
+  ...[
+    {
+      id: 'diag-1',
+      entry: 'POST /posts/123/like',
+      expected: ['likePost', 'doLike', 'insertLike'],
+      expectedBreak: false
+    },
+    {
+      id: 'diag-2',
+      entry: 'likePost',
+      expected: ['likePost', 'doLike', 'insertLike'],
+      expectedBreak: false
+    },
+    {
+      id: 'diag-3',
+      entry: 'GET /legacy',
+      expected: ['legacyPing', 'doLegacy', 'formatLegacy'],
+      expectedBreak: false
+    },
+    {
+      id: 'diag-4',
+      entry: 'POST /posts/999/missing',
+      expected: [],
+      expectedBreak: true
+    },
+    {
+      id: 'diag-5',
+      entry: 'doLike',
+      expected: ['doLike', 'insertLike'],
+      expectedBreak: false
+    }
+  ].map((item) => ({
+    id: item.id,
+    fixture: 'repo-d',
+    mode: 'diagnose-chain' as const,
+    question: item.entry,
+    expected: item.expected,
+    expectedBreak: item.expectedBreak
+  })),
+  ...[
+    { id: 'evo-1', intent: 'deprecate', target: 'src/main/java/com/demo/legacy', expected: ['formatLegacy', 'padDay'], absent: ['likePost', 'transfer'] },
+    { id: 'evo-2', intent: 'deprecate', target: 'LegacyController', expected: ['formatLegacy', 'padDay'], absent: ['likePost'] },
+    { id: 'evo-3', intent: 'deprecate', target: 'src/main/java/com/demo/legacy', expected: [], absent: ['likePost', 'doLike', 'transfer'] },
+    { id: 'evo-4', intent: 'extend', target: 'doLike', goal: '异步能量结算', expected: ['METHOD', 'SPRING_EVENT_ASYNC'] },
+    { id: 'evo-5', intent: 'extend', target: 'transfer', expected: ['INTERFACE'] }
+  ].map((item) => ({
+    id: item.id,
+    fixture: 'repo-d',
+    mode: 'evolution' as const,
+    question: `${item.intent}:${item.target}`,
+    expected: item.expected,
+    ...(item.absent ? { expectedAbsent: item.absent } : {}),
+    ...(item.goal ? { goal: item.goal } : {})
   }))
 ];
 
@@ -177,6 +418,9 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
   const roots = new Map<string, string>();
   const fixtureCommits = new Map<string, string>();
   const symbolsByFixture = new Map<string, ReturnType<RepoQARepos['listSymbols']>>();
+  const indexByFixture = new Map<string, ReturnType<typeof buildCallIndex>>();
+  const repoIdByFixture = new Map<string, string>();
+  const repoqaByFixture = new Map<string, RepoQARepos>();
   let parseFailures = 0;
 
   for (const fixture of GOLDEN_FIXTURES) {
@@ -188,13 +432,20 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     const worker = new RepoQAWorker(repoqa, new EventBus());
     const result = await worker.indexRepo({ localPath: root });
     if (result.repo.status === 'error') parseFailures += 1;
-    symbolsByFixture.set(fixture.name, repoqa.listSymbols(result.repo.id));
+    const symbols = repoqa.listSymbols(result.repo.id);
+    symbolsByFixture.set(fixture.name, symbols);
+    indexByFixture.set(fixture.name, buildCallIndex(symbols));
+    repoIdByFixture.set(fixture.name, result.repo.id);
+    repoqaByFixture.set(fixture.name, repoqa);
   }
 
   const metrics = {
     'route-chain': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
     config: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    architecture: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
+    architecture: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
+    'intent-anchor': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
+    'diagnose-chain': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
+    evolution: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
   };
 
   for (const question of GOLDEN_DATASET) {
@@ -230,7 +481,7 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
           bucket.anchors += 1;
         }
       });
-    } else {
+    } else if (question.mode === 'architecture') {
       const nameSet = new Set(
         symbols
         .filter((symbol) =>
@@ -245,6 +496,81 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
           bucket.anchors += 1;
         }
       });
+    }
+
+    if (question.mode === 'intent-anchor') {
+      const repoqa = repoqaByFixture.get(question.fixture);
+      const chunkHitFiles = repoqa
+        ? repoqa
+            .searchChunks(repoIdByFixture.get(question.fixture)!, question.question)
+            .map((chunk) => chunk.filePath)
+            .filter((file): file is string => Boolean(file))
+        : undefined;
+      const radar = runDomainRadar({
+        repoId: repoIdByFixture.get(question.fixture) ?? question.fixture,
+        query: question.question,
+        symbols,
+        index: indexByFixture.get(question.fixture)!,
+        ...(chunkHitFiles ? { chunkHitFiles } : {})
+      });
+      // An anchor matches when its qualified name ends with the expected
+      // symbol (radar reports `Parent.symbol` for typed members).
+      const anchorNames = radar.matchedAnchors.map((anchor) => anchor.symbol);
+      question.expected.forEach((name) => {
+        bucket.expected += 1;
+        if (anchorNames.some((qualified) => qualified === name || qualified.endsWith(`.${name}`))) {
+          bucket.matched += 1;
+          bucket.anchors += 1;
+        }
+      });
+    } else if (question.mode === 'diagnose-chain') {
+      const result = runDiagnose({
+        repoId: repoIdByFixture.get(question.fixture) ?? question.fixture,
+        entrySymbol: question.question,
+        symbols,
+        index: indexByFixture.get(question.fixture)!
+      });
+      const chainSymbols = result.verifiedChain.map((step) => step.symbol);
+      question.expected.forEach((name) => {
+        bucket.expected += 1;
+        if (chainSymbols.includes(name)) bucket.matched += 1;
+      });
+      bucket.anchors += 1;
+      const anyBroken = result.verifiedChain.some((step) => step.status === 'BROKEN');
+      if (anyBroken !== (question.expectedBreak ?? false)) bucket.hallucinated += 1;
+    } else if (question.mode === 'evolution') {
+      const [intent, target] = question.question.split(':');
+      const result = runModuleEvolution({
+        repoId: repoIdByFixture.get(question.fixture) ?? question.fixture,
+        intentType: intent as 'DEPRECATE' | 'EXTEND',
+        targetSymbolOrModule: target,
+        ...(question.goal ? { extensionGoal: question.goal } : {}),
+        symbols,
+        index: indexByFixture.get(question.fixture)!
+      });
+      if (result.intentType === 'DEPRECATE') {
+        const orphaned = result.blastRadius.orphanedSymbols.map((symbol) => symbol.name);
+        question.expected.forEach((name) => {
+          bucket.expected += 1;
+          if (orphaned.includes(name)) bucket.matched += 1;
+        });
+        bucket.anchors += orphaned.length;
+        for (const name of question.expectedAbsent ?? []) {
+          if (orphaned.includes(name)) bucket.hallucinated += 1;
+        }
+      } else {
+        const evidence = new Set<string>([
+          ...result.transactionBoundaries.map((boundary) => boundary.scope),
+          ...(result.scaffoldTemplates ?? []).map((scaffold) => scaffold.suggestedPattern)
+        ]);
+        question.expected.forEach((name) => {
+          bucket.expected += 1;
+          if (evidence.has(name)) {
+            bucket.matched += 1;
+            bucket.anchors += 1;
+          }
+        });
+      }
     }
 
     bucket.latency += Date.now() - start;

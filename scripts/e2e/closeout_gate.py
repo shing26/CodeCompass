@@ -966,6 +966,33 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
     )
 
 
+
+
+def check_eval_smoke(node: str, cwd: Path) -> None:
+    """v0.13: the golden eval must run end-to-end and pass every threshold."""
+    tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
+    eval_ts = ROOT / "services/control-plane/src/repoqa-eval.ts"
+    run = subprocess.run(
+        [node, str(tsx), str(eval_ts)],
+        cwd=ROOT, capture_output=True, text=True, timeout=600,
+    )
+    try:
+        report = json.loads(run.stdout)
+        ok = (
+            run.returncode == 0
+            and report.get("passed") is True
+            and report.get("totalQuestions", 0) >= 65
+            and all(bucket["recallAtK"] >= 85 for bucket in report["buckets"].values())
+        )
+        buckets = report.get("buckets", {})
+        detail = " ".join(
+            f"{name}={bucket['recallAtK']:.0f}%" for name, bucket in buckets.items()
+        )
+    except Exception as exc:  # noqa: BLE001
+        ok, detail = False, f"{exc}: {run.stdout[-200:]} {run.stderr[-200:]}"
+    record("v0.13 golden eval passes every threshold (65 questions)", ok, detail)
+
+
 # ----------------------------------------------------------------------- main
 
 
@@ -1043,6 +1070,8 @@ def main() -> int:
         check_cli_composite(args.node, cli, polyglot, data_dir, tmp)
         # v0.9 — domain radar, module evolution, multi-view artifacts.
         check_v09_radar_evolve(args.node, cli, polyglot, data_dir, tmp)
+        # v0.13 — golden eval smoke (recall thresholds must hold).
+        check_eval_smoke(args.node, ROOT)
 
         if not args.skip_hot_reload:
             check_hot_reload(base, py_repo["id"], polyglot)

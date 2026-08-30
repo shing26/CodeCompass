@@ -99,9 +99,11 @@ export function transactionBoundaryFor(
     : symbol;
   if (classSymbol && hasTransactional(classSymbol.annotations)) push('CLASS', classSymbol);
 
-  // INTERFACE level: Spring allows @Transactional on the interface. Method
-  // symbols never carry `interfaces` (adapters only write it on type
-  // declarations), so read the implementing class's list instead.
+  // INTERFACE level: Spring honors @Transactional declared on the interface
+  // itself OR on the interface's method declaration (proxy-based lookup). The
+  // implementing class only references the interface through its `interfaces`
+  // list (adapters never write `interfaces` on method symbols), so resolve
+  // both declaration sites from the impl's type info.
   const implSymbol = isMethod
     ? symbol.parentType
       ? index.types.get(symbol.parentType)?.symbol
@@ -109,8 +111,14 @@ export function transactionBoundaryFor(
     : symbol;
   const interfaceNames = symbol.interfaces ?? implSymbol?.interfaces ?? [];
   for (const ifaceName of interfaceNames) {
-    const iface = index.types.get(ifaceName)?.symbol;
-    if (iface && hasTransactional(iface.annotations)) push('INTERFACE', iface);
+    const ifaceType = index.types.get(ifaceName);
+    const iface = ifaceType?.symbol;
+    if (!iface) continue;
+    if (hasTransactional(iface.annotations)) push('INTERFACE', iface);
+    const ifaceMethod = (ifaceType.methods.get(symbol.name) ?? [])[0];
+    if (ifaceMethod && hasTransactional(ifaceMethod.annotations)) {
+      push('INTERFACE', ifaceMethod);
+    }
   }
   return out;
 }
@@ -196,16 +204,19 @@ function scaffoldFor(
 }
 
 export function runModuleEvolution(input: ModuleEvolutionInput): ModuleEvolutionResult {
-  const { repoId, symbols, index, intentType } = input;
+  // Normalize so MCP/eval callers passing 'extend'/'deprecate' cannot silently
+  // fall into the other pipeline.
+  const intentType = input.intentType.toUpperCase() as 'DEPRECATE' | 'EXTEND';
+  const { repoId, symbols, index } = input;
   const target = input.targetSymbolOrModule.trim();
   if (!target) throw new Error('targetSymbolOrModule is required');
   const baseUrl = input.baseUrl ?? DEFAULT_COCKPIT_BASE;
   const traceId = stableTraceId('ev', repoId, intentType, target);
 
   if (intentType === 'EXTEND') {
-    return runExtend(input, target, traceId, baseUrl);
+    return runExtend({ ...input, intentType }, target, traceId, baseUrl);
   }
-  return runDeprecate(input, target, traceId, baseUrl);
+  return runDeprecate({ ...input, intentType }, target, traceId, baseUrl);
 }
 
 /* ------------------------------ DEPRECATE ------------------------------ */

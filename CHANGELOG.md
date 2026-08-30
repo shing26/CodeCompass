@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0] - 2026-08-30
+
+### Highlights
+
+- **评测基线落地（ADR-0004 → accepted）**：golden eval 从 50 条扩至 **65 条**，新增三个 bucket 覆盖 v0.8/v0.9 复合引擎——`intent-anchor`（中文意图→doc-chunk 桥接命中）、`diagnose-chain`（四层穿透 + 断点判定，含负例）、`evolution`（固定点级联孤立 + 三级事务边界 + 解耦模式）。全部 **Recall 100%、幻觉率 0%**（`docs/benchmark.md`）。
+- **CI 硬性门禁**：GitHub Actions 三平台矩阵（ubuntu/windows/macos × Node 24）跑 typecheck + 全部单测 + 构建；35 项 e2e 门禁（含 1 项新增 eval 冒烟）跑 ubuntu 专属 job；README 挂真实 CI badge。
+- e2e doctor 检查容忍 warning（CI 容器无 Ollama 不再误伤）；`codecompass install` 输出至 12 工具。
+
+### Fixed
+
+- `runModuleEvolution` 对 intentType 做大小写归一——'extend' 不再静默落入 DEPRECATE 管线。
+- 事务边界三级回溯补齐**接口方法级** `@Transactional`（Spring 代理最常见的声明位置），实现类经 `interfaces` 列表回溯接口方法注解。
+
+
 ## [0.11.0] - 2026-08-30
 
 ### Highlights

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Golden Dataset 真值先于 prompt 调优，config 桶取决于配置解析器

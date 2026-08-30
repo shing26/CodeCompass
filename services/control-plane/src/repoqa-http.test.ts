@@ -2440,14 +2440,18 @@ describe('RepoPulse local evidence plane', () => {
 describe('RepoPulse golden dataset eval harness', () => {
   it('runs a repeatable per-bucket report with pass/fail thresholds', async () => {
     const report = await runGoldenEval();
-    expect(report.totalQuestions).toBe(50);
+    expect(report.totalQuestions).toBe(65);
     expect(report.passed).toBe(true);
     expect(report.fixtureCommits['repo-a']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.fixtureCommits['repo-b']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.fixtureCommits['repo-c']).toMatch(/^[0-9a-f]{40}$/i);
+    expect(report.fixtureCommits['repo-d']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.buckets['route-chain'].total).toBe(20);
     expect(report.buckets.config.total).toBe(15);
     expect(report.buckets.architecture.total).toBe(15);
+    expect(report.buckets['intent-anchor'].total).toBe(5);
+    expect(report.buckets['diagnose-chain'].total).toBe(5);
+    expect(report.buckets.evolution.total).toBe(5);
     expect(report.failureTaxonomy.parse).toBe(0);
   });
 });
