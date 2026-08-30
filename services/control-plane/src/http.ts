@@ -347,8 +347,9 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     const query = typeof req.query.query === 'string' ? req.query.query.trim() : '';
     try {
       const key = `${repo.id}\u0000${query}`;
+      const now = Date.now();
       const cached = radarCache.get(key);
-      if (cached && cached.expiresAt > Date.now()) {
+      if (cached && cached.expiresAt > now) {
         res.json({ radar: cached.data });
         return;
       }
@@ -366,8 +367,11 @@ export function createHttpApp(deps: HttpDeps): express.Express {
         index,
         ...(chunkHitFiles ? { chunkHitFiles } : {})
       });
-      radarCache.set(key, { data: radar, expiresAt: Date.now() + RADAR_CACHE_TTL_MS });
-      res.json({ radar: maskEventPayload(radar) });
+      const maskedRadar = maskEventPayload(radar);
+      // Prune expired entries on write so the cache stays bounded.
+      for (const [k, v] of radarCache) { if (v.expiresAt <= now) radarCache.delete(k); }
+      radarCache.set(key, { data: maskedRadar, expiresAt: now + RADAR_CACHE_TTL_MS });
+      res.json({ radar: maskedRadar });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({ error: message });

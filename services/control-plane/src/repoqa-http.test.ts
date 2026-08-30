@@ -1489,6 +1489,37 @@ describe('Domain radar HTTP API (v0.11)', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('serves the masked radar payload from the 60s cache on repeat query', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-radar-cache-'));
+    try {
+      await makeDashboardRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      expect(result.body.repo?.status).toBe('ready');
+      const repoId = result.body.repo!.id;
+      const url = `${ctx.baseUrl}/api/repos/${repoId}/radar?query=${encodeURIComponent('listOrders')}`;
+
+      const first = await fetch(url);
+      expect(first.status).toBe(200);
+      const firstBody = (await first.json()) as {
+        radar?: { matchedAnchors: Array<{ symbol: string }> };
+        error?: string;
+      };
+      expect(firstBody.error).toBeUndefined();
+
+      const second = await fetch(url);
+      expect(second.status).toBe(200);
+      const secondBody = (await second.json()) as typeof firstBody;
+      // Cache hit must return the same already-masked payload as the fresh
+      // path (ADR-0003), never the unmasked raw radar result.
+      expect(secondBody).toEqual(firstBody);
+      expect(JSON.stringify(secondBody)).not.toContain('supersecret');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('Issue 28 subgraph context HTTP API', () => {

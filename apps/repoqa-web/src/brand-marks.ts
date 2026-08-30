@@ -106,19 +106,7 @@ export function inferBrand(input: BrandInput): BrandId {
     ) {
       return 'mybatis';
     }
-    const springAnnotations = [
-      '@RestController', '@Controller', '@Service', '@Repository',
-      '@Component', '@SpringBootApplication', '@GetMapping', '@PostMapping',
-      '@PutMapping', '@DeleteMapping', '@RequestMapping', '@EnableAutoConfiguration',
-      '@SpringBootTest', '@Autowired', '@Inject', '@Transactional', '@Async',
-      '@EventListener', '@Configuration', '@Bean'
-    ];
-    if (
-      annotations.some(a => springAnnotations.includes(a)) ||
-      kind === 'route' || kind === 'service' || kind === 'repository' || kind === 'advice'
-    ) {
-      return 'spring';
-    }
+    // Non-Mapper Java symbols are Spring by default (controllers/services/repos).
     return 'spring';
   }
 
