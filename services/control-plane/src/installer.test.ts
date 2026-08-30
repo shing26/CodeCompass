@@ -173,6 +173,40 @@ describe('installIdeConfig', () => {
     }
   });
 
+  it('writes windsurf/cline/roo entries with their own schemas', async () => {
+    const home = await tmpHome();
+    try {
+      for (const ide of ['windsurf', 'cline', 'roo'] as const) {
+        const result = await installIdeConfig({
+          ide,
+          repoPath: REPO,
+          home,
+          appData: path.join(home, 'AppData', 'Roaming'),
+          nodePath: NODE,
+          cliPath: CLI
+        });
+        expect(result.changed).toBe(true);
+        const written = JSON.parse(await fs.readFile(result.configPath, 'utf8'));
+        const entry = written.mcpServers.codecompass;
+        expect(entry.command).toBe(NODE);
+        // Cline/Roo support the allowlist; Windsurf has no such schema field.
+        if (ide === 'cline' || ide === 'roo') {
+          expect(entry.autoApprove).toEqual(codecompassToolNames());
+        } else {
+          expect(entry.autoApprove).toBeUndefined();
+        }
+        expect(result.configPath.toLowerCase()).not.toContain('cursor');
+      }
+      // Path shapes per IDE family.
+      const specs = resolveIdeSpecs(home, path.join(home, 'AppData', 'Roaming'));
+      expect(specs.windsurf.configPath).toContain(path.join('.codeium', 'windsurf'));
+      expect(specs.cline.configPath).toContain('globalStorage');
+      expect(specs.roo.configPath).toContain('RooVeterinaryInc.roo-cline');
+    } finally {
+      await fs.rm(home, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
   it('resolves per-platform claude config path and rejects corrupt configs', async () => {
     const home = await tmpHome();
     try {

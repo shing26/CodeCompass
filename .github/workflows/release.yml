@@ -1,0 +1,85 @@
+name: Release
+
+# Tag-driven release: build, verify, publish to npm and attach sample
+# artifacts. Triggered by pushing a v* tag after CHANGELOG/version bumps.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+      - name: Install workspace dependencies
+        run: npm run install:all
+      - name: Typecheck + unit tests
+        run: |
+          npm run typecheck
+          npm test
+          npm run test:web
+      - name: E2E gate
+        run: python3 scripts/e2e/closeout_gate.py
+      - name: Build
+        run: npm run build
+      - name: Generate sample artifact (open-source fixture)
+        run: |
+          mkdir -p dist-release
+          export DEMO="$PWD/dist-release/demo-polyglot"
+          mkdir -p "$DEMO/src/main/java/com/demo" "$DEMO/web/src"
+          cat > "$DEMO/src/main/java/com/demo/OwnerController.java" <<'JAVA'
+          package com.demo;
+          import org.springframework.web.bind.annotation.*;
+          @RestController
+          @RequestMapping("/api/owners")
+          public class OwnerController {
+            private final OwnerService ownerService = new OwnerService();
+            @GetMapping
+            public String listOwners() { return ownerService.findOwners(); }
+          }
+          JAVA
+          cat > "$DEMO/src/main/java/com/demo/OwnerService.java" <<'JAVA'
+          package com.demo;
+          import org.springframework.stereotype.Service;
+          @Service
+          public class OwnerService {
+            private final OwnerRepository ownerRepository = new OwnerRepository();
+            public String findOwners() { return ownerRepository.findAll(); }
+          }
+          JAVA
+          cat > "$DEMO/src/main/java/com/demo/OwnerRepository.java" <<'JAVA'
+          package com.demo;
+          import org.apache.ibatis.annotations.Mapper;
+          import org.apache.ibatis.annotations.Select;
+          @Mapper
+          public interface OwnerRepository {
+            @Select("SELECT * FROM owners")
+            String findAll();
+          }
+          JAVA
+          cat > "$DEMO/web/src/api-client.ts" <<'TS'
+          import axios from 'axios';
+          export const api = axios.create({ baseURL: '/api' });
+          export function loadOwners() { return api.get('/owners'); }
+          TS
+          node services/control-plane/dist/cli.js export listOwners --repo "$DEMO" --file dist-release/architecture-artifact.html
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create GitHub release with sample artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/architecture-artifact.html
+            scripts/e2e/e2e-result.json
+          generate_release_notes: true

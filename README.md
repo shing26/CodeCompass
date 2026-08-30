@@ -59,7 +59,7 @@
 
 ### 10. Zero-Config 安装器（v0.8）
 ```bash
-codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
+codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run]
 ```
 把 stdio MCP 入口写入各 IDE 自有配置（Cursor `~/.cursor/mcp.json` 并注入工具 autoApprove 白名单、ZCode `~/.zcode/cli/config.json`、Claude Desktop），自动解析 Node 运行时绝对路径；幂等合并、写前自动备份、`--dry-run` 预览。
 
@@ -114,11 +114,11 @@ codecompass --version
 npm run e2e   # = python scripts/e2e/closeout_gate.py（需 Node 24 + 已构建 dist + git + python3）
 ```
 
-一键构建多语言 fixture（Java+TS / Python / Go）并断言 33 项能力：doctor、版本一致性、
+一键构建多语言 fixture（Java+TS / Python / Go）并断言 35 项能力：doctor、版本一致性、
 多语言消费面、Module Scope、扫描过滤（venv/二进制）、跨语言桥接、reverse-deps、
 确定性调用链、SSE 流（mermaid + 锚点）、symbolType 枚举、架构差异、ADR-0003 脱敏
 门禁、FastAPI Depends、Go 隐式接口、热重载，以及 v0.8 的 MCP stdio 复合工具往返、
-CLI diagnose / refactor-plan / export 与 install --dry-run，以及 v0.9 的 radar 全景与意图锚点、evolve 双意图与多视图工件断言（含 MCP stdio 往返）。详见 `scripts/e2e/README.md`。
+CLI diagnose / refactor-plan / export 与 install --dry-run，以及 v0.9 的 radar 全景与意图锚点、evolve 双意图与多视图工件断言（含 MCP stdio 往返）、v0.13 的 golden eval 阈值冒烟。基准报表见 `docs/benchmark.md`。
 
 ### 方式二：Docker（容器开发）
 
@@ -134,6 +134,20 @@ docker run --rm -p 43110:43110 \
   -v "$PWD:/repo:ro" -v codecompass-data:/data \
   codecompass:local node services/control-plane/dist/cli.js /repo --no-browser
 ```
+
+## 安装（npm）
+
+```bash
+# 无需预装，直接拉起 stdio MCP 服务：
+npx @codecompass/cli mcp /path/to/your/repo
+
+# 或全局安装后使用 codecompass 命令：
+npm install -g @codecompass/cli
+codecompass /path/to/your/repo          # 打开 Web 驾驶舱
+codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
+```
+
+支持一键写入的 IDE：Cursor、ZCode、Claude Desktop、Windsurf、Cline、Roo Code、Windsurf、Cline (VS Code)、Roo Code (VS Code)。
 
 ## MCP 工具接入
 

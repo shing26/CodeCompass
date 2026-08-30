@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.14.0] - 2026-08-30
+
+### Highlights
+
+- **npm 首发**：包名 `@codecompass/cli`（bin 命令仍是 `codecompass`），`npx @codecompass/cli mcp <repo>` 一键拉起；补齐 keywords/LICENSE/repository 元数据，`npm pack` 实测 2.8MB / 155 文件。
+- **安装器生态扩至 6 家 IDE**：新增 Windsurf（`~/.codeium/windsurf/mcp_config.json`）、Cline 与 Roo Code（VS Code globalStorage，支持 autoApprove 白名单），沿用幂等 merge/备份/dry-run 机制。
+- **Release 管线**：tag 触发 GitHub Actions——全量验证后 `npm publish`，GitHub Release 附带开源 fixture 生成的示例 `architecture-artifact.html`。
+
+### Added
+
+- `.github/workflows/release.yml`（v* tag 触发）。
+- `LICENSE`（MIT）。
+
+
 ## [0.13.0] - 2026-08-30
 
 ### Highlights

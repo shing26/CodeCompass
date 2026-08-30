@@ -19,7 +19,7 @@ import { MCP_TOOLS } from './repoqa-mcp';
  *   Claude Desktop uses a plain `mcpServers` map.
  */
 
-export type IdeId = 'cursor' | 'zcode' | 'claude';
+export type IdeId = 'cursor' | 'zcode' | 'claude' | 'windsurf' | 'cline' | 'roo';
 
 export interface IdeSpec {
   id: IdeId;
@@ -30,7 +30,7 @@ export interface IdeSpec {
   supportsAutoApprove: boolean;
 }
 
-export const INSTALL_IDES: IdeId[] = ['cursor', 'zcode', 'claude'];
+export const INSTALL_IDES: IdeId[] = ['cursor', 'zcode', 'claude', 'windsurf', 'cline', 'roo'];
 
 /** Resolve each IDE's config path for a given HOME/APPDATA (injectable for tests). */
 export function resolveIdeSpecs(home: string, appData?: string): Record<IdeId, IdeSpec> {
@@ -40,6 +40,13 @@ export function resolveIdeSpecs(home: string, appData?: string): Record<IdeId, I
       : process.platform === 'darwin'
         ? path.join(home, 'Library', 'Application Support', 'Claude')
         : path.join(home, '.config', 'Claude');
+  // VS Code-family globalStorage (Cline/Roo write MCP config inside it).
+  const vscodeGlobal =
+    process.platform === 'win32'
+      ? path.join(appData ?? path.join(home, 'AppData', 'Roaming'), 'Code', 'User', 'globalStorage')
+      : process.platform === 'darwin'
+        ? path.join(home, 'Library', 'Application Support', 'Code', 'User', 'globalStorage')
+        : path.join(home, '.config', 'Code', 'User', 'globalStorage');
   return {
     cursor: {
       id: 'cursor',
@@ -58,6 +65,24 @@ export function resolveIdeSpecs(home: string, appData?: string): Record<IdeId, I
       label: 'Claude Desktop',
       configPath: path.join(claudeDir, 'claude_desktop_config.json'),
       supportsAutoApprove: false
+    },
+    windsurf: {
+      id: 'windsurf',
+      label: 'Windsurf',
+      configPath: path.join(home, '.codeium', 'windsurf', 'mcp_config.json'),
+      supportsAutoApprove: false
+    },
+    cline: {
+      id: 'cline',
+      label: 'Cline (VS Code)',
+      configPath: path.join(vscodeGlobal, 'saoudrizwan.claude-dev', 'settings', 'cline_mcp_settings.json'),
+      supportsAutoApprove: true
+    },
+    roo: {
+      id: 'roo',
+      label: 'Roo Code (VS Code)',
+      configPath: path.join(vscodeGlobal, 'RooVeterinaryInc.roo-cline', 'settings', 'mcp_settings.json'),
+      supportsAutoApprove: true
     }
   };
 }
@@ -75,7 +100,8 @@ export function renderServerEntry(
   if (ide === 'zcode') {
     return { type: 'stdio', command: entry.command, args: entry.args };
   }
-  if (ide === 'cursor') {
+  if (ide === 'cursor' || ide === 'cline' || ide === 'roo') {
+    // Cursor/Cline/Roo share the autoApprove allowlist concept.
     return { command: entry.command, args: entry.args, autoApprove: codecompassToolNames() };
   }
   return { command: entry.command, args: entry.args };

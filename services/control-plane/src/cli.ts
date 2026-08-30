@@ -21,7 +21,7 @@ import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
 import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadges } from './export-artifact';
 
-export const VERSION = '0.13.0';
+export const VERSION = '0.14.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
@@ -99,7 +99,7 @@ Usage:
   codecompass radar [query] [repoPath]
   codecompass evolve --intent <deprecate|extend> --target <module|symbol> [repoPath]
   codecompass doctor [--data-dir <path>] [--json]
-  codecompass install --ide <cursor|zcode|claude|all> [--repo <path>] [--dry-run]
+  codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
@@ -166,7 +166,7 @@ Options:
   --data-dir <dir>      Data directory (default: MHW_DATA_DIR or ~/.mhw)
   --no-browser          Do not auto-open the browser
   --no-watch            Disable FS watcher hot reload for ready repos
-  --ide <id>            With install: cursor | zcode | claude | all
+  --ide <id>            With install: cursor | zcode | claude | windsurf | cline | roo | all
   --repo <path>         Repository directory for install / diagnose /
                         refactor-plan / export (default: current directory)
   --dry-run             With install: preview the config write without touching disk
@@ -897,7 +897,7 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     const targets: IdeId[] =
       ide === 'all' ? [...INSTALL_IDES] : [ide as IdeId];
     if (ide !== 'all' && !INSTALL_IDES.includes(targets[0])) {
-      throw new Error(`Unknown IDE: ${ide} (expected cursor | zcode | claude | all)`);
+      throw new Error(`Unknown IDE: ${ide} (expected cursor | zcode | claude | windsurf | cline | roo | all)`);
     }
     const repoPath = args.installRepo ?? args.targetPath ?? process.cwd();
     for (const target of targets) {
