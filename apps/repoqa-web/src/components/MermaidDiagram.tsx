@@ -103,7 +103,14 @@ export function MermaidDiagram({
   const hitsRef = useRef<Element[]>([]);
   const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const uidRef = useRef(0);
-  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * v0.14 fix — the flash highlight must survive re-renders: centerOn()
+   * triggers a view state update, and React then re-writes the injected
+   * innerHTML, wiping any manual style mutation. Store the flash target in
+   * state and re-apply the outline after the innerHTML effect.
+   */
+  const [flashSymbol, setFlashSymbol] = useState<string | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // v0.10 (Stage 1) — semantic styling: annotate the rendered SVG edges and
   // node labels from the resolved trace (BROKEN pulse / HTTP flow / GET/POST).
@@ -228,16 +235,29 @@ export function MermaidDiagram({
       }
     });
     if (!target) return;
-    const labelEl = target.querySelector('.label') as HTMLElement | null;
-    if (labelEl) {
-      labelEl.style.outline = '2px solid var(--color-accent, #f59e0b)';
-      if (focusTimer.current) window.clearTimeout(focusTimer.current);
-      focusTimer.current = window.setTimeout(() => {
-        labelEl.style.outline = '';
-      }, 1600);
-    }
     centerOn(target);
+    setFlashSymbol(needle);
   }, [svgHtml, focusRequest]);
+
+  // Re-apply the flash outline after every innerHTML re-render while the
+  // flash window is active (view updates would otherwise wipe it).
+  useEffect(() => {
+    if (!flashSymbol) return;
+    const el = containerRef.current;
+    if (!el || svgHtml === null) return;
+    for (const node of el.querySelectorAll('g.node')) {
+      const labelEl = node.querySelector('.label') as HTMLElement | null;
+      const text = labelEl?.textContent?.trim().toLowerCase();
+      if (text !== flashSymbol && !text?.includes(flashSymbol)) continue;
+      labelEl!.style.outline = '2px solid var(--color-accent, #f59e0b)';
+      if (flashTimer.current) window.clearTimeout(flashTimer.current);
+      flashTimer.current = window.setTimeout(() => {
+        labelEl!.style.outline = '';
+        setFlashSymbol(null);
+      }, 1600);
+      break;
+    }
+  }, [flashSymbol, svgHtml]);
 
   // Click delegation: match the clicked label against click bindings. mermaid
   // 11 renders node labels as <text> (htmlLabels:false) by default in some
