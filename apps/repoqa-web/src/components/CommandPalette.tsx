@@ -70,7 +70,12 @@ export function CommandPalette({
   useEffect(() => {
     if (!open) return;
     const onWindowKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // React's keydown handler already covers the input and its container;
+      // only act when the escape was not handled there.
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        e.preventDefault();
+        onClose();
+      }
     };
     window.addEventListener('keydown', onWindowKeyDown);
     return () => window.removeEventListener('keydown', onWindowKeyDown);
@@ -141,6 +146,7 @@ export function CommandPalette({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       onClose();
       return;
     }
