@@ -858,7 +858,7 @@ def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, t
 
     install = run("install", "--ide", "cursor", "--repo", str(repo_path), "--dry-run")
     record(
-        "v0.8 CLI install --dry-run previews without writing",
+        "v0.8+ CLI install --dry-run previews without writing",
         install.returncode == 0 and "dry-run" in install.stdout,
         (install.stdout or install.stderr).strip().splitlines()[-1][:120] if (install.stdout or install.stderr) else "",
     )
