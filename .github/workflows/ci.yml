@@ -1,0 +1,63 @@
+name: CI
+
+# v0.12.0 — hard quality gate for the open-source release. Every push/PR must
+# pass typecheck + unit tests + build on the three first-class platforms; the
+# 33-check e2e gate (real processes, stdio handshake, AST fixtures) runs on
+# ubuntu first and expands to the other platforms once proven stable.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: ${{ matrix.os }} · Node 24
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install workspace dependencies
+        run: npm run install:all
+      - name: Typecheck (all packages)
+        run: npm run typecheck
+      - name: Control-plane unit tests
+        run: npm test
+      - name: Web unit tests
+        run: npm run test:web
+      - name: Build all packages
+        run: npm run build
+
+  e2e-gate:
+    name: E2E gate (33 checks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install workspace dependencies
+        run: npm run install:all
+      - name: Build (gate needs dist/)
+        run: npm run build
+      - name: Run e2e closeout gate
+        run: python3 scripts/e2e/closeout_gate.py
+      - name: Upload gate result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-result
+          path: scripts/e2e/e2e-result.json

@@ -1,5 +1,7 @@
 # CodeCompass
 
+![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)
+
 本地优先的**多语言代码理解工作台** —— 一条命令导入任何仓库，自动产出架构看板、跨语言确定性调用链与可溯源的 Agent 上下文。全部在一个 Node.js 进程内完成：AST 索引 → 确定性分析 → 零 Prompt 驾驶舱。
 
 > 定位（ADR-0001/0002）：对源码**只读**、永不写回；只承诺**确定性静态分析**，不调用 LLM 也能给出全部核心结论；每个结论都带可点击的 `file:line` 锚点。

@@ -6,7 +6,7 @@ Supersedes the lost `codecompass_e2e_harness.sh` / AC-1~AC-12 set (spec:
 repos in a temp dir, boots the built control-plane, and asserts the capabilities
 v0.5.1/v0.6.0 claim:
 
-  1.  doctor --json reports every check ok
+  1.  doctor --json reports every check ok (errors block, warnings tolerated)
   2.  version consistency: root package.json == cli.ts VERSION == CHANGELOG top
   3.  Java fixture: dashboard tech-stack / config keys / top APIs non-empty
   4.  TS fixture: package.json deps surface as config keys (consumer polyglot)
@@ -997,11 +997,16 @@ def main() -> int:
     )
     try:
         doctor_json = json.loads(doctor.stdout)
-        bad = [c["id"] for c in doctor_json.get("checks", []) if c.get("status") != "ok"]
-        record("doctor --json reports every check ok", doctor_json.get("status") == "ok" and not bad,
+        # CI/containers have no Ollama — 'warning' (Local LLM unreachable, low
+        # disk) is tolerated; only 'error' checks (node ABI, sqlite, port,
+        # data-dir) block the gate.
+        bad = [c["id"] for c in doctor_json.get("checks", []) if c.get("status") == "error"]
+        record("doctor --json reports every check ok (errors block, warnings tolerated)",
+               doctor_json.get("status") in ("ok", "warning") and not bad,
                f"failed={bad}" if bad else f"{len(doctor_json.get('checks', []))} checks")
     except json.JSONDecodeError:
-        record("doctor --json reports every check ok", False, doctor.stdout[:200])
+        record("doctor --json reports every check ok (errors block, warnings tolerated)",
+               False, doctor.stdout[:200])
 
     # Version consistency needs no server either.
     check_versions()
