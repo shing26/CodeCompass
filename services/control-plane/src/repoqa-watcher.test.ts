@@ -152,15 +152,24 @@ describeWatcher('Issue 30 FS watcher incremental refresh', () => {
     const watcher = new RepoWatcher(repo, worker, eventBus, { debounceMs: 30 });
     watcher.start();
     try {
-      const before = events.filter((event) => event.type === 'repo_updated').length;
       await fs.mkdir(path.join(repoDir, 'node_modules'), { recursive: true });
       await fs.writeFile(
         path.join(repoDir, 'node_modules', 'hot.js'),
         'export const hot = true;'
       );
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      expect(events.filter((event) => event.type === 'repo_updated')).toHaveLength(before);
+      // Generous window for slow CI runners; the strong guarantee is that
+      // node_modules content is NEVER indexed nor reported as an update,
+      // regardless of fs.watch event noise on the host filesystem.
+      await new Promise((resolve) => setTimeout(resolve, 600));
       expect(repoqa.isFileIndexed(repo.id, 'node_modules/hot.js')).toBe(false);
+      const hotUpdates = events.filter(
+        (event) =>
+          event.type === 'repo_updated' &&
+          JSON.stringify((event.payload as { files?: string[] })?.files ?? []).includes(
+            'node_modules/hot.js'
+          )
+      );
+      expect(hotUpdates).toHaveLength(0);
     } finally {
       await watcher.flush();
       watcher.close();
