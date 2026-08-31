@@ -212,9 +212,9 @@ describe('MermaidDiagram trace injection (v0.10 Stage 1)', () => {
     await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
     const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
     const edges = container.querySelectorAll('g.edgePath');
-    expect(edges[0].classList.contains('ccx-edge-http')).toBe(true);
+    await waitFor(() => expect(edges[0].classList.contains('ccx-edge-http')).toBe(true));
     const node = container.querySelectorAll('g.node .label')[1]!.closest('g.node')!;
-    expect(node.classList.contains('ccx-node-post')).toBe(true);
+    await waitFor(() => expect(node.classList.contains('ccx-node-post')).toBe(true));
   });
 
   it('injects nothing for a single-hop trace', async () => {
