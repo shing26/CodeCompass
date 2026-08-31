@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.15.0] - 2026-08-31
+
+### Highlights
+
+- **大型仓库规模化**：文件预算可配置化（`REPOQA_MAX_FILES`/`REPOQA_MAX_LINES`），默认上限从 3000 提至 12000。对 spring-boot（11,482 文件 / 58,535 符号）实测全量索引 **26.3s / 438MB**——已达 v1.0 GA 目标区间（≤30s / ≤500MB），基线报表见 `docs/profiling.md`。旧 3000 上限会截断该仓库约 75% 的代码。
+- **Prisma 数据层（TS/Node.js 四层穿透补全）**：新 `PrismaAdapter` 解析 `schema.prisma` 为实体（`repository`）与操作（`sql`）符号；确定性桥接 `prisma.<model>.<op>()` → schema 操作节点，TypeScript 工程由此获得与 Java/MyBatis 同级的 `DATA_MAPPER` 跳层。
+
+### Added
+
+- `services/control-plane/src/languages/PrismaAdapter.ts`（schema 解析 + 15 种 Prisma 操作白名单）+ 测试。
+- `repoqa-callchain.ts`：`prismaStatements` 索引与 `resolvePrismaCall` 桥接（大小写归一、单命中才解析）。
+- `scripts/profile-index.ts`：大仓库索引 profiling 工具；`docs/profiling.md` 基线报表。
+- 扫描预算纳入 `.prisma` 扩展。
+
+
 ## [0.14.0] - 2026-08-30
 
 ### Highlights

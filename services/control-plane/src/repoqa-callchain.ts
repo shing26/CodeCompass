@@ -52,6 +52,8 @@ export interface SymbolIndex {
   implsOfInterface: Map<string, string[]>;
   /** Issue 24: `<simple-interface>.<statement-id>` → MyBatis XML SQL nodes. */
   mapperStatements: Map<string, RepoSymbol[]>;
+  /** v0.15: `prisma.<Model>.<operation>` → Prisma schema operation nodes. */
+  prismaStatements: Map<string, RepoSymbol[]>;
   /** Issue 25: normalized route path → backend symbols with a displayPath. */
   routesByPath: Map<string, Array<{ symbol: RepoSymbol; priority: number }>>;
   /** file → method name → method symbols (legacy same-file resolution). */
@@ -312,6 +314,7 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
   const types = new Map<string, TypeInfo>();
   const implsOfInterface = new Map<string, string[]>();
   const mapperStatements = new Map<string, RepoSymbol[]>();
+  const prismaStatements = new Map<string, RepoSymbol[]>();
   const routesByPath = new Map<string, Array<{ symbol: RepoSymbol; priority: number }>>();
   const methodsByFile = new Map<string, Map<string, RepoSymbol[]>>();
   const methodsByName = new Map<string, RepoSymbol[]>();
@@ -378,6 +381,13 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
       const list = mapperStatements.get(key) ?? [];
       list.push(symbol);
       mapperStatements.set(key, list);
+      // v0.15: Prisma schema operations also index under the client prefix.
+      // Lowercase key: Prisma client call sites use `prisma.post.…` while the
+      // schema model is `Post` — matching must be case-insensitive.
+      const prismaKey = `prisma.${symbol.parentType.toLowerCase()}.${symbol.name}`;
+      const prismaList = prismaStatements.get(prismaKey) ?? [];
+      prismaList.push(symbol);
+      prismaStatements.set(prismaKey, prismaList);
     }
   }
 
@@ -385,6 +395,7 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
     types,
     implsOfInterface,
     mapperStatements,
+    prismaStatements,
     routesByPath,
     methodsByFile,
     methodsByName
@@ -495,6 +506,28 @@ function resolveHttpRoute(
   return { target: best[0].symbol };
 }
 
+/**
+ * v0.15 — deterministic Prisma client bridge. A Prisma call site is dynamic
+ * (the client is untyped at parse time), so resolve by evidence: the receiver
+ * tail must be a model declared in schema.prisma AND the method must be a
+ * known Prisma operation. A single schema match is a deterministic hop;
+ * ambiguity stays a Static Analysis Break.
+ */
+function resolvePrismaCall(
+  index: SymbolIndex,
+  call: RepoSymbolCall
+): { target: RepoSymbol } | undefined {
+  if (call.receiverType || !call.receiver || call.dynamic !== true) return undefined;
+  const tail = call.receiver.split('.').pop();
+  if (!tail) return undefined;
+  const candidates = index.prismaStatements.get(
+    `prisma.${tail.toLowerCase()}.${call.method}`
+  );
+  if (!candidates || candidates.length === 0) return undefined;
+  if (candidates.length !== 1) return undefined;
+  return { target: candidates[0] };
+}
+
 function resolveCall(
   index: SymbolIndex,
   caller: RepoSymbol,
@@ -506,6 +539,11 @@ function resolveCall(
       reason: `${STATIC_ANALYSIS_BREAK_DYNAMIC} HTTP ${call.http.method} ${call.http.url}`
     };
   }
+  // v0.15: Prisma client bridge — `prisma.post.findMany()` (or any dynamic
+  // receiver whose tail is a known model) lands deterministically on the
+  // schema's operation node when the method is a Prisma operation.
+  const prismaTarget = resolvePrismaCall(index, call);
+  if (prismaTarget) return prismaTarget;
   const candidateTypesList = candidateTypes(index, caller, call);
   for (const typeName of candidateTypesList) {
     const info = index.types.get(typeName);

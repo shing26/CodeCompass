@@ -4,6 +4,7 @@ import { JavaAdapter } from './languages/JavaAdapter';
 import { TypeScriptAdapter } from './languages/TypeScriptAdapter';
 import { GoAdapter } from './languages/GoAdapter';
 import { PythonAdapter } from './languages/PythonAdapter';
+import { PrismaAdapter } from './languages/PrismaAdapter';
 
 /**
  * Language adapter dispatcher. The Java implementation moved to
@@ -13,7 +14,7 @@ import { PythonAdapter } from './languages/PythonAdapter';
  */
 export * from './languages/JavaAdapter';
 
-const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter, PythonAdapter];
+const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter, PythonAdapter, PrismaAdapter];
 
 /** Return the language adapter owning `filePath`, or undefined. */
 export function adapterFor(filePath: string): LanguageAdapter | undefined {

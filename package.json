@@ -1,6 +1,6 @@
 {
   "name": "@codecompass/cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "CodeCompass — deterministic AST-based architecture cockpit and MCP server: call chains, cross-stack root-cause diagnosis, blast-radius planning, module evolution and domain radar for Java/TS/Python/Go repos.",
   "bin": {
     "codecompass": "./bin/codecompass.js"

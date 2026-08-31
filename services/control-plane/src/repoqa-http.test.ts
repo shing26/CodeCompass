@@ -8,6 +8,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from './db';
+import { MAX_FILES } from './repoqa-scan';
 import { EventBus } from './events';
 import { HarnessManager } from './harness-manager';
 import { createHttpApp } from './http';
@@ -735,15 +736,15 @@ describe('RepoPulse repo import HTTP API', () => {
       ctx.eventBus.on((event) => {
         if (event.type === 'repoqa.index.error') events.push('error');
       });
-      await Promise.all(
-        Array.from({ length: 3001 }, (_, index) =>
-          fs.writeFile(path.join(root, `file-${index}.txt`), '')
-        )
-      );
+      // Sequential writes: MAX_FILES can be large (default 12000) and a
+      // parallel burst trips the Windows EMFILE handle limit.
+      for (let index = 0; index < MAX_FILES + 1; index += 1) {
+        await fs.writeFile(path.join(root, `file-${index}.txt`), '');
+      }
       const result = await importRepo(ctx.baseUrl, root);
       expect(result.status).toBe(201);
       expect(result.body.repo?.status).toBe('error');
-      expect(result.body.repo?.error).toContain('3000');
+      expect(result.body.repo?.error).toContain(String(MAX_FILES));
       expect(events).toContain('error');
     } finally {
       await ctx.close();

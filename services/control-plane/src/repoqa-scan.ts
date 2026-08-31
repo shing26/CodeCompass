@@ -2,8 +2,19 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parsePomModules } from './repoqa-parser';
 
-export const MAX_FILES = 3000;
-export const MAX_LINES = 500_000;
+/**
+ * v0.15 — scale budget is configurable via `REPOQA_MAX_FILES` /
+ * `REPOQA_MAX_LINES` so large open-source repositories can be indexed for
+ * profiling; the defaults cover interactive local use (3000 files was the
+ * v0.5 hard ceiling and silently truncated big monorepos).
+ */
+function budgetFromEnv(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export const MAX_FILES = budgetFromEnv(process.env.REPOQA_MAX_FILES, 12_000);
+export const MAX_LINES = budgetFromEnv(process.env.REPOQA_MAX_LINES, 2_000_000);
 
 /** v0.6.0 (D-BE-1) — files beyond these limits degrade to Tier 3 extraction. */
 export const LARGE_FILE_LINE_LIMIT = 3000;
@@ -18,7 +29,9 @@ export const SOURCE_EXTENSIONS = new Set([
   '.jsx',
   '.mjs',
   '.py',
-  '.go'
+  '.go',
+  // v0.15: Prisma schema files parse into data-layer symbols.
+  '.prisma'
 ]);
 
 /** Issue 25: web-family files parsed by the TypeScript/JavaScript adapter. */

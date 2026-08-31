@@ -14,6 +14,9 @@
 ### 2. 跨语言契约桥接
 前端 `fetch` / `$fetch` / `axios`（含 `axios.create` 封装）的 HTTP 调用点，按归一化路径（含 `/api`、`/api/v1` 前缀变体）**唯一匹配**到 Spring / Express / Gin / Fiber / FastAPI / Flask 路由后连边——前端到后端的调用链在同一张图里打通。匹配保守：候选不唯一时停下并标记，而不是猜。
 
+### 2.5 Prisma 数据层（v0.15）
+TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.post.findMany()` 类调用确定性解析到数据层——TypeScript 项目拥有与 Java/MyBatis 同级的 4 层穿透能力。
+
 ### 3. 多语言 AST 解析
 `LanguageAdapter` 抽象层把不同语言的语法树统一成同一套 `RepoSymbol` 契约：同一份调用图索引、同一套调用链算法、同一个 Web/MCP/CLI 证据面。
 
