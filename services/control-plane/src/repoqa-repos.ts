@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import type { Repos } from './repos';
@@ -18,8 +19,33 @@ export interface Repo {
   indexTotal?: number;
   /** v0.5.1 (D1): candidate import roots when the repo trips a size limit. */
   suggestedSubdirs?: string[];
+  /**
+   * Issue 23 / ADR-0010 — physical commit of the indexed working tree:
+   * `hash`, `hash+dirty` when uncommitted changes exist, `unversioned`
+   * outside a git work tree. Anchors inherit it for time-space replay.
+   */
+  commit?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Issue 23 / ADR-0010 — resolve the physical commit of a repo working tree.
+ * `hash` when clean, `hash+dirty` when uncommitted changes exist,
+ * `unversioned` outside a git work tree or when git is unavailable.
+ * Synchronous by design: callers persist it in create/upsert/update flows.
+ */
+export function resolveRepoCommitSync(localPath: string): string {
+  try {
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: localPath, encoding: 'utf8' });
+    const hash = head.stdout?.trim() ?? '';
+    if (head.status !== 0 || !/^[0-9a-f]{7,40}$/i.test(hash)) return 'unversioned';
+    const status = spawnSync('git', ['status', '--porcelain'], { cwd: localPath, encoding: 'utf8' });
+    if (status.status !== 0) return hash;
+    return status.stdout?.trim() ? `${hash}+dirty` : hash;
+  } catch {
+    return 'unversioned';
+  }
 }
 
 export interface RepoSymbolCall {
@@ -188,6 +214,7 @@ function mapRepo(row: {
   symbol_count: number;
   index_parsed: number;
   index_total: number;
+  repo_commit: string | null;
   created_at: string;
   updated_at: string;
 }): Repo {
@@ -205,6 +232,7 @@ function mapRepo(row: {
     ...(indexing
       ? { indexParsed: row.index_parsed, indexTotal: row.index_total }
       : {}),
+    commit: row.repo_commit ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -233,8 +261,8 @@ export class RepoQARepos {
     const now = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO repos (id, name, repo_url, local_path, branch, status, file_count, symbol_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'idle', 0, 0, ?, ?)`
+        `INSERT INTO repos (id, name, repo_url, local_path, branch, repo_commit, status, file_count, symbol_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'idle', 0, 0, ?, ?)`
       )
       .run(
         input.id,
@@ -242,6 +270,7 @@ export class RepoQARepos {
         input.repoUrl ?? null,
         input.localPath,
         input.branch ?? 'main',
+        resolveRepoCommitSync(input.localPath),
         now,
         now
       );
@@ -271,7 +300,7 @@ export class RepoQARepos {
       // re-import (e.g. the worker's own upsert) does not carry one.
       this.db
         .prepare(
-          `UPDATE repos SET name = ?, branch = ?, local_path = ?, repo_url = COALESCE(?, repo_url), updated_at = ?
+          `UPDATE repos SET name = ?, branch = ?, local_path = ?, repo_url = COALESCE(?, repo_url), repo_commit = ?, updated_at = ?
            WHERE id = ?`
         )
         .run(
@@ -279,6 +308,7 @@ export class RepoQARepos {
           input.branch ?? existing.branch,
           input.localPath,
           input.repoUrl ?? null,
+          resolveRepoCommitSync(input.localPath),
           now,
           existing.id
         );
@@ -288,8 +318,8 @@ export class RepoQARepos {
     const now = new Date().toISOString();
     this.db
       .prepare(
-        `INSERT INTO repos (id, name, repo_url, local_path, branch, status, file_count, symbol_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'idle', 0, 0, ?, ?)`
+        `INSERT INTO repos (id, name, repo_url, local_path, branch, repo_commit, status, file_count, symbol_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'idle', 0, 0, ?, ?)`
       )
       .run(
         id,
@@ -297,6 +327,7 @@ export class RepoQARepos {
         input.repoUrl ?? null,
         input.localPath,
         input.branch ?? 'main',
+        resolveRepoCommitSync(input.localPath),
         now,
         now
       );
@@ -333,6 +364,19 @@ export class RepoQARepos {
         now,
         id
       );
+  }
+
+  /**
+   * Issue 23 / ADR-0010 — re-resolve and persist the physical commit
+   * (`hash` / `hash+dirty` / `unversioned`). Called when indexing starts so
+   * anchors minted afterwards reference the state the index actually saw.
+   */
+  refreshRepoCommit(id: string): void {
+    const repo = this.getRepo(id);
+    if (!repo) return;
+    this.db
+      .prepare(`UPDATE repos SET repo_commit = ? WHERE id = ?`)
+      .run(resolveRepoCommitSync(repo.localPath), id);
   }
 
   /** Issue 30: update live file/symbol counters without touching status. */

@@ -148,6 +148,24 @@ describe('QueryStream done payload (ticket 06)', () => {
     );
     stream.close();
   });
+  it('sends the pasted stack for incident mode (Issue 23)', () => {
+    const stack = 'at Demo.run(Demo.java:9)';
+    const stream = new QueryStream('http://api', 'repo-1', 'NPE at Demo.run', 'incident', undefined, stack);
+    stream.connect();
+    const src = FakeEventSource.instances[0];
+    expect(src.url).toContain('mode=incident');
+    const url = new URL(src.url);
+    expect(url.searchParams.get('stack')).toBe(stack);
+    stream.close();
+  });
+  it('omits the stack param when no stack is supplied (Issue 23)', () => {
+    const stream = new QueryStream('http://api', 'repo-1', 'symptom only', 'incident');
+    stream.connect();
+    const src = FakeEventSource.instances[0];
+    expect(src.url).toContain('mode=incident');
+    expect(src.url).not.toContain('stack=');
+    stream.close();
+  });
 });
 
 describe('QueryStream reconnect (ticket 07)', () => {
@@ -163,7 +181,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('reopens with exponential backoff after a dropped connection and keeps streaming', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, undefined, 100, 3);
     const events: QueryEvent[] = [];
     const errors: unknown[] = [];
     let done = false;
@@ -200,7 +218,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('emits a permanent error after the reconnect budget is exhausted', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, undefined, 100, 3);
     const errors: unknown[] = [];
     stream.onError((e) => errors.push(e));
     stream.connect();
@@ -228,7 +246,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('does not reopen after close() during the backoff window', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, undefined, 100, 3);
     stream.connect();
     FakeEventSource.instances[0].fail();
     stream.close();
@@ -237,7 +255,7 @@ describe('QueryStream reconnect (ticket 07)', () => {
   });
 
   it('closes the source on done so a late EOF error does not reconnect', () => {
-    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, 100, 3);
+    const stream = new QueryStream('http://api', 'repo-1', 'q', undefined, undefined, undefined, 100, 3);
     const errors: unknown[] = [];
     let done = false;
     stream.onError((e) => errors.push(e));

@@ -14,7 +14,7 @@ import {
 } from './repoqa-eval';
 
 const BUCKET_TOTALS: Record<
-  'route-chain' | 'config' | 'architecture' | 'intent-anchor' | 'diagnose-chain' | 'evolution',
+  'route-chain' | 'config' | 'architecture' | 'intent-anchor' | 'diagnose-chain' | 'evolution' | 'incident',
   number
 > = {
   'route-chain': 20,
@@ -22,19 +22,21 @@ const BUCKET_TOTALS: Record<
   architecture: 15,
   'intent-anchor': 5,
   'diagnose-chain': 5,
-  evolution: 5
+  evolution: 5,
+  incident: 10
 };
 
 describe('RepoPulse golden eval dataset (Issue 09)', () => {
-  it('freezes exactly 65 golden questions across the six buckets', () => {
-    expect(GOLDEN_DATASET).toHaveLength(65);
+  it('freezes exactly 75 golden questions across the seven buckets', () => {
+    expect(GOLDEN_DATASET).toHaveLength(75);
     const byMode: Record<string, number> = {
       'route-chain': 0,
       config: 0,
       architecture: 0,
       'intent-anchor': 0,
       'diagnose-chain': 0,
-      evolution: 0
+      evolution: 0,
+      incident: 0
     };
     const ids = new Set<string>();
     for (const question of GOLDEN_DATASET) {
@@ -43,16 +45,20 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       ids.add(question.id);
       expect(GOLDEN_FIXTURES.some((fixture) => fixture.name === question.fixture)).toBe(true);
       expect(question.question.trim().length).toBeGreaterThan(0);
-      // Reverse cases assert via expectedAbsent (orphan false-positives) or
-      // expectedBreak (diagnose BROKEN expectations) instead.
+      // Reverse cases assert via expectedAbsent (orphan false-positives),
+      // expectedBreak (diagnose BROKEN expectations), expectedUnresolved
+      // (incident BREAK negatives) — or, for the symptom-only incident case,
+      // via the engine producing nothing at all.
       expect(
         question.expected.length > 0 ||
           (question.expectedAbsent?.length ?? 0) > 0 ||
-          question.expectedBreak !== undefined
+          question.expectedBreak !== undefined ||
+          (question.expectedUnresolved?.length ?? 0) > 0 ||
+          (question.mode === 'incident' && question.stack === undefined)
       ).toBe(true);
     }
     expect(byMode).toEqual(BUCKET_TOTALS);
-    expect(ids.size).toBe(65);
+    expect(ids.size).toBe(75);
   });
 
   it('materializes and commits fixtures deterministically', async () => {
@@ -77,16 +83,18 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
     }
   }, 20_000);
 
-  it('runs the full golden eval, passes every threshold, and records eval events', async () => {
+  // Issue 23: five fixtures × git init/commit + full index now exceed the
+  // 5s default; the replay stays deterministic, just not instant.
+  it('runs the full golden eval, passes every threshold, and records eval events', { timeout: 60_000 }, async () => {
     const db = openDb(':memory:');
     const repoqa = new RepoQARepos(db);
     try {
       const report = await runGoldenEval(repoqa);
 
       // Report is frozen and green.
-      expect(report.totalQuestions).toBe(65);
+      expect(report.totalQuestions).toBe(75);
       expect(report.passed).toBe(true);
-      for (const name of ['repo-a', 'repo-b', 'repo-c', 'repo-d']) {
+      for (const name of ['repo-a', 'repo-b', 'repo-c', 'repo-d', 'repo-e']) {
         expect(report.fixtureCommits[name]).toMatch(/^[0-9a-f]{40}$/i);
       }
       expect(report.buckets['route-chain'].total).toBe(20);
@@ -95,6 +103,10 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       expect(report.buckets['intent-anchor'].total).toBe(5);
       expect(report.buckets['diagnose-chain'].total).toBe(5);
       expect(report.buckets.evolution.total).toBe(5);
+      expect(report.buckets.incident.total).toBe(10);
+      // Issue 23: the incident bucket enforces the Zero-Hallucination
+      // Contract — 0% hallucination, not the ≤2% budget of the other buckets.
+      expect(report.buckets.incident.hallucinationRate).toBe(0);
       expect(report.failureTaxonomy).toEqual({ parse: 0, retrieval: 0, generation: 0, anchor: 0 });
       for (const bucket of Object.values(report.buckets)) {
         expect(bucket.recallAtK).toBeGreaterThanOrEqual(EVAL_PASS_THRESHOLDS.recallAtK);
@@ -116,11 +128,11 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         failureTaxonomy: EvalReport['failureTaxonomy'];
       };
       expect(summary.passed).toBe(true);
-      expect(summary.totalQuestions).toBe(65);
+      expect(summary.totalQuestions).toBe(75);
       expect(summary.failureTaxonomy).toEqual({ parse: 0, retrieval: 0, generation: 0, anchor: 0 });
 
       const bucketEvents = events.filter((event) => event.eventType === 'eval.bucket');
-      expect(bucketEvents).toHaveLength(6);
+      expect(bucketEvents).toHaveLength(7);
       const byIntent = new Map(
         bucketEvents.map((event) => [event.intent, event] as const)
       );
@@ -145,7 +157,7 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
     const repoqa = new RepoQARepos(db);
     const failing: EvalReport = {
       passed: false,
-      totalQuestions: 65,
+      totalQuestions: 75,
       fixtureCommits: { 'repo-a': 'a'.repeat(40), 'repo-b': 'b'.repeat(40), 'repo-c': 'c'.repeat(40) },
       buckets: {
         'route-chain': { total: 20, recallAtK: 50, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
@@ -153,7 +165,8 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         architecture: { total: 15, recallAtK: 100, hallucinationRate: 0, anchorValidity: 50, avgLatencyMs: 1 },
         'intent-anchor': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         'diagnose-chain': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
-        evolution: { total: 5, recallAtK: 50, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
+        evolution: { total: 5, recallAtK: 50, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
+        incident: { total: 10, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
       },
       failureTaxonomy: { parse: 1, retrieval: 1, generation: 1, anchor: 1 }
     };
@@ -162,7 +175,7 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
     const run = events.find((event) => event.eventType === 'eval.run');
     expect(run?.failureClass).toBe('eval-failed');
     const committed = events.filter((event) => event.eventType === 'eval.bucket');
-    expect(committed).toHaveLength(6);
+    expect(committed).toHaveLength(7);
     expect(committed.filter((event) => event.failureClass === 'threshold-miss')).toHaveLength(4);
     db.close();
   });
@@ -180,7 +193,8 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         architecture: { total: 15, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         'intent-anchor': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         'diagnose-chain': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
-        evolution: { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
+        evolution: { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
+        incident: { total: 10, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
       },
       failureTaxonomy: { parse: 0, retrieval: 0, generation: 0, anchor: 0 }
     };

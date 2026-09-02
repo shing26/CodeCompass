@@ -22,6 +22,9 @@ v0.5.1/v0.6.0 claim:
       over the raw JSON-RPC handshake with deterministic layers/status
   13. v0.8 CLI: diagnose / refactor-plan print JSON; export writes a
       self-contained HTML artifact; install --dry-run previews without writing
+  14. v0.16 incident copilot smoke: a pasted stack trace (mode=incident)
+      streams a grounded answer (VERIFIED/BREAK markers) whose done payload
+      carries provenance + the ADR-0010 pinned commit on anchors
 
 Usage:
   python scripts/e2e/closeout_gate.py [--cli node services/control-plane/dist/cli.js]
@@ -489,6 +492,61 @@ def check_sse_query(base: str, repo_id: str) -> None:
         "call-chain SSE stream (mermaid + anchors)",
         saw_mermaid and mermaid_has_graph and saw_anchors,
         f"mermaid={saw_mermaid} graph={mermaid_has_graph} anchors={saw_anchors}",
+    )
+
+
+def check_incident_sse_query(base: str, repo_id: str) -> None:
+    """v0.16 incident copilot smoke (Issue 23): a pasted Java stack trace on
+    GET /query?mode=incident&stack=... must stream a done payload whose answer
+    carries grounded VERIFIED/BREAK/SUSPECT assertions, plus the ADR-0010
+    pinned commit on the payload and its validated anchors."""
+    params = urllib.parse.urlencode(
+        {
+            "question": "排查这段堆栈",
+            "mode": "incident",
+            "stack": "at com.demo.OwnerService.findOwners(OwnerService.java:16)",
+        }
+    )
+    done_payload: dict | None = None
+    try:
+        req = urllib.request.Request(f"{base}/api/repos/{repo_id}/query?{params}")
+        with urllib.request.urlopen(req, timeout=60) as res:
+            event = None
+            data = ""
+            for raw in res:
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if line.startswith("event:"):
+                    event = line.split(":", 1)[1].strip()
+                elif line.startswith("data:") and event:
+                    data = line.split(":", 1)[1].strip()
+                    if event.endswith("query.done"):
+                        try:
+                            done_payload = json.loads(data)
+                        except json.JSONDecodeError:
+                            done_payload = None
+                    event = None
+    except Exception as exc:  # noqa: BLE001 — report any stream failure verbatim
+        record("incident SSE stream (pasted stack -> grounded answer)", False, str(exc))
+        return
+    if not isinstance(done_payload, dict):
+        record("incident SSE stream (pasted stack -> grounded answer)", False, "no done payload")
+        return
+    answer = done_payload.get("answer") or ""
+    provenance = done_payload.get("provenance")
+    grounded = any(marker in answer for marker in ("VERIFIED", "BREAK", "SUSPECT"))
+    record(
+        "incident SSE stream (pasted stack -> grounded answer)",
+        grounded and provenance in ("static", "llm"),
+        f"provenance={provenance} grounded={grounded} answer_len={len(answer)}",
+    )
+
+    commit = done_payload.get("commit")
+    anchors = done_payload.get("anchors") or []
+    stamped = [a for a in anchors if a.get("commit")]
+    record(
+        "ADR-0010 commit stamp: incident payload + anchors carry the pinned commit",
+        bool(commit) and bool(stamped),
+        f"commit={str(commit)[:7]} anchors={len(anchors)} stamped={len(stamped)}",
     )
 
 
@@ -978,19 +1036,21 @@ def check_eval_smoke(node: str, cwd: Path) -> None:
     )
     try:
         report = json.loads(run.stdout)
+        buckets = report.get("buckets", {})
+        incident = buckets.get("incident", {})
         ok = (
             run.returncode == 0
             and report.get("passed") is True
-            and report.get("totalQuestions", 0) >= 65
-            and all(bucket["recallAtK"] >= 85 for bucket in report["buckets"].values())
+            and report.get("totalQuestions", 0) >= 75
+            and all(bucket["recallAtK"] >= 85 for bucket in buckets.values())
+            and incident.get("hallucinationRate", 0.0) == 0.0
         )
-        buckets = report.get("buckets", {})
         detail = " ".join(
             f"{name}={bucket['recallAtK']:.0f}%" for name, bucket in buckets.items()
-        )
+        ) + (f" incident_hallucination={incident.get('hallucinationRate', 0.0):.1%}" if incident else "")
     except Exception as exc:  # noqa: BLE001
         ok, detail = False, f"{exc}: {run.stdout[-200:]} {run.stderr[-200:]}"
-    record("v0.13 golden eval passes every threshold (65 questions)", ok, detail)
+    record("golden eval passes every threshold (75 questions, incident hallucination 0%)", ok, detail)
 
 
 # ----------------------------------------------------------------------- main
@@ -1052,6 +1112,7 @@ def main() -> int:
         check_call_chain(base, py_repo["id"])
         check_radar_http(base, py_repo["id"])
         check_sse_query(base, py_repo["id"])
+        check_incident_sse_query(base, py_repo["id"])
         check_symbols_typed(base, py_repo["id"])
         check_architecture_delta(base, py_repo["id"])
 

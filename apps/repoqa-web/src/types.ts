@@ -58,10 +58,10 @@ export interface RepoSymbol {
   qualifiedName?: string;
 }
 
-export type QueryMode = 'architecture' | 'call-chain' | 'environment';
+export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'incident';
 
 /** Top-level workbench tabs rendered by the TopBar segmented control. */
-export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta';
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident';
 
 /** v0.6.0 — staged indexing pipeline phases broadcast over WebSocket. */
 export type IndexingPhase =
@@ -130,6 +130,32 @@ export interface Anchor {
   file: string;
   line: number;
   symbol: string;
+  /** Issue 23 / ADR-0010 — physical commit the anchor is pinned to. */
+  commit?: string;
+  /** Issue 23 — lineEnd for a range anchor (physical anchor quad). */
+  lineEnd?: number;
+}
+
+/* ------------------------------------------------------------------ */
+/* Issue 23 — Architecture & Incident Copilot evidence plane           */
+/* ------------------------------------------------------------------ */
+
+/** Zero-Hallucination Contract evidence status for one assertion. */
+export type EvidenceStatus = 'VERIFIED' | 'BREAK' | 'SUSPECT';
+
+/** One grounded assertion rendered as an EvidenceCard row. */
+export interface EvidenceItem {
+  status: EvidenceStatus;
+  /** Assertion text, e.g. the symbol name or the raw unresolvable frame. */
+  label: string;
+  /** Full physical path asserted (may be the frame's claimed path on BREAK). */
+  file: string;
+  /** Physical line (0 when the frame claims no parseable location). */
+  line: number;
+  /** Display form, e.g. `DemoService.java:4`. */
+  location: string;
+  /** Commit short hash chip when the anchor carries the physical commit. */
+  commit?: string;
 }
 
 /** v0.10 — one hop of a resolved trace, consumed from the SSE done payload. */

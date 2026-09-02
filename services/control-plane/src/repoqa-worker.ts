@@ -7,7 +7,8 @@ import type {
   RepoQaAnchor,
   RepoQaTraceHop,
   ServerEvent,
-  IndexingPhase
+  IndexingPhase,
+  DiagnoseResult
 } from '../../../packages/contracts/src/index';
 import {
   MAX_FILES,
@@ -34,15 +35,28 @@ import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
+import type {
+  RefactorPlanResult
+} from '../../../packages/contracts/src/index';
 import {
   capPrompt,
   runReActAgent,
   isLlmConfigured,
   buildTokenUsage,
   estimateTokenCount,
+  INCIDENT_MAX_AGENT_STEPS,
+  INCIDENT_ZERO_HALLUCINATION_GUIDE,
+  unionIncidentAnchors,
   type AgentTool,
   type ReActLLMResult
 } from './repoqa-llm';
+import {
+  parseStackTrace,
+  resolveFramesToSymbols,
+  stackTraceSummary,
+  type ParsedStackFrame,
+  type StackResolution
+} from './repoqa-stacktrace';
 
 export type IndexProgressPayload = {
   repoId: string;
@@ -413,6 +427,9 @@ export class RepoQAWorker {
         parsed: 0,
         total: 0
       });
+      // Issue 23 / ADR-0010: re-pin the physical commit at index time so
+      // anchors minted later carry the state the index actually saw.
+      this.repoqa.refreshRepoCommit(repoId);
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
         payload: {
@@ -605,11 +622,13 @@ export class RepoQAWorker {
   async *queryRepo(input: {
     repoId: string;
     question: string;
-    mode?: 'architecture' | 'call-chain' | 'environment';
+    mode?: 'architecture' | 'call-chain' | 'environment' | 'incident';
     /** Explicit trace start supplied by the frontend (Top API click): the
      * exact (name, file) of the clicked symbol. Prevents same-name ambiguity —
      * e.g. a production method and a test helper with an identical name. */
     start?: { name: string; file: string };
+    /** Issue 23 — pasted stack trace / log excerpt for incident mode. */
+    stack?: string;
   }): AsyncGenerator<ServerEvent> {
     const repo = this.repoqa.getRepo(input.repoId);
     if (!repo) throw new Error('Repo not found');
@@ -625,6 +644,13 @@ export class RepoQAWorker {
     });
 
     const { symbols } = this.getSymbolGraph(repo.id);
+    // Issue 23 — incident mode routes through its own copilot path, which
+    // decides between the LLM ReAct agent (LLM + gates) and the fully
+    // deterministic fallback (no LLM / gates not passed).
+    if (input.mode === 'incident') {
+      yield* this.runIncidentQuery(input, repo, symbols, queryStartAt);
+      return;
+    }
     // Issue 10: configuration can come from process.env or a local `.env`
     // (REPOQA_LLM_BASE / REPOQA_LLM_URL / REPOQA_LLM_API_KEY / REPOQA_LLM_MODEL).
     const llmConfigured = isLlmConfigured(process.env);
@@ -658,7 +684,10 @@ export class RepoQAWorker {
       }
       const anchors: RepoQaAnchor[] = [];
       for (const anchor of real.anchors ?? []) {
-        if (await this.isValidAnchor(repo, anchor)) anchors.push(anchor);
+        // ADR-0010: validated anchors are minted with the repo's physical commit.
+        if (await this.isValidAnchor(repo, anchor)) {
+          anchors.push({ ...anchor, commit: repo.commit });
+        }
       }
       const answer = maskSensitiveText(real.answer ?? 'No answer from LLM.');
       const usage =
@@ -701,7 +730,8 @@ export class RepoQAWorker {
           confidence: undefined,
           lowConfidence: false,
           provenance: 'llm',
-          usage
+          usage,
+          commit: repo.commit
         }
       };
       return;
@@ -737,7 +767,8 @@ export class RepoQAWorker {
           .map((hop) => ({
             file: hop.file,
             line: hop.line!,
-            symbol: hop.method
+            symbol: hop.method,
+            ...(hop.lineEnd ? { lineEnd: hop.lineEnd } : {})
           }));
         mermaid = this.traceToMermaid(trace, start.name);
         if (startFallback) {
@@ -782,7 +813,10 @@ export class RepoQAWorker {
 
     const anchors: RepoQaAnchor[] = [];
     for (const anchor of candidateAnchors) {
-      if (await this.isValidAnchor(repo, anchor)) anchors.push(anchor);
+      // ADR-0010: validated anchors are minted with the repo's physical commit.
+      if (await this.isValidAnchor(repo, anchor)) {
+        anchors.push({ ...anchor, commit: repo.commit });
+      }
     }
 
     const rawAnswer =
@@ -850,9 +884,402 @@ export class RepoQAWorker {
         confidence: startConfidence,
         lowConfidence: startFallback || (startConfidence !== undefined && startConfidence < 0.6),
         provenance: 'static',
-        usage
+        usage,
+        commit: repo.commit
       }
     };
+  }
+
+  /**
+   * Issue 23 — incident copilot (Architecture & Incident Copilot).
+   *
+   * LLM path: stack frames are parsed deterministically up front and the
+   * resolution summary is injected into the context; the agent runs the
+   * whitelisted incident tools with a 6-step budget under the
+   * Zero-Hallucination Contract. Anchors still pass `isValidAnchor` before
+   * they are minted with the repo's physical commit (ADR-0010).
+   *
+   * Fallback path (no LLM / gates): fully deterministic — diagnose the crash
+   * symbol, aggregate the blast radius, collect config evidence and compose a
+   * three-part answer; every unmatched stack frame is reported as BREAK.
+   */
+  private async *runIncidentQuery(
+    input: {
+      repoId: string;
+      question: string;
+      stack?: string;
+    },
+    repo: Repo,
+    symbols: RepoSymbol[],
+    queryStartAt: string
+  ): AsyncGenerator<ServerEvent> {
+    const stackText = input.stack?.trim() ?? '';
+    const frames = stackText ? parseStackTrace(stackText) : [];
+    const resolution = resolveFramesToSymbols(frames, symbols, {
+      name: (symbol) => symbol.name,
+      parentType: (symbol) => symbol.parentType,
+      filePath: (symbol) => symbol.filePath
+    });
+    const summary = stackText
+      ? stackTraceSummary(resolution)
+      : 'No stack trace supplied — symptom description only.';
+
+    if (isLlmConfigured(process.env)) {
+      const incidentTools = this.buildIncidentTools(repo.id, symbols);
+      const startedAt = Date.now();
+      const real = await runReActAgent({
+        question: input.question,
+        context: this.buildIncidentContext(repo.id, input.question, symbols, resolution, summary),
+        tools: incidentTools,
+        env: process.env,
+        maxSteps: INCIDENT_MAX_AGENT_STEPS,
+        nativeTools: true,
+        guideExtra: INCIDENT_ZERO_HALLUCINATION_GUIDE
+      });
+      const latencyMs = Date.now() - startedAt;
+      // Issue 23: the 6-step incident budget is intentionally exempt from the
+      // 1.5s interactive latency gate (ADR-0011 static boundary, deeper tool
+      // traversal) — the gate still applies to architecture queries.
+
+      const anchors: RepoQaAnchor[] = [];
+      // Issue 23 integration — the evidence chain must not depend on the
+      // model's prose style: deterministic stack-frame matches always lead
+      // the anchor list; model anchors only add extra locations.
+      const stackAnchors = resolution.matches.map(({ frame, symbol }) => ({
+        file: symbol.filePath,
+        line: symbol.lineStart ?? 1,
+        symbol: `${frame.className ? `${frame.className}.` : ''}${frame.method}`
+      }));
+      for (const anchor of unionIncidentAnchors(stackAnchors, real.anchors)) {
+        if (await this.isValidAnchor(repo, anchor)) {
+          anchors.push({ ...anchor, commit: repo.commit });
+        }
+      }
+      const answer = maskSensitiveText(real.answer ?? 'No answer from LLM.');
+      const usage =
+        real.usage ??
+        buildTokenUsage(estimateTokenCount(input.question + summary), estimateTokenCount(answer), 'estimate');
+      const tokens = answer.match(/\S+(?:\s+)?/g) ?? [answer];
+      for (const token of tokens) {
+        yield { type: 'repoqa.query.token', payload: { token } };
+      }
+      if (real.mermaid) {
+        yield { type: 'repoqa.query.mermaid', payload: { mermaid: real.mermaid } };
+      }
+      if (anchors.length > 0) {
+        yield { type: 'repoqa.query.anchors', payload: { anchors } };
+      }
+      this.repoqa.recordEvent({
+        repoId: repo.id,
+        eventType: 'query.done',
+        intent: 'incident',
+        queryStartAt,
+        firstTokenAt:
+          real.firstTokenMs !== undefined
+            ? new Date(startedAt + real.firstTokenMs).toISOString()
+            : undefined,
+        queryDoneAt: new Date().toISOString(),
+        feedback: JSON.stringify({ incident: summary })
+      });
+      yield {
+        type: 'repoqa.query.done',
+        payload: {
+          answer,
+          mermaid: real.mermaid,
+          anchors,
+          suggestedAction: undefined,
+          confidence: undefined,
+          lowConfidence: false,
+          provenance: 'llm',
+          usage,
+          commit: repo.commit
+        }
+      };
+      return;
+    }
+
+    // ---- Deterministic fallback path (ADR-0011: static boundary) ----
+    const crashSymbol = this.pickCrashSymbol(resolution, symbols);
+    const staticAnswer = this.buildIncidentStaticAnswer(
+      repo.id,
+      input.question,
+      symbols,
+      resolution,
+      summary,
+      crashSymbol
+    );
+    const answer = maskSensitiveText(staticAnswer.answer);
+    const usage = buildTokenUsage(estimateTokenCount(input.question + summary), estimateTokenCount(answer), 'estimate');
+    const tokens = answer.match(/\S+(?:\s+)?/g) ?? [answer];
+    for (const token of tokens) {
+      yield { type: 'repoqa.query.token', payload: { token } };
+    }
+    if (staticAnswer.mermaid) {
+      yield { type: 'repoqa.query.mermaid', payload: { mermaid: staticAnswer.mermaid } };
+    }
+    const anchors: RepoQaAnchor[] = [];
+    for (const anchor of staticAnswer.anchors) {
+      if (await this.isValidAnchor(repo, anchor)) {
+        anchors.push({ ...anchor, commit: repo.commit });
+      }
+    }
+    if (anchors.length > 0) {
+      yield { type: 'repoqa.query.anchors', payload: { anchors } };
+    }
+    if (resolution.unmatched.length > 0) {
+      this.repoqa.recordEvent({
+        repoId: repo.id,
+        eventType: 'tool.miss',
+        intent: 'incident',
+        toolMiss: `incident stack frames unmatched: ${resolution.unmatched
+          .map((frame) => `${frame.className ? `${frame.className}.` : ''}${frame.method}`)
+          .slice(0, 5)
+          .join(', ')}`
+      });
+    }
+    this.repoqa.recordEvent({
+      repoId: repo.id,
+      eventType: 'query.done',
+      intent: 'incident',
+      queryStartAt,
+      queryDoneAt: new Date().toISOString(),
+      feedback: JSON.stringify({ incident: summary })
+    });
+    yield {
+      type: 'repoqa.query.done',
+      payload: {
+        answer,
+        mermaid: staticAnswer.mermaid,
+        anchors,
+        suggestedAction: crashSymbol ? `Trace ${crashSymbol.name}` : undefined,
+        confidence: crashSymbol ? 1 : undefined,
+        lowConfidence: !crashSymbol,
+        provenance: 'static',
+        usage,
+        commit: repo.commit
+      }
+    };
+  }
+
+  /**
+   * Issue 23 — crash-site symbol for the incident fallback: the first resolved
+   * frame (deepest = crash point), else the first method in the index only as
+   * an explicitly-labelled last resort.
+   */
+  private pickCrashSymbol(
+    resolution: StackResolution<RepoSymbol>,
+    symbols: RepoSymbol[]
+  ): RepoSymbol | undefined {
+    const matched = resolution.matches[0]?.symbol;
+    if (matched) return matched;
+    // No frame matched the index: fall back to a route/method entry so the
+    // diagnose traversal still starts from something physically real.
+    return (
+      symbols.find((symbol) => symbol.kind === 'route') ??
+      symbols.find((symbol) => symbol.kind === 'method')
+    );
+  }
+
+  /** Issue 23 — incident context: parsed stack summary + index excerpt. */
+  private buildIncidentContext(
+    repoId: string,
+    question: string,
+    symbols: RepoSymbol[],
+    resolution: StackResolution<RepoSymbol>,
+    summary: string
+  ): string {
+    const symbolLines = symbols.slice(0, 200).map(
+      (symbol) => `${symbol.name} (${symbol.kind} @ ${symbol.filePath}:${symbol.lineStart ?? 1})`
+    );
+    const frameLines = [...resolution.matches, ...resolution.unmatched.map((frame) => ({ frame, symbol: undefined }))].map(
+      ({ frame, symbol }) =>
+        `- ${frame.raw}${symbol ? ` -> ${symbol.name} @ ${symbol.filePath}:${symbol.lineStart ?? 1}` : ' -> UNRESOLVED (BREAK)'}`
+    );
+    const chunkLines = this.repoqa
+      .searchChunks(repoId, question)
+      .slice(0, 20)
+      .map((chunk) => `${chunk.filePath ?? '?'}: ${chunk.content.slice(0, 200)}`);
+    return capPrompt(
+      [
+        `Stack trace analysis: ${summary}`,
+        frameLines.length > 0 ? `Parsed frames:\n${frameLines.join('\n')}` : undefined,
+        `Indexed symbols (excerpt):\n${symbolLines.join('\n')}`,
+        chunkLines.length > 0 ? `Evidence chunks:\n${chunkLines.join('\n')}` : undefined
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    );
+  }
+
+  /**
+   * Issue 23 — incident tool whitelist: diagnose chain, blast radius, call
+   * chain, config evidence plus the deterministic `parse_stack_trace` tool.
+   * Everything returns physical evidence only (ADR-0011).
+   */
+  private buildIncidentTools(repoId: string, symbols: RepoSymbol[]): AgentTool[] {
+    const base = this.buildAgentTools(repoId, symbols);
+    const whitelist = [
+      'diagnose_chain',
+      'blast_radius',
+      'trace_call_chain',
+      'get_config_evidence'
+    ];
+    const tools = base.filter((tool) => whitelist.includes(tool.name));
+    tools.push({
+      name: 'parse_stack_trace',
+      description:
+        'Deterministically parse a pasted Java/TS stack trace and resolve its frames against the indexed ' +
+        'symbol table. Returns matched frames (with physical file:line) and UNRESOLVED frames (report them as BREAK).',
+      parameters: 'stack: string',
+      parameterSchema: {
+        type: 'object',
+        properties: {
+          stack: { type: 'string', description: 'Raw pasted stack trace / log excerpt' }
+        },
+        required: ['stack'],
+        additionalProperties: false
+      },
+      execute: (args) => {
+        const stack = String(args.stack ?? '');
+        if (!stack.trim()) return { error: 'stack is required' };
+        const frames = parseStackTrace(stack);
+        const resolved = resolveFramesToSymbols(frames, symbols, {
+          name: (symbol) => symbol.name,
+          parentType: (symbol) => symbol.parentType,
+          filePath: (symbol) => symbol.filePath
+        });
+        return {
+          summary: stackTraceSummary(resolved),
+          matched: resolved.matches.map(({ frame, symbol }) => ({
+            frame: frame.raw,
+            symbol: symbol.name,
+            file: symbol.filePath,
+            line: symbol.lineStart ?? 1
+          })),
+          unmatched: resolved.unmatched.map((frame) => ({
+            frame: frame.raw,
+            status: 'BREAK'
+          }))
+        };
+      }
+    });
+    return tools;
+  }
+
+  /**
+   * Issue 23 — deterministic incident answer (no LLM): stack resolution,
+   * diagnose traversal from the crash symbol, blast radius and config keys,
+   * composed into the three-part layout. Every file:line comes from the
+   * symbol table; unmatched frames are printed verbatim as BREAK.
+   */
+  private buildIncidentStaticAnswer(
+    repoId: string,
+    question: string,
+    symbols: RepoSymbol[],
+    resolution: StackResolution<RepoSymbol>,
+    summary: string,
+    crashSymbol: RepoSymbol | undefined
+  ): { answer: string; mermaid?: string; anchors: RepoQaAnchor[] } {
+    const anchors: RepoQaAnchor[] = [];
+    const matchedLines = resolution.matches.map(
+      ({ frame, symbol }) =>
+        `- ${frame.className ? `${frame.className}.` : ''}${frame.method} -> ${symbol.name} @ ${symbol.filePath}:${symbol.lineStart ?? 1} [VERIFIED]`
+    );
+    const breakLines = resolution.unmatched.map(
+      (frame) => `- ${frame.raw} -> BREAK (no physical counterpart in the index)`
+    );
+
+    // Diagnose traversal from the crash symbol (deterministic engine).
+    let diagnose: DiagnoseResult | undefined;
+    if (crashSymbol) {
+      try {
+        diagnose = runDiagnose({
+          repoId,
+          entrySymbol: crashSymbol.name,
+          symbols,
+          index: this.getSymbolGraph(repoId).index
+        });
+      } catch {
+        diagnose = undefined;
+      }
+    }
+    const chainLines =
+      diagnose?.verifiedChain.map(
+        (step) => `- [${step.status}] ${step.layer} ${step.symbol} @ ${step.filePath}:${step.line}`
+      ) ?? [];
+    for (const step of diagnose?.verifiedChain ?? []) {
+      anchors.push({ file: step.filePath, line: step.line, symbol: step.symbol });
+    }
+
+    // Blast radius for the crash symbol (deterministic engine).
+    let blast: RefactorPlanResult | undefined;
+    if (crashSymbol) {
+      try {
+        blast = runBlastRadius({
+          repoId,
+          targetSymbol: crashSymbol.name,
+          changeType: 'LOGIC_REFACTOR',
+          symbols,
+          index: this.getSymbolGraph(repoId).index
+        });
+      } catch {
+        blast = undefined;
+      }
+    }
+    const blastLines: string[] = [];
+    if (blast) {
+      blastLines.push(
+        `- direct callers: ${blast.directCallersCount}, indirect: ${blast.indirectCallersCount}, risk: ${blast.riskLevel}`
+      );
+      if (blast.impactedRoutes.length > 0) {
+        blastLines.push(`- impacted routes: ${blast.impactedRoutes.slice(0, 6).join(', ')}`);
+      }
+    }
+
+    // Config evidence for keys mentioned in the question/stack.
+    const configMatches = matchConfigSymbols(
+      `${question}\n${resolution.matches.map(({ frame }) => frame.raw).join('\n')}`,
+      symbols.filter((symbol) => symbol.kind === 'config')
+    ).slice(0, 6);
+    const configLines = configMatches.map(
+      (symbol) => `- ${symbol.name} @ ${symbol.filePath}:${symbol.lineStart ?? 1}`
+    );
+    for (const symbol of configMatches) {
+      anchors.push({ file: symbol.filePath, line: symbol.lineStart ?? 1, symbol: symbol.name });
+    }
+
+    const overview = crashSymbol
+      ? `崩溃点定位到 ${crashSymbol.parentType ? `${crashSymbol.parentType}.` : ''}${crashSymbol.name}（${crashSymbol.filePath}:${crashSymbol.lineStart ?? 1}），以下链路均来自本次会话的确定性工具返回。`
+      : '堆栈中的帧未能在索引中定位到物理符号，无法给出可证实的调用链。';
+
+    const evidence: string[] = [`堆栈解析: ${summary}`];
+    if (matchedLines.length > 0) evidence.push(`已解析帧（VERIFIED）:\n${matchedLines.join('\n')}`);
+    if (breakLines.length > 0) evidence.push(`未解析帧（BREAK，不猜测）:\n${breakLines.join('\n')}`);
+    if (chainLines.length > 0) evidence.push(`诊断链路（静态穿透）:\n${chainLines.join('\n')}`);
+    if (diagnose) evidence.push(`链路边界说明: ${diagnose.rootCauseSummary}`);
+    if (blastLines.length > 0) evidence.push(`影响面（Blast Radius）:\n${blastLines.join('\n')}`);
+    if (configLines.length > 0) evidence.push(`相关配置键:\n${configLines.join('\n')}`);
+
+    const nextStep = crashSymbol
+      ? blast && blast.migrationSteps.length > 0
+        ? `建议下一步: ${blast.migrationSteps[0]}`
+        : `建议下一步: 从 ${crashSymbol.name} 开始核对 ${crashSymbol.filePath}:${crashSymbol.lineStart ?? 1} 的最近改动。`
+      : '建议下一步: 补充堆栈上下文或确认该代码是否在当前仓库索引范围内。';
+
+    const mermaid =
+      diagnose && diagnose.verifiedChain.length > 1
+        ? this.traceToMermaid(
+            diagnose.verifiedChain.map((step) => ({
+              file: step.filePath,
+              method: step.symbol,
+              line: step.line,
+              ...(step.status === 'BROKEN' ? { break: true as const, reason: step.diagnosticNotes } : {})
+            })),
+            diagnose.verifiedChain[0].symbol
+          )
+        : undefined;
+
+    return { answer: `${overview}\n\n${evidence.join('\n\n')}\n\n${nextStep}`, mermaid, anchors };
   }
 
   /**
@@ -1249,6 +1676,9 @@ export class RepoQAWorker {
     repo: Repo,
     anchor: RepoQaAnchor
   ): Promise<boolean> {
+    // Issue 23 hotfix: model-supplied anchors are untrusted — a missing `file`
+    // must fail validation, not crash path.resolve below.
+    if (!anchor || typeof anchor.file !== 'string' || !anchor.file.trim()) return false;
     const root = path.resolve(repo.localPath);
     const resolved = path.resolve(root, anchor.file);
     const relative = path.relative(root, resolved);

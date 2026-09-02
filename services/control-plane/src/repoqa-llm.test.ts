@@ -22,6 +22,9 @@ import {
   PROMPT_TOKEN_CAP,
   readDotEnvFile,
   runReActAgent,
+  finalizeAgentResult,
+  sanitizeAgentAnchors,
+  unionIncidentAnchors,
   sanitizeMermaidClicks,
   THREE_PART_ANSWER_GUIDE,
   toThreePartAnswer,
@@ -382,5 +385,376 @@ describe('Issue 10 — output contract helpers', () => {
     ]);
     expect(bound).toContain('click A "code://src/A.java#42"');
     expect(bound).not.toContain('code://src/A.java#5');
+  });
+});
+
+describe('Issue 23 hotfix — agent anchor sanitization', () => {
+  it('drops malformed model-supplied anchors (missing file/symbol/line)', () => {
+    const cleaned = sanitizeAgentAnchors([
+      { symbol: 'OrderService', line: 11 }, // missing file — crashed path.resolve before
+      { file: 'src/A.java', symbol: 'A', line: 5 },
+      { file: '', symbol: 'B', line: 3 }, // blank file
+      { file: 'src/C.java', symbol: '', line: 2 }, // blank symbol
+      { file: 'src/D.java', symbol: 'D' }, // missing line
+      { file: 'src/E.java', symbol: 'E', line: Number.NaN },
+      'not-an-object' as unknown as Record<string, unknown>,
+      { file: 'src/F.java', symbol: 'F', line: 7.9 } // fractional line truncates
+    ]);
+    expect(cleaned).toEqual([
+      { file: 'src/A.java', symbol: 'A', line: 5 },
+      { file: 'src/F.java', symbol: 'F', line: 7 }
+    ]);
+  });
+
+  it('returns undefined for non-array input and empty arrays stay empty', () => {
+    expect(sanitizeAgentAnchors(undefined)).toBeUndefined();
+    expect(sanitizeAgentAnchors('nope')).toBeUndefined();
+    expect(sanitizeAgentAnchors([])).toEqual([]);
+  });
+
+  it('finalizeAgentResult sanitizes anchors and binds only valid ones', () => {
+    const result = finalizeAgentResult({
+      answer: '概述\n\n证据\n\n结论',
+      mermaid: 'flowchart LR\n  A[A]',
+      anchors: [
+        { file: 'src/A.java', symbol: 'A', line: 5 },
+        { symbol: 'Broken', line: 1 }
+      ] as any
+    });
+    expect(result.anchors).toEqual([{ file: 'src/A.java', symbol: 'A', line: 5 }]);
+    expect(result.mermaid).toContain('click A "code://src/A.java#5"');
+  });
+
+  it('unionIncidentAnchors leads with stack anchors, dedups and drops malformed', () => {
+    const stack = [
+      { file: 'src/OrderService.java', line: 11, symbol: 'OrderService.findById' },
+      { file: 'src/OrdersController.java', line: 11, symbol: 'OrdersController.getOrder' }
+    ];
+    const merged = unionIncidentAnchors(stack, [
+      { file: 'src/OrderService.java', symbol: 'OrderService.findById', line: 11 }, // dup of stack[0]
+      { file: 'src/OrderRepository.java', symbol: 'OrderRepository.findById', line: 9 }, // extra location
+      { symbol: 'malformed' } as any // no file — dropped
+    ]);
+    expect(merged).toEqual([
+      { file: 'src/OrderService.java', line: 11, symbol: 'OrderService.findById' },
+      { file: 'src/OrdersController.java', line: 11, symbol: 'OrdersController.getOrder' },
+      { file: 'src/OrderRepository.java', line: 9, symbol: 'OrderRepository.findById' }
+    ]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Issue 23 — native tools/tool_calls protocol (incident copilot)      */
+/* ------------------------------------------------------------------ */
+
+import {
+  completeNativeChat,
+  INCIDENT_MAX_AGENT_STEPS,
+  INCIDENT_ZERO_HALLUCINATION_GUIDE,
+  NativeToolsUnsupportedError,
+  parseToolCall,
+  toNativeToolSpecs
+} from './repoqa-llm';
+
+describe('Issue 23 — native tool protocol helpers', () => {
+  it('converts AgentTool descriptors to standard tool specs', () => {
+    const specs = toNativeToolSpecs([
+      {
+        name: 'parse_stack_trace',
+        description: 'Parse a stack trace.',
+        parameterSchema: { type: 'object', properties: { stack: { type: 'string' } } },
+        execute: () => null
+      }
+    ]);
+    expect(specs).toEqual([
+      {
+        type: 'function',
+        function: {
+          name: 'parse_stack_trace',
+          description: 'Parse a stack trace.',
+          parameters: { type: 'object', properties: { stack: { type: 'string' } } }
+        }
+      }
+    ]);
+    // Missing schema falls back to a permissive object schema.
+    const fallback = toNativeToolSpecs([{ name: 't', description: 'd', execute: () => null }]);
+    expect(fallback[0].function.parameters).toEqual({
+      type: 'object',
+      properties: {},
+      additionalProperties: true
+    });
+  });
+
+  it('parses standard and flattened tool_call shapes', () => {
+    const standard = parseToolCall({
+      id: 'call_1',
+      function: { name: 'diagnose_chain', arguments: '{"entrySymbol":"hello"}' }
+    });
+    expect(standard).toEqual({ name: 'diagnose_chain', args: { entrySymbol: 'hello' } });
+    // DeepSeek-style empty arguments string.
+    expect(parseToolCall({ id: 'c2', function: { name: 'x', arguments: '' } })).toEqual({
+      name: 'x',
+      args: {}
+    });
+    // Malformed JSON arguments -> null (caller feeds back an error).
+    expect(parseToolCall({ function: { name: 'x', arguments: '{oops' } })).toBeNull();
+    // Flattened shape from tolerant providers.
+    expect(parseToolCall({ name: 'y', arguments: { key: 1 } })).toEqual({ name: 'y', args: { key: 1 } });
+    // No name -> null.
+    expect(parseToolCall({ function: { arguments: '{}' } })).toBeNull();
+  });
+
+  it('exposes the incident budget and zero-hallucination guide', () => {
+    expect(INCIDENT_MAX_AGENT_STEPS).toBe(6);
+    expect(INCIDENT_ZERO_HALLUCINATION_GUIDE).toContain('Zero-Hallucination Contract');
+    expect(INCIDENT_ZERO_HALLUCINATION_GUIDE).toContain('BREAK');
+  });
+});
+
+describe('Issue 23 — runReActAgent with nativeTools', () => {
+  it('handles DeepSeek-style reasoning_content + tool_calls then final answer', async () => {
+    const executed: string[] = [];
+    const stub = await stubChatCompletions((_body, call) => {
+      if (call === 1) {
+        // DeepSeek dialect: reasoning_content carries the thinking, content is
+        // empty, the tool request lives in tool_calls (JSON string arguments).
+        return JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: null,
+                reasoning_content: '先解析堆栈再诊断。',
+                tool_calls: [
+                  {
+                    id: 'call_a1',
+                    type: 'function',
+                    function: {
+                      name: 'trace_call_chain',
+                      arguments: '{"query":"hello"}'
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }
+        });
+      }
+      return JSON.stringify({
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              role: 'assistant',
+              content: JSON.stringify({
+                answer: '崩溃点在 DemoService.greet',
+                anchors: [{ file: 'src/DemoService.java', line: 4, symbol: 'greet' }]
+              })
+            }
+          }
+        ]
+      });
+    });
+    try {
+      const tool: AgentTool = {
+        name: 'trace_call_chain',
+        description: 'Resolve a call chain.',
+        execute: async (args) => {
+          executed.push(String((args as any).query));
+          return [{ file: 'src/DemoService.java', method: 'greet', line: 4 }];
+        }
+      };
+      const result = await runReActAgent({
+        question: '排查 NPE',
+        context: 'hello (method @ src/Controller.java:6)',
+        tools: [tool],
+        env: { REPOQA_LLM_BASE: stub.url, REPOQA_LLM_MODEL: 'deepseek-reasoner' },
+        nativeTools: true,
+        guideExtra: INCIDENT_ZERO_HALLUCINATION_GUIDE
+      });
+      expect(executed).toEqual(['hello']);
+      expect(result.answer).toContain('崩溃点在 DemoService.greet');
+      expect(result.usage?.source).toBe('provider');
+      expect(result.fallback).toBeUndefined();
+      // The transcript must replay assistant.tool_calls + role:'tool' results.
+      const secondRequest = JSON.parse(stub.bodies[1]) as any;
+      const roles = secondRequest.messages.map((m: any) => m.role);
+      expect(roles).toEqual(['user', 'assistant', 'tool']);
+      expect(secondRequest.messages[1].tool_calls[0].id).toBe('call_a1');
+      expect(secondRequest.messages[2].tool_call_id).toBe('call_a1');
+      expect(secondRequest.messages[2].content).toContain('src/DemoService.java');
+      // The request carried standard tools + zero-hallucination guide.
+      const firstRequest = JSON.parse(stub.bodies[0]) as any;
+      expect(firstRequest.tools[0].function.name).toBe('trace_call_chain');
+      expect(firstRequest.messages[0].content).toContain('Zero-Hallucination Contract');
+    } finally {
+      (stub as any).close();
+    }
+  });
+
+  it('converges within the 6-step incident budget and stops after it', async () => {
+    let call = 0;
+    const stub = await stubChatCompletions(() => {
+      call += 1;
+      return JSON.stringify({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: `call_${call}`,
+                  function: { name: 'trace_call_chain', arguments: '{"query":"x"}' }
+                }
+              ]
+            }
+          }
+        ]
+      });
+    });
+    try {
+      const result = await runReActAgent({
+        question: 'loop forever',
+        context: 'ctx',
+        tools: [spyTool],
+        env: { REPOQA_LLM_BASE: stub.url },
+        nativeTools: true,
+        maxSteps: INCIDENT_MAX_AGENT_STEPS
+      });
+      // 6 native turns, each executing one tool, then the non-convergence answer.
+      expect(call).toBe(INCIDENT_MAX_AGENT_STEPS);
+      expect(result.answer).toContain('did not converge');
+    } finally {
+      (stub as any).close();
+    }
+  });
+
+  it('tolerates unknown tools and malformed tool_calls without crashing', async () => {
+    const stub = await stubChatCompletions((_body, call) => {
+      if (call === 1) {
+        return JSON.stringify({
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                tool_calls: [
+                  { id: 'c1', function: { name: 'no_such_tool', arguments: '{}' } },
+                  { id: 'c2', function: { name: 'trace_call_chain', arguments: '{broken json' } },
+                  { function: {} }
+                ]
+              }
+            }
+          ]
+        });
+      }
+      return JSON.stringify({
+        choices: [
+          { message: { role: 'assistant', content: JSON.stringify({ answer: 'recovered' }) } }
+        ]
+      });
+    });
+    try {
+      const result = await runReActAgent({
+        question: 'weird model output',
+        context: 'ctx',
+        tools: [spyTool],
+        env: { REPOQA_LLM_BASE: stub.url },
+        nativeTools: true
+      });
+      expect(result.answer).toContain('recovered');
+      // Malformed/empty calls were dropped; the two executable calls were run
+      // (unknown tool -> error result, broken JSON args -> error result) and
+      // every replayed assistant.tool_call has a matching role:'tool' response.
+      const second = JSON.parse(stub.bodies[1]) as any;
+      const toolMessages = second.messages.filter((m: any) => m.role === 'tool');
+      expect(toolMessages).toHaveLength(2);
+      const assistant = second.messages.find((m: any) => m.role === 'assistant');
+      expect(assistant.tool_calls).toHaveLength(2);
+      expect(toolMessages.map((m: any) => m.tool_call_id)).toEqual(
+        assistant.tool_calls.map((c: any) => c.id)
+      );
+      expect(JSON.parse(toolMessages[0].content).error).toContain('unknown tool');
+      expect(JSON.parse(toolMessages[1].content).error).toContain('arguments');
+    } finally {
+      (stub as any).close();
+    }
+  });
+
+  it('degrades to the legacy text-JSON protocol when the endpoint rejects tools', async () => {
+    let sawTools = false;
+    const raw = http.createServer((req, res) => {
+      let data = '';
+      req.on('data', (chunk) => (data += chunk));
+      req.on('end', () => {
+        const parsed = JSON.parse(data) as any;
+        if (Array.isArray(parsed.tools) && parsed.tools.length > 0) {
+          sawTools = true;
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'tools is not supported' } }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    answer: '文本协议回答',
+                    anchors: [{ file: 'src/A.java', line: 5, symbol: 'A' }]
+                  })
+                }
+              }
+            ]
+          })
+        );
+      });
+    });
+    await new Promise<void>((resolve) => raw.listen(0, '127.0.0.1', resolve));
+    const address = raw.address() as AddressInfo;
+    try {
+      const result = await runReActAgent({
+        question: 'legacy endpoint',
+        context: 'ctx',
+        tools: [spyTool],
+        env: { REPOQA_LLM_BASE: `http://127.0.0.1:${address.port}` },
+        nativeTools: true
+      });
+      expect(sawTools).toBe(true);
+      expect(result.answer).toContain('文本协议回答');
+    } finally {
+      await new Promise<void>((resolve) => raw.close(() => resolve()));
+    }
+  });
+
+  it('completeNativeChat reports NativeToolsUnsupportedError with the original status', async () => {
+    const raw = http.createServer((req, res) => {
+      let data = '';
+      req.on('data', (chunk) => (data += chunk));
+      req.on('end', () => {
+        const parsed = JSON.parse(data) as any;
+        if (Array.isArray(parsed.tools)) {
+          res.writeHead(422, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'no tools here' }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+      });
+    });
+    await new Promise<void>((resolve) => raw.listen(0, '127.0.0.1', resolve));
+    const address = raw.address() as AddressInfo;
+    try {
+      await expect(
+        completeNativeChat([{ role: 'user', content: 'hi' }], {
+          REPOQA_LLM_BASE: `http://127.0.0.1:${address.port}`
+        }, toNativeToolSpecs([{ name: 't', description: 'd', execute: () => null }]))
+      ).rejects.toThrowError(NativeToolsUnsupportedError);
+    } finally {
+      await new Promise<void>((resolve) => raw.close(() => resolve()));
+    }
   });
 });

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from './db';
 import { MAX_FILES } from './repoqa-scan';
@@ -19,6 +19,17 @@ import { Repos } from './repos';
 import { maskSensitiveText } from './repoqa-masking';
 import { runGoldenEval } from './repoqa-eval';
 import { capPrompt, completeReAct } from './repoqa-llm';
+
+// The file-limit test previously wrote MAX_FILES + 1 = 12,001 files
+// sequentially, which on Windows can exceed the 15s timeout under full-suite
+// load (Defender scanning + EMFILE pressure). Shrink the budget for this test
+// file's module graph only — vi.mock is scoped per test file, so other files
+// keep the real default. The test below imports MAX_FILES symbolically and
+// stays in sync automatically.
+vi.mock('./repoqa-scan', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./repoqa-scan')>();
+  return { ...actual, MAX_FILES: 60 };
+});
 
 interface ServerContext {
   baseUrl: string;
@@ -2439,22 +2450,26 @@ describe('RepoPulse local evidence plane', () => {
 });
 
 describe('RepoPulse golden dataset eval harness', () => {
+  // The eval imports five fixture repos and scores 75 questions (~5-7s alone);
+  // under full-suite parallel load it can exceed the default 5s testTimeout.
   it('runs a repeatable per-bucket report with pass/fail thresholds', async () => {
     const report = await runGoldenEval();
-    expect(report.totalQuestions).toBe(65);
+    expect(report.totalQuestions).toBe(75);
     expect(report.passed).toBe(true);
     expect(report.fixtureCommits['repo-a']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.fixtureCommits['repo-b']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.fixtureCommits['repo-c']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.fixtureCommits['repo-d']).toMatch(/^[0-9a-f]{40}$/i);
+    expect(report.fixtureCommits['repo-e']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.buckets['route-chain'].total).toBe(20);
     expect(report.buckets.config.total).toBe(15);
     expect(report.buckets.architecture.total).toBe(15);
     expect(report.buckets['intent-anchor'].total).toBe(5);
     expect(report.buckets['diagnose-chain'].total).toBe(5);
     expect(report.buckets.evolution.total).toBe(5);
+    expect(report.buckets.incident.total).toBe(10);
     expect(report.failureTaxonomy.parse).toBe(0);
-  });
+  }, 15_000);
 });
 
 describe('RepoPulse real LLM adapter', () => {
@@ -2742,6 +2757,343 @@ describe('RepoPulse real LLM adapter', () => {
       else process.env.REPOQA_LLM_URL = oldUrl;
       if (oldGate === undefined) delete process.env.REPOQA_GATES_PASSED;
       else process.env.REPOQA_GATES_PASSED = oldGate;
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Issue 23 — Incident Copilot: worker paths + HTTP transport          */
+/* ------------------------------------------------------------------ */
+
+const INCIDENT_STACK = [
+  'java.lang.NullPointerException: boom',
+  'at com.demo.DemoService.greet(DemoService.java:5)',
+  'at com.demo.Controller.hello(Controller.java:6)',
+  'at com.acme.thirdparty.Missing.run(Missing.java:99)',
+  '... 2 more'
+].join('\n');
+
+interface SavedEnv {
+  [key: string]: string | undefined;
+}
+
+function saveIncidentEnv(): SavedEnv {
+  const keys = [
+    'REPOQA_LLM_URL',
+    'REPOQA_LLM_BASE',
+    'REPOQA_LLM_MODEL',
+    'REPOQA_LLM_API_KEY',
+    'REPOQA_GATES_PASSED'
+  ];
+  const saved: SavedEnv = {};
+  for (const key of keys) saved[key] = process.env[key];
+  return saved;
+}
+
+function restoreIncidentEnv(saved: SavedEnv): void {
+  for (const [key, value] of Object.entries(saved)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
+
+describe('Issue 23 — incident mode worker paths', () => {
+  it('runs the native-tools ReAct loop with the zero-hallucination guide and stamps commit anchors', async () => {
+    const bodies: string[] = [];
+    let call = 0;
+    const stub = http.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (chunk) => (raw += chunk));
+      req.on('end', () => {
+        bodies.push(raw);
+        call += 1;
+        let message: Record<string, unknown>;
+        if (call === 1) {
+          message = {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_inc_1',
+                type: 'function',
+                function: {
+                  name: 'parse_stack_trace',
+                  arguments: JSON.stringify({ stack: INCIDENT_STACK })
+                }
+              }
+            ]
+          };
+        } else {
+          message = {
+            role: 'assistant',
+            content: JSON.stringify({
+              answer: '崩溃点在 DemoService.greet（DemoService.java:5），Controller.hello 为直接调用方。',
+              anchors: [
+                { file: 'src/main/java/com/demo/DemoService.java', line: 4, symbol: 'greet' }
+              ]
+            })
+          };
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message }] }));
+      });
+    });
+    await new Promise<void>((resolve) => stub.listen(0, '127.0.0.1', resolve));
+    const address = stub.address() as AddressInfo;
+
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-incident-llm-'));
+    const saved = saveIncidentEnv();
+    // The incident path must NOT require the eval/latency gates (ADR-0011):
+    // gates stay unset on purpose here.
+    process.env.REPOQA_LLM_BASE = `http://127.0.0.1:${address.port}`;
+    process.env.REPOQA_LLM_MODEL = 'test-model';
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+      const events: Array<{ type: string; payload: any }> = [];
+      for await (const event of ctx.worker.queryRepo({
+        repoId,
+        question: '线上 NPE 排查',
+        mode: 'incident',
+        stack: INCIDENT_STACK
+      })) {
+        events.push(event as { type: string; payload: any });
+      }
+
+      expect(bodies.length).toBe(2);
+      // Request 1: native tools spec (whitelist + deterministic parser) and
+      // the zero-hallucination guide, with the parsed stack in the context.
+      const first = JSON.parse(bodies[0]) as any;
+      const toolNames = first.tools.map((tool: any) => tool.function.name);
+      expect(toolNames).toEqual(
+        expect.arrayContaining([
+          'diagnose_chain',
+          'blast_radius',
+          'trace_call_chain',
+          'get_config_evidence',
+          'parse_stack_trace'
+        ])
+      );
+      const parserSpec = first.tools.find((tool: any) => tool.function.name === 'parse_stack_trace');
+      expect(parserSpec.function.parameters.properties.stack).toBeDefined();
+      expect(JSON.stringify(first.messages)).toContain('Zero-Hallucination Contract');
+      expect(JSON.stringify(first.messages)).toContain('Parsed frames:');
+      expect(JSON.stringify(first.messages)).toContain('com.acme.thirdparty.Missing.run');
+      // Request 2: assistant.tool_calls replayed with a paired role:'tool'.
+      const second = JSON.parse(bodies[1]) as any;
+      const assistant = second.messages.find((m: any) => m.role === 'assistant');
+      const toolMessages = second.messages.filter((m: any) => m.role === 'tool');
+      expect(assistant.tool_calls[0].id).toBe('call_inc_1');
+      expect(toolMessages).toHaveLength(1);
+      expect(toolMessages[0].tool_call_id).toBe('call_inc_1');
+      // The parse_stack_trace result is real physical evidence from the index.
+      expect(toolMessages[0].content).toContain('DemoService.java');
+
+      const done = events.find((event) => event.type === 'repoqa.query.done')!;
+      expect(done.payload.provenance).toBe('llm');
+      expect(done.payload.answer).toContain('DemoService.greet');
+      expect(typeof done.payload.commit).toBe('string');
+      expect(done.payload.commit.length).toBeGreaterThan(0);
+      const anchorsEvent = events.find((event) => event.type === 'repoqa.query.anchors')!;
+      // Issue 23 integration: deterministic stack-frame anchors lead the list
+      // (className.method labels); the model's own anchor adds `greet` last.
+      expect(anchorsEvent.payload.anchors).toEqual([
+        expect.objectContaining({
+          file: 'src/main/java/com/demo/DemoService.java',
+          line: 4,
+          symbol: 'DemoService.greet',
+          commit: done.payload.commit
+        }),
+        expect.objectContaining({
+          file: 'src/main/java/com/demo/Controller.java',
+          line: 5,
+          symbol: 'Controller.hello',
+          commit: done.payload.commit
+        }),
+        expect.objectContaining({
+          file: 'src/main/java/com/demo/DemoService.java',
+          line: 4,
+          symbol: 'greet',
+          commit: done.payload.commit
+        })
+      ]);
+      // Masking middleware covers incident answers too.
+      expect(events.some((event) => event.type === 'repoqa.query.token')).toBe(true);
+    } finally {
+      restoreIncidentEnv(saved);
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+      await new Promise<void>((resolve) => stub.close(() => resolve()));
+    }
+  });
+
+  it('falls back to the deterministic static answer with VERIFIED/BREAK evidence', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-incident-static-'));
+    const saved = saveIncidentEnv();
+    delete process.env.REPOQA_LLM_URL;
+    delete process.env.REPOQA_LLM_BASE;
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+      const events: Array<{ type: string; payload: any }> = [];
+      for await (const event of ctx.worker.queryRepo({
+        repoId,
+        question: '线上 NPE 排查',
+        mode: 'incident',
+        stack: INCIDENT_STACK
+      })) {
+        events.push(event as { type: string; payload: any });
+      }
+
+      const done = events.find((event) => event.type === 'repoqa.query.done')!;
+      expect(done.payload.provenance).toBe('static');
+      expect(done.payload.lowConfidence).toBe(false);
+      expect(done.payload.suggestedAction).toBe('Trace greet');
+      expect(typeof done.payload.commit).toBe('string');
+      expect(done.payload.commit.length).toBeGreaterThan(0);
+      // Zero-hallucination layout: crash point, VERIFIED frames with physical
+      // file:line, BREAK for the unmatched third-party frame, next step.
+      expect(done.payload.answer).toContain('崩溃点定位到 DemoService.greet');
+      expect(done.payload.answer).toContain('DemoService.java:4');
+      expect(done.payload.answer).toContain('[VERIFIED]');
+      expect(done.payload.answer).toContain('at com.acme.thirdparty.Missing.run(Missing.java:99)');
+      expect(done.payload.answer).toContain('BREAK');
+      expect(done.payload.answer).toContain('建议下一步');
+      expect(done.payload.answer).not.toContain('Missing.java:99 @');
+      // Anchors all pass raw-file validation and carry the commit stamp.
+      const anchorsEvent = events.find((event) => event.type === 'repoqa.query.anchors')!;
+      expect(anchorsEvent.payload.anchors.length).toBeGreaterThan(0);
+      for (const anchor of anchorsEvent.payload.anchors) {
+        expect(anchor.commit).toBe(done.payload.commit);
+      }
+      // Unmatched frames are recorded as a tool.miss event for the dogfood metrics.
+      const misses = ctx.db
+        .prepare(
+          "SELECT intent, tool_miss FROM repoqa_events WHERE repo_id = ? AND event_type = 'tool.miss'"
+        )
+        .all(repoId) as Array<{ intent: string; tool_miss: string }>;
+      expect(
+        misses.some(
+          (miss) => miss.intent === 'incident' && miss.tool_miss.includes('Missing.run')
+        )
+      ).toBe(true);
+    } finally {
+      restoreIncidentEnv(saved);
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('answers symptom-only incidents (no stack) from the deterministic path', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-incident-symptom-'));
+    const saved = saveIncidentEnv();
+    delete process.env.REPOQA_LLM_URL;
+    delete process.env.REPOQA_LLM_BASE;
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+      const events: Array<{ type: string; payload: any }> = [];
+      for await (const event of ctx.worker.queryRepo({
+        repoId,
+        question: 'service randomly 500s',
+        mode: 'incident'
+      })) {
+        events.push(event as { type: string; payload: any });
+      }
+      const done = events.find((event) => event.type === 'repoqa.query.done')!;
+      expect(done.payload.provenance).toBe('static');
+      expect(done.payload.answer).toContain('No stack trace supplied');
+      // Last-resort crash symbol is explicitly grounded in the index.
+      expect(done.payload.answer).toContain('崩溃点定位到');
+      expect(done.payload.lowConfidence).toBe(false);
+    } finally {
+      restoreIncidentEnv(saved);
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('Issue 23 — incident mode HTTP transport', () => {
+  it('streams incident evidence over GET with mode and stack passthrough', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-incident-get-'));
+    const saved = saveIncidentEnv();
+    delete process.env.REPOQA_LLM_URL;
+    delete process.env.REPOQA_LLM_BASE;
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const response = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/query?mode=incident&question=${encodeURIComponent('NPE 排查')}&stack=${encodeURIComponent(INCIDENT_STACK)}`
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      const text = await response.text();
+      const blocks = text.split('\n\n').filter(Boolean);
+      const doneBlock = blocks.find((block) => block.startsWith('event: repoqa.query.done'))!;
+      const done = JSON.parse(doneBlock.slice(doneBlock.indexOf('data: ') + 6)) as any;
+      expect(done.provenance).toBe('static');
+      expect(done.answer).toContain('DemoService.java:4');
+      expect(done.answer).toContain('BREAK');
+      expect(typeof done.commit).toBe('string');
+      expect(done.commit.length).toBeGreaterThan(0);
+    } finally {
+      restoreIncidentEnv(saved);
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a JSON body on POST (long stacks) and validates parameters', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-incident-post-'));
+    const saved = saveIncidentEnv();
+    delete process.env.REPOQA_LLM_URL;
+    delete process.env.REPOQA_LLM_BASE;
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const longStack = [
+        'java.lang.IllegalStateException: pool exhausted',
+        ...Array.from({ length: 40 }, () => 'at com.demo.DemoService.greet(DemoService.java:5)')
+      ].join('\n');
+      const response = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/query`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question: '连接池耗尽排查', mode: 'incident', stack: longStack })
+      });
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      const blocks = text.split('\n\n').filter(Boolean);
+      const doneBlock = blocks.find((block) => block.startsWith('event: repoqa.query.done'))!;
+      const done = JSON.parse(doneBlock.slice(doneBlock.indexOf('data: ') + 6)) as any;
+      expect(done.provenance).toBe('static');
+      expect(done.answer).toContain('DemoService.greet');
+
+      // Unknown repo -> 404, missing question -> 400.
+      const missing = await fetch(
+        `${ctx.baseUrl}/api/repos/nope/query?question=x&mode=incident`
+      );
+      expect(missing.status).toBe(404);
+      const bad = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/query?mode=incident`);
+      expect(bad.status).toBe(400);
+      const badBody = (await bad.json()) as { error: string };
+      expect(badBody.error).toContain('question');
+    } finally {
+      restoreIncidentEnv(saved);
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });
     }

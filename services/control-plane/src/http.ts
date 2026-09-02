@@ -491,31 +491,42 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     res.json({ chunks: maskEventPayload(deps.repoqa.searchChunks(repo.id, query)) });
   });
 
-  app.get('/api/repos/:id/query', async (req, res) => {
+  // Issue 23 — GET stays the primary form; POST accepts the same parameters in
+  // a JSON body so very long pasted stack traces never hit URL length limits.
+  const handleQuery = async (req: express.Request, res: express.Response) => {
     const repo = deps.repoqa.getRepo(req.params.id);
     if (!repo) {
       res.status(404).json({ error: 'Repo not found' });
       return;
     }
-    const question =
-      typeof req.query.question === 'string' ? req.query.question.trim() : '';
+    // Parameters come from the query string (GET) with a JSON-body fallback
+    // (POST body wins when both are present).
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const pickString = (key: string): string => {
+      const fromBody = typeof body[key] === 'string' ? (body[key] as string) : '';
+      const fromQuery = typeof req.query[key] === 'string' ? (req.query[key] as string) : '';
+      return (fromBody || fromQuery).trim();
+    };
+    const question = pickString('question');
     if (!question) {
       res.status(400).json({ error: 'question query parameter is required' });
       return;
     }
+    const modeRaw = pickString('mode');
     const mode =
-      req.query.mode === 'architecture' ||
-      req.query.mode === 'call-chain' ||
-      req.query.mode === 'environment'
-        ? req.query.mode
+      modeRaw === 'architecture' ||
+      modeRaw === 'call-chain' ||
+      modeRaw === 'environment' ||
+      modeRaw === 'incident'
+        ? (modeRaw as 'architecture' | 'call-chain' | 'environment' | 'incident')
         : undefined;
+    // Issue 23 — pasted stack trace for incident mode.
+    const stack = pickString('stack') || undefined;
     // Explicit trace start from the frontend (Top API click): the clicked
     // symbol's exact name + file, so findStartSymbol never resolves to a
     // same-name symbol in another file (e.g. test helpers).
-    const startName =
-      typeof req.query.startName === 'string' ? req.query.startName.trim() : '';
-    const startFile =
-      typeof req.query.startFile === 'string' ? req.query.startFile.trim() : '';
+    const startName = pickString('startName');
+    const startFile = pickString('startFile');
     const start =
       startName && startFile ? { name: startName, file: startFile } : undefined;
 
@@ -526,7 +537,11 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     });
     res.flushHeaders();
     let closed = false;
-    req.on('close', () => {
+    // Issue 23: detect client disconnects on the RESPONSE stream. `req.close`
+    // fires as soon as the request message is complete — always true for POST
+    // once express.json() consumed the body — which would silently stop the
+    // SSE stream before the first event and leave the response hanging.
+    res.on('close', () => {
       closed = true;
     });
 
@@ -535,7 +550,8 @@ export function createHttpApp(deps: HttpDeps): express.Express {
         repoId: repo.id,
         question,
         mode,
-        start
+        start,
+        ...(stack ? { stack } : {})
       })) {
         if (closed) return;
         // Issue 07: masking middleware — every SSE payload passes through the
@@ -559,7 +575,9 @@ export function createHttpApp(deps: HttpDeps): express.Express {
         res.end();
       }
     }
-  });
+  };
+  app.get('/api/repos/:id/query', handleQuery);
+  app.post('/api/repos/:id/query', handleQuery);
 
   app.post('/api/repos/:id/anchor-click', (req, res) => {
     const repo = deps.repoqa.getRepo(req.params.id);

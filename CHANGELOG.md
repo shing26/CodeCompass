@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.16.0] - 2026-09-01
+
+### Highlights
+
+- **Architecture & Incident Copilot（排障副驾驶，Issue 23）**：新增 `mode=incident` 查询通路——粘贴 Java/TS 堆栈即可获得物理级锚定的排障分析。静态路径确定性解析堆栈帧→符号（`repoqa-stacktrace.ts`，Java/V8/通用兜底三格式 + 噪声帧过滤），LLM 路径走白名单工具（diagnose_chain / blast_radius / trace_call_chain / get_config_evidence / parse_stack_trace）6 步 ReAct 预算（ADR-0011 静态边界）。
+- **零幻觉合约进发布 gate**：每条调用链断言逐字来自本次会话工具返回，`file:line` 过 raw-file 校验；不可证的边界强制 BREAK/SUSPECT，永不编造。eval 新增 incident bucket（10 题），`hallucinationMaxFor('incident') = 0%` —— 幻觉率非零即 gate 失败。
+- **物理锚点四元组（ADR-0010）**：锚点升级为 `repoId + commit + file:line-range + symbolId`，索引时钉住 `HEAD` commit 并在锚点/回答 payload 盖章；前端 EvidenceCard 按 VERIFIED / BREAK / SUSPECT 三徽标呈现证据，VERIFIED 行点击直达 Inspector 源码切片。
+
+### Added
+
+- `services/control-plane/src/repoqa-stacktrace.ts`：堆栈解析 + 帧到符号解析 + `stackTraceSummary`，13 项单测。
+- `repoqa-worker.ts`：`runIncidentQuery`（LLM 白名单工具路径 + 确定性静态回退三段式回答）；incident 豁免 1.5s 延迟门禁（六步深度工具遍历，ADR-0011）。
+- `GET /api/repos/:id/query?mode=incident&stack=...`；done payload 增 `commit` 与 `provenance`。
+- 前端：`IncidentView` / `StackTraceInput`（IME 安全 Enter 提交）/ `EvidenceCard` 三徽标 + commit chip；`components/evidence.ts` 纯确定性断言解析（叙事文本不产生证据行）；TopBar 新增「排障」Tab，深链 `?mode=incident`。
+- eval：incident bucket 10 题冻结 + repo-e fixture（orders 链）+ 幻觉判定（file:line grounded）；`docs/benchmark.md` 刷新至 75 题 / 5 fixture。
+- ADR：`docs/adr/0010-physical-anchor-pins-commit.md` ~ `docs/adr/0015-evolution-workbench-freeform-intent.md`（均 accepted）——0012–0015 为架构雷达 / 演进顾问定位 grilling 裁决（Intent→Artifact、引擎垄断图谱渲染、Pattern Ingestion、自由文本意图入口），实装随 Issue 24/25。
+- 证据链兜底：`unionIncidentAnchors`（repoqa-llm.ts）——堆栈锚点优先合并 LLM 返回锚点，去重并丢弃格式残缺项，答案中的 `file:line` 不再因模型漏报锚点而失证。
+- 前端：IncidentView 动作条（爆炸半径 / 调用链溯源 / 重跑）+ 每条证据溯源链 + mermaid 断点图可点击跳转 Inspector；`App.tsx` 接线「排障」Tab。
+- 测试根修：`repoqa-http.test.ts` 以 `vi.mock('./repoqa-scan', importOriginal)` 将文件预算收窄至 60，file-limit 用例不再 flaky。
+
+### Fixed
+
+- POST + `express.json()` 场景下客户端断连检测误用 `req.on('close')`，改为 `res.on('close')`（此前正常完成的 POST 查询会被误判为中断）。
+
 ## [0.15.0] - 2026-08-31
 
 ### Highlights

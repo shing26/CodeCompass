@@ -96,6 +96,10 @@ export interface RepoQaAnchor {
   file: string;
   line: number;
   symbol: string;
+  /** ADR-0010 — definition end line (file:line-range anchor). */
+  lineEnd?: number;
+  /** ADR-0010 — repo commit the anchor was minted against (`hash` or `hash+dirty`). */
+  commit?: string;
 }
 
 export interface RepoQaQueryToken {
@@ -141,6 +145,8 @@ export interface RepoQaQueryDone {
   lowConfidence: boolean;
   provenance: 'static' | 'llm';
   usage: RepoQaTokenUsage;
+  /** ADR-0010 — commit the answer's anchors were minted against. */
+  commit?: string;
 }
 
 export interface RepoQaTokenUsage {

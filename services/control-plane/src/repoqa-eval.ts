@@ -11,6 +11,7 @@ import { openDb } from './db';
 import { EventBus } from './events';
 import { RepoQARepos } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
+import { parseStackTrace, resolveFramesToSymbols } from './repoqa-stacktrace';
 
 const execFile = promisify(execFileCallback);
 const RECALL_K = 5;
@@ -24,10 +25,22 @@ export const EVAL_PASS_THRESHOLDS = {
   anchorValidity: 90
 } as const;
 
-function bucketPasses(bucket: EvalReport['buckets'][keyof EvalReport['buckets']]): boolean {
+/**
+ * Issue 23: the incident bucket carries the Zero-Hallucination Contract into
+ * the release gate — a single fabricated anchor (hallucination rate > 0%)
+ * fails the bucket, while every other bucket keeps the ≤2% budget.
+ */
+function hallucinationMaxFor(bucketName: string): number {
+  return bucketName === 'incident' ? 0 : EVAL_PASS_THRESHOLDS.hallucinationRateMax;
+}
+
+function bucketPasses(
+  bucketName: string,
+  bucket: EvalReport['buckets'][EvalBucketName]
+): boolean {
   return (
     bucket.recallAtK >= EVAL_PASS_THRESHOLDS.recallAtK &&
-    bucket.hallucinationRate <= EVAL_PASS_THRESHOLDS.hallucinationRateMax &&
+    bucket.hallucinationRate <= hallucinationMaxFor(bucketName) &&
     bucket.anchorValidity >= EVAL_PASS_THRESHOLDS.anchorValidity
   );
 }
@@ -46,7 +59,8 @@ interface EvalQuestion {
     | 'architecture'
     | 'intent-anchor'
     | 'diagnose-chain'
-    | 'evolution';
+    | 'evolution'
+    | 'incident';
   question: string;
   expected: string[];
   /** diagnose-chain: whether the golden chain SHOULD contain a BROKEN hop. */
@@ -55,6 +69,11 @@ interface EvalQuestion {
   expectedAbsent?: string[];
   /** evolution EXTEND: free-text extension goal fed to the pattern matcher. */
   goal?: string;
+  /** Issue 23 incident: pasted Java stack trace the case runs through the
+   * deterministic parser → symbol resolution → diagnose pipeline. */
+  stack?: string;
+  /** Issue 23 incident: frames that must surface as BREAK, never guessed. */
+  expectedUnresolved?: string[];
 }
 
 export type EvalBucketName =
@@ -63,7 +82,8 @@ export type EvalBucketName =
   | 'architecture'
   | 'intent-anchor'
   | 'diagnose-chain'
-  | 'evolution';
+  | 'evolution'
+  | 'incident';
 
 export type EvalReport = {
   passed: boolean;
@@ -276,7 +296,27 @@ const repoD: EvalFixture = {
     ].join('\n')
   }
 };
-export const GOLDEN_FIXTURES: EvalFixture[] = [repoA, repoB, repoC, repoD];
+/**
+ * Issue 23 — Order-chain incident fixture: a Controller → Service → Validator
+ * → Audit call chain the golden stack traces land in. Existing fixtures stay
+ * byte-identical (frozen truth, ADR-0004); this one only feeds the incident
+ * bucket.
+ */
+const repoE: EvalFixture = {
+  name: 'repo-e',
+  files: {
+    'pom.xml': '<project><groupId>com.demo</groupId><artifactId>order-ops</artifactId></project>\n',
+    'src/main/java/com/orders/OrderController.java':
+      'package com.orders;\n@RestController\npublic class OrderController {\n  private final OrderService orderService = new OrderService();\n  public String createOrder() { return orderService.create(); }\n}\n',
+    'src/main/java/com/orders/OrderService.java':
+      'package com.orders;\n@Service\npublic class OrderService {\n  private final OrderValidator validator = new OrderValidator();\n  public String create() { validator.validate("sku-1"); return "created"; }\n}\n',
+    'src/main/java/com/orders/OrderValidator.java':
+      'package com.orders;\npublic class OrderValidator {\n  private final OrderAudit audit = new OrderAudit();\n  public void validate(String sku) { audit.record(sku); }\n}\n',
+    'src/main/java/com/orders/OrderAudit.java':
+      'package com.orders;\npublic class OrderAudit {\n  public void record(String sku) { }\n}\n'
+  }
+};
+export const GOLDEN_FIXTURES: EvalFixture[] = [repoA, repoB, repoC, repoD, repoE];
 
 export const GOLDEN_DATASET: EvalQuestion[] = [
   ...Array.from({ length: 20 }, (_, index) => ({
@@ -378,6 +418,125 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
     expected: item.expected,
     ...(item.absent ? { expectedAbsent: item.absent } : {}),
     ...(item.goal ? { goal: item.goal } : {})
+  })),
+  // Issue 23 — incident bucket: 10 frozen stack-trace cases over the repo-e
+  // order chain. Every case pins (a) the frames that must resolve to indexed
+  // symbols, (b) the diagnose hops the crash frame must produce, and (c) the
+  // frames that must stay BREAK (fabricating one = hallucination).
+  ...[
+    {
+      id: 'incident-1',
+      question: '下单接口 500,堆栈如下',
+      stack: [
+        'java.lang.NullPointerException: order create failed',
+        'at com.orders.OrderValidator.validate(OrderValidator.java:9)',
+        'at com.orders.OrderService.create(OrderService.java:7)',
+        'at com.orders.OrderController.createOrder(OrderController.java:5)',
+        'at com.acme.risk.RiskClient.ping(RiskClient.java:88)',
+        '... 3 common frames omitted'
+      ].join('\n'),
+      expected: ['validate', 'create', 'createOrder'],
+      expectedUnresolved: ['ping']
+    },
+    {
+      id: 'incident-2',
+      question: '订单创建报错,截断堆栈',
+      stack: [
+        'java.lang.IllegalStateException: create failed',
+        'at com.orders.OrderService.create(OrderService.java:7)',
+        'at com.orders.OrderController.createOrder(OrderController.java:5)'
+      ].join('\n'),
+      expected: ['create', 'createOrder']
+    },
+    {
+      id: 'incident-3',
+      question: 'controller 层抛错',
+      stack: [
+        'java.lang.RuntimeException: boom',
+        'at com.orders.OrderController.createOrder(OrderController.java:5)',
+        'at com.orders.OrderService.create(OrderService.java:7)'
+      ].join('\n'),
+      expected: ['createOrder', 'create']
+    },
+    {
+      id: 'incident-4',
+      question: '审计写入失败',
+      stack: [
+        'java.sql.SQLException: audit insert failed',
+        'at com.orders.OrderAudit.record(OrderAudit.java:6)',
+        'at com.orders.OrderValidator.validate(OrderValidator.java:9)',
+        'at com.orders.OrderService.create(OrderService.java:7)'
+      ].join('\n'),
+      expected: ['record', 'validate', 'create']
+    },
+    {
+      id: 'incident-5',
+      question: '嵌套 cause 与噪声行',
+      stack: [
+        'java.lang.IllegalStateException: create failed',
+        'at com.orders.OrderValidator.validate(Native Method)',
+        'at com.orders.OrderService.create(OrderService.java:7)',
+        'Caused by: java.lang.IllegalStateException: nested',
+        'Suppressed: java.lang.Exception: cleanup',
+        '... 2 more'
+      ].join('\n'),
+      expected: ['validate', 'create']
+    },
+    {
+      id: 'incident-6',
+      question: '日志行里内嵌的帧',
+      stack:
+        '2026-09-01 10:00:00.123 ERROR [http-nio-8080-exec-3] c.orders.OrderController - create failed: com.orders.OrderService.create(OrderService.java:7)',
+      expected: ['create']
+    },
+    {
+      id: 'incident-7',
+      question: '前端 TS 帧混排,必须标 BREAK',
+      stack: [
+        'at submitOrder (web/src/OrderPage.tsx:41:20)',
+        'at com.orders.OrderService.create(OrderService.java:7)'
+      ].join('\n'),
+      expected: ['create'],
+      expectedUnresolved: ['submitOrder']
+    },
+    {
+      id: 'incident-8',
+      question: '下单接口偶发 502,帮忙定位',
+      expected: []
+    },
+    {
+      id: 'incident-9',
+      question: '退款符号不存在,必须 BREAK',
+      stack: [
+        'java.lang.ClassCastException: handler mismatch',
+        'at com.orders.RefundService.refund(RefundService.java:9)',
+        'at com.orders.OrderValidator.validate(OrderValidator.java:9)',
+        'at com.orders.OrderService.create(OrderService.java:7)'
+      ].join('\n'),
+      expected: ['validate', 'create'],
+      expectedUnresolved: ['refund']
+    },
+    {
+      id: 'incident-10',
+      question: 'cause 链里的最深帧',
+      stack: [
+        'java.lang.IllegalStateException: create failed',
+        'at com.orders.OrderService.create(OrderService.java:7)',
+        'at com.orders.OrderController.createOrder(OrderController.java:5)',
+        'Caused by: java.lang.IllegalStateException: audit write failed',
+        'at com.orders.OrderAudit.record(OrderAudit.java:6)',
+        '... 2 more'
+      ].join('\n'),
+      expected: ['create', 'createOrder', 'record']
+    }
+  ].map((item) => ({
+    id: item.id,
+    fixture: 'repo-e',
+    mode: 'incident' as const,
+    question: item.question,
+    expected: item.expected,
+    ...(item.stack ? { stack: item.stack } : {}),
+    ...(item.expectedUnresolved ? { expectedUnresolved: item.expectedUnresolved } : {})
   }))
 ];
 
@@ -445,8 +604,14 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     architecture: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
     'intent-anchor': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
     'diagnose-chain': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    evolution: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
+    evolution: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
+    incident: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
   };
+  // Issue 23: physical file set per fixture — incident anchors are valid only
+  // when their symbol table file actually exists in the frozen fixture.
+  const fixtureFilesByFixture = new Map(
+    GOLDEN_FIXTURES.map((fixture) => [fixture.name, new Set(Object.keys(fixture.files))])
+  );
 
   for (const question of GOLDEN_DATASET) {
     const symbols = symbolsByFixture.get(question.fixture) ?? [];
@@ -571,6 +736,62 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
           }
         });
       }
+    } else if (question.mode === 'incident') {
+      // Issue 23 — deterministic pipeline only: parse → resolve → diagnose.
+      // No env, no LLM, so the frozen dataset replays identically anywhere.
+      const fixtureFiles = fixtureFilesByFixture.get(question.fixture) ?? new Set<string>();
+      const frames = question.stack ? parseStackTrace(question.stack) : [];
+      const resolution = resolveFramesToSymbols(frames, symbols, {
+        name: (symbol) => symbol.name,
+        parentType: (symbol) => symbol.parentType,
+        filePath: (symbol) => symbol.filePath
+      });
+
+      // Recall: every expected frame must resolve to an indexed symbol.
+      const resolvedNames = resolution.matches.map(({ symbol }) => symbol.name);
+      question.expected.forEach((name) => {
+        bucket.expected += 1;
+        if (resolvedNames.includes(name)) {
+          bucket.matched += 1;
+          bucket.anchors += 1;
+        }
+      });
+
+      // Hallucination = fabricating a physical counterpart for a frame the
+      // golden truth pins as BREAK (ADR-0011: unverifiable bounds stay BREAK).
+      for (const { frame } of resolution.matches) {
+        if (question.expectedUnresolved?.includes(frame.method)) bucket.hallucinated += 1;
+      }
+
+      // Diagnose hops from the crash frame are physical by construction —
+      // each is hallucinated only when its file:line is not grounded in the
+      // fixture (that would be an assertion outside the tool-returned chain).
+      const crashSymbol = resolution.matches[0]?.symbol;
+      if (crashSymbol) {
+        const diagnose = runDiagnose({
+          repoId: repoIdByFixture.get(question.fixture) ?? question.fixture,
+          entrySymbol: crashSymbol.name,
+          symbols,
+          index: indexByFixture.get(question.fixture)!
+        });
+        for (const step of diagnose.verifiedChain) {
+          bucket.anchors += 1;
+          const file = step.filePath.replace(/\\/g, '/');
+          if (!fixtureFiles.has(file) || step.line <= 0) bucket.hallucinated += 1;
+        }
+      }
+
+      // Anchor validity: physical file:line that exists in the fixture, never
+      // fabricated — the file set doubles as a raw-file validator here.
+      for (const name of resolvedNames) {
+        const symbol = resolution.matches.find((match) => match.symbol.name === name)!.symbol;
+        const file = symbol.filePath.replace(/\\/g, '/');
+        if (fixtureFiles.has(file) && (symbol.lineStart ?? 0) > 0) {
+          bucket.anchors += 1;
+        } else {
+          bucket.invalid += 1;
+        }
+      }
     }
 
     bucket.latency += Date.now() - start;
@@ -597,8 +818,8 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
 
   const generationFailures = Math.min(
     1,
-    Object.values(buckets).filter(
-      (bucket) => bucket.hallucinationRate > EVAL_PASS_THRESHOLDS.hallucinationRateMax
+    Object.entries(buckets).filter(
+      ([name, bucket]) => bucket.hallucinationRate > hallucinationMaxFor(name)
     ).length
   );
   const anchorFailures = Math.min(
@@ -620,7 +841,7 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
 
   const passed =
     parseFailures === 0 &&
-    Object.values(buckets).every((bucket) => bucketPasses(bucket));
+    Object.entries(buckets).every(([name, bucket]) => bucketPasses(name, bucket));
 
   const report: EvalReport = {
     passed,
@@ -669,7 +890,7 @@ export function recordEvalReport(repoqa: RepoQARepos, report: EvalReport): void 
         anchorValidity: bucket.anchorValidity,
         avgLatencyMs: bucket.avgLatencyMs
       }),
-      failureClass: bucketPasses(bucket) ? undefined : 'threshold-miss'
+      failureClass: bucketPasses(mode, bucket) ? undefined : 'threshold-miss'
     });
   }
 }

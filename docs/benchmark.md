@@ -1,7 +1,7 @@
-# Benchmark — Golden Eval Baseline (v0.13.0)
+# Benchmark — Golden Eval Baseline (v0.16.0)
 
 > `npm run eval`（`services/control-plane` 内 `npx tsx src/repoqa-eval.ts`）一键重放。
-> 数据集：65 条 golden 问题 × 4 个代码内联 fixture（自动物化 + git 提交，确定性可重放）。
+> 数据集：75 条 golden 问题 × 5 个代码内联 fixture（自动物化 + git 提交，确定性可重放）。
 > 指标：Recall@5（期望锚点在 Top-5 的比例）、幻觉率（报告了期望之外的锚点）、锚点有效率、平均延迟。
 
 ## 最近一次全量结果
@@ -14,8 +14,12 @@
 | intent-anchor（意图锚点，v0.9） | 5 | 100% | 0% | 100% | ~2ms |
 | diagnose-chain（四层穿透，v0.8） | 5 | 100% | 0% | 100% | ~0ms |
 | evolution（模块演进，v0.9） | 5 | 100% | 0% | 100% | ~0ms |
+| incident（排障堆栈，v0.16） | 10 | 100% | 0% | 100% | ~0ms |
 
 **通过阈值（EVAL_PASS_THRESHOLDS）**：Recall@5 ≥ 85%、幻觉率 ≤ 2%、锚点有效率 ≥ 90%。
+**零幻觉合约（v0.16，ADR-0011）**：incident bucket 幻觉率阈值收紧为 **0%**——每条调用链断言必须 grounded
+于符号表物理锚点（`repoId+commit+file:line+symbolId`，commit 随 import 时 `refreshRepoCommit` 盖章），
+堆栈中无法解析到符号的帧必须输出 BREAK，不得编造；该 0% 阈值进入发布 gate（`hallucinationMaxFor`）。
 失败分类（parse / retrieval / generation / anchor）全零即为绿色发布。
 
 ## 覆盖场景（repo-d fixture）

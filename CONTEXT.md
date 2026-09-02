@@ -1,7 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-9 ADRs（0001–0003、0005–0007、0008–0009 accepted，0004 proposed）。当前版本 0.11.0。
+11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 感知面 v1 冻结为现有 8 工具，演进类工具随 Issue 25 上）。当前版本 0.16.0（Issue 23 排障副驾驶：`mode=incident` + 零幻觉合约，物理锚点四元组见 ADR-0010，静态边界见 ADR-0011）。
 
 ## Naming
 
@@ -59,6 +59,16 @@
 | Story Beats（分步演播） | 工件内把推演步骤转为 Prev/Next 步进卡片并与代码切片联动；仅落在自包含 HTML 工件端，Web 端需协议扩展，推 v1.0（ADR-0009）。 |
 | Live Trace Strip（实时演播带） | v0.11 在 Web 驾驶舱 Canvas 底部新增的实时 trace 步进条（Prev / Step N/M / Next），步进时联动画布居中 + Inspector 切片高亮；区别于离线 Story Beats（ADR-0009 的工件端演播），它是 SSE 问答 `done.payload.trace` 的实时消费（见 Stage 4）。 |
 | Brand Badge（品牌徽标） | 依依赖/配置关键词确定性贴标的技术栈 SVG 徽标（Spring/Redis/MySQL 等），是证据标注而非装饰。 |
+| Architecture & Incident Copilot（排障副驾驶） | Web 端改造新增的排障对话模式：以文字描述 + 粘贴堆栈/日志为入口，独立 6 步 ReAct 预算（普通问答保持 3 步），产出穿透链 + 爆炸半径 + 配置证据的锚定式回答。v1 纯静态边界：不接 APM/日志流。 |
+| Zero-Hallucination Contract（零幻觉合约） | 回答中每条调用链断言必须逐字来自本次会话工具返回的 Call Edge；每个 file:line 引用必须过 raw-file 物理校验；静态不可达边界强制标 BREAK/SUSPECT，禁止叙述性补全。叙述性总结与逻辑串联不要求逐句锚定。验收 = golden eval incident bucket 幻觉率 0%，进发布 gate。 |
+| Physical Anchor（物理锚点） | `repoId + commit + file:line-range + symbolId` 四元组，raw-file 校验通过才可展示；工作区有未提交修改时记为 `commit+dirty`。钉 commit 换取时空可回放性，防止文件改动后行号切片错位成幽灵锚点。 |
+| Stack Trace Parsing（堆栈解析） | 确定性正则解析器：从粘贴的堆栈/日志提取 `Class.method(File.java:123)`，反查符号表后串联 diagnose 穿透与波及面分析；零 LLM 参与。 |
+| Intent→Artifact（意图工件模型） | ADR-0012 定义的交互模型：用户给一个意图，智能体单次产出高密度工件卡（定位节点 + 拓扑图谱 + 落位清单 + 风险 Checklist），不逐步反问；历史是工件流，按 (repoId, commit) 隔离；对工件卡的追问 = 新意图输入。 |
+| Artifact Stream（工件流） | 会话历史的呈现形态：时间序高密度工件卡列表（ADR-0012），每张卡自带物理锚点与溯源元信息，非聊天气泡。 |
+| Pattern Ingestion（模式嗅探） | 演进建议生成前对目标代码库既有惯例的确定性抽取（ADR-0014：惯例清单带物理锚点 + 覆盖率；近邻优先、全局多数兜底、披露强制；骨架由 LLM 消费惯例清单生成并标注 llm-generated）；契约按 ADR-0005 零 LLM（嗅探轴 v1 清单待 Issue 24）。 |
+| Engine-rendered Diagram（引擎渲染图） | 图谱几何一律由确定性引擎从 Call Edge 边表渲染（ADR-0013 白名单：traceToMermaid、配置拓扑、Tour 路线）；LLM 仅产出结构化图层指令（图型、focus、折叠层级、节点注释），永不直接产出连线。迁移期缺口与 eval 波及见 ADR-0013。 |
+| Evolution Workbench（演进推演台） | 矩阵三视图中唯一新建视图（ADR-0015）：自由文本意图入口，LLM 单次意图解析 + 引擎意图锚点落地目标，解析回显披露不反问；产出四段工件卡（惯例清单 / 落位表 / 死代码清单 / 风险 Checklist）。 |
+| Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。v1 MCP 感知面冻结为现有 8 工具，演进类工具随 Issue 25 补齐。 |
 
 ## Open Decisions
 - Post-v1: remote sync backend, advanced approval/guardrail automation, and

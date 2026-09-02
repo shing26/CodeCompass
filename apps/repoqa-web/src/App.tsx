@@ -17,6 +17,7 @@ import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
 import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
+import { IncidentView } from './components/IncidentView';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
@@ -48,7 +49,6 @@ function repoUpdatedWebSocketUrl(baseUrl: string): string {
 
 /** Main view state: workbench tabs plus the guided Tour player. */
 type MainView = WorkbenchTab | 'tour';
-
 export function App({ client: clientProp }: AppProps) {
   const { toggleTheme } = useTheme();
   // Build the default client once: constructing it during render (e.g. in a
@@ -91,6 +91,7 @@ export function App({ client: clientProp }: AppProps) {
     recovered,
     error: chatError,
     submit,
+    askIncident,
     retry,
     totalUsage
   } = useChat(client, repoId);
@@ -100,6 +101,7 @@ export function App({ client: clientProp }: AppProps) {
     question: string;
     mode?: QueryMode;
     start?: { name: string; file: string };
+    stack?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -169,9 +171,10 @@ export function App({ client: clientProp }: AppProps) {
   }, [client.baseUrl, repoId, refreshSymbolsSilent, refreshDashboardSilent]);
 
   // Issue 31: the three-pane workbench is the default; the dashboard and CI
-  // gate are explicit TopBar tabs.
+  // gate are explicit TopBar tabs. Issue 23: ?mode=incident deep-links the
+  // incident copilot view.
   const [view, setView] = useState<MainView>(
-    deepLink.mode === 'diff' ? 'delta' : 'topo'
+    deepLink.mode === 'diff' ? 'delta' : deepLink.mode === 'incident' ? 'incident' : 'topo'
   );
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   const [indexingProgress, setIndexingProgress] = useState<IndexingProgress | null>(null);
@@ -239,6 +242,7 @@ export function App({ client: clientProp }: AppProps) {
   // Bug-08: restore the selected repo when the user navigates back/forward
   // in browser history (the URL is the single source of truth for selection).
   // v0.8: the mode param rides along, so back/forward also restores delta view.
+  // Issue 23: mode=incident restores the incident copilot view.
   useEffect(() => {
     const onPopState = () => {
       const params = new URLSearchParams(window.location.search);
@@ -246,7 +250,8 @@ export function App({ client: clientProp }: AppProps) {
       if (id && id !== currentRepo?.id) {
         selectRepo(id);
         setActiveTour(null);
-        setView(params.get('mode') === 'diff' ? 'delta' : 'topo');
+        const mode = params.get('mode');
+        setView(mode === 'diff' ? 'delta' : mode === 'incident' ? 'incident' : 'topo');
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -254,12 +259,14 @@ export function App({ client: clientProp }: AppProps) {
   }, [currentRepo?.id, selectRepo]);
 
   // v0.8 — keep the URL's mode param in step with the workbench tab so a
-  // refreshed deep link lands on the same view (delta ↔ mode=diff).
+  // refreshed deep link lands on the same view (delta ↔ mode=diff,
+  // incident ↔ mode=incident).
   useEffect(() => {
     if (view === 'tour') return;
     try {
       const url = new URL(window.location.href);
       if (view === 'delta') url.searchParams.set('mode', 'diff');
+      else if (view === 'incident') url.searchParams.set('mode', 'incident');
       else url.searchParams.delete('mode');
       window.history.replaceState(null, '', url.toString());
     } catch {
@@ -304,17 +311,32 @@ export function App({ client: clientProp }: AppProps) {
     });
   };
 
-  const handleSubmit: typeof submit = (question, mode, start) => {
+  const handleSubmit: typeof submit = (question, mode, start, stack) => {
     if (runtime.llm.mode === 'remote' && !llmConsented) {
-      setConsentPending({ question, mode, start });
+      setConsentPending({ question, mode, start, stack });
       return;
     }
-    submit(question, mode, start);
+    submit(question, mode, start, stack);
+  };
+
+  /** Issue 23 — incident copilot submit (shares the LLM consent gate). */
+  const handleIncidentSubmit = (question: string, stack?: string) => {
+    if (runtime.llm.mode === 'remote' && !llmConsented) {
+      setConsentPending({ question, mode: 'incident', stack });
+      return;
+    }
+    askIncident(question, stack);
   };
 
   const confirmConsent = () => {
     setLlmConsented(true);
-    if (consentPending) submit(consentPending.question, consentPending.mode, consentPending.start);
+    if (consentPending) {
+      if (consentPending.mode === 'incident') {
+        askIncident(consentPending.question, consentPending.stack);
+      } else {
+        submit(consentPending.question, consentPending.mode, consentPending.start, consentPending.stack);
+      }
+    }
     setConsentPending(null);
   };
 
@@ -503,6 +525,28 @@ export function App({ client: clientProp }: AppProps) {
             />
           ) : view === 'gate' ? (
             <CiGateView repo={currentRepo} dashboard={dashboard} />
+          ) : view === 'incident' ? (
+            <IncidentView
+              repoName={currentRepo?.name ?? null}
+              messages={messages}
+              streaming={streaming}
+              reconnecting={reconnecting}
+              recovered={recovered}
+              error={chatError}
+              symbols={symbols}
+              onSubmit={handleIncidentSubmit}
+              onNavigate={inspector.openFile}
+              onOpenInWorkbench={() => setView('topo')}
+              onTraceCrash={(symbol, file) => {
+                setView('topo');
+                // Same deterministic call-chain entry as the Dashboard Top API
+                // click: explicit (name, file) start, LLM bypassed by the worker.
+                handleSubmit(`${symbol} 的完整调用链是怎样的？`, 'call-chain', {
+                  name: symbol,
+                  file
+                });
+              }}
+            />
           ) : view === 'delta' ? (
             <ArchitectureDeltaView
               repo={currentRepo}

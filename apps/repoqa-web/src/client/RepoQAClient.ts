@@ -326,14 +326,17 @@ export class RepoQAClient {
    * `start` is the explicit trace start (Top API click): the exact symbol
    * name + file, sent as startName/startFile so the backend resolves the
    * call-chain start unambiguously.
+   * `stack` (Issue 23) is the pasted stack trace for incident mode, sent as
+   * `stack` and forwarded by the backend into the deterministic stack parser.
    */
   queryRepo(
     repoId: string,
     question: string,
     mode?: QueryMode,
-    start?: QueryStart
+    start?: QueryStart,
+    stack?: string
   ): QueryStreamLike {
-    return new QueryStream(this.baseUrl, repoId, question, mode, start);
+    return new QueryStream(this.baseUrl, repoId, question, mode, start, stack);
   }
 }
 
@@ -372,6 +375,8 @@ export class QueryStream implements QueryStreamLike {
     private readonly mode?: QueryMode,
     /** Explicit trace start (Top API click), sent as startName/startFile. */
     private readonly start?: QueryStart,
+    /** Issue 23 — pasted stack trace for incident mode, sent as `stack`. */
+    private readonly stack?: string,
     /** Ticket 07: backoff base for auto-reconnect (tests inject a tiny value). */
     private readonly reconnectBaseMs = 500,
     /** Ticket 07: at most this many automatic reopen attempts before giving up. */
@@ -387,6 +392,7 @@ export class QueryStream implements QueryStreamLike {
       params.set('startName', this.start.name);
       params.set('startFile', this.start.file);
     }
+    if (this.stack) params.set('stack', this.stack);
     const url = `${this.baseUrl}/api/repos/${encodeURIComponent(this.repoId)}/query?${params}`;
     const source = new EventSource(url);
     // Backend event names carry the `repoqa.query.` namespace prefix; the

@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS repos (
   symbol_count INTEGER NOT NULL DEFAULT 0,
   index_parsed INTEGER NOT NULL DEFAULT 0,
   index_total INTEGER NOT NULL DEFAULT 0,
+  repo_commit TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -217,6 +218,12 @@ export function openDb(dbPath: string): Database.Database {
   }
   if (!repoColumns.some((column) => column.name === 'index_total')) {
     db.exec('ALTER TABLE repos ADD COLUMN index_total INTEGER NOT NULL DEFAULT 0');
+  }
+  // Issue 23 / ADR-0010: physical anchors pin the repo commit
+  // (`hash` or `hash+dirty`, undefined for non-git directories).
+  // Column is `repo_commit`: `commit` is a SQLite reserved word.
+  if (!repoColumns.some((column) => column.name === 'repo_commit')) {
+    db.exec('ALTER TABLE repos ADD COLUMN repo_commit TEXT');
   }
   // Issue 05: richer symbol metadata for deterministic call chains.
   const symbolColumns = db

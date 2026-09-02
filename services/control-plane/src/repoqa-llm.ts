@@ -41,6 +41,8 @@ export interface LlmTokenUsage {
 export const PROMPT_TOKEN_CAP = 8192;
 export const TOOL_RESULT_CHAR_CAP = 4000;
 export const MAX_AGENT_STEPS = 3;
+/** Issue 23: incident copilot gets an independent 6-step ReAct budget. */
+export const INCIDENT_MAX_AGENT_STEPS = 6;
 
 export function capPrompt(input: string, maxTokens = PROMPT_TOKEN_CAP): string {
   const maxChars = maxTokens * 4;
@@ -366,6 +368,115 @@ export async function completeReAct(
   return { answer: answerText, firstTokenMs, usage };
 }
 
+/**
+ * Issue 23 — one native OpenAI-compatible chat-completions turn with standard
+ * `tools`/`tool_calls` (non-streamed for reliable tool-call parsing). Handles
+ * DeepSeek/OpenAI dialect differences: `reasoning_content` may carry the
+ * thinking while `content` stays empty; `tool_calls` and text may co-exist.
+ * Throws `NativeToolsUnsupportedError` on 4xx so callers can degrade to the
+ * legacy text-JSON protocol.
+ */
+export class NativeToolsUnsupportedError extends Error {
+  constructor(public readonly status: number) {
+    super(`endpoint rejected the tools API (HTTP ${status})`);
+    this.name = 'NativeToolsUnsupportedError';
+  }
+}
+
+export interface NativeTurnResult {
+  /** The assistant message verbatim (tool_calls included) for transcript replay. */
+  message: Record<string, any>;
+  content?: string;
+  toolCalls: Array<{
+    id: string;
+    name: string;
+    args: Record<string, unknown>;
+    /** Set when `arguments` was not valid JSON — the loop feeds back an error. */
+    argsError?: string;
+  }>;
+  finishReason?: string;
+  usage?: LlmTokenUsage;
+  firstTokenMs?: number;
+}
+
+export async function completeNativeChat(
+  messages: NativeChatMessage[],
+  env: NodeJS.ProcessEnv = process.env,
+  tools?: NativeToolSpec[]
+): Promise<NativeTurnResult> {
+  const config = loadLlmEnv(env);
+  const endpoint = chatCompletionsEndpoint(env);
+  if (!endpoint) throw new Error('REPOQA_LLM_URL is not configured');
+
+  const nativeTools = tools && tools.length > 0 ? tools : undefined;
+  const body: Record<string, unknown> = {
+    model: config.model,
+    messages: messages.map((message) => ({ ...message })),
+    stream: false,
+    ...(nativeTools ? { tools: nativeTools, tool_choice: 'auto' } : {})
+  };
+
+  const send = (payload: Record<string, unknown>) =>
+    fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {})
+      },
+      body: JSON.stringify(payload)
+    });
+
+  const startedAt = Date.now();
+  let response = await send(body);
+  if (!response.ok && nativeTools && response.status >= 400 && response.status < 500) {
+    // Degrade once: endpoint predates the tools API — retry without `tools`.
+    // A successful plain retry means the tools API itself is unsupported, so
+    // report the original status via NativeToolsUnsupportedError and let the
+    // caller fall back to the text-JSON protocol.
+    const originalStatus = response.status;
+    const { tools: _omit, tool_choice: _omitChoice, ...plain } = body;
+    void _omit;
+    void _omitChoice;
+    response = await send(plain);
+    if (response.ok) {
+      throw new NativeToolsUnsupportedError(originalStatus);
+    }
+  }
+  if (!response.ok) {
+    throw new Error(`LLM request failed with HTTP ${response.status}`);
+  }
+
+  const firstTokenMs = Date.now() - startedAt;
+  const data = (await response.json()) as Record<string, any>;
+  const usagePayload = parseProviderUsage(data);
+  const usage = usagePayload ? { ...usagePayload, source: 'provider' as const } : undefined;
+  const choice = data?.choices?.[0];
+  const message: Record<string, any> = choice?.message ?? {};
+  const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
+
+  const toolCalls: NativeTurnResult['toolCalls'] = [];
+  if (Array.isArray(message.tool_calls)) {
+    message.tool_calls.forEach((call: AssistantToolCall, index: number) => {
+      const parsed = parseToolCall(call);
+      const id = typeof call.id === 'string' && call.id ? call.id : `call_${index}`;
+      if (!parsed) {
+        // A named call with unparsable arguments is kept with an argsError so
+        // the loop can feed the parse failure back to the model; nameless
+        // garbage is dropped entirely.
+        const name = call.function?.name ?? call.name;
+        if (typeof name === 'string' && name) {
+          toolCalls.push({ id, name, args: {}, argsError: 'tool arguments were not valid JSON' });
+        }
+        return;
+      }
+      toolCalls.push({ id, name: parsed.name, args: parsed.args });
+    });
+  }
+  // reasoning_content (DeepSeek) never replaces content; tool_calls win over text.
+  const content = typeof message.content === 'string' ? message.content : undefined;
+  return { message, content, toolCalls, finishReason, usage, firstTokenMs };
+}
+
 /* ------------------------------------------------------------------ *
  * ReAct agent loop + output contract (Issue 10)
  * ------------------------------------------------------------------ */
@@ -375,7 +486,99 @@ export interface AgentTool {
   description: string;
   /** Short parameter hint injected into the prompt, e.g. `query` or `text`. */
   parameters?: string;
+  /** Issue 23: JSON Schema for the standard `tools:[{type:'function'}]` request body. */
+  parameterSchema?: Record<string, unknown>;
   execute(args: Record<string, unknown>): unknown | Promise<unknown>;
+}
+
+/** Issue 23 — standard OpenAI tool descriptor sent when native tools are enabled. */
+export interface NativeToolSpec {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+/** Issue 23 — a `tool_calls` entry from an assistant message. */
+export interface AssistantToolCall {
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+  // Tolerant fallbacks: some OpenAI-compatible providers flatten the shape.
+  name?: string;
+  arguments?: string | Record<string, unknown>;
+}
+
+/** Issue 23 — one completed tool round-trip kept for the `role:'tool'` transcript. */
+export interface AgentToolTranscript {
+  callId: string;
+  name: string;
+  args: Record<string, unknown>;
+  result: unknown;
+}
+
+/** Issue 23 — one chat message for the native protocol request body. */
+export interface NativeChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content?: string | null;
+  tool_calls?: AssistantToolCall[];
+  tool_call_id?: string;
+}
+
+/**
+ * Issue 23 — zero-hallucination contract for the incident copilot: every call
+ * chain assertion must be verbatim from a tool result; every file:line must be
+ * validated; unprovable boundaries must be marked BREAK/SUSPECT, never guessed.
+ */
+export const INCIDENT_ZERO_HALLUCINATION_GUIDE = `Zero-Hallucination Contract (mandatory for incident mode):
+- Every call-chain assertion MUST come verbatim from a tool result in this session. Never invent hops, files, lines or config keys.
+- Every file:line you mention MUST appear in a tool result exactly as written.
+- When the evidence stops (unmatched stack frame, dynamic dispatch, missing config), you MUST mark the boundary explicitly as BREAK (static analysis cannot continue) — never guess past it.
+- Unresolved stack frames are reported as-is with the label BREAK.
+- A plain-language summary is allowed, but it must not introduce facts absent from tool results.`;
+
+/** Convert AgentTool descriptors to the standard `tools` request array. */
+export function toNativeToolSpecs(tools: AgentTool[]): NativeToolSpec[] {
+  return tools.map((tool) => ({
+    type: 'function' as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters:
+        tool.parameterSchema ??
+        ({
+          type: 'object',
+          properties: {},
+          additionalProperties: true
+        } as Record<string, unknown>)
+    }
+  }));
+}
+
+/** Parse a `tool_calls` entry into `{ name, args }`; null when it is malformed. */
+export function parseToolCall(call: AssistantToolCall): { name: string; args: Record<string, unknown> } | null {
+  const name = call.function?.name ?? call.name;
+  if (typeof name !== 'string' || !name) return null;
+  const rawArgs = call.function?.arguments ?? call.arguments;
+  let args: Record<string, unknown> = {};
+  if (typeof rawArgs === 'string' && rawArgs.trim()) {
+    try {
+      const parsed = JSON.parse(rawArgs);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+  } else if (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) {
+    args = rawArgs as Record<string, unknown>;
+  }
+  return { name, args };
 }
 
 export interface ReActAgentOptions {
@@ -387,6 +590,14 @@ export interface ReActAgentOptions {
   onFirstToken?: (latencyMs: number) => void;
   maxSteps?: number;
   budgetTokens?: number;
+  /**
+   * Issue 23: use the standard OpenAI `tools`/`tool_calls` protocol
+   * (non-streamed request, `role:'tool'` transcript). Falls back to the
+   * legacy text-JSON protocol when the endpoint answers 4xx.
+   */
+  nativeTools?: boolean;
+  /** Issue 23: extra contract guide appended to the prompt (e.g. incident mode). */
+  guideExtra?: string;
 }
 
 /** Issue 10: constrain every answer to the three section layout. */
@@ -405,11 +616,27 @@ Never use http(s) URLs in click bindings.`;
  * it answers, finalize (three-part answer + sanitized mermaid with code://
  * anchors). Returns `{ fallback: true }` when no LLM is configured so callers
  * can fall back to the static deterministic mode seamlessly.
+ *
+ * Issue 23: with `nativeTools` the loop speaks the standard OpenAI
+ * `tools`/`tool_calls` protocol (`role:'tool'` transcript replay). On
+ * `NativeToolsUnsupportedError` (endpoint rejected the tools API) it degrades
+ * once to the legacy text-JSON protocol for the remaining steps.
  */
 export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLLMResult> {
   const env = options.env ?? process.env;
   const maxSteps = options.maxSteps ?? MAX_AGENT_STEPS;
   const budget = options.budgetTokens ?? PROMPT_TOKEN_CAP;
+  const guideExtra = options.guideExtra ? `${options.guideExtra}\n` : '';
+  if (options.nativeTools && isLlmConfigured(env)) {
+    try {
+      return await runNativeToolsLoop(options, maxSteps, budget, guideExtra);
+    } catch (error) {
+      // Only an endpoint-level tools rejection degrades to the text protocol;
+      // anything else is a real failure and propagates.
+      if (!(error instanceof NativeToolsUnsupportedError)) throw error;
+    }
+  }
+
   const toolHistory: string[] = [];
   let accumulatedUsage: LlmTokenUsage | undefined;
 
@@ -420,7 +647,8 @@ export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLL
         context: options.context,
         tools: options.tools,
         toolHistory,
-        budget
+        budget,
+        guideExtra
       })
     );
     let result: ReActLLMResult;
@@ -473,12 +701,119 @@ export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLL
   });
 }
 
+/** Issue 23 — native `tools`/`tool_calls` ReAct loop. */
+async function runNativeToolsLoop(
+  options: ReActAgentOptions,
+  maxSteps: number,
+  budget: number,
+  guideExtra: string
+): Promise<ReActLLMResult> {
+  const env = options.env ?? process.env;
+  const specs = toNativeToolSpecs(options.tools);
+  const messages: NativeChatMessage[] = [
+    {
+      role: 'user',
+      content: maskSensitiveText(
+        buildAgentPrompt({
+          question: options.question,
+          context: options.context,
+          tools: options.tools,
+          toolHistory: [],
+          budget,
+          guideExtra
+        })
+      )
+    }
+  ];
+  const transcript: AgentToolTranscript[] = [];
+  let accumulatedUsage: LlmTokenUsage | undefined;
+  let firstTokenMs: number | undefined;
+
+  for (let step = 0; step < maxSteps; step += 1) {
+    const turn = await completeNativeChat(messages, env, specs);
+    if (turn.firstTokenMs !== undefined && firstTokenMs === undefined) {
+      firstTokenMs = turn.firstTokenMs;
+      options.onFirstToken?.(turn.firstTokenMs);
+    }
+    accumulatedUsage = mergeTokenUsage(accumulatedUsage, turn.usage);
+
+    if (turn.toolCalls.length === 0) {
+      // No tool request: treat the content as the final answer. DeepSeek R1
+      // may put everything in reasoning_content with an empty content — in
+      // that case there is nothing anchorable to say.
+      const answer = turn.content?.trim();
+      const usage =
+        accumulatedUsage ??
+        buildTokenUsage(
+          estimateTokenCount(options.question + options.context),
+          estimateTokenCount(answer ?? ''),
+          'estimate'
+        );
+      if (!answer) {
+        return finalizeAgentResult({ answer: 'LLM did not provide an answer.', usage });
+      }
+      let parsed: ReActLLMResult = { answer };
+      if (answer.startsWith('{')) {
+        try {
+          parsed = JSON.parse(answer) as ReActLLMResult;
+        } catch {
+          // Plain text answer without the JSON contract.
+        }
+      }
+      return finalizeAgentResult({ ...parsed, firstTokenMs, usage });
+    }
+
+    // Execute every requested tool, then replay assistant.tool_calls + role:'tool'.
+    // The replayed assistant message carries exactly the calls we executed
+    // (malformed entries were dropped during parsing) so every tool_call_id
+    // has a matching role:'tool' response — strict OpenAI endpoints 400 otherwise.
+    const toolResults: NativeChatMessage[] = [];
+    for (const call of turn.toolCalls) {
+      const tool = options.tools.find((candidate) => candidate.name === call.name);
+      const executed = call.argsError
+        ? { error: `invalid ${call.argsError}` }
+        : tool
+          ? await tool.execute(call.args ?? {})
+          : { error: `unknown tool: ${call.name}` };
+      transcript.push({ callId: call.id, name: call.name, args: call.args, result: executed });
+      toolResults.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: capPrompt(JSON.stringify(executed ?? null), TOOL_RESULT_CHAR_CAP)
+      });
+    }
+    messages.push({
+      role: 'assistant',
+      content: typeof turn.message.content === 'string' ? turn.message.content : null,
+      tool_calls: turn.toolCalls.map((call) => ({
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) }
+      }))
+    });
+    messages.push(...toolResults);
+  }
+
+  const usage =
+    accumulatedUsage ??
+    buildTokenUsage(
+      estimateTokenCount(transcript.map((entry) => JSON.stringify(entry.result)).join('')),
+      estimateTokenCount('LLM did not converge to an answer after tool calls.'),
+      'estimate'
+    );
+  return finalizeAgentResult({
+    answer: 'LLM did not converge to an answer after tool calls.',
+    usage
+  });
+}
+
 function buildAgentPrompt(input: {
   question: string;
   context: string;
   tools: AgentTool[];
   toolHistory: string[];
   budget: number;
+  guideExtra?: string;
 }): string {
   const toolLines = input.tools
     .map(
@@ -495,19 +830,66 @@ function buildAgentPrompt(input: {
     `Tools:\n${toolLines}`,
     THREE_PART_ANSWER_GUIDE,
     CODE_LINK_MMERMAID_GUIDE,
+    ...(input.guideExtra ? [input.guideExtra] : []),
     'Reply with JSON only: {"answer": "...", "mermaid": "...", "anchors": [...], "suggestedAction": "..."} or {"tool": {"name": "...", "args": {...}}}.'
   ].join('\n\n');
   return capPrompt(history ? `${core}\n\nTool history:\n${history}` : core, input.budget);
+}
+
+/**
+ * Issue 23 hotfix: anchors arrive from model JSON (untrusted). Drop malformed
+ * entries — missing/blank `file` or `symbol`, non-finite `line` — before any
+ * consumer calls `path.resolve(root, anchor.file)`, which throws on undefined
+ * and kills the whole SSE query.
+ */
+export function sanitizeAgentAnchors(
+  anchors: unknown
+): Array<{ file: string; line: number; symbol: string }> | undefined {
+  if (!Array.isArray(anchors)) return undefined;
+  const cleaned: Array<{ file: string; line: number; symbol: string }> = [];
+  for (const raw of anchors) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry = raw as Record<string, unknown>;
+    const file = typeof entry.file === 'string' ? entry.file.trim() : '';
+    const symbol = typeof entry.symbol === 'string' ? entry.symbol.trim() : '';
+    const line = Number(entry.line);
+    if (!file || !symbol || !Number.isFinite(line)) continue;
+    cleaned.push({ file, line: Math.max(1, Math.trunc(line)), symbol });
+  }
+  return cleaned;
+}
+
+/**
+ * Issue 23 integration: deterministic stack anchors lead the evidence chain,
+ * model-supplied anchors only add extra locations. Dedup by file|line|symbol
+ * preserving order; malformed entries are dropped (see sanitizeAgentAnchors).
+ */
+export function unionIncidentAnchors(
+  stackAnchors: Array<{ file: string; line: number; symbol: string }>,
+  modelAnchors: ReActLLMResult['anchors']
+): Array<{ file: string; line: number; symbol: string }> {
+  const out: Array<{ file: string; line: number; symbol: string }> = [];
+  const seen = new Set<string>();
+  for (const anchor of [...stackAnchors, ...(modelAnchors ?? [])]) {
+    if (!anchor || typeof anchor.file !== 'string' || !anchor.file.trim()) continue;
+    const key = `${anchor.file}|${anchor.line}|${anchor.symbol}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ file: anchor.file, line: anchor.line, symbol: anchor.symbol });
+  }
+  return out;
 }
 
 /** Issue 10: final hardening of a model answer before it reaches users. */
 export function finalizeAgentResult(result: ReActLLMResult): ReActLLMResult {
   const answer =
     typeof result.answer === 'string' ? toThreePartAnswer(result.answer) : result.answer;
-  const mermaid = result.mermaid
-    ? bindAnchorsToMermaid(sanitizeMermaidClicks(result.mermaid), result.anchors ?? [])
-    : undefined;
-  return { ...result, answer, mermaid };
+  const anchors = sanitizeAgentAnchors(result.anchors);
+  const mermaid =
+    typeof result.mermaid === 'string'
+      ? bindAnchorsToMermaid(sanitizeMermaidClicks(result.mermaid), anchors ?? [])
+      : undefined;
+  return { ...result, answer, mermaid, anchors };
 }
 
 /** Normalize a model answer into the three-section layout. */

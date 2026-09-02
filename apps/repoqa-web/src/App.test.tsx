@@ -348,7 +348,8 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
       'repo-1',
       'listOrders 的完整调用链是怎样的？',
       'call-chain',
-      { name: 'listOrders', file: 'src/main/java/OrderController.java' }
+      { name: 'listOrders', file: 'src/main/java/OrderController.java' },
+      undefined
     );
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
@@ -593,5 +594,110 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     await user.click(screen.getByTestId('chat-submit'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
     expect(client.queryRepo).not.toHaveBeenCalled();
+  });
+});
+
+describe('Issue 23 incident copilot view', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('opens the incident copilot from the TopBar tab and syncs mode=incident', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-incident'));
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    expect(screen.getByTestId('incident-empty')).toBeInTheDocument();
+    expect(window.location.search).toContain('mode=incident');
+  });
+
+  it('lands on the incident copilot via the ?mode=incident deep link', async () => {
+    window.history.replaceState(null, '', '/?repo=repo-1&mode=incident');
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    expect(screen.getByTestId('incident-empty')).toBeInTheDocument();
+  });
+
+  it('submits the incident question through the copilot form (Issue 23)', async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-incident'));
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('incident-question'), 'NPE at Demo.run');
+    await user.click(screen.getByTestId('incident-submit'));
+
+    await waitFor(() =>
+      expect(client.queryRepo).toHaveBeenCalledWith(
+        'repo-1',
+        'NPE at Demo.run',
+        'incident',
+        undefined,
+        undefined
+      )
+    );
+    expect(screen.getByTestId('incident-user-message')).toHaveTextContent('NPE at Demo.run');
+  });
+
+  it('forwards the pasted stack trace into the query (Issue 23)', async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-incident'));
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('incident-question'), 'NPE at Demo.run');
+    await user.click(screen.getByTestId('incident-toggle-stack'));
+    await user.type(screen.getByTestId('incident-stack'), 'at Demo.run(Demo.java:9)');
+    await user.click(screen.getByTestId('incident-submit'));
+
+    await waitFor(() =>
+      expect(client.queryRepo).toHaveBeenCalledWith(
+        'repo-1',
+        'NPE at Demo.run',
+        'incident',
+        undefined,
+        'at Demo.run(Demo.java:9)'
+      )
+    );
+    expect(screen.getByTestId('incident-user-stack')).toHaveTextContent(
+      'at Demo.run(Demo.java:9)'
+    );
+  });
+
+  it('gates the incident ask behind the remote LLM consent (Issue 23)', async () => {
+    const client = makeClient({
+      getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'remote', host: 'api.***.com' } }),
+      queryRepo: vi.fn().mockReturnValue(autoDoneStream())
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型')
+    );
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-incident'));
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('incident-question'), 'NPE at Demo.run');
+    await user.click(screen.getByTestId('incident-submit'));
+    expect(client.queryRepo).not.toHaveBeenCalled();
+    expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('consent-confirm'));
+    await waitFor(() =>
+      expect(client.queryRepo).toHaveBeenCalledWith(
+        'repo-1',
+        'NPE at Demo.run',
+        'incident',
+        undefined,
+        undefined
+      )
+    );
   });
 });
