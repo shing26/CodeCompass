@@ -2529,6 +2529,9 @@ describe('RepoPulse real LLM adapter', () => {
       expect(done?.payload.answer).toContain('业务概述');
       expect(done?.payload.answer).toContain('结论与下一步');
       expect(done?.payload.suggestedAction).toBe('Trace Controller');
+      // Issue 24 / ADR-0013: model-painted mermaid is stripped at finalize —
+      // the payload only carries engine-rendered diagrams (none requested).
+      expect(done?.payload.mermaid).toBeUndefined();
     } finally {
       if (oldUrl === undefined) delete process.env.REPOQA_LLM_URL;
       else process.env.REPOQA_LLM_URL = oldUrl;
@@ -2561,10 +2564,14 @@ describe('RepoPulse real LLM adapter', () => {
             tool: { name: 'repoqa-masking', args: { text: 'password=supersecret' } }
           });
         } else {
+          // Issue 24 / ADR-0013: the model requests a diagram via the
+          // structured layer instruction; the legacy mermaid field below is
+          // kept on purpose to prove it is stripped before the payload.
           content = JSON.stringify({
             answer: 'Route Controller.hello calls DemoService.greet',
             mermaid:
               'flowchart LR\n  Controller[Controller]\n  Service[Service]\n  Controller --> Service',
+            diagram: { kind: 'call_chain', focus: ['hello'] },
             anchors: [
               { file: 'src/main/java/com/demo/Controller.java', line: 7, symbol: 'Controller' },
               { file: 'src/main/java/com/demo/DemoService.java', line: 4, symbol: 'Service' }
@@ -2608,14 +2615,31 @@ describe('RepoPulse real LLM adapter', () => {
       expect(done?.payload.answer).toContain('业务概述');
       expect(done?.payload.answer).toContain('结论与下一步');
       expect(done?.payload.answer).toContain('Controller.hello');
-      // code:// anchors are bound into the diagram and validated against the repo.
-      expect(done?.payload.mermaid).toContain(
-        'code://src/main/java/com/demo/Controller.java#7'
+      // Issue 24 / ADR-0013: the diagram is rendered by the engine from this
+      // session's trace_call_chain evidence — node IDs and code:// bindings
+      // are engine output (Controller.hello@5 -> DemoService.greet@4), and
+      // the model's painted mermaid never reaches the payload.
+      const diagram = done?.payload.mermaid ?? '';
+      expect(diagram).toContain('hello[hello]');
+      expect(diagram).toContain(
+        'click hello "code://src/main/java/com/demo/Controller.java#5"'
       );
-      expect(done?.payload.mermaid).toContain(
-        'code://src/main/java/com/demo/DemoService.java#4'
+      expect(diagram).toContain(
+        'click greet "code://src/main/java/com/demo/DemoService.java#4"'
       );
-      expect(done?.payload.mermaid).not.toContain('http');
+      expect(diagram).not.toContain('Service[Service]');
+      expect(diagram).not.toContain('http');
+      // Provenance: every edge endpoint is a hop method from the session's
+      // trace_call_chain tool result — geometry always traceable to evidence.
+      // (bodies[1] is the raw request body, so embedded JSON is escaped.)
+      const tracedMethods = new Set(
+        [...bodies[1].matchAll(/\\"method\\":\\"([^"\\]+)\\"/g)].map((match) => match[1])
+      );
+      expect(tracedMethods.has('hello')).toBe(true);
+      expect(tracedMethods.has('greet')).toBe(true);
+      for (const match of diagram.matchAll(/click (\w+) "code:\/\//g)) {
+        expect(tracedMethods.has(match[1])).toBe(true);
+      }
       expect(done?.payload.anchors).toEqual(
         expect.arrayContaining([
           expect.objectContaining({

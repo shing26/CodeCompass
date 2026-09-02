@@ -5,14 +5,14 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import {
-  bindAnchorsToMermaid,
   buildTokenUsage,
   capPrompt,
   chatCompletionsEndpoint,
-  CODE_LINK_MMERMAID_GUIDE,
   completeReAct,
+  DIAGRAM_LAYER_GUIDE,
+  LAYER_DIAGRAM_KINDS,
+  sanitizeLayerInstruction,
   estimateTokenCount,
-  extractCodeLinkBindings,
   isLlmConfigured,
   llmRuntimeInfo,
   maskHostname,
@@ -25,7 +25,6 @@ import {
   finalizeAgentResult,
   sanitizeAgentAnchors,
   unionIncidentAnchors,
-  sanitizeMermaidClicks,
   THREE_PART_ANSWER_GUIDE,
   toThreePartAnswer,
   type AgentTool
@@ -254,7 +253,12 @@ describe('Issue 10 — ReAct agent loop', () => {
           ? JSON.stringify({ tool: { name: 'trace_call_chain', args: { query: 'hello' } } })
           : JSON.stringify({
               answer: 'hello 经由 DemoService 到达 greet',
-              mermaid: 'flowchart LR\n  A[A]\n  B[B]\n  A --> B',
+              diagram: {
+                kind: 'call_chain',
+                focus: ['hello'],
+                collapse: 3,
+                annotations: { hello: '入口路由方法' }
+              },
               anchors: [{ file: 'src/A.java', line: 5, symbol: 'A' }],
               suggestedAction: 'Trace B'
             });
@@ -278,7 +282,14 @@ describe('Issue 10 — ReAct agent loop', () => {
       expect(result.answer).toContain('业务概述');
       expect(result.answer).toContain('结论与下一步');
       expect(result.answer).toContain('hello 经由 DemoService 到达 greet');
-      expect(result.mermaid).toContain('code://src/A.java#5');
+      // ADR-0013: the sanitized layer instruction survives; no model mermaid.
+      expect(result.diagram).toEqual({
+        kind: 'call_chain',
+        focus: ['hello'],
+        collapse: 3,
+        annotations: { hello: '入口路由方法' }
+      });
+      expect(result.mermaid).toBeUndefined();
       expect(result.suggestedAction).toBe('Trace B');
       expect(result.fallback).toBeUndefined();
       // Second request must carry the tool result history.
@@ -342,49 +353,69 @@ describe('Issue 10 — output contract helpers', () => {
     expect(toThreePartAnswer('')).toBe('');
   });
 
-  it('exposes the answer and mermaid guide constants', () => {
+  it('exposes the answer and diagram-layer guide constants', () => {
     expect(THREE_PART_ANSWER_GUIDE).toContain('业务概述');
     expect(THREE_PART_ANSWER_GUIDE).toContain('证据与拆解');
     expect(THREE_PART_ANSWER_GUIDE).toContain('结论与下一步');
-    expect(CODE_LINK_MMERMAID_GUIDE).toContain('code://');
+    // ADR-0013: the guide forbids model mermaid and pins the kind whitelist.
+    expect(DIAGRAM_LAYER_GUIDE).toContain('NEVER output mermaid');
+    expect(DIAGRAM_LAYER_GUIDE).toContain('call_chain');
+    expect(DIAGRAM_LAYER_GUIDE).toContain('config_topo');
+    expect(DIAGRAM_LAYER_GUIDE).toContain('tour');
+    expect(LAYER_DIAGRAM_KINDS).toEqual(['call_chain', 'config_topo', 'tour']);
   });
 
-  it('sanitizes mermaid clicks to code:// links only and strips fences', () => {
-    const messy = '```mermaid\nflowchart LR\n  A[A]\n  click A "https://evil.example/x"\n  click A "code://src/A.java#5-9"\n```';
-    const clean = sanitizeMermaidClicks(messy);
-    expect(clean.startsWith('flowchart LR')).toBe(true);
-    expect(clean).not.toContain('https://evil.example');
-    expect(clean).toContain('code://src/A.java#5-9');
-    expect(clean).not.toContain('```');
+  it('sanitizes layer instructions: kind whitelist, focus/collapse/annotations caps', () => {
+    expect(sanitizeLayerInstruction('nope')).toBeUndefined();
+    expect(sanitizeLayerInstruction({ kind: 'blast' })).toBeUndefined(); // unknown kind
+    expect(sanitizeLayerInstruction({ kind: 42 })).toBeUndefined();
+    const clean = sanitizeLayerInstruction({
+      kind: 'call_chain',
+      focus: ['hello', '  ', 42, 'DemoService'],
+      collapse: 99,
+      annotations: {
+        hello: '入口方法\n第二行',
+        Ghost: 'no such node',
+        dropped: 7
+      }
+    });
+    expect(clean).toEqual({
+      kind: 'call_chain',
+      focus: ['hello', 'DemoService'],
+      collapse: 20,
+      // Structural layer only filters shape; node existence is enforced by the
+      // engine renderer (Ghost stays until the render-time existence check).
+      annotations: { hello: '入口方法 第二行', Ghost: 'no such node' }
+    });
+    // Everything invalid → undefined (finalize drops the instruction wholly).
+    expect(
+      sanitizeLayerInstruction({ kind: 'tour', focus: 'not-an-array', collapse: 0 })
+    ).toEqual({ kind: 'tour' });
   });
 
-  it('extracts code:// click bindings with file and line', () => {
-    const bindings = extractCodeLinkBindings(
-      'flowchart LR\n  A[A]\n  B[B]\n  A --> B\nclick A "code://src/A.java#12-20"\nclick B "code://src/B.java#3"'
-    );
-    expect(bindings).toEqual([
-      { node: 'A', url: 'code://src/A.java#12-20', file: 'src/A.java', line: 12, lineEnd: 20 },
-      { node: 'B', url: 'code://src/B.java#3', file: 'src/B.java', line: 3, lineEnd: undefined }
-    ]);
+  it('finalizeAgentResult strips model mermaid and keeps the sanitized diagram', () => {
+    const result = finalizeAgentResult({
+      answer: '概述\n\n证据\n\n结论',
+      mermaid: 'flowchart LR\n  A --> B',
+      diagram: { kind: 'config_topo', focus: ['server.port'] },
+      anchors: [
+        { file: 'src/A.java', symbol: 'A', line: 5 },
+        { symbol: 'Broken', line: 1 }
+      ] as any
+    });
+    expect(result.anchors).toEqual([{ file: 'src/A.java', symbol: 'A', line: 5 }]);
+    expect(result.mermaid).toBeUndefined();
+    expect(result.diagram).toEqual({ kind: 'config_topo', focus: ['server.port'] });
   });
 
-  it('binds anchors into mermaid for nodes that lack a code:// link', () => {
-    const bound = bindAnchorsToMermaid('flowchart LR\n  A[A]\n  B[B]\n  A --> B', [
-      { file: 'src/A.java', line: 5, symbol: 'A' },
-      { file: 'src/B.java', line: 9, symbol: 'B' },
-      { file: 'src/Missing.java', line: 1, symbol: 'Missing' }
-    ]);
-    expect(bound).toContain('click A "code://src/A.java#5"');
-    expect(bound).toContain('click B "code://src/B.java#9"');
-    expect(bound).not.toContain('Missing');
-  });
-
-  it('keeps existing code:// bindings untouched', () => {
-    const bound = bindAnchorsToMermaid('flowchart LR\n  A[A]\nclick A "code://src/A.java#42"', [
-      { file: 'src/A.java', line: 5, symbol: 'A' }
-    ]);
-    expect(bound).toContain('click A "code://src/A.java#42"');
-    expect(bound).not.toContain('code://src/A.java#5');
+  it('finalizeAgentResult drops wholly-invalid diagram instructions', () => {
+    const result = finalizeAgentResult({
+      answer: '概述\n\n证据\n\n结论',
+      diagram: { kind: 'evil_graph', focus: ['x'] } as any
+    });
+    expect(result.diagram).toBeUndefined();
+    expect(result.mermaid).toBeUndefined();
+    expect(result.answer).toContain('概述');
   });
 });
 
@@ -412,7 +443,7 @@ describe('Issue 23 hotfix — agent anchor sanitization', () => {
     expect(sanitizeAgentAnchors([])).toEqual([]);
   });
 
-  it('finalizeAgentResult sanitizes anchors and binds only valid ones', () => {
+  it('finalizeAgentResult sanitizes anchors and strips model mermaid', () => {
     const result = finalizeAgentResult({
       answer: '概述\n\n证据\n\n结论',
       mermaid: 'flowchart LR\n  A[A]',
@@ -422,7 +453,9 @@ describe('Issue 23 hotfix — agent anchor sanitization', () => {
       ] as any
     });
     expect(result.anchors).toEqual([{ file: 'src/A.java', symbol: 'A', line: 5 }]);
-    expect(result.mermaid).toContain('click A "code://src/A.java#5"');
+    // ADR-0013: the model-painted diagram is discarded, anchors are minted by
+    // the engine — no click-binding synthesis on model text anymore.
+    expect(result.mermaid).toBeUndefined();
   });
 
   it('unionIncidentAnchors leads with stack anchors, dedups and drops malformed', () => {

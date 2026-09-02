@@ -15,9 +15,30 @@ import { maskSensitiveText } from './repoqa-masking';
  * reports `fallback: true` so callers can seamlessly use the deterministic path.
  */
 
+/**
+ * Issue 24 / ADR-0013 — structured layer instruction. The model never paints
+ * mermaid; it only chooses what the deterministic engine should render:
+ * - kind       whitelist of engine-owned renderers (see LAYER_DIAGRAM_KINDS)
+ * - focus      symbols / config keys / tour id the instruction applies to
+ * - collapse   max hops for chain renderers (engine clamps)
+ * - annotations plain notes attached to nodes that exist in the rendered graph
+ */
+export const LAYER_DIAGRAM_KINDS = ['call_chain', 'config_topo', 'tour'] as const;
+export type LayerDiagramKind = (typeof LAYER_DIAGRAM_KINDS)[number];
+
+export interface LayerInstruction {
+  kind: LayerDiagramKind;
+  focus?: string[];
+  collapse?: number;
+  annotations?: Record<string, string>;
+}
+
 export interface ReActLLMResult {
   answer?: string;
+  /** @deprecated ADR-0013: model-painted mermaid is stripped at finalize. */
   mermaid?: string;
+  /** Issue 24: structured layer instruction — geometry is engine-rendered. */
+  diagram?: LayerInstruction;
   anchors?: Array<{ file: string; line: number; symbol: string }>;
   suggestedAction?: string;
   firstTokenMs?: number;
@@ -598,6 +619,12 @@ export interface ReActAgentOptions {
   nativeTools?: boolean;
   /** Issue 23: extra contract guide appended to the prompt (e.g. incident mode). */
   guideExtra?: string;
+  /**
+   * Issue 24 / ADR-0013: invoked for every executed tool with its raw result
+   * so the caller can harvest the session's physical Call Edges (and detect
+   * failed tool calls). Layer instructions may only render these edges.
+   */
+  onToolResult?: (toolName: string, result: unknown) => void;
 }
 
 /** Issue 10: constrain every answer to the three section layout. */
@@ -606,10 +633,16 @@ export const THREE_PART_ANSWER_GUIDE = `Answer with EXACTLY three sections separ
 2) 证据与拆解 — concrete evidence: symbol names, file paths, line numbers and config keys (NEVER include secret values).
 3) 结论与下一步 — the direct answer to the question plus one concrete next step for the developer.`;
 
-/** Issue 10: mermaid diagrams must deep-link nodes to source via code://. */
-export const CODE_LINK_MMERMAID_GUIDE = `When you return a mermaid diagram, every node MUST carry a source link:
-click NodeName "code://<relative-file-path>#<line>-<line>"
-Never use http(s) URLs in click bindings.`;
+/**
+ * Issue 24 / ADR-0013: the model never paints mermaid. It may only emit a
+ * structured layer instruction and let the deterministic engine render.
+ */
+export const DIAGRAM_LAYER_GUIDE = `Diagram contract (ADR-0013, mandatory): NEVER output mermaid code or a "mermaid" field — model-drawn diagrams are discarded. To request a diagram, return a "diagram" layer instruction in the final JSON:
+{"diagram": {"kind": "call_chain" | "config_topo" | "tour", "focus": ["SymbolOrKeyOrTourId"], "collapse": 3, "annotations": {"NodeName": "note"}}}
+- kind "call_chain": the call chain from this session's tool results (focus selects symbols on the chain, in order; collapse caps the hops).
+- kind "config_topo": the configuration topology (focus selects config keys returned by get_config_evidence).
+- kind "tour": one of the engine tours (focus[0] = tour id: auth-chain | main-flow | error-handling).
+- focus entries must exist in this session's tool results; annotations attach short notes to nodes that exist in the rendered graph. Geometry, edges and code:// bindings are produced by the engine only.`;
 
 /**
  * ReAct loop: ask the model; if it asks for a tool, run it and continue; when
@@ -681,6 +714,7 @@ export async function runReActAgent(options: ReActAgentOptions): Promise<ReActLL
     const executed = tool
       ? await tool.execute(result.tool!.args ?? {})
       : { error: `unknown tool: ${result.tool!.name}` };
+    options.onToolResult?.(result.tool!.name, executed);
     toolHistory.push(
       capPrompt(
         `Tool ${result.tool!.name}(${JSON.stringify(result.tool!.args)}) -> ${JSON.stringify(executed)}`,
@@ -776,6 +810,7 @@ async function runNativeToolsLoop(
           ? await tool.execute(call.args ?? {})
           : { error: `unknown tool: ${call.name}` };
       transcript.push({ callId: call.id, name: call.name, args: call.args, result: executed });
+      options.onToolResult?.(call.name, executed);
       toolResults.push({
         role: 'tool',
         tool_call_id: call.id,
@@ -829,9 +864,9 @@ function buildAgentPrompt(input: {
     `Context:\n${input.context}`,
     `Tools:\n${toolLines}`,
     THREE_PART_ANSWER_GUIDE,
-    CODE_LINK_MMERMAID_GUIDE,
+    DIAGRAM_LAYER_GUIDE,
     ...(input.guideExtra ? [input.guideExtra] : []),
-    'Reply with JSON only: {"answer": "...", "mermaid": "...", "anchors": [...], "suggestedAction": "..."} or {"tool": {"name": "...", "args": {...}}}.'
+    'Reply with JSON only: {"answer": "...", "diagram": {"kind": "call_chain"|"config_topo"|"tour", "focus": [...], "collapse": 3, "annotations": {...}}, "anchors": [...], "suggestedAction": "..."} or {"tool": {"name": "...", "args": {...}}}.'
   ].join('\n\n');
   return capPrompt(history ? `${core}\n\nTool history:\n${history}` : core, input.budget);
 }
@@ -880,16 +915,60 @@ export function unionIncidentAnchors(
   return out;
 }
 
+/**
+ * Issue 24 / ADR-0013: structural sanitization of an untrusted model layer
+ * instruction. Only the whitelisted shape survives: kind must be one of
+ * LAYER_DIAGRAM_KINDS, focus entries must be non-empty strings (capped),
+ * collapse a positive number (clamped to 1..20) and annotations a string→string
+ * record (capped, single-line). Existence checks (focus symbols / annotation
+ * nodes present in the session) happen at the engine renderer, which owns the
+ * session's symbol table and rendered node set.
+ */
+export function sanitizeLayerInstruction(instruction: unknown): LayerInstruction | undefined {
+  if (!instruction || typeof instruction !== 'object' || Array.isArray(instruction)) {
+    return undefined;
+  }
+  const raw = instruction as Record<string, unknown>;
+  if (typeof raw.kind !== 'string' || !LAYER_DIAGRAM_KINDS.includes(raw.kind as LayerDiagramKind)) {
+    return undefined;
+  }
+  const out: LayerInstruction = { kind: raw.kind as LayerDiagramKind };
+  if (Array.isArray(raw.focus)) {
+    const focus = raw.focus
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim())
+      .slice(0, 12);
+    if (focus.length > 0) out.focus = focus;
+  }
+  if (raw.collapse !== undefined) {
+    const collapse = Number(raw.collapse);
+    if (Number.isFinite(collapse) && collapse >= 1) {
+      out.collapse = Math.min(20, Math.max(1, Math.trunc(collapse)));
+    }
+  }
+  if (raw.annotations && typeof raw.annotations === 'object' && !Array.isArray(raw.annotations)) {
+    const annotations: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw.annotations as Record<string, unknown>)) {
+      if (typeof value !== 'string') continue;
+      const cleanKey = key.trim().slice(0, 80);
+      const cleanValue = value.replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
+      if (!cleanKey || !cleanValue) continue;
+      annotations[cleanKey] = cleanValue;
+    }
+    if (Object.keys(annotations).length > 0) out.annotations = annotations;
+  }
+  return out;
+}
+
 /** Issue 10: final hardening of a model answer before it reaches users. */
 export function finalizeAgentResult(result: ReActLLMResult): ReActLLMResult {
   const answer =
     typeof result.answer === 'string' ? toThreePartAnswer(result.answer) : result.answer;
   const anchors = sanitizeAgentAnchors(result.anchors);
-  const mermaid =
-    typeof result.mermaid === 'string'
-      ? bindAnchorsToMermaid(sanitizeMermaidClicks(result.mermaid), anchors ?? [])
-      : undefined;
-  return { ...result, answer, mermaid, anchors };
+  const diagram = sanitizeLayerInstruction(result.diagram);
+  // ADR-0013: model-painted mermaid never reaches any payload — geometry is
+  // rendered exclusively by the engine's layer-instruction dispatchers.
+  return { ...result, answer, anchors, diagram, mermaid: undefined };
 }
 
 /** Normalize a model answer into the three-section layout. */
@@ -903,91 +982,4 @@ export function toThreePartAnswer(answer: string): string {
   if (parts.length >= 3) return parts.slice(0, 3).join('\n\n');
   if (parts.length === 2) return `${parts[0]}\n\n${parts[1]}\n\n结论与下一步`;
   return `业务概述\n\n${parts[0]}\n\n结论与下一步`;
-}
-
-/** Strip a ```mermaid ... ``` fence, if present. */
-export function stripMermaidFence(code: string): string {
-  return code
-    .trim()
-    .replace(/^```(?:mermaid)?\s*\n?/, '')
-    .replace(/\n?```\s*$/, '');
-}
-
-const CODE_BINDING_LINE_RE = /^click\s+([A-Za-z_][\w]*)\s+"(code:\/\/[^"]+)"/;
-const CODE_BINDING_GLOBAL_RE = /click\s+([A-Za-z_][\w]*)\s+"(code:\/\/[^"]+)"/g;
-
-export function isCodeLinkBinding(line: string): boolean {
-  return CODE_BINDING_LINE_RE.test(line.trim());
-}
-
-/** Keep only `click Node "code://..."` bindings; drop http(s) or stray clicks. */
-export function sanitizeMermaidClicks(code: string): string {
-  const body = stripMermaidFence(code);
-  return body
-    .split('\n')
-    .filter((line) => {
-      const trimmed = line.trim();
-      if (!/^click\s+/i.test(trimmed)) return true;
-      return isCodeLinkBinding(trimmed);
-    })
-    .join('\n');
-}
-
-export interface CodeLinkBinding {
-  node: string;
-  url: string;
-  file: string;
-  line: number;
-  lineEnd?: number;
-}
-
-export function extractCodeLinkBindings(code: string): CodeLinkBinding[] {
-  const out: CodeLinkBinding[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = CODE_BINDING_GLOBAL_RE.exec(code)) !== null) {
-    const deep = /^code:\/\/(.+?)#(\d+)(?:-(\d+))?$/.exec(match[2]);
-    if (!deep) continue;
-    out.push({
-      node: match[1],
-      url: match[2],
-      file: deep[1],
-      line: Number(deep[2]),
-      lineEnd: deep[3] ? Number(deep[3]) : undefined
-    });
-  }
-  return out;
-}
-
-/** All identifier tokens in the diagram body (clicks/quoted strings excluded). */
-function mermaidNodeIds(code: string): Set<string> {
-  const withoutStrings = code.replace(/"([^"]*)"/g, '');
-  const body = withoutStrings
-    .split('\n')
-    .filter((line) => !/^\s*click\s/i.test(line))
-    .join('\n');
-  const ids = new Set<string>();
-  for (const match of body.matchAll(/[A-Za-z_][\w]*/g)) ids.add(match[0]);
-  return ids;
-}
-
-/**
- * Add missing `click Node "code://file#line"` bindings so every diagram node
- * that has a matching anchor becomes clickable and jumps to source.
- */
-export function bindAnchorsToMermaid(
-  code: string,
-  anchors: Array<{ file: string; line: number; symbol: string }>
-): string {
-  if (!code.trim() || anchors.length === 0) return code;
-  const nodeIds = mermaidNodeIds(code);
-  const existing = new Set(extractCodeLinkBindings(code).map((binding) => binding.node));
-  const added: string[] = [];
-  for (const anchor of anchors) {
-    if (!existing.has(anchor.symbol) && nodeIds.has(anchor.symbol)) {
-      added.push(`click ${anchor.symbol} "code://${anchor.file}#${anchor.line}"`);
-      existing.add(anchor.symbol);
-    }
-  }
-  if (added.length === 0) return code;
-  return `${code}\n${added.join('\n')}`;
 }
