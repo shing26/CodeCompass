@@ -365,8 +365,8 @@ export interface DomainRadarAnchor {
   relevanceScore: number;
   filePath: string;
   line: number;
-  /** v0.18 — provenance: identifier fuzzy hit, doc-chunk bridge or graph rank. */
-  matchedBy: 'identifier' | 'doc-chunk' | 'graph-rank';
+  /** v0.18 — provenance: identifier fuzzy hit or doc-chunk bridge. */
+  matchedBy: 'identifier' | 'doc-chunk';
   /** Incoming call count from the static symbol graph. */
   inDegree: number;
   /** Outgoing call count from the static symbol graph. */

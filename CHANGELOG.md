@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.1] - 2026-09-04
+
+### Fixed
+
+双轴 code-review findings（v0.18.0 发布后补审）修复：
+
+- **幽灵防线位置与声明对齐**：第一处存在性断言移到 `saveFiles` **之前**（原实现靠 `foreign_keys=ON` 兜底、且会走 catch 广播 error 而非静默终止），与 ADR-0016 §4「写入前断言」及代码注释三方一致。
+- **fire-and-forget 不再静默吞错**：`indexRepo` try 块之前的入口检查（fs.stat/upsert）若 reject，`.catch` 现在把 repo 行翻转为 `error` + 根因，消除"永久卡 `indexing`"的僵尸记录（ADR-0016 §3 禁止项）。
+- **`list_repos` 的 error 字段过 `maskSensitiveText`**（ADR-0003）：错误摘要可能携带 git stderr/本机路径，流出前过敏感信息过滤器。
+- **`matchedBy` 收窄为两值**：`graph-rank` 在 `base > 0` 门禁下不可达（死值），从 contracts/引擎/前端 types/CONTEXT.md 词条中移除——只保留 `identifier` | `doc-chunk`，不承诺不存在的溯源值。
+- **config 扫描补"顶层"语义**：UPPER_SNAKE 正则现在要求零缩进（`line.startsWith(trimmed)`），函数/类内缩进的赋值不再混入 config topology。
+- basename 兜底抽共享 helper `deriveLocalRepoName`（repoqa-repos.ts 导出），worker 与 MCP handler 各写一份的重复消除。
+
 ## [0.18.0] - 2026-09-04
 
 ### Highlights

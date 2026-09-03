@@ -242,12 +242,15 @@ export function scanEnv(source: string): ScannedKey[] {
  * v0.18.0 — UPPER_SNAKE only: Python configuration constants follow the
  * uppercase convention; lowercase top-level assignments (content,
  * temporary_path, …) are plain module state and were pure topology noise.
+ * Top-level also means column 0 — indented UPPER_SNAKE assignments live
+ * inside functions/classes and are local state, not configuration.
  */
 export function scanPythonSourceConfig(source: string): ScannedKey[] {
   const keys: ScannedKey[] = [];
   source.split(/\r?\n/).forEach((line, index) => {
     const trimmed = line.trim();
     if (
+      !line.startsWith(trimmed) ||
       !trimmed ||
       trimmed.startsWith('#') ||
       trimmed.startsWith('import ') ||
@@ -264,12 +267,14 @@ export function scanPythonSourceConfig(source: string): ScannedKey[] {
 
 /**
  * v0.5.1 (D4) — `config.ts` top-level exported assignment keys.
- * v0.18.0 — UPPER_SNAKE only (same rationale as the Python scanner).
+ * v0.18.0 — UPPER_SNAKE only (same rationale as the Python scanner), and
+ * top-level means column 0: indented declarations are function-local state.
  */
 export function scanTypeScriptConfig(source: string): ScannedKey[] {
   const keys: ScannedKey[] = [];
   source.split(/\r?\n/).forEach((line, index) => {
     const trimmed = line.trim();
+    if (!line.startsWith(trimmed)) return;
     const match =
       /^export\s+(?:const|let|var)\s+([A-Z][A-Z0-9_]*)\s*=/.exec(trimmed) ??
       /^(?:const|let|var)\s+([A-Z][A-Z0-9_]*)\s*=/.exec(trimmed);

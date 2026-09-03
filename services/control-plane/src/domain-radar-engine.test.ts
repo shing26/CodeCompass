@@ -170,7 +170,7 @@ describe('runDomainRadar', () => {
     // v0.18 — provenance: a direct identifier hit is labeled as such.
     expect(result.matchedAnchors[0].matchedBy).toBe('identifier');
     for (const anchor of result.matchedAnchors) {
-      expect(['identifier', 'doc-chunk', 'graph-rank']).toContain(anchor.matchedBy);
+      expect(['identifier', 'doc-chunk']).toContain(anchor.matchedBy);
     }
   });
 

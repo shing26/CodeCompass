@@ -6,9 +6,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { loadConfig } from './config';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
+import { maskSensitiveText } from './repoqa-masking';
 import { EventBus } from './events';
 import type { Repo } from './repoqa-repos';
-import { RepoQARepos, type RepoSymbol } from './repoqa-repos';
+import { RepoQARepos, deriveLocalRepoName, type RepoSymbol } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
 import { resolveCallChain } from './repoqa-callchain';
 import { buildDashboard } from './repoqa-dashboard';
@@ -45,7 +46,7 @@ import {
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.18.0';
+export const MCP_SERVER_VERSION = '0.18.1';
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */
@@ -391,7 +392,9 @@ export function mcpListRepos(deps: McpDeps): {
       fileCount: repo.fileCount,
       symbolCount: repo.symbolCount,
       localPath: repo.localPath,
-      ...(repo.error ? { error: repo.error } : {})
+      // ADR-0003: error summaries carry raw exception text (git stderr, paths);
+      // they pass the sensitive-info filter before leaving the process.
+      ...(repo.error ? { error: maskSensitiveText(repo.error) } : {})
     }))
   };
 }
@@ -691,7 +694,7 @@ export async function mcpIndexRepo(
   // upsertByLocalPath binds name directly into a NOT NULL column; mirror the
   // worker's basename fallback here.
   if (!effectiveName) {
-    effectiveName = targetPath.split(/[\\/]/).filter(Boolean).pop() ?? 'local';
+    effectiveName = deriveLocalRepoName(targetPath);
   }
 
   // COALESCE keeps repo_url across the worker's own re-upsert inside indexRepo.
@@ -704,11 +707,17 @@ export async function mcpIndexRepo(
   const repoId = upsert.repo.id;
   deps.repoqa.updateRepoStatus(repoId, 'indexing');
 
-  // Fire-and-forget (ADR-0016): indexRepo never rejects — failures are
-  // recorded as status='error' on the repo row for list_repos polling.
+  // Fire-and-forget (ADR-0016). indexRepo records failures as status='error'
+  // on the repo row itself, but its pre-try prologue (fs.stat, upsert) can
+  // still reject — swallowing that would leave the row stuck in `indexing`
+  // forever (the zombie ADR-0016 §3 forbids). So the catch flips the row to
+  // error with the root cause for list_repos polling.
   void deps.worker
     .indexRepo({ localPath: targetPath, branch: validatedBranch, name: effectiveName })
-    .catch(() => {});
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+    });
 
   return {
     repoId,

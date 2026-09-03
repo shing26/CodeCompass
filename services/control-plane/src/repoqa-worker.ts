@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RepoQARepos, Repo, RepoSymbol, RepoChunk } from './repoqa-repos';
+import { deriveLocalRepoName } from './repoqa-repos';
 import { applyModuleScopes } from './repoqa-repos';
 import type { EventBus } from './events';
 import type {
@@ -600,7 +601,7 @@ export class RepoQAWorker {
     }
 
     const name =
-      input.name?.trim() || (localPath.split(/[\\/]/).filter(Boolean).pop() ?? 'local');
+      input.name?.trim() || deriveLocalRepoName(localPath);
     const upsert = this.repoqa.upsertByLocalPath({
       name,
       localPath,
@@ -687,13 +688,14 @@ export class RepoQAWorker {
         }
       } as any);
 
-      this.repoqa.saveFiles(repoId, localPath, stats.files);
       // Ghost-index guard (v0.18): the repo row can be deleted mid-index
-      // (remove_repo / DELETE endpoint). Before any data-table write, re-check
-      // existence; a deleted repo must leave no orphan files/symbols/chunks.
+      // (remove_repo / DELETE endpoint). Before the first data-table write
+      // (saveFiles), re-check existence; a deleted repo must leave no orphan
+      // files/symbols/chunks and the run silently exits.
       if (!this.repoqa.getRepo(repoId)) {
         return { repo: null, created: upsert.created };
       }
+      this.repoqa.saveFiles(repoId, localPath, stats.files);
       const largeFiles = new Set(stats.largeFiles);
       const { symbols, skipped } = await this.parseRepo(
         repoId,

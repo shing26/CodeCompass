@@ -48,6 +48,15 @@ export function resolveRepoCommitSync(localPath: string): string {
   }
 }
 
+/**
+ * Display-name fallback for a local path — the last path segment. Shared by
+ * the worker's indexRepo and the MCP index handler so both derive the same
+ * name when no explicit one is supplied (Bug-10 convention).
+ */
+export function deriveLocalRepoName(localPath: string): string {
+  return localPath.split(/[\\/]/).filter(Boolean).pop() ?? 'local';
+}
+
 export interface RepoSymbolCall {
   /** Calling file (the file where the invocation appears). */
   file: string;

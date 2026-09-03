@@ -252,10 +252,12 @@ export function runDomainRadar(input: DomainRadarInput): DomainRadarResult {
       }
       if (base <= 0) continue;
       // v0.18 — provenance of the match so agents can weigh the evidence:
-      // identifier fuzzy hit, doc-chunk bridge (weak/no identifier signal),
-      // or pure graph-rank (base only exists because chunk evidence lifted it).
+      // identifier fuzzy hit, or doc-chunk bridge (weak/no identifier signal).
+      // Only two values exist — every ranked anchor has one of these signals;
+      // 'graph-rank' would imply a rank-only anchor, which the base > 0 gate
+      // makes unreachable, so it is not part of the contract.
       const matchedBy: DomainRadarAnchor['matchedBy'] =
-        chunkHit && fuzzyBase < 70 ? 'doc-chunk' : fuzzyBase > 0 ? 'identifier' : 'doc-chunk';
+        chunkHit && fuzzyBase < 70 ? 'doc-chunk' : 'identifier';
       const rankValue = pagerank.get(id) ?? 0;
       const rankBoost = rankValue >= 0.05 ? 10 : rankValue >= 0.02 ? 5 : 0;
       scored.push({ symbol, score: Math.min(100, base + rankBoost), matchedBy });
