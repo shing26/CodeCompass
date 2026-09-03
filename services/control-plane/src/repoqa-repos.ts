@@ -113,6 +113,18 @@ export interface RepoSymbol {
   annotations?: string[];
   /** Issue 21: method parameter name → annotation texts (constructor/setter injection points). */
   paramAnnotations?: Record<string, string[]>;
+  /**
+   * Issue 24 / ADR-0014: simple name of the direct superclass for Java class
+   * declarations (`extends BaseService` → `BaseService`), undefined when the
+   * declaration has no extends clause. Feeds the base-class convention axis.
+   */
+  superClass?: string;
+  /**
+   * Issue 24 / ADR-0014: simple return type of a Java method declaration
+   * (`ApiResult<OrderDto> getOrder(...)` → `ApiResult`, `void` stays `void`).
+   * Feeds the return-wrapping convention axis.
+   */
+  returnType?: string;
   calls?: RepoSymbolCall[];
 }
 
@@ -198,6 +210,8 @@ function mapSymbolRow(row: any): RepoSymbol {
     displayPath: row.display_path ?? undefined,
     annotations: row.annotations ? JSON.parse(row.annotations) : undefined,
     paramAnnotations: row.param_annotations ? JSON.parse(row.param_annotations) : undefined,
+    superClass: row.super_class ?? undefined,
+    returnType: row.return_type ?? undefined,
     calls: row.calls ? JSON.parse(row.calls) : undefined
   };
 }
@@ -568,8 +582,8 @@ export class RepoQARepos {
   private insertSymbolRows(symbols: RepoSymbol[]): void {
     if (symbols.length === 0) return;
     const insert = this.db.prepare(
-      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces, display_path, annotations, param_annotations)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO repo_symbols (repo_id, kind, name, file_path, line_start, line_end, signature, calls, parent_type, type_name, interfaces, display_path, annotations, param_annotations, super_class, return_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const s of symbols) {
       insert.run(
@@ -586,7 +600,9 @@ export class RepoQARepos {
         s.interfaces ? JSON.stringify(s.interfaces) : null,
         s.displayPath ?? null,
         s.annotations ? JSON.stringify(s.annotations) : null,
-        s.paramAnnotations ? JSON.stringify(s.paramAnnotations) : null
+        s.paramAnnotations ? JSON.stringify(s.paramAnnotations) : null,
+        s.superClass ?? null,
+        s.returnType ?? null
       );
     }
   }

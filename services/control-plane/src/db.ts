@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS repo_symbols (
   display_path TEXT,
   annotations TEXT,
   param_annotations TEXT,
+  super_class TEXT,
+  return_type TEXT,
   FOREIGN KEY (repo_id) REFERENCES repos(id)
 );
 CREATE INDEX IF NOT EXISTS idx_repo_symbols_repo ON repo_symbols(repo_id, kind, name);
@@ -235,7 +237,10 @@ export function openDb(dbPath: string): Database.Database {
     ['interfaces', 'ALTER TABLE repo_symbols ADD COLUMN interfaces TEXT'],
     ['display_path', 'ALTER TABLE repo_symbols ADD COLUMN display_path TEXT'],
     ['annotations', 'ALTER TABLE repo_symbols ADD COLUMN annotations TEXT'],
-    ['param_annotations', 'ALTER TABLE repo_symbols ADD COLUMN param_annotations TEXT']
+    ['param_annotations', 'ALTER TABLE repo_symbols ADD COLUMN param_annotations TEXT'],
+    // Issue 24 / ADR-0014: superclass + method return type for convention scan.
+    ['super_class', 'ALTER TABLE repo_symbols ADD COLUMN super_class TEXT'],
+    ['return_type', 'ALTER TABLE repo_symbols ADD COLUMN return_type TEXT']
   ] as const) {
     if (!symbolColumns.some((existing) => existing.name === column)) {
       db.exec(ddl);

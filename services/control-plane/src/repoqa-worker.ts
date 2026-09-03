@@ -35,6 +35,11 @@ import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
+import {
+  runConventionScan as runConventionScanEngine,
+  type ConventionAnchor,
+  type ConventionProfile
+} from './repoqa-conventions';
 import type {
   RefactorPlanResult
 } from '../../../packages/contracts/src/index';
@@ -259,6 +264,69 @@ export class RepoQAWorker {
 
   invalidate(repoId: string): void {
     this.symbolCache.delete(repoId);
+  }
+
+  /**
+   * Issue 24 / ADR-0014 — Pattern Ingestion: the deterministic convention
+   * profile of the indexed tree (zero-LLM, replayable). Every verdict leaves
+   * this method with anchors validated against the raw files; a supported
+   * axis that loses all its anchors degrades to unsupported (fail closed).
+   */
+  async runConventionScan(input: {
+    repoId: string;
+    targetSymbol?: string;
+    nearPackages?: string[];
+  }): Promise<ConventionProfile> {
+    const repo = this.repoqa.getRepo(input.repoId);
+    if (!repo) throw new Error(`Repo not found: ${input.repoId}`);
+    if (repo.status !== 'ready') {
+      throw new Error(`Repo is not ready (${repo.status})`);
+    }
+    const { symbols } = this.getSymbolGraph(repo.id);
+    const profile = runConventionScanEngine({
+      repoId: repo.id,
+      symbols,
+      // ADR-0010: `unversioned` is the honest fallback when no commit is known.
+      commit: repo.commit ?? 'unversioned',
+      ...(input.targetSymbol ? { targetSymbol: input.targetSymbol } : {}),
+      ...(input.nearPackages && input.nearPackages.length > 0
+        ? { nearPackages: input.nearPackages }
+        : {})
+    });
+    const validate = (anchors: ConventionAnchor[] | undefined): Promise<ConventionAnchor[]> =>
+      this.filterConventionAnchors(repo, anchors);
+    const axes: ConventionProfile['axes'] = [];
+    for (const axis of profile.axes) {
+      const anchors = await validate(axis.anchors);
+      const dissidents = await validate(axis.dissidents);
+      if (axis.supported && anchors.length === 0) {
+        // Zero-Hallucination Contract: a claim without a single physical
+        // anchor is not emitted.
+        axes.push({ axis: axis.axis, supported: false });
+        continue;
+      }
+      axes.push({
+        ...axis,
+        ...(anchors.length > 0 ? { anchors } : {}),
+        ...(dissidents.length > 0 ? { dissidents } : {})
+      });
+    }
+    return { ...profile, axes };
+  }
+
+  /** Keep only anchors whose raw file still exists (ADR-0010 discipline). */
+  private async filterConventionAnchors(
+    repo: Repo,
+    anchors: ConventionAnchor[] | undefined
+  ): Promise<ConventionAnchor[]> {
+    if (!anchors || anchors.length === 0) return [];
+    const valid: ConventionAnchor[] = [];
+    for (const anchor of anchors) {
+      if (await this.isValidAnchor(repo, { file: anchor.file, line: anchor.line, symbol: anchor.symbol })) {
+        valid.push(anchor);
+      }
+    }
+    return valid;
   }
 
   /**
@@ -1805,6 +1873,25 @@ export class RepoQAWorker {
             | 'LOGIC_REFACTOR';
           try {
             return runBlastRadius({ repoId, targetSymbol, changeType, symbols, index: this.getSymbolGraph(repoId).index });
+          } catch (error) {
+            return { error: (error as Error).message };
+          }
+        }
+      },
+      {
+        name: 'convention_scan',
+        description:
+          'ADR-0014 deterministic convention profile (zero-LLM): return wrapping, interface/impl split, ' +
+          'base classes, DI style and package layout. Every verdict carries physical anchors with ' +
+          'coverage; dissidents are disclosed, and a targetSymbol arbitrates neighborhood-first.',
+        parameters: 'targetSymbol?: string',
+        execute: async (args) => {
+          const targetSymbol = args.targetSymbol === undefined ? undefined : String(args.targetSymbol ?? '').trim();
+          try {
+            return await this.runConventionScan({
+              repoId,
+              ...(targetSymbol ? { targetSymbol } : {})
+            });
           } catch (error) {
             return { error: (error as Error).message };
           }

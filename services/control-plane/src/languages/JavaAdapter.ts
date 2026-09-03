@@ -380,6 +380,33 @@ function interfaceNames(node: SyntaxNode, source: string): string[] {
   return names;
 }
 
+/** Issue 24 / ADR-0014: simple name of the `extends` superclass, if any. */
+function superclassOf(node: SyntaxNode, source: string): string | undefined {
+  const superclass = node.getChild('Superclass');
+  if (!superclass) return undefined;
+  const typeName = superclass.getChild('TypeName');
+  return typeName ? simpleTypeName(textOf(typeName, source)) : undefined;
+}
+
+/**
+ * Issue 24 / ADR-0014: simple return type of a method declaration — the type
+ * node preceding `Definition` (`ApiResult<OrderDto> getOrder(...)` →
+ * `ApiResult`, `void run()` → `void`). Undefined for constructors.
+ */
+function methodReturnType(node: SyntaxNode, source: string): string | undefined {
+  const definition = node.getChild('Definition');
+  if (!definition) return undefined;
+  let child = node.firstChild;
+  let typeNode: SyntaxNode | undefined;
+  while (child && child !== definition) {
+    if (child.name === 'TypeName' || child.name === 'GenericType' || child.name === 'void') {
+      typeNode = child;
+    }
+    child = child.nextSibling;
+  }
+  return typeNode ? simpleTypeName(textOf(typeNode, source)) : undefined;
+}
+
 function methodCallName(node: SyntaxNode, source: string): string | undefined {
   const methodNames = node.getChildren('MethodName');
   if (methodNames.length > 0) {
@@ -519,6 +546,9 @@ export function parseJavaSource(
             lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
             signature: textOf(node, source).split(/\r?\n/, 1)[0],
             interfaces: interfaceNames(node, source),
+            // Issue 24 / ADR-0014: direct superclass for the base-class
+            // convention axis (`extends BaseService` → `BaseService`).
+            superClass: superclassOf(node, source),
             displayPath: classPath,
             // Issue 21: class-level annotations feed Spring bean disambiguation
             // (@Primary, @Service("name"), @Component("name"), …).
@@ -578,6 +608,13 @@ export function parseJavaSource(
           // Issue 21: field-level annotations (@Autowired, @Qualifier("x"),
           // @Resource(name=…)) drive Spring bean disambiguation.
           const fieldAnnotations = directAnnotationTexts(node, source);
+          // Issue 24 / ADR-0014: declaration line without annotations — the
+          // `private final` markers feed the DI-style convention axis.
+          const declarationLine = textOf(node, source)
+            .replace(/@[\w.]+(\([^)]*\))?/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .replace(/;$/, '');
           for (const declarator of node.getChildren('VariableDeclarator')) {
             const definition = declarator.getChild('Definition');
             if (!definition) continue;
@@ -591,6 +628,7 @@ export function parseJavaSource(
               lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
               parentType,
               type: typeName,
+              ...(declarationLine ? { signature: declarationLine } : {}),
               annotations: fieldAnnotations
             });
             if (parentType && typeName) {
@@ -615,6 +653,8 @@ export function parseJavaSource(
             lineEnd: lineAt(source, Math.max(definition.from, node.to - 1)),
             signature: textOf(node, source).split(/\r?\n/, 1)[0],
             parentType: parentType?.name,
+            // Issue 24 / ADR-0014: return type feeds the wrapping axis.
+            returnType: methodReturnType(node, source),
             calls: []
           };
           // Bug-09: methods inside a controller carry the full URL path
