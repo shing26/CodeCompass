@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RepoSymbol } from './repoqa-repos';
 import { JavaAdapter } from './languages/JavaAdapter';
 import {
+  isStrictAxis,
   runConventionScan,
   resolveTargetPackage,
   type ConventionProfile
@@ -474,5 +475,85 @@ describe('resolveTargetPackage', () => {
     // Only production symbols resolve; the test double must not win.
     expect(resolveTargetPackage(withTest, 'OrdersController')).toBe('com.shop.order');
     expect(resolveTargetPackage(withTest.filter((s) => !s.filePath.includes('src/main')), 'OrdersController')).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Issue 24.3 — primary mirror & STRICT gate                           */
+/* ------------------------------------------------------------------ */
+
+describe('primary mirror & STRICT gate (Issue 24.3)', () => {
+  /** Constructor-injection repo: bean-typed `private final` fields, no @Autowired. */
+  function constructorDiRepo(): RepoSymbol[] {
+    return [
+      sym({ kind: 'service', name: 'OrderService', filePath: 'src/main/java/com/shop/order/OrderService.java' }),
+      sym({ kind: 'repository', name: 'OrderRepository', filePath: 'src/main/java/com/shop/order/OrderRepository.java' }),
+      sym({ kind: 'field', name: 'orderRepository', parentType: 'OrderService', type: 'OrderRepository', signature: 'private final OrderRepository orderRepository', lineStart: 3 }),
+      sym({ kind: 'mapper', name: 'UserMapper', filePath: 'src/main/java/com/shop/user/UserMapper.java' }),
+      sym({ kind: 'field', name: 'userMapper', parentType: 'OrderService', type: 'UserMapper', signature: 'private final UserMapper userMapper', lineStart: 5 })
+    ];
+  }
+
+  /** Bare-return repo: every controller method returns an unwrapped payload. */
+  function bareRepo(): RepoSymbol[] {
+    return [
+      orderController,
+      sym({ kind: 'method', name: 'deleteOrder', parentType: 'OrdersController', returnType: 'String', filePath: orderController.filePath, lineStart: 24 }),
+      sym({ kind: 'method', name: 'exportOrder', parentType: 'OrdersController', returnType: 'OrderDto', filePath: orderController.filePath, lineStart: 28 })
+    ];
+  }
+
+  /** Every controller method wrapped — 5/5, so the axis is STRICT. */
+  function strictWrappedRepo(): RepoSymbol[] {
+    return [
+      orderController,
+      ...[1, 2, 3, 4, 5].map((n) =>
+        sym({ kind: 'method', name: `w${n}`, parentType: 'OrdersController', returnType: 'ApiResult', filePath: orderController.filePath, lineStart: 10 + n * 2 })
+      )
+    ];
+  }
+
+  it('mirrors every arbitrated verdict into a machine-readable primary', () => {
+    const wrapped = runConventionScan({ repoId: 'r1', symbols: wrappedRepo(), commit: 'h1' });
+    expect(axisOf(wrapped, 'return_wrapping').primary).toBe('ApiResult');
+    // No service-ish symbols in wrappedRepo → the style axis stays unsupported.
+    expect(axisOf(wrapped, 'interface_impl_style').supported).toBe(false);
+
+    const split = runConventionScan({
+      repoId: 'r1',
+      symbols: [
+        sym({ kind: 'service', name: 'UserService', filePath: 'src/main/java/com/shop/user/UserService.java', lineStart: 3 }),
+        sym({ kind: 'service', name: 'UserServiceImpl', filePath: 'src/main/java/com/shop/user/UserServiceImpl.java', lineStart: 5, interfaces: ['UserService'] })
+      ],
+      commit: 'h1'
+    });
+    expect(axisOf(split, 'interface_impl_style').primary).toBe('split');
+
+    const plain = runConventionScan({
+      repoId: 'r1',
+      symbols: [sym({ kind: 'service', name: 'UserService', filePath: 'src/main/java/com/shop/user/UserService.java', lineStart: 3 })],
+      commit: 'h1'
+    });
+    expect(axisOf(plain, 'interface_impl_style').primary).toBe('plain');
+
+    const di = runConventionScan({ repoId: 'r1', symbols: constructorDiRepo(), commit: 'h1' });
+    expect(axisOf(di, 'di_style').primary).toBe('constructor');
+
+    const bare = runConventionScan({ repoId: 'r1', symbols: bareRepo(), commit: 'h1' });
+    expect(axisOf(bare, 'return_wrapping').primary).toBe('bare');
+  });
+
+  it('gates STRICT at ≥85% arbitrated coverage with no sample-count floor', () => {
+    // 3/5 = 60% → weak: tolerated with disclosure, never a hard gate.
+    const weak = runConventionScan({ repoId: 'r1', symbols: wrappedRepo(), commit: 'h1' });
+    expect(axisOf(weak, 'return_wrapping').coverage).toEqual({ match: 3, total: 5 });
+    expect(isStrictAxis(axisOf(weak, 'return_wrapping'))).toBe(false);
+    // 5/5 = 100% → STRICT, even though n is small (no minimum sample count).
+    const strict = runConventionScan({ repoId: 'r1', symbols: strictWrappedRepo(), commit: 'h1' });
+    expect(axisOf(strict, 'return_wrapping').coverage).toEqual({ match: 5, total: 5 });
+    expect(isStrictAxis(axisOf(strict, 'return_wrapping'))).toBe(true);
+    // Unsupported axes never gate.
+    const none = runConventionScan({ repoId: 'r1', symbols: [orderController], commit: 'h1' });
+    expect(isStrictAxis(axisOf(none, 'return_wrapping'))).toBe(false);
   });
 });

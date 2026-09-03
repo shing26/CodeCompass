@@ -34,7 +34,7 @@ import { maskSensitiveText } from './repoqa-masking';
 import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
-import { runModuleEvolution } from './module-evolution-engine';
+import { runModuleEvolution, ConventionConflictError } from './module-evolution-engine';
 import {
   runConventionScan as runConventionScanEngine,
   type ConventionAnchor,
@@ -1813,13 +1813,17 @@ export class RepoQAWorker {
         description:
           'v0.9 composite evolution tool: DEPRECATE emits orphaned public code (fixed-point cascade) ' +
           'and a teardown checklist; EXTEND emits the attach point, transaction boundaries and a ' +
-          'decoupling pattern with code scaffolds. Patches are never produced here (ADR-0006).',
+          'convention-driven placement (ADR-0014) with code scaffolds. Patches are never produced ' +
+          'here (ADR-0006). A STRICT-convention conflict fails closed with a conventionConflict detail.',
         parameters:
-          'intentType: "DEPRECATE" | "EXTEND", targetSymbolOrModule: string, extensionGoal?: string',
+          'intentType: "DEPRECATE" | "EXTEND", targetSymbolOrModule: string, extensionGoal?: string, nearPackages?: string[]',
         execute: (args) => {
           const intentType = String(args.intentType ?? 'DEPRECATE') as 'DEPRECATE' | 'EXTEND';
           const targetSymbolOrModule = String(args.targetSymbolOrModule ?? args.target ?? '');
           if (!targetSymbolOrModule) return { error: 'targetSymbolOrModule is required' };
+          const nearPackages = Array.isArray(args.nearPackages)
+            ? args.nearPackages.map((entry) => String(entry)).filter(Boolean)
+            : undefined;
           try {
             return runModuleEvolution({
               repoId,
@@ -1828,10 +1832,19 @@ export class RepoQAWorker {
               ...(args.extensionGoal === undefined
                 ? {}
                 : { extensionGoal: String(args.extensionGoal) }),
+              ...(nearPackages && nearPackages.length > 0 ? { nearPackages } : {}),
               symbols,
-              index: this.getSymbolGraph(repoId).index
+              index: this.getSymbolGraph(repoId).index,
+              // ADR-0010: `unversioned` is the honest fallback when no commit is known.
+              commit: this.repoqa.getRepo(repoId)?.commit ?? 'unversioned'
             });
           } catch (error) {
+            // Issue 24.3: a STRICT conflict (or injection cycle) is a planned
+            // outcome, not a tool crash — surface the structured detail so the
+            // agent can rewrite the intent instead of retrying blind.
+            if (error instanceof ConventionConflictError) {
+              return { error: error.message, conventionConflict: error.conflict };
+            }
             return { error: (error as Error).message };
           }
         }

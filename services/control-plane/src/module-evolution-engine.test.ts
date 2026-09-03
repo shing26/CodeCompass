@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCallIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
-import { runModuleEvolution, transactionBoundaryFor } from './module-evolution-engine';
+import { ConventionConflictError, runModuleEvolution, transactionBoundaryFor } from './module-evolution-engine';
 
 /**
  * v0.9.0 — Module evolution: fixed-point orphan cascade (DEPRECATE) and
@@ -305,5 +305,442 @@ describe('transactionBoundaryFor (reminder #4)', () => {
   it('returns empty when no declaration carries the annotation', () => {
     const boundaries = transactionBoundaryFor(LEGACY_METHOD, INDEX);
     expect(boundaries).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Issue 24.3 (ADR-0014) — convention-aware EXTEND pipeline            */
+/* ------------------------------------------------------------------ */
+
+describe('runModuleEvolution EXTEND conventions (Issue 24.3)', () => {
+  /**
+   * Split + wrapped + constructor-injection repo (all axes 100% → STRICT):
+   * UsersController returns ApiResult 5/5, UserService/UserServiceImpl split,
+   * UserServiceImpl wires two beans via `private final` fields.
+   */
+  function conventionRepo(): RepoSymbol[] {
+    const controller = moduleSymbol({
+      kind: 'route',
+      name: 'UsersController',
+      filePath: 'src/main/java/com/shop/user/UsersController.java',
+      parentType: 'UsersController',
+      displayPath: '/api/users'
+    });
+    const routeMethods = ['listUsers', 'getUser', 'createUser', 'updateUser', 'deleteUser'].map(
+      (name, i) =>
+        moduleSymbol({
+          name,
+          filePath: controller.filePath,
+          parentType: 'UsersController',
+          returnType: 'ApiResult',
+          lineStart: 12 + i * 4
+        })
+    );
+    const userService = moduleSymbol({
+      kind: 'service',
+      name: 'UserService',
+      filePath: 'src/main/java/com/shop/user/UserService.java'
+    });
+    const userServiceImpl = moduleSymbol({
+      kind: 'service',
+      name: 'UserServiceImpl',
+      filePath: 'src/main/java/com/shop/user/UserServiceImpl.java',
+      interfaces: ['UserService']
+    });
+    const userRepository = moduleSymbol({
+      kind: 'repository',
+      name: 'UserRepository',
+      filePath: 'src/main/java/com/shop/user/UserRepository.java'
+    });
+    const userMapper = moduleSymbol({
+      kind: 'mapper',
+      name: 'UserMapper',
+      filePath: 'src/main/java/com/shop/user/UserMapper.java'
+    });
+    const fields = [
+      moduleSymbol({
+        kind: 'field',
+        name: 'userRepository',
+        filePath: userServiceImpl.filePath,
+        parentType: 'UserServiceImpl',
+        type: 'UserRepository',
+        signature: 'private final UserRepository userRepository',
+        lineStart: 3
+      }),
+      moduleSymbol({
+        kind: 'field',
+        name: 'userMapper',
+        filePath: userServiceImpl.filePath,
+        parentType: 'UserServiceImpl',
+        type: 'UserMapper',
+        signature: 'private final UserMapper userMapper',
+        lineStart: 5
+      })
+    ];
+    const charge = moduleSymbol({
+      name: 'charge',
+      filePath: userServiceImpl.filePath,
+      parentType: 'UserServiceImpl',
+      lineStart: 20
+    });
+    return [controller, ...routeMethods, userService, userServiceImpl, userRepository, userMapper, ...fields, charge];
+  }
+
+  it('follows the split convention: interface + impl double-file placement', () => {
+    const symbols = conventionRepo();
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'EXTEND',
+      targetSymbolOrModule: 'charge',
+      extensionGoal: '记录扩展指标',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    // Placement plan mirrors the repo's own interface/impl split.
+    expect(result.placement?.files).toEqual([
+      { filePath: 'src/main/java/com/shop/user/UserServiceImplExtension.java', role: 'interface' },
+      { filePath: 'src/main/java/com/shop/user/UserServiceImplExtensionImpl.java', role: 'impl' }
+    ]);
+    expect(result.placement?.packagePath).toBe('com.shop.user');
+    // Handler signature mirrors the wrapped-return convention (no hardcoded name).
+    expect(result.placement?.handlerSignature).toBe('public ApiResult<String> onUserServiceImpl(/* context */)');
+    expect(result.placement?.injection.style).toBe('constructor');
+    expect(result.placement?.injection.codeSnippet).toContain('private final UserServiceImplExtension');
+    // Both scaffolds exist; the impl implements the interface and overrides the handler.
+    expect(result.scaffoldTemplates).toHaveLength(2);
+    expect(result.scaffoldTemplates?.[0].filePath).toBe('src/main/java/com/shop/user/UserServiceImplExtension.java');
+    expect(result.scaffoldTemplates?.[1].filePath).toBe('src/main/java/com/shop/user/UserServiceImplExtensionImpl.java');
+    expect(result.scaffoldTemplates?.[1].codeSnippet).toContain('@Override');
+    expect(result.scaffoldTemplates?.[1].codeSnippet).toContain('implements UserServiceImplExtension');
+    expect(result.scaffoldTemplates?.[1].codeSnippet).toContain('Wire the extension into UserServiceImpl (constructor injection)');
+    // CREATE checklist follows the placement: one item per scaffold file.
+    const creates = result.checklists.filter((item) => item.action === 'CREATE');
+    expect(creates.map((item) => item.filePath)).toEqual([
+      'src/main/java/com/shop/user/UserServiceImplExtension.java',
+      'src/main/java/com/shop/user/UserServiceImplExtensionImpl.java'
+    ]);
+    // Every placement decision keeps its axis verdict for traceability.
+    const basedOnAxes = result.placement?.basedOn.map((entry) => entry.axis);
+    expect(basedOnAxes).toContain('interface_impl_style');
+    expect(basedOnAxes).toContain('return_wrapping');
+    expect(basedOnAxes).toContain('di_style');
+  });
+
+  it('plain-class repo: single file, bare handler, field injection', () => {
+    const controller = moduleSymbol({
+      kind: 'route',
+      name: 'LegacyController',
+      filePath: 'src/main/java/com/legacy/web/LegacyController.java',
+      parentType: 'LegacyController',
+      displayPath: '/api/legacy'
+    });
+    const bareMethods = ['a', 'b', 'c'].map((name, i) =>
+      moduleSymbol({
+        name,
+        filePath: controller.filePath,
+        parentType: 'LegacyController',
+        returnType: 'String',
+        lineStart: 10 + i * 3
+      })
+    );
+    const legacyService = moduleSymbol({
+      kind: 'service',
+      name: 'LegacyService',
+      filePath: 'src/main/java/com/legacy/web/LegacyService.java'
+    });
+    const auditRepository = moduleSymbol({
+      kind: 'repository',
+      name: 'AuditRepository',
+      filePath: 'src/main/java/com/legacy/web/AuditRepository.java'
+    });
+    const field = moduleSymbol({
+      kind: 'field',
+      name: 'auditRepository',
+      filePath: legacyService.filePath,
+      parentType: 'LegacyService',
+      type: 'AuditRepository',
+      signature: 'private AuditRepository auditRepository',
+      annotations: ['@Autowired'],
+      lineStart: 3
+    });
+    const doLegacy = moduleSymbol({
+      name: 'doLegacy',
+      filePath: legacyService.filePath,
+      parentType: 'LegacyService',
+      lineStart: 10
+    });
+    const symbols = [controller, ...bareMethods, legacyService, auditRepository, field, doLegacy];
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'EXTEND',
+      targetSymbolOrModule: 'doLegacy',
+      extensionGoal: '记录扩展指标',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    // Plain services (no ServiceImpl pair) → a single scaffold file.
+    expect(result.placement?.files).toEqual([
+      { filePath: 'src/main/java/com/legacy/web/LegacyServiceExtension.java', role: 'single' }
+    ]);
+    // Bare-return convention → void handler, no wrapper in the signature.
+    expect(result.placement?.handlerSignature).toBe('public void onLegacyService(/* context */)');
+    // Field-injection convention → @Autowired wiring in the snippet.
+    expect(result.placement?.injection.style).toBe('field');
+    expect(result.placement?.injection.codeSnippet).toContain('@Autowired');
+    expect(result.scaffoldTemplates).toHaveLength(1);
+    expect(result.scaffoldTemplates?.[0].codeSnippet).toContain('Wire the extension into LegacyService (field injection)');
+  });
+
+  it('warns when a heavy-I/O goal runs inside a @Transactional boundary', () => {
+    const symbols = conventionRepo().map((symbol) =>
+      symbol.name === 'charge' ? { ...symbol, annotations: ['@Transactional'] } : symbol
+    );
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'EXTEND',
+      targetSymbolOrModule: 'charge',
+      extensionGoal: '导出对账单',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    expect(result.transactionBoundaries).toHaveLength(1);
+    expect(result.transactionBoundaries[0].scope).toBe('METHOD');
+    const warning = result.risks?.find((risk) => risk.kind === 'transaction-warning');
+    expect(warning).toBeDefined();
+    expect(warning?.message).toContain('@Transactional boundary (METHOD');
+    // The suggested fix is decoupling the I/O out of the transaction.
+    expect(warning?.suggestion).toContain('SPRING_EVENT_ASYNC');
+  });
+
+  it('blocks with a structured error when intent fights a STRICT convention', () => {
+    const symbols = conventionRepo();
+    let caught: unknown;
+    try {
+      runModuleEvolution({
+        repoId: 'r1',
+        intentType: 'EXTEND',
+        targetSymbolOrModule: 'charge',
+        extensionGoal: '直接返回裸数据,不要包装',
+        symbols,
+        index: buildCallIndex(symbols)
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ConventionConflictError);
+    const conflict = (caught as ConventionConflictError).conflict;
+    expect(conflict.axis).toBe('return_wrapping');
+    expect(conflict.verdict).toContain('ApiResult');
+    expect(conflict.coverage).toEqual({ match: 5, total: 5 });
+    expect(conflict.suggestion).toContain('ApiResult');
+    expect((caught as Error).message).toContain('Convention conflict on return_wrapping');
+  });
+
+  it('tolerates a weakly-covered convention: proceeds with a disclosed split risk', () => {
+    const controller = moduleSymbol({
+      kind: 'route',
+      name: 'MixedController',
+      filePath: 'src/main/java/com/shop/mixed/MixedController.java',
+      parentType: 'MixedController',
+      displayPath: '/api/mixed'
+    });
+    const mixedMethods = [
+      { name: 'm1', ret: 'ApiResult' },
+      { name: 'm2', ret: 'ApiResult' },
+      { name: 'm3', ret: 'ApiResult' },
+      { name: 'm4', ret: 'String' },
+      { name: 'm5', ret: 'OrderDto' }
+    ].map((entry, i) =>
+      moduleSymbol({
+        name: entry.name,
+        filePath: controller.filePath,
+        parentType: 'MixedController',
+        returnType: entry.ret,
+        lineStart: 10 + i * 3
+      })
+    );
+    const mixedService = moduleSymbol({
+      kind: 'service',
+      name: 'MixedService',
+      filePath: 'src/main/java/com/shop/mixed/MixedService.java'
+    });
+    const doMixed = moduleSymbol({
+      name: 'doMixed',
+      filePath: mixedService.filePath,
+      parentType: 'MixedService',
+      lineStart: 40
+    });
+    const symbols = [controller, ...mixedMethods, mixedService, doMixed];
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'EXTEND',
+      targetSymbolOrModule: 'doMixed',
+      extensionGoal: '记录扩展指标',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    // 3/5 wrapped = 60% — below STRICT, so the plan proceeds…
+    expect(result.placement).toBeDefined();
+    expect(result.scaffoldTemplates?.length).toBeGreaterThan(0);
+    // …with the divergence disclosed as a soft risk, samples included.
+    const wrapRisk = result.risks?.find((risk) => risk.kind === 'convention-split' && risk.axis === 'return_wrapping');
+    expect(wrapRisk).toBeDefined();
+    expect(wrapRisk?.message).toContain('3/5');
+    expect(wrapRisk?.divergentSamples?.length).toBe(2);
+  });
+
+  it('blocks DIRECT_INJECTION when the attach type sits on a bean field cycle', () => {
+    const cycleA = moduleSymbol({
+      kind: 'service',
+      name: 'CycleA',
+      filePath: 'src/main/java/com/shop/cycle/CycleA.java'
+    });
+    const cycleB = moduleSymbol({
+      kind: 'service',
+      name: 'CycleB',
+      filePath: 'src/main/java/com/shop/cycle/CycleB.java'
+    });
+    const fields = [
+      moduleSymbol({
+        kind: 'field',
+        name: 'b',
+        filePath: cycleA.filePath,
+        parentType: 'CycleA',
+        type: 'CycleB',
+        signature: 'private final CycleB b',
+        lineStart: 3
+      }),
+      moduleSymbol({
+        kind: 'field',
+        name: 'a',
+        filePath: cycleB.filePath,
+        parentType: 'CycleB',
+        type: 'CycleA',
+        signature: 'private final CycleA a',
+        lineStart: 3
+      })
+    ];
+    const work = moduleSymbol({
+      name: 'work',
+      filePath: cycleA.filePath,
+      parentType: 'CycleA',
+      lineStart: 8
+    });
+    const symbols = [cycleA, cycleB, ...fields, work];
+    let caught: unknown;
+    try {
+      runModuleEvolution({
+        repoId: 'r1',
+        intentType: 'EXTEND',
+        targetSymbolOrModule: 'work',
+        extensionGoal: '记录扩展指标',
+        symbols,
+        index: buildCallIndex(symbols)
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ConventionConflictError);
+    const conflict = (caught as ConventionConflictError).conflict;
+    expect(conflict.axis).toBe('injection-cycle');
+    expect(conflict.verdict).toContain('CycleA');
+    expect(conflict.verdict).toContain('CycleB');
+  });
+
+  it('grounds placement in the real directory (repo-root prefix) and honors nearPackages', () => {
+    const controller = moduleSymbol({
+      kind: 'route',
+      name: 'PayController',
+      filePath: 'demo-shop/src/main/java/com/shop/pay/PayController.java',
+      parentType: 'PayController',
+      displayPath: '/api/pay'
+    });
+    const payMethods = [1, 2, 3, 4, 5].map((n, i) =>
+      moduleSymbol({
+        name: `p${n}`,
+        filePath: controller.filePath,
+        parentType: 'PayController',
+        returnType: 'ApiResult',
+        lineStart: 10 + i * 3
+      })
+    );
+    const payService = moduleSymbol({
+      kind: 'service',
+      name: 'PayService',
+      filePath: 'demo-shop/src/main/java/com/shop/pay/PayService.java'
+    });
+    const doPay = moduleSymbol({
+      name: 'doPay',
+      filePath: payService.filePath,
+      parentType: 'PayService',
+      lineStart: 30
+    });
+    const neighborRoute = moduleSymbol({
+      kind: 'route',
+      name: 'BillingController',
+      filePath: 'demo-shop/src/main/java/com/shop/billing/BillingController.java',
+      parentType: 'BillingController',
+      displayPath: '/api/billing'
+    });
+    const neighborMethods = [1, 2, 3].map((n, i) =>
+      moduleSymbol({
+        name: `b${n}`,
+        filePath: neighborRoute.filePath,
+        parentType: 'BillingController',
+        returnType: 'String',
+        lineStart: 10 + i * 3
+      })
+    );
+    const symbols = [controller, ...payMethods, payService, doPay, neighborRoute, ...neighborMethods];
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'EXTEND',
+      targetSymbolOrModule: 'doPay',
+      extensionGoal: '记录扩展指标',
+      symbols,
+      index: buildCallIndex(symbols),
+      nearPackages: ['com.shop.billing']
+    });
+    // The explicit neighborhood moves the landing dir; the repo-root prefix
+    // of the neighbor's REAL file path is kept (never rebuilt from dots).
+    expect(result.placement?.packagePath).toBe('com.shop.billing');
+    expect(result.placement?.files).toHaveLength(1);
+    expect(result.placement?.files[0].filePath).toBe(
+      'demo-shop/src/main/java/com/shop/billing/PayServiceExtension.java'
+    );
+  });
+
+  it('cascades a private DTO helper whose only caller sits in the deprecated module', () => {
+    // The DTO's used member (its payload mapper method) is the call-graph node
+    // carrying in-degree; class symbols carry no call in-degree in this model.
+    const dtoMapper = moduleSymbol({
+      name: 'toCheckInPayload',
+      filePath: 'src/main/java/com/shop/common/CheckInPayloads.java',
+      parentType: 'CheckInPayloads'
+    });
+    const symbols = SYMBOLS.map((symbol) =>
+      symbol.name === 'doCheckIn'
+        ? {
+            ...symbol,
+            calls: [
+              ...(symbol.calls ?? []),
+              { file: symbol.filePath, method: 'toCheckInPayload', line: 18, receiver: 'checkInPayloads', receiverType: 'CheckInPayloads' }
+            ]
+          }
+        : symbol
+    );
+    symbols.push(dtoMapper);
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'DEPRECATE',
+      targetSymbolOrModule: 'legacy',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    const names = result.blastRadius.orphanedSymbols.map((symbol) => symbol.name);
+    // The legacy module dies → the DTO helper's in-degree drops to zero → cascade.
+    expect(names).toContain('toCheckInPayload');
+    // Live code still keeps its own DTO alive.
+    expect(names).not.toContain('MoneyDto');
   });
 });

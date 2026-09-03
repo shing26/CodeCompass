@@ -495,9 +495,14 @@ export function mcpModuleEvolution(deps: McpDeps, args: McpToolHandlerArgs): Rec
     intentType,
     targetSymbolOrModule: String(args.targetSymbolOrModule ?? ''),
     ...(args.extensionGoal === undefined ? {} : { extensionGoal: String(args.extensionGoal) }),
+    ...(Array.isArray(args.nearPackages)
+      ? { nearPackages: args.nearPackages.map((entry) => String(entry)).filter(Boolean) }
+      : {}),
     symbols: graph.symbols,
     index: graph.index,
-    baseUrl
+    baseUrl,
+    // ADR-0010: `unversioned` is the honest fallback when no commit is known.
+    commit: repo.commit ?? 'unversioned'
   }) as unknown as Record<string, unknown>;
 }
 

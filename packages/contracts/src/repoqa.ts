@@ -169,6 +169,67 @@ export interface RefactorPlanResult {
 /* v0.9.0 — Module evolution & domain radar (deterministic engines)    */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Issue 24 / ADR-0014 — convention scanning contract (moved here from  */
+/* the control-plane engine so evolution results can embed profiles     */
+/* without the contracts package depending on it).                      */
+/* ------------------------------------------------------------------ */
+
+export type ConventionAxisId =
+  | 'return_wrapping'
+  | 'interface_impl_style'
+  | 'base_class'
+  | 'di_style'
+  | 'package_layout';
+
+export interface ConventionAnchor {
+  file: string;
+  line: number;
+  symbol: string;
+}
+
+export interface ConventionCoverage {
+  match: number;
+  total: number;
+}
+
+export interface ConventionAxis {
+  axis: ConventionAxisId;
+  /** Language coverage gate: sniffing needs the parser facts it keys on. */
+  supported: boolean;
+  /** One-line factual claim, e.g. "Controllers return ApiResult<T> uniformly". */
+  verdict?: string;
+  /**
+   * Machine-readable mirror of the verdict so consumers can branch on the
+   * convention without parsing the sentence (Issue 24.3 placement). Present
+   * only on decided, supported axes:
+   * - return_wrapping: dominant wrapper class name (`ApiResult`) or `bare`;
+   * - interface_impl_style: `split` | `plain`;
+   * - di_style: `constructor` | `field`;
+   * - base_class / package_layout: `base`|`none` / the dominant feature package.
+   */
+  primary?: string;
+  coverage?: ConventionCoverage;
+  anchors?: ConventionAnchor[];
+  /** Minority side: always disclosed, never silently dropped (ADR-0014). */
+  dissidents?: ConventionAnchor[];
+  /**
+   * Present only when a decided neighborhood overrides a conflicting global
+   * majority (neighbor-first arbitration): the overridden global claim, kept
+   * machine-readable so the split stays auditable (ADR-0014 disclosure).
+   */
+  globalVerdict?: { verdict: string; coverage: ConventionCoverage };
+}
+
+export interface ConventionProfile {
+  repoId: string;
+  /** Neighboring package used for the arbitration, when a target was given. */
+  neighborPackage?: string;
+  axes: ConventionAxis[];
+  /** Physical commit of the sniffed tree (`hash` or `hash+dirty`). */
+  sampledAt: string;
+}
+
 export interface ModuleEvolutionParams {
   repoId: string;
   /** `DEPRECATE` plans a safe teardown; `EXTEND` plans a decoupled attach. */
@@ -177,6 +238,13 @@ export interface ModuleEvolutionParams {
   targetSymbolOrModule: string;
   /** Free-text extension goal, e.g. "异步敏感词审查"; never used for guessing. */
   extensionGoal?: string;
+  /**
+   * Issue 24.3 — explicit neighborhood override for the convention sniff
+   * (dotted package names, e.g. the destination packages of a planned move).
+   */
+  nearPackages?: string[];
+  /** Physical commit of the sniffed tree (`hash` or `hash+dirty`). */
+  commit?: string;
 }
 
 export interface EvolutionChecklistItem {
@@ -225,7 +293,72 @@ export interface ModuleEvolutionResult {
     /** METHOD / CLASS / INTERFACE declaration site of the annotation. */
     scope: 'METHOD' | 'CLASS' | 'INTERFACE';
   }>;
+  /**
+   * Issue 24.3 (ADR-0014) — the convention profile the EXTEND plan obeys,
+   * neighbor-first arbitrated. Absent on DEPRECATE (dead code is structural).
+   */
+  conventions?: ConventionProfile;
+  /**
+   * Issue 24.3 — convention-driven placement for the DIRECT_INJECTION shape:
+   * where the new files go, how the dependency wires in and what the handler
+   * signature looks like. Absent on DEPRECATE and on event/aspect patterns
+   * (their scaffolds are framework-fixed, not convention-governed).
+   */
+  placement?: EvolutionPlacement;
+  /**
+   * Issue 24.3 — soft findings (tolerance disclosure, ADR-0014): weakly
+   * covered conventions the plan follows anyway, and transaction-decoupling
+   * warnings. Risks never block; only STRICT intent conflicts do.
+   */
+  risks?: EvolutionRisk[];
   cockpitDeepLink: string;
+}
+
+/** One landing file of a convention-driven placement plan. */
+export interface EvolutionPlacementFile {
+  filePath: string;
+  role: 'interface' | 'impl' | 'single';
+}
+
+export interface EvolutionPlacement {
+  /** Destination package (dotted), derived from the attach point's real directory. */
+  packagePath: string;
+  files: EvolutionPlacementFile[];
+  /** Dependency wiring prescribed by the di_style convention. */
+  injection: {
+    style: 'constructor' | 'field' | 'unsupported';
+    codeSnippet: string;
+  };
+  /** Handler method signature shaped by the return_wrapping convention. */
+  handlerSignature?: string;
+  /** Convention axes the plan obeys — verdict-level traceability (ADR-0014). */
+  basedOn: Array<{ axis: ConventionAxisId; verdict: string }>;
+}
+
+/** A non-blocking finding on the evolution plan (ADR-0014 tolerance). */
+export interface EvolutionRisk {
+  kind: 'transaction-warning' | 'convention-split';
+  message: string;
+  /** Human-executable decoupling advice (e.g. publish after commit). */
+  suggestion?: string;
+  axis?: ConventionAxisId;
+  /** Minority-side anchors disclosed verbatim (ADR-0014). */
+  divergentSamples?: ConventionAnchor[];
+}
+
+/**
+ * Issue 24.3 — structured detail behind a ConventionConflictError: a user
+ * intent colliding head-on with a STRICT convention axis (coverage ≥ 85%),
+ * or an injection point that sits on an existing bean dependency cycle.
+ */
+export interface ConventionConflictDetail {
+  /** Blocked axis; `injection-cycle` when a bean cycle blocks the injection point. */
+  axis: ConventionAxisId | 'injection-cycle';
+  verdict: string;
+  coverage?: ConventionCoverage;
+  anchors: ConventionAnchor[];
+  /** Compliant rewrite suggestion — how to pass the strict gate. */
+  suggestion: string;
 }
 
 export interface DomainRadarParams {

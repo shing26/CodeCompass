@@ -1,5 +1,24 @@
 import type { RepoSymbol } from './repoqa-repos';
 import { isTestPath } from './diagnose-engine';
+import type {
+  ConventionAnchor,
+  ConventionAxis,
+  ConventionAxisId,
+  ConventionCoverage,
+  ConventionProfile
+} from '../../../packages/contracts/src/index';
+
+// Issue 24.3 — the convention contract moved into @codecompass/contracts so
+// ModuleEvolutionResult can embed a profile without contracts depending on
+// the control-plane. Re-exported here to keep every existing import site
+// (`from './repoqa-conventions'`) working unchanged.
+export type {
+  ConventionAnchor,
+  ConventionAxis,
+  ConventionAxisId,
+  ConventionCoverage,
+  ConventionProfile
+};
 
 /**
  * Issue 24 / ADR-0014 — Pattern Ingestion engine (deterministic, zero-LLM).
@@ -18,53 +37,19 @@ import { isTestPath } from './diagnose-engine';
  * degrade to `unsupported` axes rather than guessed verdicts.
  */
 
-/* ------------------------------------------------------------------ */
-/* Contract                                                            */
-/* ------------------------------------------------------------------ */
+/** STRICT axis (Issue 24.3): an intent that fights it is blocked, not absorbed. */
+const STRICT_THRESHOLD = 0.85;
 
-export type ConventionAxisId =
-  | 'return_wrapping'
-  | 'interface_impl_style'
-  | 'base_class'
-  | 'di_style'
-  | 'package_layout';
-
-export interface ConventionAnchor {
-  file: string;
-  line: number;
-  symbol: string;
-}
-
-export interface ConventionCoverage {
-  match: number;
-  total: number;
-}
-
-export interface ConventionAxis {
-  axis: ConventionAxisId;
-  /** Language coverage gate: sniffing needs the parser facts it keys on. */
-  supported: boolean;
-  /** One-line factual claim, e.g. "Controllers return ApiResult<T> uniformly". */
-  verdict?: string;
-  coverage?: ConventionCoverage;
-  anchors?: ConventionAnchor[];
-  /** Minority side: always disclosed, never silently dropped (ADR-0014). */
-  dissidents?: ConventionAnchor[];
-  /**
-   * Present only when a decided neighborhood overrides a conflicting global
-   * majority (neighbor-first arbitration): the overridden global claim, kept
-   * machine-readable so the split stays auditable (ADR-0014 disclosure).
-   */
-  globalVerdict?: { verdict: string; coverage: ConventionCoverage };
-}
-
-export interface ConventionProfile {
-  repoId: string;
-  /** Neighboring package used for the arbitration, when a target was given. */
-  neighborPackage?: string;
-  axes: ConventionAxis[];
-  /** Physical commit of the sniffed tree (`hash` or `hash+dirty`). */
-  sampledAt: string;
+/**
+ * ADR-0014 §4 (Issue 24.3): an axis is STRICT when its arbitrated coverage is
+ * ≥ 85% — an explicit user intent contradicting it is a hard conflict, while
+ * anything weaker is tolerated with disclosure. No minimum sample count: the
+ * number is honest at any n, and coverage stays disclosed either way.
+ */
+export function isStrictAxis(axis: ConventionAxis): boolean {
+  if (!axis.supported || !axis.coverage) return false;
+  if (axis.coverage.total <= 0) return false;
+  return axis.coverage.match / axis.coverage.total >= STRICT_THRESHOLD;
 }
 
 /* ------------------------------------------------------------------ */
@@ -89,7 +74,7 @@ function isJavaRepo(symbols: RepoSymbol[]): boolean {
 }
 
 /** `com/shop/order` → `com.shop.order` (package of the class's directory). */
-function packageOfPath(filePath: string): string {
+export function packageOfPath(filePath: string): string {
   const normalized = filePath.replace(/\\/g, '/');
   const mainJava = 'src/main/java/';
   // Works for both `repo/src/main/java/...` and bare `src/main/java/...`.
@@ -142,6 +127,8 @@ interface AxisSample {
   axis: ConventionAxisId;
   supported: boolean;
   verdict?: string;
+  /** Machine-readable verdict mirror (see ConventionAxis.primary). */
+  primary?: string;
   match?: number;
   total?: number;
   anchors?: ConventionAnchor[];
@@ -187,6 +174,7 @@ function sampleReturnWrapping(symbols: RepoSymbol[]): AxisSample {
       axis: 'return_wrapping',
       supported: true,
       verdict: `Controller methods return unified wrapper ${dominant.value}<T>`,
+      primary: dominant.value,
       match: wrapped.length,
       total: methods.length,
       anchors: wrapped.slice(0, 3).map(anchorable),
@@ -197,6 +185,7 @@ function sampleReturnWrapping(symbols: RepoSymbol[]): AxisSample {
     axis: 'return_wrapping',
     supported: true,
     verdict: 'Controller methods return bare payloads (no unified wrapper)',
+    primary: 'bare',
     match: bare.length,
     total: methods.length,
     anchors: bare.slice(0, 3).map(anchorable),
@@ -241,6 +230,7 @@ function sampleInterfaceImplStyle(symbols: RepoSymbol[]): AxisSample {
       axis: 'interface_impl_style',
       supported: true,
       verdict: 'Services follow interface + ServiceImpl split',
+      primary: 'split',
       match: withInterface.length,
       total,
       anchors: withInterface.slice(0, 3).map(anchorOf),
@@ -251,6 +241,7 @@ function sampleInterfaceImplStyle(symbols: RepoSymbol[]): AxisSample {
     axis: 'interface_impl_style',
     supported: true,
     verdict: 'Services are plain classes (no interface split)',
+    primary: 'plain',
     match: plainServices.length,
     total,
     anchors: plainServices.slice(0, 3).map(anchorOf),
@@ -279,6 +270,7 @@ function sampleBaseClass(symbols: RepoSymbol[]): AxisSample {
       axis: 'base_class',
       supported: true,
       verdict: `Classes extend a shared Base class (${withBase.length}/${classes.length})`,
+      primary: 'base',
       match: withBase.length,
       total: classes.length,
       anchors: withBase.slice(0, 3).map(anchorOf),
@@ -289,6 +281,7 @@ function sampleBaseClass(symbols: RepoSymbol[]): AxisSample {
     axis: 'base_class',
     supported: true,
     verdict: 'No shared Base-class hierarchy in production classes',
+    primary: 'none',
     match: withoutBase.length,
     total: classes.length,
     anchors: withoutBase.slice(0, 3).map(anchorOf),
@@ -325,6 +318,7 @@ function sampleDiStyle(symbols: RepoSymbol[], beanNames: Set<string>): AxisSampl
       axis: 'di_style',
       supported: true,
       verdict: 'Dependencies are constructor-injected (private final, no @Autowired)',
+      primary: 'constructor',
       match: constructorInjected.length,
       total,
       anchors: constructorInjected.slice(0, 3).map(anchorOf),
@@ -335,6 +329,7 @@ function sampleDiStyle(symbols: RepoSymbol[], beanNames: Set<string>): AxisSampl
     axis: 'di_style',
     supported: true,
     verdict: 'Dependencies are field-injected (@Autowired on fields)',
+    primary: 'field',
     match: fieldInjected.length,
     total,
     anchors: fieldInjected.slice(0, 3).map(anchorOf),
@@ -375,6 +370,7 @@ function samplePackageLayout(symbols: RepoSymbol[]): AxisSample {
     axis: 'package_layout',
     supported: true,
     verdict: `Production classes live under ${dominant.value}.* (${dominant.count} classes)`,
+    primary: dominant.value,
     match: dominant.count,
     total: classes.length,
     anchors: members.slice(0, 3).map(anchorOf),
@@ -535,6 +531,7 @@ export function runConventionScan(input: ConventionScanInput): ConventionProfile
       axis: decided.axis,
       supported: decided.supported,
       ...(decided.verdict !== undefined ? { verdict: decided.verdict } : {}),
+      ...(decided.primary !== undefined ? { primary: decided.primary } : {}),
       ...(decided.total !== undefined
         ? { coverage: { match: decided.match ?? 0, total: decided.total } }
         : {}),
