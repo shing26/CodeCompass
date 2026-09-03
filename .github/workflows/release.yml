@@ -22,6 +22,8 @@ jobs:
           registry-url: https://registry.npmjs.org/
       - name: Install workspace dependencies
         run: npm run install:all
+      - name: Build (e2e gate needs dist/)
+        run: npm run build
       - name: Typecheck + unit tests
         run: |
           npm run typecheck
@@ -29,8 +31,6 @@ jobs:
           npm run test:web
       - name: E2E gate
         run: python3 scripts/e2e/closeout_gate.py
-      - name: Build
-        run: npm run build
       - name: Generate sample artifact (open-source fixture)
         run: |
           mkdir -p dist-release
