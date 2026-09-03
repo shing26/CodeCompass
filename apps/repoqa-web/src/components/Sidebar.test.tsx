@@ -67,6 +67,7 @@ function renderSidebar(
       onPlayTour={() => {}}
       open
       onNavigate={onNavigate}
+      onOpenEvolution={() => {}}
     />
   );
 }

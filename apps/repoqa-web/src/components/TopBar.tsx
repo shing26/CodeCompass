@@ -52,7 +52,8 @@ const TABS: Array<{ id: WorkbenchTab; label: string }> = [
   { id: 'metrics', label: '架构指标' },
   { id: 'incident', label: '排障' },
   { id: 'gate', label: 'CI 门禁' },
-  { id: 'delta', label: '架构差异' }
+  { id: 'delta', label: '架构差异' },
+  { id: 'evolve', label: '演进推演' }
 ];
 
 function watcherState(status: Repo['status'] | undefined) {

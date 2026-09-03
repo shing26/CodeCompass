@@ -130,6 +130,8 @@ interface SidebarProps {
   open: boolean;
   /** Issue 18: jump a symbol / route into the Monaco Inspector. */
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
+  /** Ticket 04: open the Evolution workbench view. */
+  onOpenEvolution: () => void;
 }
 
 /**
@@ -147,7 +149,8 @@ export function Sidebar({
   onRetryTours,
   onPlayTour,
   open,
-  onNavigate
+  onNavigate,
+  onOpenEvolution
 }: SidebarProps) {
   const [symbolsExpanded, setSymbolsExpanded] = useState(false);
   const [query, setQuery] = useState('');
@@ -229,6 +232,21 @@ export function Sidebar({
             Choose a repo to see recommended tours.
           </p>
         )}
+      </section>
+
+      <section className="border-b border-line p-3">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+          Evolution
+        </h2>
+        <button
+          type="button"
+          data-testid="sidebar-evolution"
+          onClick={onOpenEvolution}
+          className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
+        >
+          <span className="shrink-0">🧬</span>
+          <span className="min-w-0 flex-1">演进推演工作台</span>
+        </button>
       </section>
 
       <section className="border-b border-line p-3">

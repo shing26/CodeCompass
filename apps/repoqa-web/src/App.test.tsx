@@ -304,6 +304,29 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 
+  it('opens the evolution workbench from the TopBar tab and Sidebar entry (Ticket 04)', async () => {
+    const user = userEvent.setup();
+    const evolveStream = vi.fn(() => ({
+      onEvent: () => () => undefined,
+      onError: () => () => undefined,
+      onDone: () => () => undefined,
+      connect: async () => undefined,
+      close: () => undefined
+    }));
+    render(<App client={makeClient({ evolveStream })} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-evolve'));
+    await waitFor(() => expect(screen.getByTestId('evolution-view')).toBeInTheDocument());
+    expect(screen.getByTestId('evolve-intent')).toBeInTheDocument();
+    expect(evolveStream).not.toHaveBeenCalled();
+
+    // Sidebar entry reaches the same view.
+    await user.click(screen.getByTestId('tab-topo'));
+    await user.click(screen.getByTestId('sidebar-evolution'));
+    await waitFor(() => expect(screen.getByTestId('evolution-view')).toBeInTheDocument());
+  });
+
   it('switches to the architecture delta workbench tab (v0.6.0)', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
