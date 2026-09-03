@@ -2,6 +2,7 @@ import type {
   Anchor,
   ArchitectureDeltaReport,
   DomainRadarResult,
+  EvolveEvent,
   ImportRepoInput,
   QueryEvent,
   QueryMode,
@@ -329,6 +330,18 @@ export class RepoQAClient {
    * `stack` (Issue 23) is the pasted stack trace for incident mode, sent as
    * `stack` and forwarded by the backend into the deterministic stack parser.
    */
+  /**
+   * Issue 24 / Ticket 04 — open the evolution workbench stream.
+   *
+   * The evolve endpoint is POST + JSON body, which the browser EventSource
+   * cannot issue; the stream is therefore consumed via fetch + ReadableStream
+   * with the same SSE framing the query stream uses. Emits parsed
+   * EvolveEvents;  fires after the stream closes (done or error).
+   */
+  evolveStream(repoId: string, intent: string, target?: string): EvolveStreamLike {
+    return new EvolveStream(this.baseUrl, repoId, intent, target);
+  }
+
   queryRepo(
     repoId: string,
     question: string,
@@ -534,6 +547,145 @@ export class QueryStream implements QueryStreamLike {
     if (!this.source) return;
     this.source.close();
     this.source = null;
+  }
+}
+
+type EvolveListener = (event: EvolveEvent) => void;
+
+/** Minimal surface EvolutionView consumes; EvolveStream satisfies it. */
+export interface EvolveStreamLike {
+  onEvent(fn: (event: EvolveEvent) => void): () => void;
+  onError(fn: (err: unknown) => void): () => void;
+  onDone(fn: () => void): () => void;
+  /** POST the intent and start consuming the SSE frames. */
+  connect(): void;
+  close(): void;
+}
+
+/**
+ * Ticket 04 — POST /api/repos/:id/evolve SSE consumer over fetch.
+ *
+ * Frames arrive as `event: <name>` + `data: <json>`, separated by blank lines;
+ * blank lines and maps the three evolve event names to EvolveEvent. No
+ * auto-reconnect: an evolve run is a one-shot server-side computation, and a
+ * reconnect would re-run the pipeline.
+ */
+export class EvolveStream implements EvolveStreamLike {
+  private listeners = new Set<EvolveListener>();
+  private errorListeners = new Set<(err: unknown) => void>();
+  private doneListeners = new Set<() => void>();
+  private controller: AbortController | null = null;
+  private finished = false;
+
+  constructor(
+    private readonly baseUrl: string,
+    private readonly repoId: string,
+    private readonly intent: string,
+    private readonly target?: string
+  ) {}
+
+  private emit(event: EvolveEvent) {
+    this.listeners.forEach((fn) => fn(event));
+  }
+
+  private finish() {
+    if (this.finished) return;
+    this.finished = true;
+    this.doneListeners.forEach((fn) => fn());
+  }
+
+  async connect(): Promise<void> {
+    if (this.controller) return;
+    this.controller = new AbortController();
+    try {
+      const res = await this.fetcher();
+      if (!res.ok || !res.body) {
+        let detail = '';
+        try {
+          const body = (await res.json()) as { error?: unknown };
+          if (typeof body.error === 'string') detail = `: ${body.error}`;
+        } catch {
+          // non-JSON body — status only
+        }
+        throw new Error(`evolveStream failed: ${res.status}${detail}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Frames are separated by a blank line; CRLF is defensive.
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) this.consumeFrame(frame);
+      }
+      const rest = buffer.trim();
+      if (rest) this.consumeFrame(rest);
+    } catch (err) {
+      if (!this.finished) {
+        this.errorListeners.forEach((fn) => fn(err));
+      }
+    } finally {
+      this.finish();
+    }
+  }
+
+  private fetcher(): Promise<Response> {
+    return fetch(`${this.baseUrl}/api/repos/${encodeURIComponent(this.repoId)}/evolve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        intent: this.intent,
+        ...(this.target ? { target: this.target } : {})
+      }),
+      signal: this.controller?.signal
+    });
+  }
+
+  private consumeFrame(frame: string) {
+    let event = 'message';
+    const dataLines: string[] = [];
+    for (const line of frame.split(/\r?\n/)) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+    }
+    if (dataLines.length === 0) return;
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    if (event === 'repoqa.evolve.stage' && payload.stage) {
+      this.emit({ type: 'stage', payload: payload as unknown as EvolveEvent extends { type: 'stage'; payload: infer P } ? P : never });
+    } else if (event === 'repoqa.evolve.done') {
+      this.emit({ type: 'done', payload: payload as never });
+    } else if (event === 'repoqa.evolve.error') {
+      this.emit({ type: 'error', payload: payload as never });
+    }
+  }
+
+  onEvent(fn: EvolveListener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  onError(fn: (err: unknown) => void): () => void {
+    this.errorListeners.add(fn);
+    return () => this.errorListeners.delete(fn);
+  }
+
+  onDone(fn: () => void): () => void {
+    this.doneListeners.add(fn);
+    return () => this.doneListeners.delete(fn);
+  }
+
+  close(): void {
+    this.finished = true;
+    this.controller?.abort();
+    this.controller = null;
   }
 }
 

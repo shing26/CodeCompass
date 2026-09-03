@@ -49,6 +49,7 @@ import {
   isLlmConfigured,
   buildTokenUsage,
   estimateTokenCount,
+  completeNativeChat,
   INCIDENT_MAX_AGENT_STEPS,
   INCIDENT_ZERO_HALLUCINATION_GUIDE,
   unionIncidentAnchors,
@@ -56,6 +57,11 @@ import {
   type ReActLLMResult,
   type LayerInstruction
 } from './repoqa-llm';
+import type {
+  ModuleEvolutionResult,
+  EvolutionIntentEcho,
+  EvolutionStageId
+} from '../../../packages/contracts/src/index';
 import { buildTours } from './repoqa-tours';
 import { classifyConfigKey, isSensitiveConfigKey } from './repoqa-dashboard';
 import {
@@ -169,6 +175,118 @@ export function splitIdentifier(name: string): string[] {
  * plain substring rank below in that order. This is a pure helper so the
  * deterministic static path stays fully unit-testable without LLMs.
  */
+/**
+ * Ticket 04 — deterministic intent parser (the zero-LLM NLU fallback).
+ *
+ * Chinese intents have no spaces, so prose is split at intent marker words
+ * (给/加/新增/模块/…) instead of token boundaries. The keyword is the first
+ * symbol-like latin identifier (OrderService), else the first CJK segment
+ * (订单); every other segment becomes the extension goal. Deprecation verbs
+ * route the whole intent to DEPRECATE.
+ * "给订单模块加 Excel 导出" -> { EXTEND, keyword "订单", goal "Excel 导出" }.
+ */
+const DEPRECATE_VERBS = [
+  '下线',
+  '废弃',
+  '退役',
+  '下架',
+  '移除',
+  '删除',
+  '清除',
+  'deprecat',
+  'retire',
+  'remove',
+  'delete'
+];
+
+const INTENT_MARKERS = [
+  '给我',
+  '帮我',
+  '我要',
+  '我想',
+  '请',
+  '帮忙',
+  '麻烦',
+  '需要',
+  '计划',
+  '准备',
+  '一下',
+  '加上',
+  '加个',
+  '加',
+  '添加',
+  '新增',
+  '增加',
+  '做个',
+  '做',
+  '实现',
+  '支持',
+  '扩展',
+  '模块',
+  '功能',
+  '里',
+  '中',
+  '上',
+  '把',
+  '对',
+  '在',
+  '给',
+  '想',
+  '要',
+  '的',
+  '个'
+];
+
+/** Latin filler stripped word-wise (word boundaries, case-insensitive). */
+const LATIN_FILLER = /\b(add|support|please|module|feature|the|and|for|to|with|of|a|an)\b/gi;
+
+function escapeMarker(marker: string): string {
+  return marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function deterministicIntentParse(question: string): EvolutionIntentEcho {
+  const text = question.trim();
+  const lowered = text.toLowerCase();
+  const isDeprecate = DEPRECATE_VERBS.some((verb) => lowered.includes(verb));
+
+  // 1) Strip the (first) deprecation verb, 2) cut the rest at marker words.
+  let residue = text;
+  for (const verb of DEPRECATE_VERBS) {
+    const at = lowered.indexOf(verb);
+    if (at >= 0) {
+      residue = residue.slice(0, at) + residue.slice(at + verb.length);
+    }
+  }
+  const markerPattern = new RegExp(
+    `${INTENT_MARKERS.map(escapeMarker).join('|')}|[^\\u4e00-\\u9fffA-Za-z0-9_.]+|\\s+`,
+    'g'
+  );
+  const segments = residue
+    .replace(LATIN_FILLER, ' ')
+    .split(markerPattern)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  // Keyword: symbol-like identifier > first CJK segment > longest segment.
+  const symbolLike = segments.find(
+    (segment) => segment.length >= 6 && /[A-Z]/.test(segment) && /[a-z]/.test(segment)
+  );
+  const cjk = segments.find((segment) => /[\u4e00-\u9fff]/.test(segment));
+  const keyword =
+    symbolLike ?? cjk ?? [...segments].sort((a, b) => b.length - a.length)[0] ?? text;
+  const goal = segments
+    .filter((segment) => segment !== keyword)
+    .join(' ')
+    .trim();
+  return {
+    intentType: isDeprecate ? 'DEPRECATE' : 'EXTEND',
+    rawKeyword: keyword,
+    ...(isDeprecate || !goal ? {} : { extensionGoal: goal }),
+    alternatives: [],
+    parsedBy: 'fallback'
+  };
+}
+
 export function fuzzyMatchScore(question: string, symbolName: string): number {
   const q = question.toLowerCase();
   const name = symbolName.toLowerCase();
@@ -721,6 +839,222 @@ export class RepoQAWorker {
       return { repo, created: upsert.created };
     } finally {
       this.running.delete(taskId);
+    }
+  }
+
+  /**
+   * Issue 24 / Ticket 04 — Evolution workbench stream (POST /api/repos/:id/evolve).
+   *
+   * Free-text intent in, four artifact-card sections out, in one pass:
+   *   intent_parse    — ONE NLU call (LLM) or the deterministic parser fallback
+   *                     -> { intentType, rawKeyword, extensionGoal }
+   *   target_resolve  — domain_radar anchors the keyword deterministically
+   *                     (resolved target + alternatives for the Correction Pill)
+   *   convention_scan — declared for the progress UI; the EXTEND engine runs it
+   *                     internally (ADR-0014, zero LLM)
+   *   pipeline        — runModuleEvolution (EXTEND / DEPRECATE)
+   *   diagram         — engine-rendered call_chain over the resolved target
+   *                     (ADR-0013: physical edges only, code:// deep links)
+   *
+   * LLM budget: intent parsing once; no narration call (ADR-0012 composite
+   * entry). An explicit `target` (Correction Pill switch) bypasses the radar.
+   * A STRICT-axis or bean-cycle conflict streams as `repoqa.evolve.error` with
+   * the structured ConventionConflictDetail — a planned outcome, not a crash.
+   */
+  async *evolveRepo(input: {
+    repoId: string;
+    question: string;
+    /** Explicit target from a Correction-Pill switch — skips the radar. */
+    target?: string;
+  }): AsyncGenerator<ServerEvent> {
+    const repo = this.repoqa.getRepo(input.repoId);
+    if (!repo) throw new Error('Repo not found');
+    if (repo.status !== 'ready') {
+      throw new Error(`Repo is not ready (${repo.status})`);
+    }
+    const { symbols, index } = this.getSymbolGraph(repo.id);
+    const commit = repo.commit ?? 'unversioned';
+
+    // ---- Stage 1: intent parse (one NLU call, deterministic fallback) ----
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'intent_parse', label: '意图解析', status: 'running' }
+    };
+    const echo = await this.parseEvolutionIntent(input.question);
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'intent_parse', label: '意图解析', status: 'done', intentEcho: echo }
+    };
+
+    // ---- Stage 2: target resolve (domain radar, deterministic) ----
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'target_resolve', label: '目标锚定', status: 'running' }
+    };
+    let resolvedTarget = input.target?.trim() || '';
+    let alternatives: Array<{ symbol: string; score: number }> = [];
+    if (resolvedTarget) {
+      // Correction-Pill switch: the user pinned the target, skip the radar.
+      echo.resolvedTarget = resolvedTarget;
+      echo.alternatives = [{ symbol: resolvedTarget, score: 100 }];
+    } else {
+      const radar = runDomainRadar({
+        repoId: repo.id,
+        query: echo.rawKeyword,
+        symbols,
+        index,
+        chunkHitFiles: this.repoqa
+          .searchChunks(repo.id, echo.rawKeyword)
+          .map((chunk) => chunk.filePath)
+          .filter((file): file is string => Boolean(file))
+      });
+      alternatives = radar.matchedAnchors.map((anchor) => ({
+        symbol: anchor.symbol,
+        score: anchor.relevanceScore
+      }));
+      resolvedTarget = alternatives[0]?.symbol ?? echo.rawKeyword;
+      echo.resolvedTarget = resolvedTarget;
+      echo.alternatives = alternatives;
+    }
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'target_resolve', label: '目标锚定', status: 'done', intentEcho: echo }
+    };
+
+    // ---- Stage 3+4: convention scan (inside the EXTEND engine) + pipeline ----
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'running' }
+    };
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'pipeline', label: '演进推演', status: 'running' }
+    };
+    let result: ModuleEvolutionResult;
+    try {
+      result = runModuleEvolution({
+        repoId: repo.id,
+        intentType: echo.intentType,
+        targetSymbolOrModule: resolvedTarget,
+        ...(echo.extensionGoal ? { extensionGoal: echo.extensionGoal } : {}),
+        symbols,
+        index,
+        // ADR-0010: `unversioned` is the honest fallback when no commit is known.
+        commit
+      });
+    } catch (error) {
+      if (error instanceof ConventionConflictError) {
+        yield {
+          type: 'repoqa.evolve.error',
+          payload: { error: error.message, conventionConflict: error.conflict }
+        };
+        return;
+      }
+      throw error;
+    }
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'done' }
+    };
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'pipeline', label: '演进推演', status: 'done' }
+    };
+
+    // ---- Stage 5: engine-rendered diagram over the resolved target ----
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'diagram', label: '图谱投射', status: 'running' }
+    };
+    let mermaid: string | undefined;
+    try {
+      const start = this.pickEvolveStart(symbols, resolvedTarget);
+      if (start) {
+        const trace = resolveCallChain(symbols, start, 4, index);
+        if (trace.length >= 2) mermaid = this.traceToMermaid(trace, start.name);
+      }
+    } catch {
+      // Diagram is additive: the artifact cards stand without it.
+      mermaid = undefined;
+    }
+    yield {
+      type: 'repoqa.evolve.stage',
+      payload: { stage: 'diagram', label: '图谱投射', status: 'done' }
+    };
+
+    this.repoqa.recordEvent({
+      repoId: repo.id,
+      eventType: 'query.done',
+      intent: 'evolve',
+      queryStartAt: new Date().toISOString(),
+      feedback: JSON.stringify({ intent: echo.intentType, target: resolvedTarget })
+    });
+    yield {
+      type: 'repoqa.evolve.done',
+      payload: { intentEcho: echo, result, ...(mermaid ? { mermaid } : {}), commit }
+    };
+  }
+
+  /** EXTEND attaches onto methods/classes: pick the pipeline attach symbol. */
+  private pickEvolveStart(symbols: RepoSymbol[], resolvedTarget: string): RepoSymbol | undefined {
+    const exact = symbols.find(
+      (symbol) =>
+        (symbol.kind === 'method' || symbol.kind === 'route') &&
+        (symbol.parentType ? `${symbol.parentType}.${symbol.name}` : symbol.name) === resolvedTarget
+    );
+    if (exact) return exact;
+    const typeMatch = symbols.find(
+      (symbol) =>
+        (symbol.kind === 'class' || symbol.kind === 'service') && symbol.name === resolvedTarget
+    );
+    if (typeMatch) return typeMatch;
+    // Type targets normalize to their first method, mirroring call-chain starts.
+    const prefix = `${resolvedTarget}.`;
+    return symbols.find(
+      (symbol) => symbol.kind === 'method' && (symbol.parentType ?? '').startsWith(prefix)
+    );
+  }
+
+  /**
+   * ONE NLU call for the free-text intent (Issue 24 budget: LLM = 1). Returns
+   * { intentType, rawKeyword, extensionGoal }. With no LLM configured — or on
+   * any parse/transport failure — the deterministic keyword parser answers
+   * instead (parsedBy: 'fallback'); the pipeline never blocks on the model.
+   */
+  private async parseEvolutionIntent(question: string): Promise<EvolutionIntentEcho> {
+    const fallback = deterministicIntentParse(question);
+    if (!isLlmConfigured(process.env)) return fallback;
+    try {
+      const turn = await completeNativeChat([
+        {
+          role: 'system',
+          content:
+            'You parse a software-evolution request into JSON. Respond with ONLY a JSON object: ' +
+            '{"intentType":"EXTEND"|"DEPRECATE","rawKeyword":"<module or class the intent targets, e.g. 订单/OrderService>","extensionGoal":"<what to add, empty for DEPRECATE>"}. ' +
+            'DEPRECATE means retiring/deleting a module; everything else is EXTEND.'
+        },
+        { role: 'user', content: question }
+      ]);
+      const content = turn.content ?? '';
+      const match = content.match(/\{[\s\S]*\}/);
+      if (!match) return fallback;
+      const parsed = JSON.parse(match[0]) as {
+        intentType?: string;
+        rawKeyword?: string;
+        extensionGoal?: string;
+      };
+      const intentType = String(parsed.intentType ?? '').toUpperCase();
+      const rawKeyword = String(parsed.rawKeyword ?? '').trim();
+      if (intentType !== 'EXTEND' && intentType !== 'DEPRECATE') return fallback;
+      return {
+        intentType,
+        rawKeyword: rawKeyword || fallback.rawKeyword,
+        ...(parsed.extensionGoal ? { extensionGoal: String(parsed.extensionGoal).trim() } : {}),
+        alternatives: [],
+        parsedBy: 'llm'
+      };
+    } catch {
+      return fallback;
     }
   }
 

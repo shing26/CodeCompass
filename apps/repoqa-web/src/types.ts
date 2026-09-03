@@ -61,7 +61,7 @@ export interface RepoSymbol {
 export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'incident';
 
 /** Top-level workbench tabs rendered by the TopBar segmented control. */
-export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident';
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident' | 'evolve';
 
 /** v0.6.0 — staged indexing pipeline phases broadcast over WebSocket. */
 export type IndexingPhase =
@@ -387,3 +387,143 @@ export interface DomainRadarResult {
   topApis: string[];
   persistenceEntities: string[];
 }
+
+/* ------------------------------------------------------------------ */
+/* Issue 24 / Ticket 04 — Evolution workbench (POST /evolve SSE)        */
+/* ------------------------------------------------------------------ */
+
+/** One pipeline stage of the evolve stream, reported on repoqa.evolve.stage. */
+export type EvolutionStageId =
+  | 'intent_parse'
+  | 'target_resolve'
+  | 'convention_scan'
+  | 'pipeline'
+  | 'diagram';
+
+/** Result of the single NLU call (LLM) or its deterministic fallback. */
+export interface EvolutionIntentEcho {
+  intentType: 'DEPRECATE' | 'EXTEND';
+  /** Target phrase extracted from the free-text intent (e.g. 订单). */
+  rawKeyword: string;
+  /** Free-text extension goal carried through to the pipeline (EXTEND). */
+  extensionGoal?: string;
+  /** Symbol the domain radar anchored the keyword to. */
+  resolvedTarget?: string;
+  /** Radar alternatives the user can switch to (Correction Pill). */
+  alternatives: Array<{ symbol: string; score: number }>;
+  /** llm for the NLU call, fallback for the deterministic parser. */
+  parsedBy: 'llm' | 'fallback';
+}
+
+/** SSE payload of repoqa.evolve.stage. */
+export interface RepoQaEvolveStage {
+  stage: EvolutionStageId;
+  label: string;
+  status: 'running' | 'done';
+  intentEcho?: EvolutionIntentEcho;
+}
+
+/** Convention anchor disclosed verbatim (ADR-0014). */
+export interface ConventionAnchor {
+  file: string;
+  line: number;
+  symbol: string;
+}
+
+/** Issue 24.3 — structured detail behind a STRICT-axis or bean-cycle conflict. */
+export interface ConventionConflictDetail {
+  axis: string;
+  verdict: string;
+  coverage?: { match: number; total: number };
+  anchors: ConventionAnchor[];
+  suggestion: string;
+}
+
+/** A non-blocking finding on the evolution plan (ADR-0014 tolerance). */
+export interface EvolutionRisk {
+  kind: 'transaction-warning' | 'convention-split';
+  message: string;
+  suggestion?: string;
+  axis?: string;
+  divergentSamples?: ConventionAnchor[];
+}
+
+/** One landing file of a convention-driven placement plan. */
+export interface EvolutionPlacementFile {
+  filePath: string;
+  role: 'interface' | 'impl' | 'single';
+}
+
+/** Issue 24.3 — convention-driven placement for the DIRECT_INJECTION shape. */
+export interface EvolutionPlacement {
+  packagePath: string;
+  files: EvolutionPlacementFile[];
+  injection: {
+    style: 'constructor' | 'field' | 'unsupported';
+    signature?: string;
+    note?: string;
+  };
+  /** Handler method signature shaped by the return_wrapping convention. */
+  handlerSignature?: string;
+  basedOn: Array<{ axis: string; verdict: string }>;
+}
+
+/** Module evolution engine result — the four artifact-card sections. */
+export interface ModuleEvolutionResult {
+  schemaVersion: number;
+  repoId: string;
+  intentType: 'DEPRECATE' | 'EXTEND';
+  target: string;
+  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+  blastRadius: {
+    impactedCallersCount: number;
+    impactedRoutes: string[];
+    impactedComponents: string[];
+    orphanedSymbols: Array<{ name: string; filePath: string; line: number }>;
+  };
+  checklists: Array<{
+    category: 'FRONTEND' | 'CONTROLLER' | 'SERVICE' | 'PERSISTENCE' | 'CONFIG';
+    action: 'DELETE' | 'MODIFY' | 'CREATE';
+    filePath: string;
+    description: string;
+  }>;
+  conventions?: {
+    repoId: string;
+    neighborPackage?: string;
+    axes: Array<{
+      axis: string;
+      supported: boolean;
+      verdict?: string;
+      primary?: string;
+      coverage?: { match: number; total: number };
+      anchors?: ConventionAnchor[];
+      dissidents?: ConventionAnchor[];
+    }>;
+    sampledAt: string;
+  };
+  placement?: EvolutionPlacement;
+  risks?: EvolutionRisk[];
+  cockpitDeepLink: string;
+}
+
+/** SSE payload of repoqa.evolve.done. */
+export interface RepoQaEvolveDone {
+  intentEcho: EvolutionIntentEcho;
+  result: ModuleEvolutionResult;
+  /** Engine-rendered physical-edge diagram (ADR-0013) — never model-painted. */
+  mermaid?: string;
+  /** Physical commit the artifacts were minted against (ADR-0012). */
+  commit?: string;
+}
+
+/** SSE payload of repoqa.evolve.error. */
+export interface RepoQaEvolveError {
+  error: string;
+  conventionConflict?: ConventionConflictDetail;
+}
+
+/** Client-side mirror of one parsed evolve SSE frame. */
+export type EvolveEvent =
+  | { type: 'stage'; payload: RepoQaEvolveStage }
+  | { type: 'done'; payload: RepoQaEvolveDone }
+  | { type: 'error'; payload: RepoQaEvolveError };

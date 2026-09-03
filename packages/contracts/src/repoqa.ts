@@ -406,3 +406,58 @@ export interface DomainRadarResult {
   /** Mapper/repository symbols plus the model classes they declare. */
   persistenceEntities: string[];
 }
+
+/* ------------------------------------------------------------------ */
+/* Issue 24 / Ticket 04 - Evolution workbench SSE (POST /api/repos/:id/evolve) */
+/* ------------------------------------------------------------------ */
+
+/** One pipeline stage of the evolve stream, reported on `repoqa.evolve.stage`. */
+export type EvolutionStageId =
+  | 'intent_parse'
+  | 'target_resolve'
+  | 'convention_scan'
+  | 'pipeline'
+  | 'diagram';
+
+/** Result of the single NLU call (LLM) or its deterministic fallback. */
+export interface EvolutionIntentEcho {
+  intentType: 'DEPRECATE' | 'EXTEND';
+  /** Target phrase extracted from the free-text intent (e.g. "订单"). */
+  rawKeyword: string;
+  /** Free-text extension goal carried through to the pipeline (EXTEND). */
+  extensionGoal?: string;
+  /** Symbol the domain radar anchored the keyword to. */
+  resolvedTarget?: string;
+  /** Radar alternatives the user can switch to (Correction Pill). */
+  alternatives: Array<{ symbol: string; score: number }>;
+  /** `llm` for the NLU call, `fallback` for the deterministic parser. */
+  parsedBy: 'llm' | 'fallback';
+}
+
+/** SSE payload of `repoqa.evolve.stage`. */
+export interface RepoQaEvolveStage {
+  stage: EvolutionStageId;
+  /** Stage label for the progress UI. */
+  label: string;
+  status: 'running' | 'done';
+  /** Stage-specific detail (e.g. intent echo after intent_parse resolves). */
+  intentEcho?: EvolutionIntentEcho;
+}
+
+/** SSE payload of `repoqa.evolve.done` - the four artifact-card sections. */
+export interface RepoQaEvolveDone {
+  intentEcho: EvolutionIntentEcho;
+  /** Engine result: conventions/placement/risks/checklists/blastRadius etc. */
+  result: ModuleEvolutionResult;
+  /** Engine-rendered physical-edge diagram (ADR-0013) - never model-painted. */
+  mermaid?: string;
+  /** Physical commit the artifacts were minted against (ADR-0012). */
+  commit?: string;
+}
+
+/** SSE payload of `repoqa.evolve.error`. */
+export interface RepoQaEvolveError {
+  error: string;
+  /** Structured detail when a STRICT axis or bean cycle blocked the plan. */
+  conventionConflict?: ConventionConflictDetail;
+}

@@ -579,6 +579,70 @@ export function createHttpApp(deps: HttpDeps): express.Express {
   app.get('/api/repos/:id/query', handleQuery);
   app.post('/api/repos/:id/query', handleQuery);
 
+  // Issue 24 / Ticket 04 — Evolution workbench stream. POST + JSON body (the
+  // free-text intent is user prose, not a URL concern). Same SSE framing as
+  // the query stream: `repoqa.evolve.stage|done|error` events, payloads pass
+  // the masking middleware before leaving the process.
+  const handleEvolve = async (req: express.Request, res: express.Response) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const intent =
+      typeof body.intent === 'string'
+        ? body.intent.trim()
+        : typeof req.query.intent === 'string'
+          ? req.query.intent.trim()
+          : '';
+    if (!intent) {
+      res.status(400).json({ error: 'intent is required' });
+      return;
+    }
+    // Correction-Pill switch: a pinned target skips the radar resolve.
+    const target = typeof body.target === 'string' ? body.target.trim() : '';
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive'
+    });
+    res.flushHeaders();
+    let closed = false;
+    res.on('close', () => {
+      closed = true;
+    });
+
+    try {
+      for await (const event of deps.worker.evolveRepo({
+        repoId: repo.id,
+        question: intent,
+        ...(target ? { target } : {})
+      })) {
+        if (closed) return;
+        res.write(
+          `event: ${event.type}\ndata: ${JSON.stringify(maskEventPayload(event.payload))}\n\n`
+        );
+      }
+      res.end();
+    } catch (error) {
+      if (!closed) {
+        const message = error instanceof Error ? error.message : String(error);
+        deps.repoqa.recordEvent({
+          repoId: repo.id,
+          eventType: 'query.failure',
+          failureClass: message
+        });
+        res.write(
+          `event: repoqa.evolve.error\ndata: ${JSON.stringify({ error: message })}\n\n`
+        );
+        res.end();
+      }
+    }
+  };
+  app.post('/api/repos/:id/evolve', handleEvolve);
+
   app.post('/api/repos/:id/anchor-click', (req, res) => {
     const repo = deps.repoqa.getRepo(req.params.id);
     if (!repo) {

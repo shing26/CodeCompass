@@ -17,6 +17,7 @@ import { Inspector } from './components/Inspector';
 import { DashboardView } from './components/DashboardView';
 import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
+import { EvolutionView } from './components/EvolutionView';
 import { IncidentView } from './components/IncidentView';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
@@ -481,6 +482,10 @@ export function App({ client: clientProp }: AppProps) {
           onPlayTour={handlePlayTour}
           open={sidebarOpen}
           onNavigate={inspector.openFile}
+          onOpenEvolution={() => {
+            setActiveTour(null);
+            setView('evolve');
+          }}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           {repoId && view === 'tour' && (
@@ -549,6 +554,12 @@ export function App({ client: clientProp }: AppProps) {
             />
           ) : view === 'delta' ? (
             <ArchitectureDeltaView
+              repo={currentRepo}
+              client={client}
+              onNavigate={inspector.openFile}
+            />
+          ) : view === 'evolve' ? (
+            <EvolutionView
               repo={currentRepo}
               client={client}
               onNavigate={inspector.openFile}

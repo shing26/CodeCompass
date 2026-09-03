@@ -1,7 +1,9 @@
 // v1 Core Contracts (working draft)
 // These types are shared between Electron UI and Control Plane.
 
-import type { IndexingPhase } from './src/repoqa';
+import type {
+  IndexingPhase
+} from './src/repoqa';
 
 export type TaskType = 'coding' | 'shell' | 'browser';
 export type TaskStatus =
@@ -167,6 +169,23 @@ export interface RepoUpdated {
   ts: number;
 }
 
+// Issue 24 / Ticket 04 — single source of truth lives in src/repoqa.ts;
+// the ServerEvent union below references these, so import then re-export.
+import type {
+  EvolutionStageId,
+  EvolutionIntentEcho,
+  RepoQaEvolveStage,
+  RepoQaEvolveDone,
+  RepoQaEvolveError
+} from './src/repoqa';
+export type {
+  EvolutionStageId,
+  EvolutionIntentEcho,
+  RepoQaEvolveStage,
+  RepoQaEvolveDone,
+  RepoQaEvolveError
+};
+
 // WebSocket event envelope
 export type ServerEvent =
   | { type: 'task.created'; payload: Task }
@@ -185,4 +204,7 @@ export type ServerEvent =
   | { type: 'repoqa.query.anchors'; payload: RepoQaQueryAnchors }
   | { type: 'repoqa.query.done'; payload: RepoQaQueryDone }
   | { type: 'repoqa.query.error'; payload: RepoQaQueryError }
+  | { type: 'repoqa.evolve.stage'; payload: RepoQaEvolveStage }
+  | { type: 'repoqa.evolve.done'; payload: RepoQaEvolveDone }
+  | { type: 'repoqa.evolve.error'; payload: RepoQaEvolveError }
   | { type: 'repo_updated'; payload: RepoUpdated };
