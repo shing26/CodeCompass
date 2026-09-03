@@ -248,6 +248,19 @@ describe('v0.5.1 — polyglot dependency and config key scanners', () => {
     ]);
   });
 
+  it('v0.18 config scanners keep UPPER_SNAKE only — lowercase state stays out of the topology', () => {
+    // Python: lowercase module state (content/temporary_path style) is noise.
+    expect(
+      scanPythonSourceConfig(
+        'content = req.json\ntemporary_path = tempfile.mkdtemp()\nDEBUG = True\n_DB_URL = "x"\n'
+      )
+    ).toEqual([{ name: 'DEBUG', lineStart: 3 }]);
+    // TypeScript: camelCase/lowercase consts are not configuration keys.
+    expect(
+      scanTypeScriptConfig('export const app = express()\nconst defaultPort = 8080\nexport const API_BASE = "/api"\n')
+    ).toEqual([{ name: 'API_BASE', lineStart: 3 }]);
+  });
+
   it('extracts dependency symbols from package.json and pyproject.toml', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-poly-config-'));
     try {

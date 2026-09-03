@@ -237,7 +237,12 @@ export function scanEnv(source: string): ScannedKey[] {
   return keys;
 }
 
-/** v0.5.1 (D4) — `settings.py` / `config.py` top-level assignment keys. */
+/**
+ * v0.5.1 (D4) — `settings.py` / `config.py` top-level assignment keys.
+ * v0.18.0 — UPPER_SNAKE only: Python configuration constants follow the
+ * uppercase convention; lowercase top-level assignments (content,
+ * temporary_path, …) are plain module state and were pure topology noise.
+ */
 export function scanPythonSourceConfig(source: string): ScannedKey[] {
   const keys: ScannedKey[] = [];
   source.split(/\r?\n/).forEach((line, index) => {
@@ -251,20 +256,23 @@ export function scanPythonSourceConfig(source: string): ScannedKey[] {
     ) {
       return;
     }
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(trimmed);
+    const match = /^([A-Z][A-Z0-9_]*)\s*=/.exec(trimmed);
     if (match) keys.push({ name: match[1], lineStart: index + 1 });
   });
   return keys;
 }
 
-/** v0.5.1 (D4) — `config.ts` top-level exported assignment keys. */
+/**
+ * v0.5.1 (D4) — `config.ts` top-level exported assignment keys.
+ * v0.18.0 — UPPER_SNAKE only (same rationale as the Python scanner).
+ */
 export function scanTypeScriptConfig(source: string): ScannedKey[] {
   const keys: ScannedKey[] = [];
   source.split(/\r?\n/).forEach((line, index) => {
     const trimmed = line.trim();
     const match =
-      /^export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(trimmed) ??
-      /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(trimmed);
+      /^export\s+(?:const|let|var)\s+([A-Z][A-Z0-9_]*)\s*=/.exec(trimmed) ??
+      /^(?:const|let|var)\s+([A-Z][A-Z0-9_]*)\s*=/.exec(trimmed);
     if (match) keys.push({ name: match[1], lineStart: index + 1 });
   });
   return keys;

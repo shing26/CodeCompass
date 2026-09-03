@@ -462,7 +462,17 @@ export function mcpGetConfigEvidence(
 export function mcpGetTours(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const { symbols } = deps.worker.getSymbolGraph(repo.id);
-  return { tours: buildTours({ repoId: repo.id, repoName: repo.name, symbols }) } as unknown as Record<string, unknown>;
+  // Honest degradation (v0.18): tours are Java/Spring-shaped; empty-step shells
+  // on non-Java repos would mislead agents. Mirror the HTTP layer's filtering
+  // (http.ts GET /tours) and explain the boundary when nothing survives.
+  const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols }).filter(
+    (tour) => tour.steps.length > 0
+  );
+  const note =
+    tours.length === 0
+      ? 'No routes detected in this repo — tours currently cover Java/Spring REST projects (auth-chain / main-flow / error-handling).'
+      : undefined;
+  return { tours, ...(note ? { note } : {}) } as unknown as Record<string, unknown>;
 }
 
 export function mcpReverseDeps(

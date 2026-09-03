@@ -15,6 +15,7 @@ const mockRadarResult: DomainRadarResult = {
       relevanceScore: 85,
       filePath: 'src/main/java/PostService.java',
       line: 42,
+      matchedBy: 'identifier',
       inDegree: 3,
       outDegree: 2
     }

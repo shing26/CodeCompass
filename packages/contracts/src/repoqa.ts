@@ -374,6 +374,13 @@ export interface DomainRadarAnchor {
   relevanceScore: number;
   filePath: string;
   line: number;
+  /**
+   * v0.18 — provenance of the anchor match: 'identifier' (identifier fuzzy
+   * hit), 'doc-chunk' (README/doc-chunk evidence bridged the intent), or
+   * 'graph-rank' (no direct signal; the graph rank lifted it into the top-3).
+   * Deterministic, zero-LLM — this tells the caller how much to trust it.
+   */
+  matchedBy: 'identifier' | 'doc-chunk' | 'graph-rank';
   /** v0.11 — incoming call count from the static symbol graph. */
   inDegree: number;
   /** v0.11 — outgoing call count from the static symbol graph. */

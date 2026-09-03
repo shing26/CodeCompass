@@ -694,10 +694,11 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         repoId: repo.id
       });
       const body = JSON.parse(text);
+      // v0.18 honest degradation: empty-step shells are filtered out — the
+      // Spring fixture has no @RestControllerAdvice, so error-handling is gone.
       expect(body.tours.map((tour: { id: string }) => tour.id)).toEqual([
         'auth-chain',
-        'main-flow',
-        'error-handling'
+        'main-flow'
       ]);
       const main = body.tours.find((tour: { id: string }) => tour.id === 'main-flow');
       expect(main.steps.length).toBeGreaterThan(0);
@@ -711,6 +712,59 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       await server.close();
     }
   });
+
+  it('tools/call codecompass_get_tours degrades honestly on a repo without routes', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      // Pure-Python fixture: no @RestController symbols, no routes at all.
+      const pyRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tours-py-'));
+      registerCleanup(async () => fs.rm(pyRepoDir, { recursive: true, force: true }));
+      await fs.writeFile(
+        path.join(pyRepoDir, 'app.py'),
+        [
+          'from bottle import Bottle, run',
+          '',
+          'app = Bottle()',
+          '',
+          '@app.route("/pets")',
+          'def list_pets():',
+          '    return {"pets": []}',
+          '',
+          'run(app, host="localhost", port=8080)',
+          ''
+        ].join('\n')
+      );
+
+      const { text } = await rawCallTool(clientTransport, 'codecompass_index_repo', {
+        localPath: pyRepoDir
+      });
+      const indexed = JSON.parse(text) as { repoId: string; status: string };
+      expect(indexed.status).toBe('indexing');
+
+      // Wait until ready, then ask for tours.
+      let repoReady = false;
+      for (let attempt = 0; attempt < 100 && !repoReady; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const poll = await rawCallTool(clientTransport, 'codecompass_list_repos', {});
+        const pollBody = JSON.parse(poll.text) as { repos: Array<{ id: string; status: string }> };
+        repoReady = pollBody.repos.some(
+          (entry) => entry.id === indexed.repoId && entry.status === 'ready'
+        );
+      }
+      expect(repoReady).toBe(true);
+
+      const { text: toursText } = await rawCallTool(clientTransport, 'codecompass_get_tours', {
+        repoId: indexed.repoId
+      });
+      const toursBody = JSON.parse(toursText) as { tours: unknown[]; note?: string };
+      expect(toursBody.tours).toEqual([]);
+      expect(toursBody.note).toContain('tours currently cover');
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
 
   it('tools/call codecompass_get_subgraph_context extracts masked Graph RAG context', async () => {
     const { deps, repo } = await setupIndexedRepo();

@@ -167,6 +167,11 @@ describe('runDomainRadar', () => {
     expect(result.matchedAnchors[0].symbol).toContain('doLike');
     expect(result.matchedAnchors[0].type).toBe('SERVICE');
     expect(result.matchedAnchors[0].relevanceScore).toBeGreaterThan(40);
+    // v0.18 — provenance: a direct identifier hit is labeled as such.
+    expect(result.matchedAnchors[0].matchedBy).toBe('identifier');
+    for (const anchor of result.matchedAnchors) {
+      expect(['identifier', 'doc-chunk', 'graph-rank']).toContain(anchor.matchedBy);
+    }
   });
 
   it('matches a Chinese intent through doc-chunk evidence', () => {
@@ -180,6 +185,9 @@ describe('runDomainRadar', () => {
     expect(result.matchedAnchors.length).toBeGreaterThan(0);
     expect(result.matchedAnchors[0].symbol).toContain('doLike');
     expect(result.matchedAnchors[0].relevanceScore).toBeGreaterThanOrEqual(70);
+    // v0.18 — provenance: no identifier overlap with the Chinese intent, the
+    // doc-chunk bridge is what lifted this anchor.
+    expect(result.matchedAnchors[0].matchedBy).toBe('doc-chunk');
   });
 
   it('returns empty anchors for an unmatched intent without evidence', () => {

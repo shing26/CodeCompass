@@ -232,26 +232,33 @@ export function runDomainRadar(input: DomainRadarInput): DomainRadarResult {
   // Anchor matching for a natural-language intent (optional).
   const matchedAnchors: DomainRadarAnchor[] = [];
   if (query) {
-    const scored: Array<{ symbol: RepoSymbol; score: number }> = [];
+    const scored: Array<{ symbol: RepoSymbol; score: number; matchedBy: DomainRadarAnchor['matchedBy'] }> = [];
     for (const id of nodeIds) {
       const symbol = graph.symbolsById.get(id)!;
       if (symbol.kind !== 'method' && symbol.kind !== 'route' && symbol.kind !== 'class') {
         continue;
       }
-      let base = fuzzyMatchScore(query, symbol.name);
-      if (symbol.parentType) {
-        base = Math.max(base, Math.round(fuzzyMatchScore(query, symbol.parentType) * 0.9));
-      }
+      const fuzzyBase = Math.max(
+        fuzzyMatchScore(query, symbol.name),
+        symbol.parentType ? Math.round(fuzzyMatchScore(query, symbol.parentType) * 0.9) : 0
+      );
       const normalizedFile = symbol.filePath.replace(/\\/g, '/');
-      if (chunkHitFiles.has(normalizedFile)) {
+      const chunkHit = chunkHitFiles.has(normalizedFile);
+      let base = fuzzyBase;
+      if (chunkHit) {
         // Doc/readme evidence carries the intent phrase — deterministic bridge
         // for Chinese intents that identifier matching cannot see.
         base = Math.max(base, 70);
       }
       if (base <= 0) continue;
+      // v0.18 — provenance of the match so agents can weigh the evidence:
+      // identifier fuzzy hit, doc-chunk bridge (weak/no identifier signal),
+      // or pure graph-rank (base only exists because chunk evidence lifted it).
+      const matchedBy: DomainRadarAnchor['matchedBy'] =
+        chunkHit && fuzzyBase < 70 ? 'doc-chunk' : fuzzyBase > 0 ? 'identifier' : 'doc-chunk';
       const rankValue = pagerank.get(id) ?? 0;
       const rankBoost = rankValue >= 0.05 ? 10 : rankValue >= 0.02 ? 5 : 0;
-      scored.push({ symbol, score: Math.min(100, base + rankBoost) });
+      scored.push({ symbol, score: Math.min(100, base + rankBoost), matchedBy });
     }
     scored.sort(
       (a, b) =>
@@ -269,6 +276,7 @@ export function runDomainRadar(input: DomainRadarInput): DomainRadarResult {
         relevanceScore: entry.score,
         filePath: entry.symbol.filePath,
         line: entry.symbol.lineStart ?? 1,
+        matchedBy: entry.matchedBy,
         // v0.11 — expose graph degree on anchors so the Cmd+K palette can show
         // inbound/outbound call counts without a second graph traversal.
         inDegree: graph.inDegree.get(id) ?? 0,
