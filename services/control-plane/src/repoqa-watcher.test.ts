@@ -62,7 +62,7 @@ describeWatcher('Issue 30 FS watcher incremental refresh', () => {
     const worker = new RepoQAWorker(repoqa, eventBus);
     const events: Array<{ type: string; payload: any }> = [];
     eventBus.on((event) => events.push(event as any));
-    const repo = (await worker.indexRepo({ localPath: repoDir, name: 'watch' })).repo;
+    const repo = (await worker.indexRepo({ localPath: repoDir, name: 'watch' })).repo!;
     const watcher = new RepoWatcher(repo, worker, eventBus, { debounceMs: 30 });
     watcher.start();
     try {
@@ -105,7 +105,7 @@ describeWatcher('Issue 30 FS watcher incremental refresh', () => {
     const db = openDb(':memory:');
     const repoqa = new RepoQARepos(db);
     const worker = new RepoQAWorker(repoqa, new EventBus());
-    const repo = (await worker.indexRepo({ localPath: repoDir, name: 'watch' })).repo;
+    const repo = (await worker.indexRepo({ localPath: repoDir, name: 'watch' })).repo!;
     const watcher = new RepoWatcher(repo, worker, new EventBus(), { debounceMs: 30 });
     watcher.start();
     const addedPath = path.join(repoDir, 'src', 'main', 'java', 'com', 'demo', 'Added.java');
@@ -148,7 +148,7 @@ describeWatcher('Issue 30 FS watcher incremental refresh', () => {
     const worker = new RepoQAWorker(repoqa, eventBus);
     const events: Array<{ type: string; payload?: { files?: string[] } }> = [];
     eventBus.on((event) => events.push(event as any));
-    const repo = (await worker.indexRepo({ localPath: repoDir, name: 'watch' })).repo;
+    const repo = (await worker.indexRepo({ localPath: repoDir, name: 'watch' })).repo!;
     const watcher = new RepoWatcher(repo, worker, eventBus, { debounceMs: 30 });
     watcher.start();
     try {
@@ -193,6 +193,7 @@ describeWatcher('Issue 30 FS watcher incremental refresh', () => {
     let ws: WebSocket | null = null;
     try {
       const imported = await running.worker.indexRepo({ localPath: repoDir, name: 'watch' });
+      if (!imported.repo) throw new Error('imported repo row lost');
       expect(running.watchers.has(imported.repo.id)).toBe(true);
       ws = new WebSocket(`ws://127.0.0.1:${running.port}/ws`);
       await new Promise<void>((resolve, reject) => {
@@ -219,16 +220,18 @@ describeWatcher('Issue 30 FS watcher incremental refresh', () => {
           ''
         ].join('\n')
       );
+      const importedRepo = imported.repo;
+      if (!importedRepo) throw new Error('imported repo row lost');
       await until(
         () =>
           events.some(
             (event) =>
               event.type === 'repo_updated' &&
-              event.payload?.repoId === imported.repo.id &&
+              event.payload?.repoId === importedRepo.id &&
               event.payload?.files?.includes('src/main/java/com/demo/Controller.java')
           )
       );
-      expect(workerSymbolName(running.worker, imported.repo.id, 'hot')).toBe('hot');
+      expect(workerSymbolName(running.worker, importedRepo.id, 'hot')).toBe('hot');
     } finally {
       ws?.close();
       await running.close();

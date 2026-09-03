@@ -500,6 +500,7 @@ describe('RepoQAWorker — multi-module indexing (Issue 15)', () => {
       const repoqa = new RepoQARepos(db);
       const worker = new RepoQAWorker(repoqa, new EventBus());
       const result = await worker.indexRepo({ localPath: root });
+      if (!result.repo) throw new Error('repo row lost');
       expect(result.repo.status).toBe('ready');
 
       const symbols = repoqa.listSymbols(result.repo.id);

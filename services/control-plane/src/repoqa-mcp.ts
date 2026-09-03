@@ -301,9 +301,13 @@ export const MCP_TOOLS: McpToolMeta[] = [
     name: 'codecompass_index_repo',
     description:
       'Clone and index a git repository (by URL) or add a local directory, then make ' +
-      'it available to all other codecompass tools. Returns the repo id, status and ' +
-      'file/symbol counts; when status is "ready" the repoId can be used by the other ' +
-      'tools immediately. Large repositories (>10k files) can take ~30s.',
+      'it available to all other codecompass tools. ASYNCHRONOUS (ADR-0016): returns ' +
+      '{repoId, status: "indexing"} immediately once the repo row exists — the AST ' +
+      'index runs in the background. Poll codecompass_list_repos until this repoId ' +
+      'reports status "ready" or "error" (error carries the root-cause summary); ' +
+      'then pass the repoId to the other tools. Synchronous failures (invalid URL, ' +
+      'unreachable remote, missing local path) throw immediately and create no repo ' +
+      'record. The clone phase (≤60s) runs before the first return.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -326,7 +330,23 @@ export const MCP_TOOLS: McpToolMeta[] = [
       },
       required: []
     }
-  }
+  },
+  {
+    name: 'codecompass_remove_repo',
+    description:
+      'Remove a repo from the CodeCompass index: deletes its catalog row and all ' +
+      'indexed data (symbols, chunks, files, events). Source files and any cloned ' +
+      'directory on disk are intentionally kept — re-index the same path later with ' +
+      'codecompass_index_repo. Refuses while the repo is still indexing; poll ' +
+      'codecompass_list_repos until ready/error first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name (from codecompass_list_repos)' }
+      },
+      required: ['repoId']
+    }
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -351,13 +371,27 @@ function requireReady(repo: Repo): Repo {
   return repo;
 }
 
-export function mcpListRepos(deps: McpDeps): { repos: Array<{ id: string; name: string; status: Repo['status']; fileCount: number }> } {
+export function mcpListRepos(deps: McpDeps): {
+  repos: Array<{
+    id: string;
+    name: string;
+    status: Repo['status'];
+    fileCount: number;
+    symbolCount: number;
+    localPath: string;
+    /** Root-cause summary when status === 'error' (v0.18 observability). */
+    error?: string;
+  }>;
+} {
   return {
     repos: deps.repoqa.listRepos().map((repo) => ({
       id: repo.id,
       name: repo.name,
       status: repo.status,
-      fileCount: repo.fileCount
+      fileCount: repo.fileCount,
+      symbolCount: repo.symbolCount,
+      localPath: repo.localPath,
+      ...(repo.error ? { error: repo.error } : {})
     }))
   };
 }
@@ -586,7 +620,18 @@ export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record
   }) as unknown as Record<string, unknown>;
 }
 
-/** v0.17.0 — index a new repo from a local path or git URL. */
+/**
+ * v0.18.0 — index a new repo from a local path or git URL, asynchronously.
+ *
+ * ADR-0016: MCP long operations return immediately. The synchronous portion of
+ * this handler is bounded and fail-fast: URL/branch validation, the (≤60s)
+ * shallow clone, and — for localPath — an existence/readability pre-check.
+ * Any failure there throws before a repo row is ever created, so a failed
+ * start never leaves zombie records. Once the row exists it is marked
+ * `indexing` and the AST index itself runs fire-and-forget; agents observe
+ * progress via `codecompass_list_repos` (status: indexing → ready | error,
+ * with the error summary on the row).
+ */
 export async function mcpIndexRepo(
   deps: McpDeps,
   args: McpToolHandlerArgs
@@ -619,34 +664,68 @@ export async function mcpIndexRepo(
     effectiveName = name ?? baseName;
     targetPath = path.join(deps.dataDir, 'clones', `${baseName}-${Date.now()}`);
     await cloneGitRepo({ url, branch: validatedBranch, targetDir: targetPath });
-    // COALESCE keeps repo_url across the worker's own re-upsert inside indexRepo.
-    deps.repoqa.upsertByLocalPath({
-      name: effectiveName,
-      localPath: targetPath,
-      branch: validatedBranch,
-      repoUrl: url
-    });
   } else {
+    // Pre-check gate (v0.18, mirrors clone-failure semantics): an invalid or
+    // unreadable localPath must fail synchronously WITHOUT creating a repo
+    // row — otherwise a zombie `indexing` record would linger in list_repos
+    // with the real error only visible to the background task.
+    const stat = await fs.stat(localPath).catch(() => null);
+    if (!stat?.isDirectory()) {
+      throw new Error(`local path is not a directory: ${localPath}`);
+    }
+    await fs.access(localPath, fs.constants.R_OK).catch(() => {
+      throw new Error(`local path is not readable: ${localPath}`);
+    });
     targetPath = localPath;
   }
+  // upsertByLocalPath binds name directly into a NOT NULL column; mirror the
+  // worker's basename fallback here.
+  if (!effectiveName) {
+    effectiveName = targetPath.split(/[\\/]/).filter(Boolean).pop() ?? 'local';
+  }
 
-  const result = await deps.worker.indexRepo({
+  // COALESCE keeps repo_url across the worker's own re-upsert inside indexRepo.
+  const upsert = deps.repoqa.upsertByLocalPath({
+    name: effectiveName,
     localPath: targetPath,
     branch: validatedBranch,
-    name: effectiveName
+    ...(url ? { repoUrl: url } : {})
   });
+  const repoId = upsert.repo.id;
+  deps.repoqa.updateRepoStatus(repoId, 'indexing');
 
-  const repo = result.repo;
+  // Fire-and-forget (ADR-0016): indexRepo never rejects — failures are
+  // recorded as status='error' on the repo row for list_repos polling.
+  void deps.worker
+    .indexRepo({ localPath: targetPath, branch: validatedBranch, name: effectiveName })
+    .catch(() => {});
+
   return {
-    repoId: repo.id,
-    name: repo.name,
-    status: repo.status,
-    fileCount: repo.fileCount,
-    symbolCount: repo.symbolCount,
-    localPath: repo.localPath,
-    ...(repo.commit ? { commit: repo.commit } : {}),
-    ...(repo.error ? { error: repo.error } : {})
+    repoId,
+    name: upsert.repo.name,
+    status: 'indexing',
+    localPath: targetPath,
+    pollHint: 'Poll codecompass_list_repos until this repoId reports status ready or error'
   };
+}
+
+/**
+ * v0.18.0 — remove a repo from the index. Mirrors the DELETE /api/repos/:id
+ * semantics: refuses while indexing (the worker would otherwise resurrect a
+ * ghost index when it finishes), then invalidates the symbol cache and
+ * cascade-deletes the row plus its symbols/chunks/files/events. Disk contents
+ * (source trees and clones) are intentionally untouched (ADR-0001).
+ */
+export function mcpRemoveRepo(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = resolveMcpRepo(deps, args.repoId);
+  if (repo.status === 'indexing') {
+    throw new Error(
+      `Repo "${repo.name}" is still indexing; poll codecompass_list_repos until ready or error first`
+    );
+  }
+  deps.worker.invalidate(repo.id);
+  deps.repoqa.deleteRepo(repo.id);
+  return { removed: true, repoId: repo.id, name: repo.name };
 }
 
 /* ------------------------------------------------------------------ */
@@ -691,7 +770,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_module_evolution: (args) => mcpModuleEvolution(deps, args),
     codecompass_diagnose: (args) => mcpDiagnose(deps, args),
     codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args),
-    codecompass_index_repo: (args) => mcpIndexRepo(deps, args)
+    codecompass_index_repo: (args) => mcpIndexRepo(deps, args),
+    codecompass_remove_repo: (args) => mcpRemoveRepo(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a
@@ -760,6 +840,9 @@ export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<v
       const target = path.resolve(options.targetPath);
       log(`CodeCompass MCP: indexing ${target}`);
       const result = await worker.indexRepo({ localPath: target });
+      // Synchronous one-shot path: the ghost guard cannot trip here, but the
+      // type is Repo | null since v0.18 — fail loudly instead of crashing.
+      if (!result.repo) throw new Error(`indexing produced no repo row: ${target}`);
       const repo = result.repo;
       log(
         `CodeCompass MCP: indexed "${repo.name}" (${repo.id}) status=${repo.status} files=${repo.fileCount} symbols=${repo.symbolCount}`

@@ -172,6 +172,7 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
     const worker = new RepoQAWorker(repoqa, eventBus);
     try {
       const result = await worker.indexRepo({ localPath: root, name: 'many' });
+      if (!result.repo) throw new Error('repo row lost');
       expect(result.repo.status).toBe('ready');
       expect(result.repo.fileCount).toBe(60);
       expect(details.some((detail) => detail.includes('Parsing AST... 50 files'))).toBe(true);
@@ -218,6 +219,7 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
     const worker = new RepoQAWorker(repoqa, eventBus);
     try {
       const result = await worker.indexRepo({ localPath: root, name: 'stages' });
+      if (!result.repo) throw new Error('repo row lost');
       expect(result.repo.status).toBe('ready');
       expect(phases).toContain('DISCOVERY');
       expect(phases).toContain('AST_EXTRACTION');
@@ -251,6 +253,7 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
     const worker = new RepoQAWorker(repoqa, new EventBus());
     try {
       const result = await worker.indexRepo({ localPath: root, name: 'conf' });
+      if (!result.repo) throw new Error('repo row lost');
       expect(result.repo.status).toBe('ready');
 
       const exact = worker.resolveStartSymbolForQuery(result.repo.id, 'hello');

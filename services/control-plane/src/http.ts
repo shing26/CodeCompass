@@ -679,6 +679,12 @@ export function createHttpApp(deps: HttpDeps): express.Express {
           ? body.name.trim()
           : undefined;
       const result = await deps.worker.indexRepo({ localPath, branch, name });
+      // repo is null only on the ghost path (row deleted mid-index) — this
+      // endpoint awaits the full index, so treat it as an unlikely 409.
+      if (!result.repo) {
+        res.status(409).json({ error: 'repo was removed while indexing' });
+        return;
+      }
       res.status(result.created ? 201 : 200).json({ repo: result.repo });
     } catch (error) {
       res.status(400).json({

@@ -474,7 +474,7 @@ export class RepoQAWorker {
     branch?: string;
     /** Bug-10: user-supplied display name; empty falls back to the basename. */
     name?: string;
-  }): Promise<{ repo: Repo; created: boolean }> {
+  }): Promise<{ repo: Repo | null; created: boolean }> {
     const localPath = path.resolve(input.localPath);
     const rootStat = await fs.stat(localPath).catch(() => null);
     if (!rootStat?.isDirectory()) {
@@ -570,6 +570,12 @@ export class RepoQAWorker {
       } as any);
 
       this.repoqa.saveFiles(repoId, localPath, stats.files);
+      // Ghost-index guard (v0.18): the repo row can be deleted mid-index
+      // (remove_repo / DELETE endpoint). Before any data-table write, re-check
+      // existence; a deleted repo must leave no orphan files/symbols/chunks.
+      if (!this.repoqa.getRepo(repoId)) {
+        return { repo: null, created: upsert.created };
+      }
       const largeFiles = new Set(stats.largeFiles);
       const { symbols, skipped } = await this.parseRepo(
         repoId,
@@ -647,6 +653,12 @@ export class RepoQAWorker {
       } as any);
       const chunks = await this.extractChunks(repoId, localPath, stats.files);
       const allSymbols = [...symbols, ...configSymbols, ...mapperSymbols];
+      // Ghost-index guard (v0.18): final existence check right before the
+      // closing writes — upsertSymbols/upsertChunks + the ready flip are all
+      // skipped when the repo row was deleted while this index was running.
+      if (!this.repoqa.getRepo(repoId)) {
+        return { repo: null, created: upsert.created };
+      }
       this.repoqa.upsertSymbols(allSymbols);
       this.repoqa.upsertChunks(chunks);
       this.repoqa.updateRepoStatus(repoId, 'ready', stats.fileCount, allSymbols.length);
@@ -685,7 +697,7 @@ export class RepoQAWorker {
         }
       } as any);
 
-      return { repo: this.repoqa.getRepo(repoId)!, created: upsert.created };
+      return { repo: this.repoqa.getRepo(repoId) ?? null, created: upsert.created };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
@@ -693,7 +705,11 @@ export class RepoQAWorker {
         type: 'repoqa.index.error',
         payload: { error: message }
       } as any);
-      const baseRepo = this.repoqa.getRepo(repoId)!;
+      const baseRepo = this.repoqa.getRepo(repoId);
+      if (!baseRepo) {
+        // Deleted mid-index: swallow the error path too — no row to record on.
+        return { repo: null, created: upsert.created };
+      }
       const suggestedSubdirs =
         /exceeds \d+ (files|lines)/.test(message)
           ? await detectSuggestedSubdirs(localPath)

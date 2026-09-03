@@ -590,6 +590,7 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     const repoqa = new RepoQARepos(db);
     const worker = new RepoQAWorker(repoqa, new EventBus());
     const result = await worker.indexRepo({ localPath: root });
+    if (!result.repo) throw new Error(`fixture ${fixture.name} lost its repo row during indexing`);
     if (result.repo.status === 'error') parseFailures += 1;
     const symbols = repoqa.listSymbols(result.repo.id);
     symbolsByFixture.set(fixture.name, symbols);

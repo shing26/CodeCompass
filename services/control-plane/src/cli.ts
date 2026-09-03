@@ -558,6 +558,9 @@ async function withAnalysisStack<T>(
     if (!repo) {
       options.log(`CodeCompass: indexing ${normalizedTarget}`);
       const result = await worker.indexRepo({ localPath: normalizedTarget });
+      // repo is null only when the row was deleted mid-index (ghost guard) —
+      // impossible on this synchronous one-shot path, but guard the type.
+      if (!result.repo) throw new Error(`indexing produced no repo row: ${normalizedTarget}`);
       repo = result.repo;
     }
     return await fn({
