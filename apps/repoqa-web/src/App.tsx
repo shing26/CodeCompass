@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRepoCatalog } from './hooks/useRepoCatalog';
 import { useChat } from './hooks/useChat';
+import { useEvolutionSession } from './hooks/useEvolutionSession';
 import { useSymbols } from './hooks/useSymbols';
 import { useInspector } from './hooks/useInspector';
 import { useReverseDeps } from './hooks/useReverseDeps';
@@ -96,6 +97,9 @@ export function App({ client: clientProp }: AppProps) {
     retry,
     totalUsage
   } = useChat(client, repoId);
+  // Ticket 24.5 — the evolution artifact stream is App-owned so switching
+  // workbench tabs (or closing the Inspector) never drops the stream.
+  const evolutionSession = useEvolutionSession(client, currentRepo);
   const [runtime, setRuntime] = useState<RuntimeInfo>({ llm: { mode: 'none' } });
   const [llmConsented, setLlmConsented] = useState(false);
   const [consentPending, setConsentPending] = useState<{
@@ -561,7 +565,7 @@ export function App({ client: clientProp }: AppProps) {
           ) : view === 'evolve' ? (
             <EvolutionView
               repo={currentRepo}
-              client={client}
+              session={evolutionSession}
               onNavigate={inspector.openFile}
             />
           ) : (

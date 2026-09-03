@@ -20,6 +20,10 @@ export interface Repo {
   error?: string;
   /** v0.5.1 (D1): importable root-level dirs offered after an over-limit reject. */
   suggestedSubdirs?: string[];
+  /** Issue 23 / ADR-0010 - physical commit of the indexed tree: `hash`,
+   *  `hash+dirty` when uncommitted changes exist, `unversioned` otherwise.
+   *  Ticket 24.5: stream-isolation key component (repoId, commit). */
+  commit?: string;
 }
 
 export type SymbolKind =
