@@ -555,10 +555,18 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
 
       // The row survives the refused removal.
       expect(deps.repoqa.getRepo(body.repoId)).toBeDefined();
+
+      // Drain the fire-and-forget index started above before the harness
+      // closes the DB — an index still running past cleanup would hit
+      // "database connection is not open" as an unhandled error (CI flake).
+      await untilAsync(async () => {
+        const row = deps.repoqa.getRepo(body.repoId);
+        return row?.status === 'ready' || row?.status === 'error';
+      });
     } finally {
       await server.close();
     }
-  });
+  }, 30_000);
 
   it('tools/call codecompass_remove_repo rejects an unknown repoId', async () => {
     const { deps } = await setupIndexedRepo();
@@ -951,6 +959,19 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<voi
   for (;;) {
     if (predicate()) return;
     if (Date.now() > deadline) throw new Error('waitFor timed out');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/** Poll an async predicate until it returns true (used to drain background tasks). */
+async function untilAsync(
+  predicate: () => Promise<boolean>,
+  timeoutMs = 20_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await predicate()) return;
+    if (Date.now() > deadline) throw new Error('untilAsync timed out');
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
