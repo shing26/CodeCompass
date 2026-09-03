@@ -274,7 +274,7 @@ function strictConflicts(profile: ConventionProfile, intent: string): Convention
     const primary = axis.primary;
     if (!primary) continue;
     const conflict = strictConflictFor(
-      axis.axis,
+      axis.axis as 'return_wrapping' | 'interface_impl_style' | 'di_style',
       primary,
       intent,
       axis.verdict,

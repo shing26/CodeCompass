@@ -97,6 +97,7 @@ export interface McpToolHandlerArgs {
   localPath?: unknown;
   branch?: unknown;
   name?: unknown;
+  nearPackages?: unknown;
 }
 
 /* ------------------------------------------------------------------ */
