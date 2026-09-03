@@ -602,23 +602,38 @@ export async function mcpIndexRepo(
     throw new Error('Either url (git repository URL) or localPath (local directory) is required');
   }
 
-  let result: { repo: Repo; created: boolean };
+  // Fast-fail URL/branch validation before any clone side effect, matching the
+  // http.ts entry-point convention (cloneGitRepo re-validates as a guard).
+  if (url) {
+    const urlCheck = validateGitUrl(url);
+    if (!urlCheck.ok) throw new Error(urlCheck.error);
+  }
+  const validatedBranch = validateGitBranch(branch);
+
+  let targetPath: string;
+  let effectiveName: string | undefined = name;
 
   if (url) {
-    const displayName = name ?? deriveCloneName(url);
-    const targetDir = path.join(deps.dataDir, 'clones', `${deriveCloneName(url)}-${Date.now()}`);
-    await cloneGitRepo({ url, branch, targetDir });
+    const baseName = deriveCloneName(url);
+    effectiveName = name ?? baseName;
+    targetPath = path.join(deps.dataDir, 'clones', `${baseName}-${Date.now()}`);
+    await cloneGitRepo({ url, branch: validatedBranch, targetDir: targetPath });
     // COALESCE keeps repo_url across the worker's own re-upsert inside indexRepo.
     deps.repoqa.upsertByLocalPath({
-      name: displayName,
-      localPath: targetDir,
-      branch,
+      name: effectiveName,
+      localPath: targetPath,
+      branch: validatedBranch,
       repoUrl: url
     });
-    result = await deps.worker.indexRepo({ localPath: targetDir, branch, name: displayName });
   } else {
-    result = await deps.worker.indexRepo({ localPath, branch, name });
+    targetPath = localPath;
   }
+
+  const result = await deps.worker.indexRepo({
+    localPath: targetPath,
+    branch: validatedBranch,
+    name: effectiveName
+  });
 
   const repo = result.repo;
   return {
