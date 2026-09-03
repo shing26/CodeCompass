@@ -21,7 +21,7 @@ import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
 import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadges } from './export-artifact';
 
-export const VERSION = '0.16.0';
+export const VERSION = '0.17.0';
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */

@@ -147,7 +147,7 @@ async function setupIndexedRepo(repoRoot?: string): Promise<TestHarness> {
     db.close();
     await fs.rm(dir, { recursive: true, force: true });
   });
-  return { dir, repoqa, worker, repo: result.repo, deps: { repoqa, worker } };
+  return { dir, repoqa, worker, repo: result.repo, deps: { repoqa, worker, dataDir } };
 }
 
 async function startServerPair(deps: McpDeps): Promise<{
@@ -236,6 +236,7 @@ describe('Issue 20 MCP tool metadata', () => {
       'codecompass_get_pr_impact',
       'codecompass_get_subgraph_context',
       'codecompass_get_tours',
+      'codecompass_index_repo',
       'codecompass_list_repos',
       'codecompass_module_evolution',
       'codecompass_refactor_plan',
@@ -247,6 +248,7 @@ describe('Issue 20 MCP tool metadata', () => {
       expect(tool.inputSchema.type).toBe('object');
       if (
         tool.name === 'codecompass_get_pr_impact' ||
+        tool.name === 'codecompass_index_repo' ||
         tool.name === 'codecompass_list_repos'
       ) {
         continue;
@@ -272,10 +274,10 @@ describe('Issue 20 MCP tool metadata', () => {
   });
 
   it('resolves repo ids and falls back to display names', async () => {
-    const { repoqa, worker, repo } = await setupIndexedRepo();
-    expect(resolveMcpRepo({ repoqa, worker }, repo.id).id).toBe(repo.id);
-    expect(resolveMcpRepo({ repoqa, worker }, repo.name).id).toBe(repo.id);
-    expect(() => resolveMcpRepo({ repoqa, worker }, 'missing-repo')).toThrow('Repo not found');
+    const { repoqa, worker, repo, deps } = await setupIndexedRepo();
+    expect(resolveMcpRepo(deps, repo.id).id).toBe(repo.id);
+    expect(resolveMcpRepo(deps, repo.name).id).toBe(repo.id);
+    expect(() => resolveMcpRepo(deps, 'missing-repo')).toThrow('Repo not found');
   });
 });
 
@@ -294,6 +296,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_get_pr_impact',
         'codecompass_get_subgraph_context',
         'codecompass_get_tours',
+        'codecompass_index_repo',
         'codecompass_list_repos',
         'codecompass_module_evolution',
         'codecompass_refactor_plan',
@@ -304,6 +307,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         expect(tool.inputSchema.type).toBe('object');
         if (
           tool.name === 'codecompass_get_pr_impact' ||
+          tool.name === 'codecompass_index_repo' ||
           tool.name === 'codecompass_list_repos'
         ) {
           continue;
@@ -330,6 +334,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_get_pr_impact',
         'codecompass_get_subgraph_context',
         'codecompass_get_tours',
+        'codecompass_index_repo',
         'codecompass_list_repos',
         'codecompass_module_evolution',
         'codecompass_refactor_plan',
@@ -356,6 +361,90 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         status: 'ready',
         fileCount: repo.fileCount
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_index_repo with a local path indexes the repo and returns ready', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const newRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'index-repo-'));
+      registerCleanup(async () => fs.rm(newRepoDir, { recursive: true, force: true }));
+      await makeSpringRepo(newRepoDir);
+
+      const { text } = await rawCallTool(clientTransport, 'codecompass_index_repo', {
+        localPath: newRepoDir
+      });
+      const body = JSON.parse(text) as {
+        repoId: string;
+        name: string;
+        status: string;
+        fileCount: number;
+        symbolCount: number;
+        localPath: string;
+      };
+      expect(body.repoId).toBeTruthy();
+      expect(body.status).toBe('ready');
+      expect(body.fileCount).toBeGreaterThan(0);
+      expect(body.symbolCount).toBeGreaterThan(0);
+      expect(body.localPath).toBe(newRepoDir);
+
+      // The newly indexed repo is immediately usable by other tools.
+      const dash = await rawCallTool(clientTransport, 'codecompass_get_dashboard', {
+        repoId: body.repoId
+      });
+      expect(JSON.parse(dash.text).repoId).toBe(body.repoId);
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
+  it('tools/call codecompass_index_repo rejects a non-existent local path', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const response = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_index_repo',
+        arguments: { localPath: '/nonexistent/path/xyz' }
+      });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toContain('not a directory');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_index_repo rejects when both url and localPath are provided', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const response = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_index_repo',
+        arguments: { url: 'https://github.com/org/repo.git', localPath: '/some/path' }
+      });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toContain('not both');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_index_repo rejects when neither url nor localPath is provided', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const response = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_index_repo',
+        arguments: {}
+      });
+      expect(response.result.isError).toBe(true);
+      expect(response.result.content[0].text).toContain('Either url');
     } finally {
       await server.close();
     }

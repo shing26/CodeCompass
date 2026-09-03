@@ -20,6 +20,12 @@ import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
+import {
+  cloneGitRepo,
+  deriveCloneName,
+  validateGitBranch,
+  validateGitUrl
+} from './git-importer';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -39,7 +45,7 @@ import { runModuleEvolution } from './module-evolution-engine';
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.9.0';
+export const MCP_SERVER_VERSION = '0.17.0';
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */
@@ -67,6 +73,8 @@ export function installStdioProtocolGuard(): void {
 export interface McpDeps {
   repoqa: RepoQARepos;
   worker: RepoQAWorker;
+  /** Data root; remote clones land under `<dataDir>/clones/`. */
+  dataDir: string;
 }
 
 /** Handlers shared by worker + MCP tests; JSON is the wire format for tool results. */
@@ -85,6 +93,10 @@ export interface McpToolHandlerArgs {
   intentType?: unknown;
   targetSymbolOrModule?: unknown;
   extensionGoal?: unknown;
+  url?: unknown;
+  localPath?: unknown;
+  branch?: unknown;
+  name?: unknown;
 }
 
 /* ------------------------------------------------------------------ */
@@ -282,6 +294,36 @@ export const MCP_TOOLS: McpToolMeta[] = [
         }
       },
       required: ['repoId', 'targetSymbol', 'changeType']
+    }
+  },
+  {
+    name: 'codecompass_index_repo',
+    description:
+      'Clone and index a git repository (by URL) or add a local directory, then make ' +
+      'it available to all other codecompass tools. Returns the repo id, status and ' +
+      'file/symbol counts; when status is "ready" the repoId can be used by the other ' +
+      'tools immediately. Large repositories (>10k files) can take ~30s.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Git repository URL (https://github.com/org/repo.git) — mutually exclusive with localPath'
+        },
+        localPath: {
+          type: 'string',
+          description: 'Local directory path — mutually exclusive with url'
+        },
+        branch: {
+          type: 'string',
+          description: 'Optional git branch or tag (default: the remote default branch)'
+        },
+        name: {
+          type: 'string',
+          description: 'Optional display name (default: derived from the URL or directory basename)'
+        }
+      },
+      required: []
     }
   }
 ];
@@ -543,6 +585,54 @@ export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record
   }) as unknown as Record<string, unknown>;
 }
 
+/** v0.17.0 — index a new repo from a local path or git URL. */
+export async function mcpIndexRepo(
+  deps: McpDeps,
+  args: McpToolHandlerArgs
+): Promise<Record<string, unknown>> {
+  const url = typeof args.url === 'string' ? args.url.trim() : '';
+  const localPath = typeof args.localPath === 'string' ? args.localPath.trim() : '';
+  const branch = typeof args.branch === 'string' ? args.branch.trim() : undefined;
+  const name = typeof args.name === 'string' ? args.name.trim() : undefined;
+
+  if (url && localPath) {
+    throw new Error('Provide either url or localPath, not both');
+  }
+  if (!url && !localPath) {
+    throw new Error('Either url (git repository URL) or localPath (local directory) is required');
+  }
+
+  let result: { repo: Repo; created: boolean };
+
+  if (url) {
+    const displayName = name ?? deriveCloneName(url);
+    const targetDir = path.join(deps.dataDir, 'clones', `${deriveCloneName(url)}-${Date.now()}`);
+    await cloneGitRepo({ url, branch, targetDir });
+    // COALESCE keeps repo_url across the worker's own re-upsert inside indexRepo.
+    deps.repoqa.upsertByLocalPath({
+      name: displayName,
+      localPath: targetDir,
+      branch,
+      repoUrl: url
+    });
+    result = await deps.worker.indexRepo({ localPath: targetDir, branch, name: displayName });
+  } else {
+    result = await deps.worker.indexRepo({ localPath, branch, name });
+  }
+
+  const repo = result.repo;
+  return {
+    repoId: repo.id,
+    name: repo.name,
+    status: repo.status,
+    fileCount: repo.fileCount,
+    symbolCount: repo.symbolCount,
+    localPath: repo.localPath,
+    ...(repo.commit ? { commit: repo.commit } : {}),
+    ...(repo.error ? { error: repo.error } : {})
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* MCP server (SDK)                                                    */
 /* ------------------------------------------------------------------ */
@@ -584,7 +674,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_domain_radar: (args) => mcpDomainRadar(deps, args),
     codecompass_module_evolution: (args) => mcpModuleEvolution(deps, args),
     codecompass_diagnose: (args) => mcpDiagnose(deps, args),
-    codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args)
+    codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args),
+    codecompass_index_repo: (args) => mcpIndexRepo(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a
@@ -659,7 +750,7 @@ export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<v
       );
     }
 
-    const server = createMcpServer({ repoqa, worker });
+    const server = createMcpServer({ repoqa, worker, dataDir: config.dataDir });
     const done = new Promise<void>((resolve) => {
       server.server.onclose = () => resolve();
       server.server.onerror = () => resolve();

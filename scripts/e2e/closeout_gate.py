@@ -795,6 +795,15 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
                 },
             },
         },
+        {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_index_repo",
+                "arguments": {"localPath": str(repo_path)},
+            },
+        },
     ]
     responses = _mcp_roundtrip(node, cli, repo_path, data_dir, requests)
 
@@ -803,10 +812,10 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         for tool in responses.get(2, {}).get("result", {}).get("tools", [])
     ]
     record(
-        "v0.8 MCP tools/list exposes the composite tools (12 total since v0.9)",
+        "v0.8 MCP tools/list exposes the composite tools (13 total since v0.17)",
         "codecompass_diagnose" in names and "codecompass_refactor_plan" in names
         and "codecompass_domain_radar" in names and "codecompass_module_evolution" in names
-        and len(names) >= 12,
+        and "codecompass_index_repo" in names and len(names) >= 13,
         f"tools={len(names)}",
     )
 
@@ -848,6 +857,15 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         "v0.9 codecompass_module_evolution returns checklists over MCP",
         '"checklists"' in evolution_text and '"orphanedSymbols"' in evolution_text,
         f"len={len(evolution_text)}",
+    )
+
+    index_text = ""
+    for item in responses.get(7, {}).get("result", {}).get("content", []):
+        index_text += item.get("text", "")
+    record(
+        "v0.17 codecompass_index_repo indexes a local path over MCP",
+        '"repoId"' in index_text and '"status": "ready"' in index_text,
+        f"len={len(index_text)}",
     )
 
 

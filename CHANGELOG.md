@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.17.0] - 2026-09-03
+
+### Highlights
+
+- **MCP 工具面新增 `codecompass_index_repo`**：agent 会话内可直接克隆 GitHub 仓库或索引本地目录，返回 repoId 后立即使用其他 12 个工具——打通"陌生仓库分析"闭环的第一环。远程仓库走 `git clone --depth 1`（60s 超时、`validateGitUrl` 安全校验），本地目录走 `worker.indexRepo` 管线。MCP 工具总数升至 **13 个**。
+
+### Added
+
+- `services/control-plane/src/repoqa-mcp.ts`：新增 `codecompass_index_repo` MCP 工具（含 url 克隆 + localPath 两条分支）、`mcpIndexRepo` handler、`McpDeps` 加 `dataDir` 字段、`McpToolHandlerArgs` 加 `url/localPath/branch/name` 入参。
+- `services/control-plane/src/repoqa-mcp.test.ts`：4 项新测试（localPath 索引成功、路径不存在报错、双参数冲突报错、无参数报错）+ 三处工具名单更新至 13 项。
+- `scripts/e2e/closeout_gate.py`：`check_mcp_composite_tools` 新增 `codecompass_index_repo` 冒烟断言（索引本地 demo-polyglot → 验证 `status: ready`），工具数量断言提升至 `>=13`。
+- `MCP_SERVER_VERSION` 同步至 0.17.0（此前落后于产品版本 0.9.0）。
+
 ## [0.16.0] - 2026-09-01
 
 ### Highlights
