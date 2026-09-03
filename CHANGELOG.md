@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.18.0] - 2026-09-04
+
+### Highlights
+
+- **`codecompass_index_repo` 全异步化（ADR-0016）**：真实 agent 反馈（BossHunter）暴露致命缺陷——同步契约下大仓库索引必然撞 30s stdio 超时，且 clone 期间 repo 行不存在导致"仓库消失"。现在同步部分只剩校验 + clone（≤60s）+ localPath 前置门禁，repo 行建立后立即返回 `{repoId, status: 'indexing', pollHint}`，索引 fire-and-forget，agent 轮询 `list_repos` 至 `ready`/`error`（error 行带根因摘要）。同步失败（URL 非法/路径不存在）坚决不落库。
+- **新增 `codecompass_remove_repo`（第 14 个 MCP 工具）**：补齐仓库管理闭环——删除索引记录并级联清除符号/chunks/文件/事件，磁盘克隆保留；indexing 状态拒删（镜像 DELETE /api/repos/:id 的 409 语义）。
+- **幽灵索引防线**：worker 在两处数据表写入点（`saveFiles` 前、`upsertSymbols/upsertChunks` 前）断言 repo 行仍存在，中途被删的索引静默终止，不再复活孤儿数据。
+
+### Added
+
+- `services/control-plane/src/repoqa-mcp.ts`：`codecompass_remove_repo` 工具 + `mcpRemoveRepo` handler；`mcpListRepos` 返回体增 `symbolCount`/`localPath`/`error` 字段。
+- `services/control-plane/src/repoqa-worker.ts`：`indexRepo` 返回类型放宽 `Repo | null`（幽灵路径），全部调用点（cli/http/eval/mcp）空值防护。
+- `docs/adr/0016-mcp-long-ops-return-immediately.md`：MCP 长操作立即返回 + 轮询观测的架构决策（含对后续新工具的约束）。
+- `domain-radar-engine` + contracts：锚点新增 `matchedBy`（`identifier` | `doc-chunk` | `graph-rank`）——匹配来源可溯源，agent 可对措辞敏感的锚点降权；前端 types 副本同步。
+
+### Fixed
+
+- config topology 噪音（BossHunter 反馈）：Python/TS 扫描只收 UPPER_SNAKE 顶层赋值，`content`/`temporary_path` 类模块状态不再混入配置证据。
+- `get_tours` 半残感（BossHunter 反馈）：空步 tour 过滤（对齐 HTTP 层行为），非 Java 仓库返回 `{tours: [], note}` 诚实说明 Java/Spring 边界，不再返回三个空壳。
+
+### Changed
+
+- `codecompass_index_repo` 契约破坏性变更：v0.17 同步返回 `ready` → v0.18 异步返回 `indexing` + 轮询。已安装用户重启 MCP 会话后生效；工具 description 已重写说明轮询方式。
+
 ## [0.17.0] - 2026-09-03
 
 ### Highlights

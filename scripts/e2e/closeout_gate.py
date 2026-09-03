@@ -862,11 +862,73 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
     index_text = ""
     for item in responses.get(7, {}).get("result", {}).get("content", []):
         index_text += item.get("text", "")
+    index_async_ok = '"repoId"' in index_text and '"status": "indexing"' in index_text
     record(
-        "v0.17 codecompass_index_repo indexes a local path over MCP",
-        '"repoId"' in index_text and '"status": "ready"' in index_text,
+        "v0.18 codecompass_index_repo returns indexing immediately (ADR-0016)",
+        index_async_ok,
         f"len={len(index_text)}",
     )
+
+    # ADR-0016: poll list_repos on a fresh stdio roundtrip until the repo
+    # indexed above flips to ready (the first MCP process is already gone).
+    if index_async_ok:
+        index_repo_id = ""
+        try:
+            index_repo_id = str(json.loads(index_text).get("repoId") or "")
+        except json.JSONDecodeError:
+            pass
+        if index_repo_id:
+            poll_ready = False
+            for _ in range(30):
+                time.sleep(1)
+                poll_responses = _mcp_roundtrip(
+                    node,
+                    cli,
+                    repo_path,
+                    data_dir,
+                    [
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "initialize",
+                            "params": {
+                                "protocolVersion": "2024-11-05",
+                                "capabilities": {},
+                                "clientInfo": {"name": "gate", "version": "0.0.0"},
+                            },
+                        },
+                        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 3,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "codecompass_list_repos",
+                                "arguments": {},
+                            },
+                        },
+                    ],
+                )
+                poll_text = ""
+                for item in poll_responses.get(3, {}).get("result", {}).get("content", []):
+                    poll_text += item.get("text", "")
+                try:
+                    poll_body = json.loads(poll_text)
+                except json.JSONDecodeError:
+                    continue
+                for row in poll_body.get("repos", []):
+                    if row.get("id") == index_repo_id:
+                        if row.get("status") == "ready":
+                            poll_ready = True
+                        break
+                if poll_ready:
+                    break
+            record(
+                "v0.18 indexed repo polls to ready via list_repos",
+                poll_ready,
+                f"repoId={index_repo_id}",
+            )
 
 
 def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path) -> None:
