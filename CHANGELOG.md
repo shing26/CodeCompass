@@ -12,7 +12,17 @@
 - `packages/contracts/src/repoqa.ts`：`ScanCandidate`/`ScanBucket`/`ScanResult` 契约。
 - `codecompass_scan` 工具注册（同步查询契约——图已驻留内存缓存，毫秒级，不触发 ADR-0016 异步门槛）；`mcpScan` handler。
 - e2e gate：scan 冒烟断言（四桶结构）+ 工具数 15 精确断言。
+- `codecompass_get_conventions` MCP 工具（Ticket 02）：入参 repoId/targetSymbol?/nearPackages?，同步转发 `worker.runConventionScan`；nearPackages 兼容数组与逗号分隔字符串两种宿主方言。
+- `codecompass_plan_evolution` MCP 工具（Ticket 02）：入参 repoId/intentType(EXTEND|DEPRECATE)/targetSymbolOrModule/extensionGoal?/nearPackages?；intentType 白名单校验 fail-closed，冲突走结构化载荷。
+- MCP 冲突双端对等（Ticket 02）：`mcpPlanEvolution` 与重构后的 `mcpModuleEvolution` 均 try/catch `ConventionConflictError` 返回 `{error, conventionConflict}`；repoqa-mcp.test.ts 新增 makeConflictRepo 夹具 + 4 测（画像/规划/冲突拦截+双工具同构/intentType 与 Deprecated 前缀），29/29。
+- `_McpSession`（gate 基建）：单 stdio 进程多轮 roundtrip——`codecompass_index_repo` 是 fire-and-forget（ADR-0016），进程被回收会让新仓库冻在 `indexing`；Issue 25 段全程共用一个活会话完成索引→就绪轮询→计时画像→冲突拦截。
 - CONTEXT.md 词条 Candidate Scan。
+- **演进感知 MCP 工具落地（Issue 25 / Ticket 02）**：`codecompass_get_conventions`（第 16 个）与 `codecompass_plan_evolution`（第 17 个）把 ADR-0014 的五轴惯例画像与演进规划直送 MCP 宿主——NLU 留宿主端，引擎只收物理意图；`ConventionConflictError` 在 MCP 层结构化捕获为 `{error, conventionConflict:{axis, verdict, coverage, anchors, suggestion}}`，与 Web worker 同构、禁裸异常（双端对等）。`codecompass_module_evolution` description 标记 Deprecated 前缀，行为不变向后兼容。
+
+### Changed
+
+- `scripts/e2e/closeout_gate.py`：`check_mcp_composite_tools` tools/list 断言 15→17（含两个新工具名）；新增 Issue 25 五项检查——conflict repo 经 MCP 索引并轮询就绪、get_conventions 画像（含 5s 同步红线实测断言，实测 0.20s）、plan_evolution 结构化冲突拦截、legacy 工具同构对等。
+- `codecompass_module_evolution` 工具 description 头部加 `[Deprecated: Superseded by codecompass_plan_evolution]`；入参/行为不变，向后兼容。
 
 ### Notes
 

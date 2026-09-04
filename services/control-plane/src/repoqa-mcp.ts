@@ -20,8 +20,9 @@ import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-gra
 import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
-import { runModuleEvolution } from './module-evolution-engine';
+import { runModuleEvolution, ConventionConflictError } from './module-evolution-engine';
 import { runScan } from './scan-engine';
+import { runConventionScan } from './repoqa-conventions';
 import {
   cloneGitRepo,
   deriveCloneName,
@@ -244,11 +245,14 @@ export const MCP_TOOLS: McpToolMeta[] = [
   {
     name: 'codecompass_module_evolution',
     description:
+      '[Deprecated: Superseded by codecompass_plan_evolution] ' +
       'Module evolution planning (deterministic, zero-LLM). DEPRECATE: clusters a module, computes ' +
       'external references, cascades orphaned public code with a fixed-point scan and emits a ' +
       'teardown checklist. EXTEND: locates the attach point, surfaces declaration-level transaction ' +
       'boundaries (method/class/interface) and emits a decoupling pattern with code scaffolds. ' +
-      'Patches are never produced here (ADR-0006).',
+      'Patches are never produced here (ADR-0006). Behavior is unchanged for backward compat; ' +
+      'new integrations should call codecompass_plan_evolution (structured convention-conflict ' +
+      'payload + the convention profile as a first-class tool).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -365,6 +369,70 @@ export const MCP_TOOLS: McpToolMeta[] = [
         repoId: { type: 'string', description: 'Repo id or name (from codecompass_list_repos)' }
       },
       required: ['repoId']
+    }
+  },
+  {
+    name: 'codecompass_get_conventions',
+    description:
+      'Convention profile of the indexed tree (deterministic, zero-LLM, sub-second sync — ' +
+      'ADR-0016 budget). Five-axis AST sniff (return_wrapping / interface_impl_style / di_style / ' +
+      'naming / async_pattern): per-axis verdict + coverage + file:line anchors, neighbor-first ' +
+      'arbitration (targetSymbol package or explicit nearPackages win over the global vote). ' +
+      'Anchors are physically validated against the raw files; a supported axis that loses all ' +
+      'its anchors degrades to unsupported. Same scan the Web evolution workbench consumes ' +
+      '(dual-surface parity). Call this before codecompass_plan_evolution to draft intents ' +
+      'that pass the STRICT gates.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name (from codecompass_list_repos)' },
+        targetSymbol: {
+          type: 'string',
+          description: 'Optional placement target ("OrderService" or "OrderService.find"); its package becomes the arbitration neighborhood'
+        },
+        nearPackages: {
+          type: 'string',
+          description: 'Optional dotted package names (comma-separated) overriding the neighborhood; the first entry wins'
+        }
+      },
+      required: ['repoId']
+    }
+  },
+  {
+    name: 'codecompass_plan_evolution',
+    description:
+      'Deterministic evolution plan for an explicit intent (zero-LLM; NLU stays host-side — ' +
+      'resolve the user text into these physical parameters yourself). EXTEND: locates the ' +
+      'attach point, returns placement candidates, declaration-level transaction boundaries, ' +
+      'decoupling pattern with scaffolds and a convention profile. DEPRECATE: clusters the ' +
+      'module and cascades orphaned public code (fixed-point) into a teardown checklist. ' +
+      'An intent that fights a STRICT convention axis (or an injection point already on a ' +
+      'bean-field cycle) fails closed with a structured payload: ' +
+      '{error, conventionConflict:{axis, verdict, coverage, anchors, suggestion}} — identical ' +
+      'shape to the Web workbench (dual-surface parity); never a bare exception. ' +
+      'Sync and bounded (pure AST over the in-memory graph; well under the 5s ADR-0016 ' +
+      'budget — if it ever exceeds 5s that is an engine-bug, not a reason to go async). ' +
+      'Supersedes codecompass_module_evolution (same engine, structured conflicts, ' +
+      'conventions as a first-class output).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name (from codecompass_list_repos)' },
+        intentType: { type: 'string', description: 'EXTEND | DEPRECATE' },
+        targetSymbolOrModule: {
+          type: 'string',
+          description: 'Module name/directory for DEPRECATE; main-flow symbol (class or Class.method) for EXTEND'
+        },
+        extensionGoal: {
+          type: 'string',
+          description: 'Optional physical goal text for EXTEND (e.g. "record extension metrics"); wording is checked against STRICT axes'
+        },
+        nearPackages: {
+          type: 'string',
+          description: 'Optional dotted package names (comma-separated) for the convention neighborhood'
+        }
+      },
+      required: ['repoId', 'intentType', 'targetSymbolOrModule']
     }
   },
 ];
@@ -599,20 +667,28 @@ export function mcpModuleEvolution(deps: McpDeps, args: McpToolHandlerArgs): Rec
   const graph = deps.worker.getSymbolGraph(repo.id);
   const intentType = String(args.intentType ?? 'DEPRECATE') as 'DEPRECATE' | 'EXTEND';
   const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
-  return runModuleEvolution({
-    repoId: repo.id,
-    intentType,
-    targetSymbolOrModule: String(args.targetSymbolOrModule ?? ''),
-    ...(args.extensionGoal === undefined ? {} : { extensionGoal: String(args.extensionGoal) }),
-    ...(Array.isArray(args.nearPackages)
-      ? { nearPackages: args.nearPackages.map((entry) => String(entry)).filter(Boolean) }
-      : {}),
-    symbols: graph.symbols,
-    index: graph.index,
-    baseUrl,
-    // ADR-0010: `unversioned` is the honest fallback when no commit is known.
-    commit: repo.commit ?? 'unversioned'
-  }) as unknown as Record<string, unknown>;
+  try {
+    return runModuleEvolution({
+      repoId: repo.id,
+      intentType,
+      targetSymbolOrModule: String(args.targetSymbolOrModule ?? ''),
+      ...(args.extensionGoal === undefined ? {} : { extensionGoal: String(args.extensionGoal) }),
+      ...(nearPackagesFrom(args) ? { nearPackages: nearPackagesFrom(args) } : {}),
+      symbols: graph.symbols,
+      index: graph.index,
+      baseUrl,
+      // ADR-0010: `unversioned` is the honest fallback when no commit is known.
+      commit: repo.commit ?? 'unversioned'
+    }) as unknown as Record<string, unknown>;
+  } catch (error) {
+    // Ticket 25.2 (dual-surface parity fix): a STRICT-axis collision or a
+    // bean-field cycle is a planned outcome — return the same structured
+    // payload the Web workbench streams instead of a bare exception string.
+    if (error instanceof ConventionConflictError) {
+      return { error: error.message, conventionConflict: error.conflict };
+    }
+    throw error;
+  }
 }
 
 /** v0.8.0 — deterministic cross-stack root-cause traversal. */
@@ -650,6 +726,77 @@ export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record
     index: graph.index,
     baseUrl
   }) as unknown as Record<string, unknown>;
+}
+
+/** Ticket 25.2 — accept nearPackages as a comma-separated string or a JSON array. */
+function nearPackagesFrom(args: McpToolHandlerArgs): string[] | undefined {
+  const list = Array.isArray(args.nearPackages)
+    ? args.nearPackages.map((entry) => String(entry).trim())
+    : typeof args.nearPackages === 'string'
+      ? args.nearPackages.split(',')
+      : [];
+  const cleaned = list.map((entry) => entry.trim()).filter(Boolean);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+/**
+ * Ticket 25.2 — the convention profile as a first-class MCP tool
+ * (dual-surface parity: same engine output the Web /evolve workbench
+ * renders, anchors physically validated). Sync and bounded: pure AST over
+ * the in-memory graph, well inside the ADR-0016 5s sync budget.
+ */
+export async function mcpGetConventions(
+  deps: McpDeps,
+  args: McpToolHandlerArgs
+): Promise<Record<string, unknown>> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const targetSymbol = typeof args.targetSymbol === 'string' ? args.targetSymbol.trim() : '';
+  const nearPackages = nearPackagesFrom(args);
+  const profile = await deps.worker.runConventionScan({
+    repoId: repo.id,
+    ...(targetSymbol ? { targetSymbol } : {}),
+    ...(nearPackages ? { nearPackages } : {})
+  });
+  return profile as unknown as Record<string, unknown>;
+}
+
+/**
+ * Ticket 25.2 — deterministic EXTEND/DEPRECATE evolution plan over explicit
+ * physical parameters (NLU stays host-side). STRICT conflicts come back as
+ * the structured {error, conventionConflict} payload (dual-surface parity),
+ * and the whole plan stays synchronous inside the ADR-0016 5s budget.
+ */
+export function mcpPlanEvolution(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const intentType = String(args.intentType ?? '');
+  if (intentType !== 'EXTEND' && intentType !== 'DEPRECATE') {
+    throw new Error('intentType must be EXTEND or DEPRECATE');
+  }
+  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  try {
+    return runModuleEvolution({
+      repoId: repo.id,
+      intentType: intentType as 'DEPRECATE' | 'EXTEND',
+      targetSymbolOrModule: String(args.targetSymbolOrModule ?? ''),
+      ...(args.extensionGoal === undefined || String(args.extensionGoal).trim() === ''
+        ? {}
+        : { extensionGoal: String(args.extensionGoal) }),
+      ...(nearPackagesFrom(args) ? { nearPackages: nearPackagesFrom(args) } : {}),
+      symbols: graph.symbols,
+      index: graph.index,
+      baseUrl,
+      // ADR-0010: `unversioned` is the honest fallback when no commit is known.
+      commit: repo.commit ?? 'unversioned'
+    }) as unknown as Record<string, unknown>;
+  } catch (error) {
+    // Same structured contract as the Web worker (repoqa.evolve.error):
+    // {error, conventionConflict:{axis, verdict, coverage, anchors, suggestion}}.
+    if (error instanceof ConventionConflictError) {
+      return { error: error.message, conventionConflict: error.conflict };
+    }
+    throw error;
+  }
 }
 
 /**
@@ -824,7 +971,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args),
     codecompass_index_repo: (args) => mcpIndexRepo(deps, args),
     codecompass_remove_repo: (args) => mcpRemoveRepo(deps, args),
-    codecompass_scan: (args) => mcpScan(deps, args)
+    codecompass_scan: (args) => mcpScan(deps, args),
+    codecompass_get_conventions: (args) => mcpGetConventions(deps, args),
+    codecompass_plan_evolution: (args) => mcpPlanEvolution(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a

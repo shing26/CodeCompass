@@ -123,15 +123,11 @@ interface TestHarness {
   deps: McpDeps;
 }
 
-/** Boot an isolated control-plane stack (no HTTP listener) and index a Spring repo. */
-async function setupIndexedRepo(repoRoot?: string): Promise<TestHarness> {
-  const dir = repoRoot
-    ? path.dirname(repoRoot)
-    : await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-'));
+/** Boot the control-plane stack (db + worker + MCP deps) over an existing repo dir.
+ * Writes NO fixture source: callers own whatever lives inside repoDir. */
+async function bootHarness(dir: string, repoDir: string): Promise<TestHarness> {
   const dataDir = path.join(dir, 'data');
-  const repoDir = repoRoot ?? path.join(dir, 'repo');
   await fs.mkdir(dataDir, { recursive: true });
-  await makeSpringRepo(repoDir);
 
   const db = openDb(path.join(dataDir, 'mcp-test.db'));
   ensureDefaultWorkspace(db, dataDir);
@@ -149,6 +145,16 @@ async function setupIndexedRepo(repoRoot?: string): Promise<TestHarness> {
     await fs.rm(dir, { recursive: true, force: true });
   });
   return { dir, repoqa, worker, repo: result.repo, deps: { repoqa, worker, dataDir } };
+}
+
+/** Boot an isolated control-plane stack (no HTTP listener) and index a Spring repo. */
+async function setupIndexedRepo(repoRoot?: string): Promise<TestHarness> {
+  const dir = repoRoot
+    ? path.dirname(repoRoot)
+    : await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-'));
+  const repoDir = repoRoot ?? path.join(dir, 'repo');
+  await makeSpringRepo(repoDir);
+  return bootHarness(dir, repoDir);
 }
 
 async function startServerPair(deps: McpDeps): Promise<{
@@ -228,11 +234,12 @@ async function rawCallTool(
 }
 
 describe('Issue 20 MCP tool metadata', () => {
-  it('exposes the fifteen required tools with JSON Schema input contracts', () => {
+  it('exposes the seventeen required tools with JSON Schema input contracts', () => {
     expect(MCP_TOOLS.map((tool) => tool.name).sort()).toEqual([
       'codecompass_diagnose',
       'codecompass_domain_radar',
       'codecompass_get_config_evidence',
+      'codecompass_get_conventions',
       'codecompass_get_dashboard',
       'codecompass_get_pr_impact',
       'codecompass_get_subgraph_context',
@@ -240,6 +247,7 @@ describe('Issue 20 MCP tool metadata', () => {
       'codecompass_index_repo',
       'codecompass_list_repos',
       'codecompass_module_evolution',
+      'codecompass_plan_evolution',
       'codecompass_refactor_plan',
       'codecompass_remove_repo',
       'codecompass_reverse_deps',
@@ -295,6 +303,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_diagnose',
         'codecompass_domain_radar',
         'codecompass_get_config_evidence',
+        'codecompass_get_conventions',
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
         'codecompass_get_subgraph_context',
@@ -302,6 +311,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_index_repo',
         'codecompass_list_repos',
         'codecompass_module_evolution',
+        'codecompass_plan_evolution',
         'codecompass_refactor_plan',
         'codecompass_remove_repo',
         'codecompass_reverse_deps',
@@ -324,7 +334,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
     }
   });
 
-  it('tools/list via the SDK Client exposes the same fifteen tools', async () => {
+  it('tools/list via the SDK Client exposes the same seventeen tools', async () => {
     const { deps } = await setupIndexedRepo();
     const { server, clientTransport } = await startServerPair(deps);
     try {
@@ -335,6 +345,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_diagnose',
         'codecompass_domain_radar',
         'codecompass_get_config_evidence',
+        'codecompass_get_conventions',
         'codecompass_get_dashboard',
         'codecompass_get_pr_impact',
         'codecompass_get_subgraph_context',
@@ -342,6 +353,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_index_repo',
         'codecompass_list_repos',
         'codecompass_module_evolution',
+        'codecompass_plan_evolution',
         'codecompass_refactor_plan',
         'codecompass_remove_repo',
         'codecompass_reverse_deps',
@@ -883,6 +895,206 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       });
       expect(badArgs.result.isError).toBe(true);
       expect(badArgs.result.content[0].text.toLowerCase()).toContain('validation');
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+/** Ticket 25.2 — wrapped-return STRICT repo (mirrors the gate's demo-conflict): 5/5 route
+ * methods return ApiResult<T> over a field-injection backdrop. An EXTEND goal asking for
+ * bare returns must collide into the structured conventionConflict payload. */
+async function makeConflictRepo(root: string): Promise<void> {
+  const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo', 'order');
+  await fs.mkdir(pkg, { recursive: true });
+  await fs.writeFile(path.join(root, 'pom.xml'), '<project/>\n');
+  for (let index = 0; index < 4; index += 1) {
+    await fs.writeFile(
+      path.join(pkg, `FieldService${index}.java`),
+      'package com.demo.order;\n' +
+        'public class FieldService' + index + ' {\n' +
+        '  @Autowired\n' +
+        '  private OrderRepository orderRepository;\n' +
+        '  public String doWork' + index + '() {\n' +
+        '    return "v' + index + '";\n' +
+        '  }\n' +
+        '}\n'
+    );
+  }
+  await fs.writeFile(
+    path.join(pkg, 'OrderRepository.java'),
+    'package com.demo.order;\npublic class OrderRepository {}\n'
+  );
+  await fs.writeFile(
+    path.join(pkg, 'OrderController.java'),
+    'package com.demo.order;\n' +
+      '@RestController\n' +
+      'public class OrderController {\n' +
+      '  public ApiResult<String> list() { return ApiResult.ok(); }\n' +
+      '  public ApiResult<String> get() { return ApiResult.ok(); }\n' +
+      '  public ApiResult<String> create() { return ApiResult.ok(); }\n' +
+      '  public ApiResult<String> update() { return ApiResult.ok(); }\n' +
+      '  public ApiResult<String> delete() { return ApiResult.ok(); }\n' +
+      '}\n'
+  );
+}
+
+describe('Issue 25 / Ticket 25.2 - get_conventions + plan_evolution over MCP', () => {
+  it('tools/call codecompass_get_conventions returns the profile with validated anchors and arbitrates neighbor-first', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const started = Date.now();
+      const { text } = await rawCallTool(clientTransport, 'codecompass_get_conventions', {
+        repoId: repo.id,
+        targetSymbol: 'OrderService'
+      });
+      const elapsed = Date.now() - started;
+      const body = JSON.parse(text) as {
+        repoId: string;
+        neighborPackage?: string;
+        axes: Array<{
+          axis: string;
+          supported?: boolean;
+          verdict?: string;
+          primary?: string;
+          anchors?: Array<{ file: string; line: number; symbol?: string }>;
+        }>;
+      };
+      expect(body.repoId).toBe(repo.id);
+      // Neighbor-first arbitration: the target's package becomes the neighborhood.
+      expect(body.neighborPackage).toBe('com.demo');
+      expect(body.axes.length).toBeGreaterThan(0);
+      // The Spring fixture returns String everywhere - the wrapping axis decides bare.
+      const wrapping = body.axes.find((axis) => axis.axis === 'return_wrapping');
+      expect(wrapping?.supported).toBe(true);
+      // `primary` is the machine-readable mirror; `verdict` is the human sentence.
+      expect(wrapping?.primary).toBe('bare');
+      expect(wrapping?.verdict).toContain('bare');
+      for (const anchor of wrapping?.anchors ?? []) {
+        // Zero-Hallucination Contract: every anchor is a physical file:line.
+        expect(anchor.file).toBeTruthy();
+        expect(anchor.line).toBeGreaterThan(0);
+      }
+      // Ruling 5 - ADR-0016 sync budget: a pure-AST profile stays well under 5s.
+      expect(elapsed).toBeLessThan(5000);
+      // Issue 07 masking invariant: the engine output never carries config values.
+      expect(text).not.toContain('supersecret');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_plan_evolution EXTEND returns conventions + blast radius inside the sync budget', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const started = Date.now();
+      const { text } = await rawCallTool(clientTransport, 'codecompass_plan_evolution', {
+        repoId: repo.id,
+        intentType: 'EXTEND',
+        targetSymbolOrModule: 'OrderService',
+        extensionGoal: 'record extension metrics'
+      });
+      const elapsed = Date.now() - started;
+      const body = JSON.parse(text) as {
+        intentType: string;
+        riskLevel: string;
+        blastRadius: { orphanedSymbols: unknown[] };
+        conventions?: { axes: unknown[] };
+        transactionBoundaries: unknown[];
+        scaffoldTemplates?: Array<{ suggestedPattern: string }>;
+      };
+      expect(body.intentType).toBe('EXTEND');
+      expect(['HIGH', 'MEDIUM', 'LOW']).toContain(body.riskLevel);
+      expect(body.blastRadius).toBeTruthy();
+      // ADR-0014: the EXTEND plan carries the neighbor-first convention profile.
+      expect(Array.isArray(body.conventions?.axes)).toBe(true);
+      expect(Array.isArray(body.transactionBoundaries)).toBe(true);
+      expect(Array.isArray(body.scaffoldTemplates)).toBe(true);
+      // Ruling 5 - the whole plan is one synchronous bounded call (no job id, no polling).
+      expect(elapsed).toBeLessThan(5000);
+      expect(text).not.toContain('supersecret');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_plan_evolution fails closed with the structured conventionConflict payload', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-conflict-'));
+    const repoRoot = path.join(dir, 'repo');
+    await makeConflictRepo(repoRoot);
+    const { deps, repo } = await bootHarness(dir, repoRoot);
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { response, text } = await rawCallTool(clientTransport, 'codecompass_plan_evolution', {
+        repoId: repo.id,
+        intentType: 'EXTEND',
+        targetSymbolOrModule: 'FieldService0',
+        extensionGoal: '直接返回裸数据,不要包装'
+      });
+      // A structured result - not a JSON-RPC error, not a bare exception string.
+      expect(response.result.isError).toBeFalsy();
+      const body = JSON.parse(text) as {
+        error: string;
+        conventionConflict: {
+          axis: string;
+          verdict: string;
+          coverage: { match: number; total: number };
+          anchors: Array<{ file: string; line: number; symbol?: string }>;
+          suggestion: string;
+        };
+      };
+      expect(body.error).toContain('Convention conflict');
+      expect(body.conventionConflict.axis).toBe('return_wrapping');
+      expect(body.conventionConflict.verdict).toContain('ApiResult');
+      expect(body.conventionConflict.coverage.total).toBeGreaterThan(0);
+      for (const anchor of body.conventionConflict.anchors) {
+        expect(anchor.file).toBeTruthy();
+        expect(anchor.line).toBeGreaterThan(0);
+      }
+      expect(body.conventionConflict.suggestion).toContain('ApiResult');
+
+      // Dual-surface parity: the legacy tool surfaces the same structured payload.
+      const legacy = await rawCallTool(clientTransport, 'codecompass_module_evolution', {
+        repoId: repo.id,
+        intentType: 'EXTEND',
+        targetSymbolOrModule: 'FieldService0',
+        extensionGoal: '直接返回裸数据,不要包装'
+      });
+      expect(legacy.response.result.isError).toBeFalsy();
+      const legacyBody = JSON.parse(legacy.text);
+      expect(legacyBody.conventionConflict.axis).toBe('return_wrapping');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_plan_evolution rejects a non-physical intentType and the legacy tool is marked deprecated', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { response, text } = await rawCallTool(clientTransport, 'codecompass_plan_evolution', {
+        repoId: repo.id,
+        intentType: 'REFACTOR_EVERYTHING',
+        targetSymbolOrModule: 'OrderService'
+      });
+      // NLU stays host-side: only EXTEND/DEPRECATE are physical intents.
+      expect(response.result.isError).toBe(true);
+      expect(text).toContain('intentType must be EXTEND or DEPRECATE');
+
+      // Ruling 3 - the legacy tool keeps its old behavior behind a deprecation note.
+      const meta = MCP_TOOLS.find((tool) => tool.name === 'codecompass_module_evolution')!;
+      expect(
+        meta.description.startsWith('[Deprecated: Superseded by codecompass_plan_evolution]')
+      ).toBe(true);
+      const plan = MCP_TOOLS.find((tool) => tool.name === 'codecompass_plan_evolution')!;
+      expect(plan.description).toContain('codecompass_module_evolution');
+      expect(plan.inputSchema.required).toEqual(['repoId', 'intentType', 'targetSymbolOrModule']);
     } finally {
       await server.close();
     }

@@ -715,43 +715,44 @@ def check_hot_reload(base: str, repo_id: str, repo_path: Path) -> None:
 # ------------------------------------------------------- v0.8 composite tools
 
 
-def _mcp_roundtrip(
-    node: str, cli: Path, repo_path: Path, data_dir: Path, requests: list[dict]
-) -> dict[int, dict]:
-    """Minimal MCP stdio client: send JSON-RPC lines, collect id→response."""
-    proc = subprocess.Popen(
-        [node, str(cli), "mcp", str(repo_path), "--data-dir", str(data_dir)],
-        cwd=ROOT,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        encoding="utf-8",
-    )
-    lines: list[str] = []
-    try:
-        assert proc.stdin and proc.stdout
-        for request in requests:
-            proc.stdin.write(json.dumps(request) + "\n")
-        proc.stdin.flush()
+class _McpSession:
+    """One live MCP stdio process; roundtrip() sends a request batch and
+    collects id→response. Long-lived on purpose: fire-and-forget background
+    work (index_repo, ADR-0016) dies with the process, so callers that need
+    to poll background state must hold the session open."""
 
+    def __init__(self, node: str, cli: Path, repo_path: Path, data_dir: Path) -> None:
+        self.proc = subprocess.Popen(
+            [node, str(cli), "mcp", str(repo_path), "--data-dir", str(data_dir)],
+            cwd=ROOT,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+        )
+        self.lines: list[str] = []
+        self._cursor = 0
         import threading
 
-        done = threading.Event()
+        if self.proc.stdout:
+            threading.Thread(target=self._read_stdout, daemon=True).start()
 
-        def reader() -> None:
-            assert proc.stdout
-            for raw in proc.stdout:
-                lines.append(raw)
-            done.set()
+    def _read_stdout(self) -> None:
+        assert self.proc.stdout
+        for raw in self.proc.stdout:
+            self.lines.append(raw)
 
-        thread = threading.Thread(target=reader, daemon=True)
-        thread.start()
-        deadline = time.time() + 90
+    def roundtrip(self, requests: list[dict], deadline_s: float = 90) -> dict[int, dict]:
+        assert self.proc.stdin
+        for request in requests:
+            self.proc.stdin.write(json.dumps(request) + "\n")
+        self.proc.stdin.flush()
+        deadline = time.time() + deadline_s
         want = {str(r["id"]) for r in requests if r.get("id") is not None}
-        while time.time() < deadline and not done.is_set():
+        while time.time() < deadline:
             have = set()
-            for raw in lines:
+            for raw in self.lines[self._cursor:]:
                 try:
                     have.add(str(json.loads(raw).get("id")))
                 except json.JSONDecodeError:
@@ -759,26 +760,40 @@ def _mcp_roundtrip(
             if want <= have:
                 break
             time.sleep(0.2)
-    finally:
-        proc.terminate()
+        responses: dict[int, dict] = {}
+        for raw in self.lines[self._cursor:]:
+            try:
+                message = json.loads(raw)
+            except json.JSONDecodeError:
+                record("MCP stdio stdout stays pure JSON-RPC", False, raw[:160])
+                continue
+            if isinstance(message.get("id"), int) and "result" in message:
+                responses[message["id"]] = message
+        self._cursor = len(self.lines)
+        return responses
+
+    def close(self) -> None:
+        self.proc.terminate()
         try:
-            proc.wait(timeout=10)
+            self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            proc.kill()
-
-    responses: dict[int, dict] = {}
-    for raw in lines:
-        try:
-            message = json.loads(raw)
-        except json.JSONDecodeError:
-            record("MCP stdio stdout stays pure JSON-RPC", False, raw[:160])
-            continue
-        if isinstance(message.get("id"), int) and "result" in message:
-            responses[message["id"]] = message
-    return responses
+            self.proc.kill()
 
 
-def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: Path) -> None:
+def _mcp_roundtrip(
+    node: str, cli: Path, repo_path: Path, data_dir: Path, requests: list[dict]
+) -> dict[int, dict]:
+    """Minimal MCP stdio client: one session, one batch, process reaped."""
+    session = _McpSession(node, cli, repo_path, data_dir)
+    try:
+        return session.roundtrip(requests)
+    finally:
+        session.close()
+
+
+def check_mcp_composite_tools(
+    node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path
+) -> None:
     requests = [
         {
             "jsonrpc": "2.0",
@@ -853,11 +868,12 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         for tool in responses.get(2, {}).get("result", {}).get("tools", [])
     ]
     record(
-        "v0.8 MCP tools/list exposes the composite tools (15 total since v0.19)",
+        "v0.8 MCP tools/list exposes the composite tools (17 total since v0.20)",
         "codecompass_diagnose" in names and "codecompass_refactor_plan" in names
         and "codecompass_domain_radar" in names and "codecompass_module_evolution" in names
         and "codecompass_index_repo" in names and "codecompass_remove_repo" in names
-        and "codecompass_scan" in names and len(names) == 15,
+        and "codecompass_scan" in names and "codecompass_get_conventions" in names
+        and "codecompass_plan_evolution" in names and len(names) == 17,
         f"tools={len(names)}",
     )
 
@@ -1007,6 +1023,179 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         f"len={len(scan_text)}",
     )
 
+    # Issue 25 / Ticket 02 — the evolution-aware tools over real stdio. The
+    # STRICT wrapped-return conflict repo is indexed through a LIVE session:
+    # index_repo is fire-and-forget (ADR-0016), so reaping the process after
+    # the ack would freeze a brand-new repo in `indexing`. The same session
+    # then polls to ready, times the conventions call against the 5s red line
+    # and collides both evolution tools into the structured conflict payload.
+    conflict_repo = build_conflict_repo(tmp)
+    session = _McpSession(node, cli, repo_path, data_dir)
+    conflict_repo_id = ""
+    conflict_ready = False
+    conv_text = ""
+    plan_text = ""
+    legacy_text = ""
+    conv_elapsed = 0.0
+    try:
+        index_responses = session.roundtrip(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "gate", "version": "0.0.0"},
+                    },
+                },
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "codecompass_index_repo",
+                        "arguments": {"localPath": str(conflict_repo)},
+                    },
+                },
+            ]
+        )
+        index_text = ""
+        for item in index_responses.get(3, {}).get("result", {}).get("content", []):
+            index_text += item.get("text", "")
+        try:
+            conflict_repo_id = str(json.loads(index_text).get("repoId") or "")
+        except json.JSONDecodeError:
+            pass
+        record(
+            "Issue 25 codecompass_index_repo accepts the conflict repo over MCP",
+            '"status": "indexing"' in index_text,
+            f"repoId={conflict_repo_id}",
+        )
+
+        if conflict_repo_id:
+            for _ in range(30):
+                time.sleep(1)
+                poll_responses = session.roundtrip(
+                    [
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 3,
+                            "method": "tools/call",
+                            "params": {"name": "codecompass_list_repos", "arguments": {}},
+                        }
+                    ]
+                )
+                poll_text = ""
+                for item in poll_responses.get(3, {}).get("result", {}).get("content", []):
+                    poll_text += item.get("text", "")
+                try:
+                    poll_body = json.loads(poll_text)
+                except json.JSONDecodeError:
+                    continue
+                for row in poll_body.get("repos", []):
+                    if row.get("id") == conflict_repo_id:
+                        if row.get("status") == "ready":
+                            conflict_ready = True
+                        break
+                if conflict_ready:
+                    break
+        record(
+            "Issue 25 conflict repo polls to ready in-session (fire-and-forget kept alive)",
+            conflict_ready,
+            f"repoId={conflict_repo_id}",
+        )
+
+        if conflict_ready:
+            conv_started = time.monotonic()
+            conv_responses = session.roundtrip(
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "codecompass_get_conventions",
+                            "arguments": {
+                                "repoId": conflict_repo_id,
+                                "targetSymbol": "FieldService0",
+                            },
+                        },
+                    }
+                ]
+            )
+            conv_elapsed = time.monotonic() - conv_started
+            for item in conv_responses.get(3, {}).get("result", {}).get("content", []):
+                conv_text += item.get("text", "")
+            record(
+                "Issue 25 codecompass_get_conventions returns the profile over MCP",
+                '"return_wrapping"' in conv_text and '"anchors"' in conv_text
+                and '"verdict"' in conv_text and conflict_repo_id in conv_text,
+                f"len={len(conv_text)}",
+            )
+            # Ruling 5 - ADR-0016 sync red line, wall-clocked around the
+            # tools/call roundtrip on a warm session (pure-AST profile).
+            record(
+                "Issue 25 get_conventions honors the 5s sync red line",
+                conv_elapsed < 5.0,
+                f"elapsed={conv_elapsed:.2f}s",
+            )
+
+            conflict_call_responses = session.roundtrip(
+                [
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "codecompass_plan_evolution",
+                            "arguments": {
+                                "repoId": conflict_repo_id,
+                                "intentType": "EXTEND",
+                                "targetSymbolOrModule": "FieldService0",
+                                "extensionGoal": "直接返回裸数据,不要包装",
+                            },
+                        },
+                    },
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "codecompass_module_evolution",
+                            "arguments": {
+                                "repoId": conflict_repo_id,
+                                "intentType": "EXTEND",
+                                "targetSymbolOrModule": "FieldService0",
+                                "extensionGoal": "直接返回裸数据,不要包装",
+                            },
+                        },
+                    },
+                ]
+            )
+            plan_result = conflict_call_responses.get(3, {}).get("result", {})
+            for item in plan_result.get("content", []):
+                plan_text += item.get("text", "")
+            legacy_result = conflict_call_responses.get(4, {}).get("result", {})
+            for item in legacy_result.get("content", []):
+                legacy_text += item.get("text", "")
+            record(
+                "Issue 25 plan_evolution fails closed with structured conventionConflict",
+                not plan_result.get("isError") and '"conventionConflict"' in plan_text
+                and '"return_wrapping"' in plan_text and "Convention conflict" in plan_text
+                and '"suggestion"' in plan_text,
+                f"len={len(plan_text)}",
+            )
+            record(
+                "Issue 25 legacy module_evolution surfaces the same structured payload",
+                not legacy_result.get("isError") and '"conventionConflict"' in legacy_text
+                and '"return_wrapping"' in legacy_text,
+                f"len={len(legacy_text)}",
+            )
+    finally:
+        session.close()
 
 
 def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path) -> None:
@@ -1412,7 +1601,7 @@ def main() -> int:
         check_go_implicit_interface(base, _go["id"])
 
         # v0.8 — composite tools over MCP stdio and the CLI surface.
-        check_mcp_composite_tools(args.node, cli, polyglot, data_dir)
+        check_mcp_composite_tools(args.node, cli, polyglot, data_dir, tmp)
         check_cli_composite(args.node, cli, polyglot, data_dir, tmp)
         # v0.9 — domain radar, module evolution, multi-view artifacts.
         check_v09_radar_evolve(args.node, cli, polyglot, data_dir, tmp)

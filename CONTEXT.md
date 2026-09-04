@@ -1,7 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 14 个，演进类工具已随 Issue 24 落地）。当前版本 0.19.0（Issue 24 演进工作台收官：`POST /api/repos/:id/evolve` 单遍流式 Intent→四工件卡、STRICT 惯例冲突结构化拦截、Intent Eval Bucket 入 eval 冻结集；Issue 23 排障副驾驶 `mode=incident` 零幻觉合约延续，物理锚点四元组见 ADR-0010，静态边界见 ADR-0011）。
+11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具已随 Issue 24/25 落地：get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 降级为向后兼容别名）。当前版本 0.20.0（第 15 个 MCP 工具 codecompass_scan 自荐发现引擎 + Issue 25 Ticket 02 演进感知工具；Issue 24 演进工作台收官：`POST /api/repos/:id/evolve` 单遍流式 Intent→四工件卡、STRICT 惯例冲突结构化拦截、Intent Eval Bucket 入 eval 冻结集；Issue 23 排障副驾驶 `mode=incident` 零幻觉合约延续，物理锚点四元组见 ADR-0010，静态边界见 ADR-0011）。
 
 ## Naming
 
