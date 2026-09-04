@@ -110,6 +110,22 @@ function makeClient(stream?: FakeStream) {
     getFileRaw: vi.fn(),
     getDashboard: vi.fn().mockResolvedValue(emptyDashboard),
     getTours: vi.fn().mockResolvedValue([]),
+    // Inspector symbol-focus hooks fire once an evidence row navigates.
+    listReverseDeps: vi.fn().mockResolvedValue({
+      repoId: 'repo-1',
+      target: { name: 'OwnerController', file: 'src/main/java/OwnerController.java', line: 42 },
+      callers: [],
+      count: 0,
+      fallback: false
+    }),
+    getSubgraphContext: vi.fn().mockResolvedValue({
+      start: { name: 'OwnerController', file: 'src/main/java/OwnerController.java', line: 42 },
+      nodes: [],
+      tokenCount: 0,
+      truncated: false,
+      prunedCount: 0,
+      text: '# Agent Context: OwnerController'
+    }),
     queryRepo: vi.fn().mockReturnValue(stream ?? new FakeStream()),
     baseUrl: 'http://localhost:43110'
   } as unknown as RepoQAClient;
@@ -118,57 +134,72 @@ function makeClient(stream?: FakeStream) {
 async function selectRepo(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
   await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-  // Issue 31: the topology workbench with the chat input is the default view.
-  await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+  // Issue 31: the topology workbench is the default view once a repo is selected.
+  await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
 }
 
-describe('chat stream (ticket 02)', () => {
-  it('streams token events into an assistant Markdown message until done', async () => {
+/** Issue 25 / Ticket 01 — free-form questions ride the incident copilot. */
+async function openIncidentCopilot(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId('tab-incident'));
+  await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+}
+
+async function askIncident(
+  user: ReturnType<typeof userEvent.setup>,
+  question: string,
+  stack?: string
+) {
+  await user.type(screen.getByTestId('incident-question'), question);
+  if (stack) {
+    await user.click(screen.getByTestId('incident-toggle-stack'));
+    await user.type(screen.getByTestId('incident-stack'), stack);
+  }
+  await user.click(screen.getByTestId('incident-submit'));
+}
+
+describe('incident artifact stream (Issue 25 / Ticket 01)', () => {
+  it('streams token events into the incident card until done', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'trace /owners');
-    await user.click(screen.getByTestId('chat-submit'));
-
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-    expect(screen.getByTestId('user-message')).toHaveTextContent('trace /owners');
+    await askIncident(user, 'trace /owners');
+    expect(screen.getByTestId('incident-card-live')).toBeInTheDocument();
+    expect(screen.getByTestId('incident-user-message')).toHaveTextContent('trace /owners');
 
     await act(async () => {
-      stream.event?.({ type: 'token', text: '**Business overview:** the request goes through ' });
-      stream.event?.({ type: 'token', text: '`OwnerController`.' });
+      stream.event?.({ type: 'token', text: 'the request goes through ' });
+      stream.event?.({ type: 'token', text: 'OwnerController.' });
     });
     await waitFor(() =>
       expect(screen.getByText(/the request goes through/)).toBeInTheDocument()
     );
-    expect(screen.getByText('OwnerController')).toBeInTheDocument();
 
     await act(async () => {
+      stream.event?.({ type: 'done', payload: {} });
       stream.done?.();
     });
-    await waitFor(() =>
-      expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.getByTestId('incident-card-done')).toBeInTheDocument());
+    expect(screen.queryByTestId('incident-card-live')).not.toBeInTheDocument();
   });
 
-  it('shows an error state on repository error events and stops streaming', async () => {
+  it('finalizes the card as failed on a terminal error event and stops streaming', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'who?');
-    await user.click(screen.getByTestId('chat-submit'));
-
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    await askIncident(user, 'who?');
+    expect(screen.getByTestId('incident-card-live')).toBeInTheDocument();
     await act(async () => {
       stream.event?.({ type: 'error', error: 'Static analysis break' });
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('chat-error')).toHaveTextContent('Static analysis break')
-    );
-    expect(screen.queryByTestId('streaming-indicator')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('incident-card-failed')).toBeInTheDocument());
+    expect(screen.getByTestId('incident-error')).toHaveTextContent('Static analysis break');
+    expect(screen.queryByTestId('incident-card-live')).not.toBeInTheDocument();
   });
 
   it('renders a mermaid diagram when the mermaid SSE event arrives', async () => {
@@ -176,31 +207,27 @@ describe('chat stream (ticket 02)', () => {
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'architecture');
-    await user.click(screen.getByTestId('chat-submit'));
-
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    await askIncident(user, 'architecture');
     await act(async () => {
-      stream.event?.({
-        type: 'mermaid',
-        code: 'flowchart LR\n  A --> B'
-      });
+      stream.event?.({ type: 'mermaid', code: 'flowchart LR\n  A --> B' });
       stream.event?.({ type: 'token', text: 'overview' });
+      stream.event?.({ type: 'done', payload: {} });
       stream.done?.();
     });
     await waitFor(() => expect(screen.getByTestId('mermaid-diagram')).toBeInTheDocument());
   });
 
-  it('does not show a query input when no repo is selected (explicit guidance instead)', async () => {
+  it('does not show an incident input when no repo is selected (explicit guidance instead)', async () => {
     const client = makeClient();
     render(<App client={client} />);
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
-    expect(screen.queryByTestId('chat-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('incident-input')).not.toBeInTheDocument();
     expect(client.queryRepo).not.toHaveBeenCalled();
   });
 
-  it('opens a source trace anchor in the Inspector via onNavigate (ticket 05)', async () => {
+  it('opens a grounded evidence row in the Inspector via onNavigate (ticket 05)', async () => {
     const stream = new FakeStream();
     const client = makeClient(stream);
     client.getFileRaw = vi.fn().mockResolvedValue('public class OwnerController {}');
@@ -208,11 +235,9 @@ describe('chat stream (ticket 02)', () => {
     const user = userEvent.setup();
     render(<App client={client} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'trace /owners');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
+    await askIncident(user, 'trace /owners');
     await act(async () => {
       stream.event?.({
         type: 'anchors',
@@ -221,11 +246,13 @@ describe('chat stream (ticket 02)', () => {
         ]
       });
       stream.event?.({ type: 'token', text: 'overview' });
+      stream.event?.({ type: 'done', payload: {} });
       stream.done?.();
     });
 
-    await waitFor(() => expect(screen.getByTestId('anchor-card-0')).toBeInTheDocument());
-    await user.click(screen.getByTestId('anchor-card-0'));
+    // The validated anchor lands as a VERIFIED evidence row once done lands.
+    await waitFor(() => expect(screen.getByTestId('evidence-card')).toBeInTheDocument());
+    await user.click(screen.getByTestId('evidence-row-0'));
 
     await waitFor(() =>
       expect(client.getFileRaw).toHaveBeenCalledWith(
@@ -239,219 +266,72 @@ describe('chat stream (ticket 02)', () => {
         'public class OwnerController {}'
       )
     );
-    expect(screen.getByTestId('monaco-editor')).toHaveAttribute(
-      'data-language',
-      'java'
-    );
+    expect(screen.getByTestId('monaco-editor')).toHaveAttribute('data-language', 'java');
     expect(screen.getByTestId('inspector-file')).toHaveTextContent('OwnerController.java');
   });
-});
 
-describe('Round 2 chat history per repo', () => {
-  it('restores completed chat when switching back to a repo', async () => {
-    const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
-    const stream = new FakeStream();
-    const client = makeClient();
-    (client as { listRepos: unknown }).listRepos = vi
-      .fn()
-      .mockResolvedValue([readyRepo, repo2]);
-    (client as { queryRepo: unknown }).queryRepo = vi.fn().mockReturnValue(stream);
-    const user = userEvent.setup();
-    render(<App client={client} />);
-    await selectRepo(user);
-
-    await user.type(screen.getByTestId('chat-input'), 'initCreationForm 的调用链');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-    await act(async () => {
-      stream.event?.({ type: 'token', text: 'PetController 的链路' });
-      stream.event?.({ type: 'done', payload: {} });
-      stream.done?.();
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId('user-message')).toHaveTextContent('initCreationForm 的调用链')
-    );
-
-    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
-    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
-    expect(screen.queryByTestId('user-message')).not.toBeInTheDocument();
-
-    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
-    expect(screen.getByTestId('user-message')).toHaveTextContent('initCreationForm 的调用链');
-  });
-});
-
-describe('staged reveal, micro-win and off-ramp (ticket 06)', () => {
-  it('reveals stages only as their SSE events arrive (token → mermaid → anchors → micro-win)', async () => {
+  it('stages the reveal: answer, then diagram, then evidence after done', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'architecture');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
+    await askIncident(user, 'architecture');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'overview' });
     });
     expect(screen.getByText('overview')).toBeInTheDocument();
     expect(screen.queryByTestId('mermaid-diagram')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('source-trace-drawer')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('micro-win')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('evidence-card')).not.toBeInTheDocument();
 
     await act(async () => {
       stream.event?.({ type: 'mermaid', code: 'flowchart LR\n  A --> B' });
     });
     await waitFor(() => expect(screen.getByTestId('mermaid-diagram')).toBeInTheDocument());
-    expect(screen.queryByTestId('source-trace-drawer')).not.toBeInTheDocument();
+    // Evidence is a done-time artifact — never parsed mid-stream.
+    expect(screen.queryByTestId('evidence-card')).not.toBeInTheDocument();
 
     await act(async () => {
       stream.event?.({
         type: 'anchors',
         anchors: [{ file: 'A.java', line: 1, symbol: 'A' }]
       });
-    });
-    await waitFor(() => expect(screen.getByTestId('source-trace-drawer')).toBeInTheDocument());
-    // Still streaming: no micro-win before done.
-    expect(screen.queryByTestId('micro-win')).not.toBeInTheDocument();
-
-    await act(async () => {
-      stream.event?.({ type: 'done', payload: { suggestedAction: 'Trace POST /owners' } });
-      stream.done?.();
-    });
-    await waitFor(() => expect(screen.getByTestId('micro-win')).toBeInTheDocument());
-    expect(screen.getByTestId('micro-win-label')).toHaveTextContent('✓ 已确认 1 个源码锚点');
-    expect(screen.queryByTestId('break-marker')).not.toBeInTheDocument();
-  });
-
-  it('shows a quantitative micro-win and drives every off-ramp exit', async () => {
-    const stream = new FakeStream();
-    const user = userEvent.setup();
-    render(<App client={makeClient(stream)} />);
-    await selectRepo(user);
-
-    await user.type(screen.getByTestId('chat-input'), 'trace /owners');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
-    await act(async () => {
-      stream.event?.({ type: 'token', text: 'overview' });
-      stream.event?.({
-        type: 'anchors',
-        anchors: [
-          { file: 'A.java', line: 1, symbol: 'A' },
-          { file: 'B.java', line: 2, symbol: 'B' }
-        ]
-      });
-      stream.event?.({ type: 'done', payload: { suggestedAction: 'Trace POST /owners' } });
-      stream.done?.();
-    });
-
-    await waitFor(() => expect(screen.getByTestId('micro-win')).toBeInTheDocument());
-    expect(screen.getByTestId('micro-win-label')).toHaveTextContent('✓ 已确认 2 个源码锚点');
-    expect(screen.getByTestId('off-ramp-suggested')).toHaveTextContent('Trace POST /owners');
-
-    // Suggested off-ramp submits the backend suggestion as the next question.
-    await user.click(screen.getByTestId('off-ramp-suggested'));
-    await waitFor(() =>
-      expect(screen.getAllByTestId('user-message').at(-1)).toHaveTextContent('Trace POST /owners')
-    );
-
-    // Finish the follow-up query so the input is enabled again.
-    await act(async () => {
-      stream.event?.({ type: 'token', text: 'done.' });
       stream.event?.({ type: 'done', payload: {} });
       stream.done?.();
     });
-
-    // Continue off-ramp focuses the chat input.
-    await user.click(screen.getByTestId('off-ramp-continue'));
-    expect(screen.getByTestId('chat-input')).toHaveFocus();
-
-    // Top off-ramp scrolls the message list back to the top without crashing.
-    await user.click(screen.getByTestId('off-ramp-top'));
-    expect(screen.getByTestId('micro-win')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('evidence-card')).toBeInTheDocument());
+    expect(screen.getByTestId('evidence-status-0')).toHaveTextContent('VERIFIED');
   });
 
-  it('shows a plain "✓ 分析完成" micro-win for diagram-only traces without a suggested follow-up', async () => {
+  it('marks the card as a break when done arrives with neither anchors nor a diagram', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'architecture');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
-    await act(async () => {
-      stream.event?.({ type: 'mermaid', code: 'flowchart LR\n  A --> B' });
-      stream.event?.({ type: 'done', payload: {} });
-      stream.done?.();
-    });
-
-    await waitFor(() => expect(screen.getByTestId('micro-win')).toBeInTheDocument());
-    expect(screen.getByTestId('micro-win-label')).toHaveTextContent('✓ 分析完成');
-    expect(screen.queryByTestId('off-ramp-suggested')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('break-marker')).not.toBeInTheDocument();
-  });
-
-  it('renders a break marker — never a micro-win — when the error event carries content', async () => {
-    const stream = new FakeStream();
-    const user = userEvent.setup();
-    render(<App client={makeClient(stream)} />);
-    await selectRepo(user);
-
-    await user.type(screen.getByTestId('chat-input'), 'who?');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
-    await act(async () => {
-      stream.event?.({ type: 'token', text: 'partial answer' });
-      stream.event?.({ type: 'error', error: 'Static analysis break at OwnerController' });
-    });
-
-    await waitFor(() => expect(screen.getByTestId('break-marker')).toBeInTheDocument());
-    expect(screen.getByTestId('break-marker')).toHaveTextContent('Static Analysis Break');
-    expect(screen.queryByTestId('micro-win')).not.toBeInTheDocument();
-    expect(screen.getByTestId('chat-error')).toHaveTextContent('Static analysis break at OwnerController');
-  });
-
-  it('renders a break marker when done arrives with neither anchors nor a diagram', async () => {
-    const stream = new FakeStream();
-    const user = userEvent.setup();
-    render(<App client={makeClient(stream)} />);
-    await selectRepo(user);
-
-    await user.type(screen.getByTestId('chat-input'), 'trace unknown symbol');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
+    await askIncident(user, 'trace unknown symbol');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'no evidence found' });
       stream.event?.({ type: 'done', payload: {} });
       stream.done?.();
     });
 
-    await waitFor(() => expect(screen.getByTestId('break-marker')).toBeInTheDocument());
-    expect(screen.getByTestId('break-marker')).toHaveTextContent('Static Analysis Break');
-    expect(screen.queryByTestId('micro-win')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('incident-break')).toBeInTheDocument());
+    expect(screen.getByTestId('incident-break')).toHaveTextContent('Static Analysis Break');
     expect(screen.getByText('no evidence found')).toBeInTheDocument();
   });
-});
 
-describe('SSE reconnect resilience (ticket 07)', () => {
-  it('keeps completed bubbles intact, resets the in-flight bubble and recovers on replay', async () => {
+  it('keeps completed cards intact, resets the in-flight card and recovers on replay', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    // First query completes — this bubble must survive the later disconnect.
-    await user.type(screen.getByTestId('chat-input'), 'first question');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    // First investigation completes — this card must survive the later disconnect.
+    await askIncident(user, 'first question');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'first answer ' });
       stream.event?.({
@@ -461,25 +341,24 @@ describe('SSE reconnect resilience (ticket 07)', () => {
       stream.event?.({ type: 'done', payload: {} });
       stream.done?.();
     });
-    await waitFor(() => expect(screen.getByTestId('micro-win')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('incident-card-done')).toBeInTheDocument());
 
-    // Second query: mid-stream the connection drops (transient).
-    await user.type(screen.getByTestId('chat-input'), 'second question');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    // Second investigation: mid-stream the connection drops (transient).
+    await askIncident(user, 'second question');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'partial' });
       stream.err?.({ kind: 'transient', attempt: 1, maxAttempts: 3 });
     });
 
-    await waitFor(() => expect(screen.getByTestId('reconnecting-indicator')).toBeInTheDocument());
-    // Completed bubble + its micro-win are preserved.
+    await waitFor(() => expect(screen.getByTestId('incident-reconnecting')).toBeInTheDocument());
+    // Completed cards stay collapsed but intact — expand the first to verify
+    // its answer survived the disconnect.
+    await user.click(screen.getAllByTestId('incident-card-toggle')[0]);
     expect(screen.getByText('first answer')).toBeInTheDocument();
-    expect(screen.getAllByTestId('micro-win')).toHaveLength(1);
-    // The in-flight bubble was reset so the replay does not duplicate tokens.
+    // The in-flight card was reset so the replay does not duplicate tokens.
     await waitFor(() => expect(screen.queryByText('partial')).not.toBeInTheDocument());
 
-    // Replay arrives and completes; reconnect notice clears.
+    // Replay arrives and completes; the reconnect notice becomes a recovery toast.
     await act(async () => {
       stream.event?.({ type: 'token', text: 'full replay answer ' });
       stream.event?.({
@@ -490,64 +369,42 @@ describe('SSE reconnect resilience (ticket 07)', () => {
       stream.done?.();
     });
     await waitFor(() => expect(screen.getByText(/full replay answer/)).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId('reconnect-toast')).toBeInTheDocument());
-    expect(screen.queryByTestId('reconnecting-indicator')).not.toBeInTheDocument();
-    expect(screen.getAllByTestId('micro-win')).toHaveLength(2);
+    await waitFor(() => expect(screen.getByTestId('incident-recovered')).toBeInTheDocument());
+    expect(screen.queryByTestId('incident-reconnecting')).not.toBeInTheDocument();
   });
 
-  it('shows a permanent error with a manual retry once the reconnect budget is exhausted', async () => {
+  it('surfaces a permanent failure and frees the composer for a manual re-ask', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'trace x');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    await askIncident(user, 'trace x');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'partial answer' });
       stream.err?.({ kind: 'permanent', cause: new Error('budget exhausted') });
     });
 
-    await waitFor(() => expect(screen.getByTestId('break-marker')).toBeInTheDocument());
-    expect(screen.getByTestId('chat-error')).toHaveTextContent('自动重连失败');
-    expect(screen.getByTestId('retry-query')).toBeInTheDocument();
-    expect(screen.queryByTestId('reconnecting-indicator')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('micro-win')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('incident-card-failed')).toBeInTheDocument());
+    expect(screen.getByTestId('incident-error')).toHaveTextContent('自动重连失败');
+    expect(screen.queryByTestId('incident-reconnecting')).not.toBeInTheDocument();
 
-    // Manual retry re-runs the same question in place (single user bubble).
-    await user.click(screen.getByTestId('retry-query'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-    expect(screen.getAllByTestId('user-message')).toHaveLength(1);
-    expect(screen.getAllByTestId('user-message')[0]).toHaveTextContent('trace x');
-
-    await act(async () => {
-      stream.event?.({ type: 'token', text: 'recovered answer ' });
-      stream.event?.({
-        type: 'anchors',
-        anchors: [{ file: 'Owners.java', line: 1, symbol: 'Owners' }]
-      });
-      stream.event?.({ type: 'done', payload: {} });
-      stream.done?.();
-    });
-    await waitFor(() => expect(screen.getByText(/recovered answer/)).toBeInTheDocument());
-    expect(screen.getByTestId('micro-win')).toBeInTheDocument();
-    expect(screen.queryByTestId('break-marker')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('chat-error')).not.toBeInTheDocument();
+    // The terminal failure released the stream slot: a re-ask opens a new card.
+    await askIncident(user, 'trace x again');
+    await waitFor(() => expect(screen.getByTestId('incident-card-live')).toBeInTheDocument());
+    const cardRows = screen.getAllByTestId('incident-user-message');
+    expect(cardRows[cardRows.length - 1]).toHaveTextContent('trace x again');
   });
-});
 
-describe('Sprint 1 provenance and token usage', () => {
-  it('renders provenance, low-confidence and per-message usage from done payload', async () => {
+  it('renders provenance, low-confidence and per-card usage from the done payload', async () => {
     const stream = new FakeStream();
     const user = userEvent.setup();
     render(<App client={makeClient(stream)} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'trace owner flow');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
-
+    await askIncident(user, 'trace owner flow');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'static analysis ' });
       stream.event?.({
@@ -567,17 +424,16 @@ describe('Sprint 1 provenance and token usage', () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByTestId('provenance-badge')).toHaveTextContent('静态图谱')
+      expect(screen.getByTestId('incident-provenance')).toHaveTextContent('静态图谱')
     );
-    expect(screen.getByTestId('low-confidence')).toHaveTextContent('低置信度');
-    expect(screen.getByTestId('message-usage')).toHaveTextContent('本次 30 tokens');
-    expect(screen.getByTestId('session-usage')).toHaveTextContent('本次会话累计 30 tokens');
+    expect(screen.getByText('低置信度')).toBeInTheDocument();
+    expect(screen.getByTestId('incident-usage')).toHaveTextContent('本次 30 tokens');
   });
 
-  it('restores cumulative usage when switching back to a repo', async () => {
+  it('buckets incident cards per repo and restores them on repo switch', async () => {
     const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
     const stream = new FakeStream();
-    const client = makeClient();
+    const client = makeClient(stream);
     (client as { listRepos: unknown }).listRepos = vi
       .fn()
       .mockResolvedValue([readyRepo, repo2]);
@@ -585,10 +441,47 @@ describe('Sprint 1 provenance and token usage', () => {
     const user = userEvent.setup();
     render(<App client={client} />);
     await selectRepo(user);
+    await openIncidentCopilot(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'usage question');
-    await user.click(screen.getByTestId('chat-submit'));
-    await waitFor(() => expect(screen.getByTestId('streaming-indicator')).toBeInTheDocument());
+    await askIncident(user, 'initCreationForm 的调用链');
+    await act(async () => {
+      stream.event?.({ type: 'token', text: 'PetController 的链路' });
+      stream.event?.({ type: 'done', payload: {} });
+      stream.done?.();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('incident-user-message')).toHaveTextContent(
+        'initCreationForm 的调用链'
+      )
+    );
+
+    // Switching repos swaps the (repoId, commit) bucket: cards never mix.
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
+    await openIncidentCopilot(user);
+    expect(screen.getByTestId('incident-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('incident-user-message')).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await openIncidentCopilot(user);
+    expect(screen.getByTestId('incident-user-message')).toHaveTextContent(
+      'initCreationForm 的调用链'
+    );
+  });
+
+  it('restores the completed card usage when switching back to a repo', async () => {
+    const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
+    const stream = new FakeStream();
+    const client = makeClient(stream);
+    (client as { listRepos: unknown }).listRepos = vi
+      .fn()
+      .mockResolvedValue([readyRepo, repo2]);
+    (client as { queryRepo: unknown }).queryRepo = vi.fn().mockReturnValue(stream);
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+    await openIncidentCopilot(user);
+
+    await askIncident(user, 'usage question');
     await act(async () => {
       stream.event?.({ type: 'token', text: 'answer ' });
       stream.event?.({
@@ -597,23 +490,18 @@ describe('Sprint 1 provenance and token usage', () => {
       });
       stream.event?.({
         type: 'done',
-        payload: {
-          usage: { input: 12, output: 18, total: 30, source: 'estimate' }
-        }
+        payload: { usage: { input: 12, output: 18, total: 30, source: 'estimate' } }
       });
       stream.done?.();
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('session-usage')).toHaveTextContent('累计 30 tokens')
-    );
+    await waitFor(() => expect(screen.getByTestId('incident-usage')).toHaveTextContent('30'));
 
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
-    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
-    expect(screen.queryByTestId('session-usage')).not.toBeInTheDocument();
+    await openIncidentCopilot(user);
+    expect(screen.queryByTestId('incident-usage')).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() =>
-      expect(screen.getByTestId('session-usage')).toHaveTextContent('累计 30 tokens')
-    );
+    await openIncidentCopilot(user);
+    await waitFor(() => expect(screen.getByTestId('incident-usage')).toHaveTextContent('30'));
   });
 });

@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Canvas } from './Canvas';
-import type { ChatMessage } from '../hooks/useChat';
-import type { Repo } from '../types';
+import type { Anchor, Repo } from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
   renderMermaid: vi.fn(async () => '<svg />')
@@ -22,27 +21,13 @@ const readyRepo: Repo = {
 };
 
 function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]> = {}) {
-  return render(
-    <Canvas
-      repo={readyRepo}
-      messages={[]}
-      streaming={false}
-      reconnecting={false}
-      recovered={false}
-      error={null}
-      totalUsage={{ input: 0, output: 0, total: 0, source: 'estimate' }}
-      onSubmit={() => {}}
-      onRetry={() => {}}
-      {...props}
-    />
-  );
+  return render(<Canvas repo={readyRepo} {...props} />);
 }
 
 describe('Canvas offline UX (Issue 18)', () => {
-  it('shows the offline-mode hint and guided input placeholder with a repo loaded', () => {
+  it('shows the offline-mode hint with a repo loaded', () => {
     renderCanvas();
     expect(screen.getByTestId('offline-hint')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/createOwner 的调用链/)).toBeInTheDocument();
   });
 
   it('renders the pinned back-to-dashboard entry and invokes the callback', async () => {
@@ -65,53 +50,17 @@ describe('Canvas offline UX (Issue 18)', () => {
     renderCanvas({ repo: null });
     expect(screen.queryByTestId('offline-hint')).not.toBeInTheDocument();
   });
-
-  it('defaults free questions to the call-chain mode (Round 2)', async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn();
-    renderCanvas({ onSubmit });
-    expect(screen.getByTestId('chat-mode-call-chain')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
-
-    await user.type(screen.getByTestId('chat-input'), 'createOwner 的调用链');
-    await user.click(screen.getByTestId('chat-submit'));
-    expect(onSubmit).toHaveBeenCalledWith('createOwner 的调用链', 'call-chain');
-  });
-
-  it('switches free questions to the architecture mode (Round 2)', async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn();
-    renderCanvas({ onSubmit });
-    await user.click(screen.getByTestId('chat-mode-architecture'));
-    expect(screen.getByTestId('chat-mode-architecture')).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    );
-
-    await user.type(screen.getByTestId('chat-input'), 'owner 相关架构');
-    await user.click(screen.getByTestId('chat-submit'));
-    expect(onSubmit).toHaveBeenCalledWith('owner 相关架构', 'architecture');
-  });
 });
 
 describe('Canvas topology flow cards (Issue 31)', () => {
+  const anchors: Anchor[] = [
+    { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
+    { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' },
+    { file: 'src/main/resources/OrderMapper.xml', line: 30, symbol: 'findAll' }
+  ];
+
   it('renders Caller/Target/Callee cards from the latest trace anchors', () => {
-    const messages: ChatMessage[] = [
-      {
-        id: 'msg-1',
-        role: 'assistant',
-        text: '',
-        status: 'done',
-        anchors: [
-          { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
-          { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' },
-          { file: 'src/main/resources/OrderMapper.xml', line: 30, symbol: 'findAll' }
-        ]
-      }
-    ];
-    renderCanvas({ messages });
+    renderCanvas({ anchors });
 
     expect(screen.getAllByTestId('flow-card')).toHaveLength(3);
     expect(screen.getByTestId('selected-node')).toHaveTextContent('listOrders');
@@ -120,69 +69,68 @@ describe('Canvas topology flow cards (Issue 31)', () => {
     expect(screen.getByText('Caller')).toBeInTheDocument();
     expect(screen.getByText('Callee')).toBeInTheDocument();
   });
-});
 
+  it('falls back to the repo name and the skeleton before a trace resolves', () => {
+    renderCanvas();
+    expect(screen.getByTestId('selected-node')).toHaveTextContent('petclinic');
+    expect(screen.getByTestId('flow-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('flow-card')).not.toBeInTheDocument();
+  });
+});
 
 describe('Canvas Top API focus flash (v0.7 issue 12)', () => {
   it('flashes the start flow card once when a trace lands', () => {
-    const messages: ChatMessage[] = [
-      {
-        id: 'msg-focus',
-        role: 'assistant',
-        text: '',
-        status: 'done',
-        anchors: [
-          { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
-          { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' }
-        ]
-      }
-    ];
-    renderCanvas({ messages });
+    renderCanvas({
+      anchors: [
+        { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
+        { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' }
+      ]
+    });
     const cards = screen.getAllByTestId('flow-card');
     expect(cards[0].className).toContain('focus-flash');
     expect(cards[1].className).not.toContain('focus-flash');
   });
 });
 
+describe('Canvas external focus request (v0.11 Stage 3)', () => {
+  it('flashes the flow card matching the requested symbol', () => {
+    renderCanvas({
+      anchors: [
+        { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },
+        { file: 'src/main/java/OrderService.java', line: 20, symbol: 'findOrders' }
+      ],
+      focusRequest: { symbol: 'findOrders', requestId: 1 }
+    });
+    const cards = screen.getAllByTestId('flow-card');
+    expect(cards[0].className).not.toContain('focus-flash');
+    expect(cards[1].className).toContain('focus-flash');
+  });
+});
+
 describe('Canvas live trace strip (v0.11 Stage 4)', () => {
-  it('hides the strip when the latest message has no trace steps', () => {
-    const messages: ChatMessage[] = [
-      {
-        id: 'msg-plain',
-        role: 'assistant',
-        text: 'done',
-        status: 'done',
-        anchors: [{ file: 'A.java', line: 1, symbol: 'a' }]
-      }
-    ];
-    renderCanvas({ messages });
+  it('hides the strip when no trace steps are given', () => {
+    renderCanvas({ anchors: [{ file: 'A.java', line: 1, symbol: 'a' }] });
     expect(screen.queryByTestId('trace-strip')).not.toBeInTheDocument();
   });
 
   it('steps through trace steps and navigates the Inspector', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();
-    const messages: ChatMessage[] = [
-      {
-        id: 'msg-trace',
-        role: 'assistant',
-        text: 'done',
-        status: 'done',
-        anchors: [{ file: 'A.java', line: 1, symbol: 'a' }],
-        traceSteps: [
-          { file: 'src/main/java/Controller.java', line: 10, symbol: 'listOrders', status: 'VERIFIED' },
-          {
-            file: 'src/main/java/Service.java',
-            line: 20,
-            symbol: 'findOrders',
-            status: 'VERIFIED',
-            httpMethod: 'GET'
-          },
-          { file: 'src/main/java/Mapper.java', line: 30, symbol: 'findAll', status: 'BROKEN' }
-        ]
-      }
-    ];
-    renderCanvas({ messages, onNavigate });
+    renderCanvas({
+      anchors: [{ file: 'A.java', line: 1, symbol: 'a' }],
+      traceSteps: [
+        { file: 'src/main/java/Controller.java', line: 10, symbol: 'listOrders', status: 'VERIFIED' },
+        {
+          file: 'src/main/java/Service.java',
+          line: 20,
+          symbol: 'findOrders',
+          status: 'VERIFIED',
+          httpMethod: 'GET'
+        },
+        { file: 'src/main/java/Mapper.java', line: 30, symbol: 'findAll', status: 'BROKEN' }
+      ],
+      onNavigate
+    });
 
     const strip = screen.getByTestId('trace-strip');
     expect(strip).toBeInTheDocument();

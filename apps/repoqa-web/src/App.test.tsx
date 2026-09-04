@@ -156,7 +156,7 @@ async function selectRepo(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
   await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
   // Issue 31: the topology workbench is the default view once a repo is selected.
-  await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
 }
 
 describe('App scaffold and repo connect', () => {
@@ -282,7 +282,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
-    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('offline-hint')).toBeInTheDocument();
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
@@ -300,7 +300,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     await waitFor(() => expect(screen.getByTestId('ci-gate')).toBeInTheDocument());
 
     await user.click(screen.getByTestId('tab-topo'));
-    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 
@@ -352,7 +352,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     await waitFor(() => expect(client.getFileRaw).toHaveBeenCalledWith('repo-1', 'src/AuthFilter.java'));
 
     await user.click(screen.getByTestId('back-to-dashboard'));
-    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
     expect(screen.queryByTestId('tour-player')).not.toBeInTheDocument();
   });
 
@@ -365,8 +365,9 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     await user.click(screen.getByTestId('tab-metrics'));
     await waitFor(() => expect(screen.getByTestId('api-entry')).toBeInTheDocument());
     await user.click(screen.getByTestId('api-entry'));
-    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
-    expect(screen.getByTestId('user-message')).toHaveTextContent('listOrders 的完整调用链是怎样的？');
+    // Issue 25 / Ticket 01 — the call-chain trace lands on the topology canvas
+    // (derived from the chat stream); there is no free-input bubble anymore.
+    await waitFor(() => expect(screen.getByTestId('canvas')).toBeInTheDocument());
     expect(client.queryRepo).toHaveBeenCalledWith(
       'repo-1',
       'listOrders 的完整调用链是怎样的？',
@@ -385,7 +386,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     await user.click(screen.getByTestId('tab-metrics'));
     await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
     await user.click(screen.getByTestId('open-chat'));
-    await waitFor(() => expect(screen.getByTestId('chat-input')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('canvas')).toBeInTheDocument());
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 });
@@ -437,7 +438,7 @@ describe('Issue 14 ONBOARDING.md export', () => {
     await user.click(screen.getByTestId('more-actions'));
     await user.click(screen.getByTestId('export-onboarding'));
     await waitFor(() => expect(screen.getByText('export boom')).toBeInTheDocument());
-    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('offline-hint')).toBeInTheDocument();
     expect(downloadTextFile).not.toHaveBeenCalled();
   });
 });
@@ -450,7 +451,7 @@ describe('Issue 16 cockpit deep link (?repo=<id>)', () => {
   it('auto-selects the repo from the query param and lands on the topology workbench', async () => {
     window.history.replaceState(null, '', '/?repo=repo-1');
     render(<App client={makeClient()} />);
-    await waitFor(() => expect(screen.getByTestId('chat-empty')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
   });
 
   it('keeps the manual selection flow when no query param is present', async () => {
@@ -553,7 +554,7 @@ describe('Issue 30 repo_updated hot reload', () => {
 
     await waitFor(() => expect(client.listSymbols).toHaveBeenCalledTimes(2));
     expect(client.getDashboard).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('offline-hint')).toBeInTheDocument();
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 });
@@ -575,19 +576,30 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     );
     await selectRepo(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'architecture overview');
-    await user.click(screen.getByTestId('chat-submit'));
+    // Issue 25 / Ticket 01 — free-form questions ride the incident composer.
+    await user.click(screen.getByTestId('tab-incident'));
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('incident-question'), 'architecture overview');
+    await user.click(screen.getByTestId('incident-submit'));
     expect(client.queryRepo).not.toHaveBeenCalled();
     expect(screen.getByTestId('consent-modal')).toHaveTextContent('api.***.com');
 
     await user.click(screen.getByTestId('consent-confirm'));
-    await waitFor(() => expect(client.queryRepo).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(client.queryRepo).toHaveBeenCalledWith(
+        'repo-1',
+        'architecture overview',
+        'incident',
+        undefined,
+        undefined
+      )
+    );
     expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
 
     // The consent is in-memory for the session: the second question submits
     // without reopening the modal.
-    await user.type(screen.getByTestId('chat-input'), 'second question');
-    await user.click(screen.getByTestId('chat-submit'));
+    await user.type(screen.getByTestId('incident-question'), 'second question');
+    await user.click(screen.getByTestId('incident-submit'));
     await waitFor(() => expect(client.queryRepo).toHaveBeenCalledTimes(2));
     expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
   });
@@ -604,8 +616,10 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     );
     await selectRepo(user);
 
-    await user.type(screen.getByTestId('chat-input'), 'architecture overview');
-    await user.click(screen.getByTestId('chat-submit'));
+    await user.click(screen.getByTestId('tab-incident'));
+    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('incident-question'), 'architecture overview');
+    await user.click(screen.getByTestId('incident-submit'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('consent-cancel'));
@@ -613,8 +627,8 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     expect(client.queryRepo).not.toHaveBeenCalled();
 
     // Asking again reopens the consent; it is still not permanently granted.
-    await user.type(screen.getByTestId('chat-input'), 'another question');
-    await user.click(screen.getByTestId('chat-submit'));
+    await user.type(screen.getByTestId('incident-question'), 'another question');
+    await user.click(screen.getByTestId('incident-submit'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
     expect(client.queryRepo).not.toHaveBeenCalled();
   });

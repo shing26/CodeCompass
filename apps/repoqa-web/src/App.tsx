@@ -32,6 +32,7 @@ import type {
   RepoTour,
   RuntimeInfo,
   TopApiEntry,
+  TraceStep,
   WorkbenchTab
 } from './types';
 
@@ -86,17 +87,10 @@ export function App({ client: clientProp }: AppProps) {
     initialRepoId
   );
   const repoId = currentRepo?.id ?? null;
-  const {
-    messages,
-    streaming,
-    reconnecting,
-    recovered,
-    error: chatError,
-    submit,
-    askIncident,
-    retry,
-    totalUsage
-  } = useChat(client, repoId);
+  // Issue 25 / Ticket 01 — the free-input chat composer is gone; useChat now
+  // feeds only the programmatic call-chain trace (Top API / crash-point) and
+  // the derived canvas trace + the Inspector's token budget.
+  const { messages, submit, totalUsage } = useChat(client, repoId);
   // Ticket 24.5 — the evolution artifact stream is App-owned so switching
   // workbench tabs (or closing the Inspector) never drops the stream.
   const evolutionSession = useEvolutionSession(client, currentRepo);
@@ -330,14 +324,14 @@ export function App({ client: clientProp }: AppProps) {
       setConsentPending({ question, mode: 'incident', stack });
       return;
     }
-    askIncident(question, stack);
+    evolutionSession.submitIncident(question, stack);
   };
 
   const confirmConsent = () => {
     setLlmConsented(true);
     if (consentPending) {
       if (consentPending.mode === 'incident') {
-        askIncident(consentPending.question, consentPending.stack);
+        evolutionSession.submitIncident(consentPending.question, consentPending.stack);
       } else {
         submit(consentPending.question, consentPending.mode, consentPending.start, consentPending.stack);
       }
@@ -402,8 +396,10 @@ export function App({ client: clientProp }: AppProps) {
     }
   };
 
-  // The Inspector's 2-Hop slice panel follows the latest resolved trace.
-  const inspectorSlices = useMemo<Anchor[]>(() => {
+  // The Inspector's 2-Hop slice panel follows the latest resolved trace, and
+  // Issue 25 / Ticket 01 — the topology canvas renders the same trace directly
+  // (Canvas no longer owns the chat bubble stream).
+  const canvasAnchors = useMemo<Anchor[]>(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const message = messages[i];
       if (message.role === 'assistant' && message.anchors?.length) {
@@ -411,6 +407,15 @@ export function App({ client: clientProp }: AppProps) {
       }
     }
     return [];
+  }, [messages]);
+  const canvasTraceSteps = useMemo<TraceStep[] | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.role === 'assistant' && message.traceSteps && message.traceSteps.length > 0) {
+        return message.traceSteps;
+      }
+    }
+    return null;
   }, [messages]);
 
   return (
@@ -511,14 +516,8 @@ export function App({ client: clientProp }: AppProps) {
           {!repoId || view === 'topo' ? (
             <Canvas
               repo={currentRepo}
-              messages={messages}
-              streaming={streaming}
-              reconnecting={reconnecting}
-              recovered={recovered}
-              error={chatError}
-              totalUsage={totalUsage}
-              onSubmit={handleSubmit}
-              onRetry={retry}
+              anchors={canvasAnchors}
+              traceSteps={canvasTraceSteps}
               onNavigate={inspector.openFile}
               symbols={symbols}
               deepLinkFocus={deepLink.focus}
@@ -537,11 +536,7 @@ export function App({ client: clientProp }: AppProps) {
           ) : view === 'incident' ? (
             <IncidentView
               repoName={currentRepo?.name ?? null}
-              messages={messages}
-              streaming={streaming}
-              reconnecting={reconnecting}
-              recovered={recovered}
-              error={chatError}
+              session={evolutionSession}
               symbols={symbols}
               onSubmit={handleIncidentSubmit}
               onNavigate={inspector.openFile}
@@ -597,7 +592,7 @@ export function App({ client: clientProp }: AppProps) {
           onClose={() => setInspectorOpen(false)}
           onCopyAgentContext={handleCopyAgentContext}
           usage={totalUsage}
-          slices={inspectorSlices}
+          slices={canvasAnchors}
           reverseDeps={reverseDeps}
           subgraph={subgraph}
           onOpenFile={inspector.openFile}

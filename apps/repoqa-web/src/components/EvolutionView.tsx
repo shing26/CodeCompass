@@ -375,7 +375,10 @@ export function EvolutionView({ repo, session, onNavigate }: EvolutionViewProps)
   // Explicit expand/collapse overrides; untracked cards default to
   // "latest open, history collapsed" so the newest answer reads first.
   const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
-  const { cards, running, submit } = session;
+  const { cards: allCards, running, submit } = session;
+  // Issue 25 / Ticket 01 — the stream is dual-kind; the evolution workbench
+  // renders only evolve cards (incident cards live in the copilot view).
+  const cards = allCards.filter((card): card is EvolutionCard => card.kind === 'evolve');
 
   const deliver = (target?: string) => {
     if (!repo || !intent.trim() || running) return;

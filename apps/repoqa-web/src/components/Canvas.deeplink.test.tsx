@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { Canvas } from './Canvas';
-import type { ChatMessage } from '../hooks/useChat';
-import type { Anchor } from '../types';
-import type { Repo } from '../types';
+import type { Anchor, Repo } from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
   renderMermaid: vi.fn(async () => '<svg />')
@@ -27,29 +25,8 @@ const anchors: Anchor[] = [
   { symbol: 'insertOrder', file: 'src/OrderMapper.xml', line: 5 }
 ];
 
-const traceMessage: ChatMessage = {
-  id: 'msg-1',
-  role: 'assistant',
-  text: 'trace',
-  status: 'done',
-  anchors
-};
-
 function renderCanvas(props: Partial<Parameters<typeof Canvas>[0]> = {}) {
-  return render(
-    <Canvas
-      repo={readyRepo}
-      messages={[]}
-      streaming={false}
-      reconnecting={false}
-      recovered={false}
-      error={null}
-      totalUsage={{ input: 0, output: 0, total: 0, source: 'estimate' }}
-      onSubmit={() => {}}
-      onRetry={() => {}}
-      {...props}
-    />
-  );
+  return render(<Canvas repo={readyRepo} {...props} />);
 }
 
 describe('Canvas deep links (v0.8)', () => {
@@ -68,7 +45,7 @@ describe('Canvas deep links (v0.8)', () => {
   it('flashes the flow card matching the focused symbol', () => {
     vi.useFakeTimers();
     renderCanvas({
-      messages: [traceMessage],
+      anchors,
       deepLinkFocus: 'createOrder',
       deepLinkTraceId: 'dg-abc123'
     });
@@ -82,7 +59,7 @@ describe('Canvas deep links (v0.8)', () => {
   });
 
   it('does not flash beyond the trace-start card when no deep-link focus is present', () => {
-    renderCanvas({ messages: [traceMessage] });
+    renderCanvas({ anchors });
     const cards = screen.getAllByTestId('flow-card');
     expect(cards[0].className).toContain('focus-flash'); // v0.7 trace-start
     expect(cards[1].className).not.toContain('focus-flash');
