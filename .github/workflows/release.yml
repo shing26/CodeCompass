@@ -19,7 +19,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org/
       - name: Install workspace dependencies
         run: npm run install:all
       - name: Build (e2e gate needs dist/)
@@ -72,10 +71,9 @@ jobs:
           export function loadOwners() { return api.get('/owners'); }
           TS
           node services/control-plane/dist/cli.js export listOwners --repo "$DEMO" --file dist-release/architecture-artifact.html
-      - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # npm publish 有意缺席（2026-09-04 v0.19.0 裁决切 B：内测期不发 npm，
+      # ENEEDAUTH 首曝于 v0.19.0 Release run 33841695684）。恢复公开发布时
+      # 重新加入 publish 步骤并配置 NPM_TOKEN secret。
       - name: Create GitHub release with sample artifacts
         uses: softprops/action-gh-release@v2
         with:
