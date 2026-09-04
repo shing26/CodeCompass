@@ -18,15 +18,20 @@
 - `_McpSession`（gate 基建）：单 stdio 进程多轮 roundtrip——`codecompass_index_repo` 是 fire-and-forget（ADR-0016），进程被回收会让新仓库冻在 `indexing`；Issue 25 段全程共用一个活会话完成索引→就绪轮询→计时画像→冲突拦截。
 - CONTEXT.md 词条 Candidate Scan。
 - **演进感知 MCP 工具落地（Issue 25 / Ticket 02）**：`codecompass_get_conventions`（第 16 个）与 `codecompass_plan_evolution`（第 17 个）把 ADR-0014 的五轴惯例画像与演进规划直送 MCP 宿主——NLU 留宿主端，引擎只收物理意图；`ConventionConflictError` 在 MCP 层结构化捕获为 `{error, conventionConflict:{axis, verdict, coverage, anchors, suggestion}}`，与 Web worker 同构、禁裸异常（双端对等）。`codecompass_module_evolution` description 标记 Deprecated 前缀，行为不变向后兼容。
+- **工件卡服务端持久化与 Hydrate 回放（Issue 25 / Ticket 03）**：SQLite 新表 `workbench_cards` 按 (repoId, commit) 流落地演进/排查终态卡——`UNIQUE(repo_id, commit_hash, seq)` 幂等防线（显式 `INSERT OR REPLACE`，网络重放不双写），五处终态落库点（worker evolve done / evolve 惯例冲突 catch / incident LLM 与 fallback done、http 层双 catch 的 error 卡），落库对象一律过 maskEventPayload；SSE done/error 终态载荷披露服务端 `cardId`/`cardSeq`，前端采纳替换临时卡 id（模块级 `nextCardId` 计数器退役→`crypto.randomUUID()`）。`GET /api/repos/:id/workbench-cards?commit=` 按 seq 升序全量回放（缺省当前物理流 `repo.commit ?? 'unversioned'`，+dirty 原样存储天然隔离）；`useEvolutionSession` 切桶 hydrate 回放按 id 去重合并（incident evidence 由 `parseEvidenceFromAnswer` 从落库 answer+anchors 确定性重算，断线中断卡不回写）；`deleteRepo` 事务级联清理（一处覆盖 MCP `remove_repo` 与 HTTP DELETE 双入口）。
 
 ### Changed
 
 - `scripts/e2e/closeout_gate.py`：`check_mcp_composite_tools` tools/list 断言 15→17（含两个新工具名）；新增 Issue 25 五项检查——conflict repo 经 MCP 索引并轮询就绪、get_conventions 画像（含 5s 同步红线实测断言，实测 0.20s）、plan_evolution 结构化冲突拦截、legacy 工具同构对等。
 - `codecompass_module_evolution` 工具 description 头部加 `[Deprecated: Superseded by codecompass_plan_evolution]`；入参/行为不变，向后兼容。
+- e2e gate：新增 `check_workbench_cards_hydrate` 三断言（evolve done 载荷披露服务端 cardId/seq；hydrate 回放同 id 同 seq 同内容；conflict 流 error 卡回放含结构化 conflict）——用户裁决：Hydrate 冒烟提前至 Ticket 03 交付（repo spec 原文「扩项归 25.4」由本条取代）。
+- 契约类型扩展（Ticket 03）：`RepoQaEvolveDone`/`RepoQaEvolveError`/`RepoQaQueryDone` 增可选 `cardId`/`cardSeq`（contracts src + v1 + web types 镜像三处）；web 新增 `WorkbenchCardRow` 回放行类型与 `RepoQAClient.getWorkbenchCards`（404→null 仿 getDashboard）。
+- 测试：`repoqa-workbench-cards.test.ts` 新增 6 测（Evolve/Incident 混合顺序、显式 seq REPLACE 幂等、deleteRepo 级联、+dirty commit 隔离、2 条 HTTP 集成含「落库 JSON 与 GET 响应均不含敏感串」脱敏断言），control-plane 545/545；web hydrate 组件测试 3 条，284/284。
 
 ### Notes
 
 - 立项访谈未获作答项按推荐默认执行并记录（v0.6 收口先例）：独立工具形态、四桶清单、同步契约、无 buckets 选择参数（Speculative Generality 防线）、挂载点桶推迟。
+- Ticket 03 两处分歧裁决（以 repo spec 为准）：工件卡分列存储（echo/result/conflict/mermaid 独立列）而非单 payload blob；端点名 `workbench-cards` 而非 `workbench/cards`。列名 `commit_hash`（`commit` 为 SQLite 保留字，沿 db.ts `repos.repo_commit` 先例）。
 
 ## [0.19.0] - 2026-09-04
 

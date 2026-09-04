@@ -8,10 +8,22 @@ import type {
   EvidenceItem,
   ModuleEvolutionResult,
   Repo,
-  TokenUsage
+  TokenUsage,
+  WorkbenchCardRow
 } from '../types';
 
-let nextCardId = 1;
+/**
+ * Issue 25 / Ticket 03 — temporary client-side id for an in-flight delivery.
+ * The server mints the durable id at persist time and the terminal SSE
+ * payload discloses it (cardId); this only needs to be unique locally.
+ * crypto.randomUUID exists in secure contexts — plain-http LAN origins and
+ * some test environments fall back to a random suffix.
+ */
+function newTempCardId(): string {
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  return `temp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /**
  * Issue 24 / Ticket 24.5 — one artifact card in the investigation stream:
@@ -95,6 +107,65 @@ type WorkbenchStream =
   | { kind: 'evolve'; stream: EvolveStreamLike }
   | { kind: 'incident'; stream: QueryStreamLike };
 
+/** Issue 25 / Ticket 03 — narrow a persisted JSON blob before hydrating it. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Issue 25 / Ticket 03 — map one persisted workbench_cards row back to the
+ * stream card the frontend renders. Incident evidence is re-parsed
+ * deterministically from the stored answer + anchors (parseEvidenceFromAnswer
+ * never invents an assertion), so the replay matches the live card.
+ */
+function rowToCard(row: WorkbenchCardRow, commit: string | null): WorkbenchCard | null {
+  if (row.kind === 'evolve') {
+    return {
+      kind: 'evolve',
+      id: row.id,
+      intent: row.intent ?? '',
+      ...(row.target ? { target: row.target } : {}),
+      status: row.status,
+      // Stage chips are a live-stream disclosure; replayed cards start clean.
+      stages: {},
+      echo: isRecord(row.echo) ? (row.echo as unknown as EvolutionIntentEcho) : null,
+      result: isRecord(row.result) ? (row.result as unknown as ModuleEvolutionResult) : null,
+      mermaid: row.mermaid ?? null,
+      commit,
+      error: row.error ?? null,
+      conflict: isRecord(row.conflict)
+        ? (row.conflict as unknown as ConventionConflictDetail)
+        : null
+    };
+  }
+  const result = isRecord(row.result) ? row.result : {};
+  const answer = typeof result.answer === 'string' ? result.answer : '';
+  const anchors = Array.isArray(result.anchors) ? (result.anchors as Anchor[]) : [];
+  const usage = isTokenUsage(result.usage) ? result.usage : undefined;
+  const provenance =
+    result.provenance === 'llm' || result.provenance === 'static' ? result.provenance : undefined;
+  return {
+    kind: 'incident',
+    id: row.id,
+    intent: row.intent ?? '',
+    ...(typeof row.echo === 'string' && row.echo ? { stack: row.echo } : {}),
+    status: row.status,
+    answer,
+    anchors: row.status === 'done' ? anchors : null,
+    diagram: row.mermaid ?? null,
+    evidence: row.status === 'done' ? parseEvidenceFromAnswer(answer, anchors) : null,
+    ...(provenance ? { provenance } : {}),
+    ...(result.lowConfidence === true ? { lowConfidence: true } : {}),
+    ...(usage ? { usage } : {}),
+    ...(typeof result.suggestedAction === 'string' ? { suggestedAction: result.suggestedAction } : {}),
+    // Ticket 06 semantics: a replayed done card with neither anchors nor a
+    // diagram is presented as a break, matching the live onDone fallback.
+    ...(row.status === 'done' ? { break: anchors.length === 0 && !row.mermaid } : {}),
+    commit: null,
+    error: row.error ?? null
+  };
+}
+
 function isTokenUsage(value: unknown): value is TokenUsage {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<TokenUsage>;
@@ -122,7 +193,7 @@ function isTokenUsage(value: unknown): value is TokenUsage {
  * Lives at the App level (like useChat) so the stream survives tab switches.
  */
 export function useEvolutionSession(
-  client: Pick<RepoQAClient, 'evolveStream' | 'queryRepo'>,
+  client: Pick<RepoQAClient, 'evolveStream' | 'queryRepo' | 'getWorkbenchCards'>,
   repo: Repo | null
 ): UseEvolutionSessionResult {
   const [cards, setCards] = useState<WorkbenchCard[]>([]);
@@ -158,6 +229,36 @@ export function useEvolutionSession(
     setIncidentReconnecting(value);
   }, []);
 
+  /**
+   * Issue 25 / Ticket 03 — hydrate replay: pull the persisted cards of the
+   * (repoId, commit) stream and merge them into the in-memory bucket. Server
+   * rows are authoritative for terminal cards (an in-memory twin is dropped
+   * when its adopted id already matches); in-memory cards that never reached
+   * a terminal SSE event were never persisted and stay. Best-effort: a
+   * failed replay keeps the in-memory bucket untouched.
+   */
+  const hydrateBucket = useCallback(
+    async (key: string, repoId: string, commit: string) => {
+      try {
+        const rows = (await client.getWorkbenchCards(repoId, commit)) ?? [];
+        if (keyRef.current !== key) return; // the bucket moved on mid-flight
+        const hydrated = rows
+          .map((row) => rowToCard(row, commit))
+          .filter((card): card is WorkbenchCard => card !== null);
+        const hydratedIds = new Set(hydrated.map((card) => card.id));
+        const kept = (bucketsRef.current.get(key) ?? []).filter(
+          (card) => !hydratedIds.has(card.id)
+        );
+        const merged = [...hydrated, ...kept];
+        bucketsRef.current.set(key, merged);
+        setCards(merged);
+      } catch {
+        // Hydrate is additive replay — never break the live session on it.
+      }
+    },
+    [client]
+  );
+
   // Bucket transition: (repoId, commit) change closes the in-flight stream,
   // persists the previous bucket (interrupted card marked as error) and loads
   // the target bucket. Guarded by keyRef so catalog refreshes that re-create
@@ -186,7 +287,11 @@ export function useEvolutionSession(
     if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
     setIncidentError(null);
     setCards(commitKey ? (bucketsRef.current.get(commitKey) ?? []) : []);
-  }, [commitKey]);
+    // Issue 25 / Ticket 03 — replay the persisted stream for this bucket.
+    if (commitKey && repo) {
+      void hydrateBucket(commitKey, repo.id, repo.commit ?? 'unversioned');
+    }
+  }, [commitKey, hydrateBucket, repo]);
 
   useEffect(
     () => () => {
@@ -202,7 +307,7 @@ export function useEvolutionSession(
       const text = intent.trim();
       if (!current || !text || runningIdRef.current) return;
 
-      const cardId = `evolve-card-${nextCardId++}`;
+      const cardId = newTempCardId();
       const card: EvolutionCard = {
         kind: 'evolve',
         id: cardId,
@@ -237,6 +342,9 @@ export function useEvolutionSession(
           });
         } else if (event.type === 'done') {
           patchCard(cardId, {
+            // Issue 25 / Ticket 03 — adopt the server-minted card id so the
+            // hydrated replay dedupes against this card instead of doubling.
+            ...(event.payload.cardId ? { id: event.payload.cardId } : {}),
             echo: event.payload.intentEcho,
             result: event.payload.result,
             mermaid: event.payload.mermaid ?? null,
@@ -247,6 +355,8 @@ export function useEvolutionSession(
           setRunning(false);
         } else {
           patchCard(cardId, {
+            // Issue 25 / Ticket 03 — adopt the persisted error-card id.
+            ...(event.payload.cardId ? { id: event.payload.cardId } : {}),
             error: event.payload.error,
             conflict: event.payload.conventionConflict ?? null,
             status: 'error'
@@ -283,7 +393,7 @@ export function useEvolutionSession(
       const text = question.trim();
       if (!current || !text || runningIdRef.current) return false;
 
-      const cardId = `incident-card-${nextCardId++}`;
+      const cardId = newTempCardId();
       const card: IncidentCard = {
         kind: 'incident',
         id: cardId,
@@ -351,6 +461,11 @@ export function useEvolutionSession(
               : undefined;
           const lowConfidence = payload.lowConfidence === true;
           patchCard(cardId, {
+            // Issue 25 / Ticket 03 — adopt the persisted card id (the hydrate
+            // replay dedupes by id against the server stream).
+            ...(typeof payload.cardId === 'string' && payload.cardId
+              ? { id: payload.cardId }
+              : {}),
             ...(suggestedAction ? { suggestedAction } : {}),
             ...(usage ? { usage } : {}),
             ...(provenance ? { provenance } : {}),
@@ -371,7 +486,12 @@ export function useEvolutionSession(
           setIncidentRecovered(false);
           setIncidentRunning(false);
           runningIdRef.current = null;
-          patchCard(cardId, { status: 'error', error: event.error });
+          patchCard(cardId, {
+            // Issue 25 / Ticket 03 — adopt the persisted error-card id.
+            ...(event.cardId ? { id: event.cardId } : {}),
+            status: 'error',
+            error: event.error
+          });
         }
       });
       stream.onError((err) => {

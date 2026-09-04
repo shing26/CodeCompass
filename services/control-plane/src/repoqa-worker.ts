@@ -31,7 +31,7 @@ import {
   type SymbolIndex,
   applyImplicitInterfaces
 } from './repoqa-callchain';
-import { maskSensitiveText } from './repoqa-masking';
+import { maskEventPayload, maskSensitiveText } from './repoqa-masking';
 import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
@@ -946,9 +946,26 @@ export class RepoQAWorker {
       });
     } catch (error) {
       if (error instanceof ConventionConflictError) {
+        // Issue 25 / Ticket 03: a conflict is a planned outcome — persist the
+        // error card (with the accumulated intent echo) so hydrate replays it.
+        const conflictPayload = maskEventPayload({
+          error: error.message,
+          conventionConflict: error.conflict
+        });
+        const card = this.repoqa.saveWorkbenchCard({
+          repoId: repo.id,
+          commit,
+          kind: 'evolve',
+          intent: input.question,
+          ...(input.target ? { target: input.target } : {}),
+          status: 'error',
+          echo,
+          conflict: conflictPayload.conventionConflict,
+          error: conflictPayload.error
+        });
         yield {
           type: 'repoqa.evolve.error',
-          payload: { error: error.message, conventionConflict: error.conflict }
+          payload: { ...conflictPayload, cardId: card.cardId, cardSeq: card.seq }
         };
         return;
       }
@@ -991,9 +1008,30 @@ export class RepoQAWorker {
       queryStartAt: new Date().toISOString(),
       feedback: JSON.stringify({ intent: echo.intentType, target: resolvedTarget })
     });
+    // Issue 25 / Ticket 03: persist the done card before the terminal SSE
+    // event leaves the process (hydrate replay always sees every terminal
+    // card) and disclose the server id/seq so the frontend adopts them in
+    // place of its temporary card id.
+    const donePayload = maskEventPayload({
+      intentEcho: echo,
+      result,
+      ...(mermaid ? { mermaid } : {}),
+      commit
+    });
+    const card = this.repoqa.saveWorkbenchCard({
+      repoId: repo.id,
+      commit,
+      kind: 'evolve',
+      intent: input.question,
+      ...(input.target ? { target: input.target } : {}),
+      status: 'done',
+      echo: donePayload.intentEcho,
+      result: donePayload.result,
+      mermaid
+    });
     yield {
       type: 'repoqa.evolve.done',
-      payload: { intentEcho: echo, result, ...(mermaid ? { mermaid } : {}), commit }
+      payload: { ...donePayload, cardId: card.cardId, cardSeq: card.seq }
     };
   }
 
@@ -1373,6 +1411,9 @@ export class RepoQAWorker {
     const summary = stackText
       ? stackTraceSummary(resolution)
       : 'No stack trace supplied — symptom description only.';
+    // Issue 25 / Ticket 03 — the artifact stream key: same derivation as the
+    // evolve path (hash / hash+dirty / unversioned, stored verbatim).
+    const commit = repo.commit ?? 'unversioned';
 
     if (isLlmConfigured(process.env)) {
       const incidentTools = this.buildIncidentTools(repo.id, symbols);
@@ -1439,6 +1480,24 @@ export class RepoQAWorker {
         queryDoneAt: new Date().toISOString(),
         feedback: JSON.stringify({ incident: summary })
       });
+      // Issue 25 / Ticket 03: persist the incident card before the done event
+      // leaves the process; the payload discloses the server card id/seq.
+      const incidentCard = this.repoqa.saveWorkbenchCard({
+        repoId: repo.id,
+        commit,
+        kind: 'incident',
+        intent: input.question,
+        ...(stackText ? { echo: stackText } : {}),
+        status: 'done',
+        result: maskEventPayload({
+          answer,
+          anchors,
+          usage,
+          provenance: 'llm',
+          lowConfidence: false
+        }),
+        ...(engineMermaid ? { mermaid: engineMermaid } : {})
+      });
       yield {
         type: 'repoqa.query.done',
         payload: {
@@ -1450,7 +1509,9 @@ export class RepoQAWorker {
           lowConfidence: false,
           provenance: 'llm',
           usage,
-          commit: repo.commit
+          commit: repo.commit,
+          cardId: incidentCard.cardId,
+          cardSeq: incidentCard.seq
         }
       };
       return;
@@ -1503,6 +1564,25 @@ export class RepoQAWorker {
       queryDoneAt: new Date().toISOString(),
       feedback: JSON.stringify({ incident: summary })
     });
+    // Issue 25 / Ticket 03: persist the fallback incident card before the
+    // done event leaves the process (same hydrate contract as the LLM path).
+    const incidentCard = this.repoqa.saveWorkbenchCard({
+      repoId: repo.id,
+      commit,
+      kind: 'incident',
+      intent: input.question,
+      ...(stackText ? { echo: stackText } : {}),
+      status: 'done',
+      result: maskEventPayload({
+        answer,
+        anchors,
+        usage,
+        ...(crashSymbol ? { suggestedAction: `Trace ${crashSymbol.name}` } : {}),
+        provenance: 'static',
+        lowConfidence: !crashSymbol
+      }),
+      ...(staticAnswer.mermaid ? { mermaid: staticAnswer.mermaid } : {})
+    });
     yield {
       type: 'repoqa.query.done',
       payload: {
@@ -1514,7 +1594,9 @@ export class RepoQAWorker {
         lowConfidence: !crashSymbol,
         provenance: 'static',
         usage,
-        commit: repo.commit
+        commit: repo.commit,
+        cardId: incidentCard.cardId,
+        cardSeq: incidentCard.seq
       }
     };
   }

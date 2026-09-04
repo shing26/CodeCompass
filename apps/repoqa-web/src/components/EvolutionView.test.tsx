@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { EvolutionView } from './EvolutionView';
 import { useEvolutionSession } from '../hooks/useEvolutionSession';
 import type { EvolveStreamLike } from '../client/RepoQAClient';
-import type { EvolveEvent, ModuleEvolutionResult, Repo } from '../types';
+import type {
+  EvolveEvent,
+  ModuleEvolutionResult,
+  Repo,
+  WorkbenchCardRow
+} from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
   renderMermaid: vi.fn(async () => '<svg id="d"><text>OrderService.create</text></svg>')
@@ -169,7 +174,10 @@ function scriptedStream(frames: EvolveEvent[], auto = true): EvolveStreamLike & 
 
 function makeClient(streams: (EvolveStreamLike & { fire?: () => void })[]) {
   return {
-    evolveStream: vi.fn(() => streams.shift() ?? scriptedStream([]))
+    evolveStream: vi.fn(() => streams.shift() ?? scriptedStream([])),
+    queryRepo: vi.fn(),
+    // Ticket 03 hydrate replay — default empty unless a test seeds rows.
+    getWorkbenchCards: vi.fn(async () => [] as WorkbenchCardRow[])
   };
 }
 
@@ -453,5 +461,81 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     const client = makeClient([]);
     render(<SessionHost client={client} repo={null} />);
     expect(screen.getByTestId('evolution-empty')).toBeInTheDocument();
+  });
+
+  it('hydrates persisted cards from the server stream on bucket switch (Ticket 03)', async () => {
+    const persistedRows: WorkbenchCardRow[] = [
+      {
+        id: '3',
+        seq: 1,
+        kind: 'evolve',
+        intent: '为订单服务加导出',
+        status: 'done',
+        echo: {
+          intentType: 'EXTEND',
+          rawKeyword: '订单',
+          resolvedTarget: 'OrderService.create',
+          alternatives: [],
+          parsedBy: 'fallback'
+        },
+        result: extendResult,
+        mermaid: null,
+        error: null,
+        createdAt: '2026-09-01T00:00:00.000Z'
+      },
+      {
+        id: '5',
+        seq: 2,
+        kind: 'evolve',
+        intent: '下线订单导出',
+        status: 'error',
+        mermaid: null,
+        error: '计划冲突',
+        conflict: {
+          axis: 'return_wrapping',
+          verdict: '不一致',
+          anchors: [],
+          suggestion: '统一 ApiResult'
+        },
+        createdAt: '2026-09-01T00:01:00.000Z'
+      }
+    ];
+    const client = makeClient([]);
+    (client.getWorkbenchCards as ReturnType<typeof vi.fn>).mockResolvedValue(persistedRows);
+
+    render(<SessionHost client={client} repo={repo} />);
+    // Hydrate is async — wait for the replayed cards to surface.
+    await waitFor(() => {
+      expect(screen.getByText('为订单服务加导出')).toBeInTheDocument();
+    });
+    expect(screen.getByText('下线订单导出')).toBeInTheDocument();
+    expect(screen.getByTestId('evolve-card-done')).toBeInTheDocument();
+    expect(screen.getByTestId('evolve-card-failed')).toBeInTheDocument();
+    // The in-flight stream surface stays quiet — hydrate only replays.
+    expect(client.evolveStream).not.toHaveBeenCalled();
+    // Hydrate pins the bucket's physical commit stream.
+    expect(client.getWorkbenchCards).toHaveBeenCalledWith('repo-1', 'abc1234');
+  });
+
+  it('replays a live done delivery under the server card id (Ticket 03)', async () => {
+    const user = userEvent.setup();
+    // Only THIS delivery carries cardId — the shared fixture must stay
+    // untagged or multi-delivery tests would adopt colliding ids.
+    const frames = echoFrames.map((frame) =>
+      frame.type === 'done'
+        ? { ...frame, payload: { ...frame.payload, cardId: '77', cardSeq: 1 } }
+        : frame
+    );
+    const client = makeClient([scriptedStream(frames)]);
+    render(<SessionHost client={client} repo={repo} />);
+
+    await user.type(screen.getByTestId('evolve-intent'), '为订单服务加导出');
+    await user.click(screen.getByTestId('evolve-run'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('evolve-card-done')).toBeInTheDocument();
+    });
+    // The done payload carries cardId '77' — the article testid adopts it.
+    expect(screen.getByTestId('77')).toBeInTheDocument();
   });
 });

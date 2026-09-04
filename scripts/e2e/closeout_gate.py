@@ -1488,6 +1488,112 @@ def check_evolve_convention_conflict(base: str, repo_id: str) -> None:
     )
 
 
+def check_workbench_cards_hydrate(base: str, repo_id: str, conflict_repo_id: str) -> None:
+    """Issue 25 / Ticket 03: terminal evolve cards are persisted server-side
+    (workbench_cards) BEFORE the terminal SSE frame leaves, and GET
+    workbench-cards replays the (repoId, commit) stream with the same
+    server-minted id/seq the payload disclosed."""
+    intent = "给 OwnerService 加 Excel 导出"
+
+    # 1) A done delivery must land a done card whose server id/seq match the
+    #    SSE payload disclosure.
+    done_payload = None
+    try:
+        frames = _post_evolve_frames(
+            base, repo_id, {"intent": intent, "target": "OwnerService"},
+        )
+        done_payload = next(
+            (f["data"] for f in frames
+             if f["event"] == "repoqa.evolve.done" and isinstance(f["data"], dict)),
+            None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        done_payload = None
+        record("evolve done payload discloses the persisted card id/seq", False, str(exc))
+    disclosed = (
+        isinstance(done_payload, dict)
+        and done_payload.get("cardId") is not None
+        and done_payload.get("cardSeq") is not None
+    )
+    if done_payload is not None:
+        record(
+            "evolve done payload discloses the persisted card id/seq",
+            disclosed,
+            f"cardId={done_payload.get('cardId')} seq={done_payload.get('cardSeq')}"
+            if disclosed else "cardId/cardSeq missing from done payload",
+        )
+
+    replay_ok = False
+    replay_detail = "skipped (no disclosed card)"
+    if disclosed:
+        try:
+            body = http_json("GET", f"{base}/api/repos/{repo_id}/workbench-cards")
+            cards = body.get("cards") if isinstance(body, dict) else None
+            row = next(
+                (c for c in cards if str(c.get("id")) == str(done_payload["cardId"])),
+                None,
+            ) if isinstance(cards, list) else None
+            result = row.get("result") if isinstance(row, dict) else None
+            replay_ok = (
+                isinstance(row, dict)
+                and row.get("kind") == "evolve"
+                and row.get("status") == "done"
+                and row.get("seq") == done_payload.get("cardSeq")
+                and row.get("intent") == intent
+                and isinstance(result, dict)
+                and isinstance(result.get("checklists"), list)
+            )
+            replay_detail = (
+                f"cards={len(cards) if isinstance(cards, list) else '-'} "
+                f"kind={row.get('kind') if isinstance(row, dict) else '<missing>'} "
+                f"status={row.get('status') if isinstance(row, dict) else '-'}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            replay_detail = str(exc)
+    record(
+        "hydrate replay returns the persisted done card with server id/seq",
+        replay_ok,
+        replay_detail,
+    )
+
+    # 2) A conflict delivery must land a persisted error card carrying the
+    #    structured conflict (planned outcome, replayed verbatim).
+    error_row = None
+    try:
+        frames = _post_evolve_frames(
+            base, conflict_repo_id,
+            {"intent": "给 OrderController 加裸返回", "target": "OrderController.list"},
+        )
+        error_payload = next(
+            (f["data"] for f in frames
+             if f["event"] == "repoqa.evolve.error" and isinstance(f["data"], dict)),
+            None,
+        )
+        if isinstance(error_payload, dict) and error_payload.get("cardId") is not None:
+            body = http_json("GET", f"{base}/api/repos/{conflict_repo_id}/workbench-cards")
+            cards = body.get("cards") if isinstance(body, dict) else None
+            error_row = next(
+                (c for c in cards if str(c.get("id")) == str(error_payload["cardId"])),
+                None,
+            ) if isinstance(cards, list) else None
+    except Exception as exc:  # noqa: BLE001
+        record("hydrate replay returns the persisted conflict error card", False, str(exc))
+        error_row = None
+    conflict_ok = (
+        isinstance(error_row, dict)
+        and error_row.get("kind") == "evolve"
+        and error_row.get("status") == "error"
+        and isinstance(error_row.get("conflict"), dict)
+        and bool(error_row["conflict"].get("axis"))
+    )
+    record(
+        "hydrate replay returns the persisted conflict error card",
+        conflict_ok,
+        f"id={error_row.get('id') if isinstance(error_row, dict) else '<missing>'} "
+        f"status={error_row.get('status') if isinstance(error_row, dict) else '-'}",
+    )
+
+
 def check_eval_smoke(node: str, cwd: Path) -> None:
     """v0.13: the golden eval must run end-to-end and pass every threshold."""
     tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
@@ -1609,6 +1715,8 @@ def main() -> int:
         check_evolve_workbench_sse(base, py_repo["id"])
         _conflict = import_repo(base, "demo-conflict", build_conflict_repo(tmp))
         check_evolve_convention_conflict(base, _conflict["id"])
+        # Issue 25 / Ticket 03 — workbench_cards persistence + hydrate replay.
+        check_workbench_cards_hydrate(base, py_repo["id"], _conflict["id"])
         # v0.13 — golden eval smoke (recall thresholds must hold).
         check_eval_smoke(args.node, ROOT)
 

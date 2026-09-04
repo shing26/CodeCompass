@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IncidentView } from './IncidentView';
 import { useEvolutionSession } from '../hooks/useEvolutionSession';
@@ -71,7 +71,9 @@ const BREAK_ONLY_ANSWER =
 function makeClient(streams: FakeStream[]): RepoQAClient {
   return {
     evolveStream: vi.fn(),
-    queryRepo: vi.fn(() => streams.shift() ?? new FakeStream())
+    queryRepo: vi.fn(() => streams.shift() ?? new FakeStream()),
+    // Ticket 03 hydrate replay — default empty unless a test seeds rows.
+    getWorkbenchCards: vi.fn(async () => [])
   } as unknown as RepoQAClient;
 }
 
@@ -347,5 +349,63 @@ describe('IncidentView — artifact-card timeline (Issue 25 / Ticket 01)', () =>
     );
     // In-flight content is kept on the failed card — never a silent success.
     expect(screen.getByText('partial answer')).toBeInTheDocument();
+  });
+
+  it('hydrates persisted incident cards and recomputes evidence (Ticket 03)', async () => {
+    const client = makeClient([]);
+    (client.getWorkbenchCards as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: '11',
+        seq: 1,
+        kind: 'incident',
+        intent: 'NPE at Demo.run',
+        echo: 'at Demo.run(Demo.java:9)',
+        status: 'done',
+        result: {
+          answer: VERIFIED_ANSWER,
+          anchors: [
+            {
+              file: 'src/main/java/com/demo/OrderService.java',
+              line: 11,
+              symbol: 'findById',
+              commit: '942ae5a'
+            }
+          ],
+          usage: { input: 100, output: 50, total: 150, source: 'provider' },
+          provenance: 'llm',
+          lowConfidence: false
+        },
+        mermaid: null,
+        error: null,
+        createdAt: '2026-09-01T00:00:00.000Z'
+      },
+      {
+        id: '12',
+        seq: 2,
+        kind: 'incident',
+        intent: 'who broke?',
+        status: 'error',
+        mermaid: null,
+        error: 'Static analysis break at OwnerController',
+        createdAt: '2026-09-01T00:01:00.000Z'
+      }
+    ]);
+
+    render(<SessionHost client={client} />);
+    await waitFor(() => {
+      expect(screen.getByText('NPE at Demo.run')).toBeInTheDocument();
+    });
+    expect(screen.getByText('who broke?')).toBeInTheDocument();
+    expect(screen.getByTestId('incident-card-failed')).toBeInTheDocument();
+    // The done card is not the latest (the error card is) — expand it to
+    // inspect the replayed findings.
+    await userEvent.setup().click(screen.getAllByTestId('incident-card-toggle')[0]);
+    // Evidence is re-parsed deterministically from the stored answer + anchors.
+    expect(screen.getByTestId('evidence-status-0').textContent).toBe('VERIFIED');
+    expect(screen.getByTestId('incident-provenance').textContent).toBe('模型推理');
+    expect(screen.queryByTestId('incident-break')).not.toBeInTheDocument();
+    // Hydrate pins the bucket's physical commit stream (readyRepo has no
+    // commit — the backend resolves 'unversioned').
+    expect(client.getWorkbenchCards).toHaveBeenCalledWith('repo-1', 'unversioned');
   });
 });

@@ -1,7 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具已随 Issue 24/25 落地：get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 降级为向后兼容别名）。当前版本 0.20.0（第 15 个 MCP 工具 codecompass_scan 自荐发现引擎 + Issue 25 Ticket 02 演进感知工具；Issue 24 演进工作台收官：`POST /api/repos/:id/evolve` 单遍流式 Intent→四工件卡、STRICT 惯例冲突结构化拦截、Intent Eval Bucket 入 eval 冻结集；Issue 23 排障副驾驶 `mode=incident` 零幻觉合约延续，物理锚点四元组见 ADR-0010，静态边界见 ADR-0011）。
+11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具已随 Issue 24/25 落地：get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 降级为向后兼容别名）。当前版本 0.20.0（第 15 个 MCP 工具 codecompass_scan 自荐发现引擎 + Issue 25 Ticket 02 演进感知工具；Issue 24 演进工作台收官：`POST /api/repos/:id/evolve` 单遍流式 Intent→四工件卡、STRICT 惯例冲突结构化拦截、Intent Eval Bucket 入 eval 冻结集；Issue 25 Ticket 03 工件卡服务端持久化与 hydrate 回放（workbench_cards 按 (repoId,commit) 流落库、`GET workbench-cards` 回放端点、SSE 终态载荷披露 cardId/seq、前端切桶自动 hydrate 去重合并）；Issue 23 排障副驾驶 `mode=incident` 零幻觉合约延续，物理锚点四元组见 ADR-0010，静态边界见 ADR-0011）。
 
 ## Naming
 
@@ -71,6 +71,7 @@
 | Pattern Ingestion（模式嗅探） | 演进建议生成前对目标代码库既有惯例的确定性抽取（ADR-0014：惯例清单带物理锚点 + 覆盖率；近邻优先、全局多数兜底、披露强制；骨架由 LLM 消费惯例清单生成并标注 llm-generated）；契约按 ADR-0005 零 LLM（嗅探轴 v1 清单待 Issue 24）。 |
 | Engine-rendered Diagram（引擎渲染图） | 图谱几何一律由确定性引擎从 Call Edge 边表渲染（ADR-0013 白名单：traceToMermaid、配置拓扑、Tour 路线）；LLM 仅产出结构化图层指令（图型、focus、折叠层级、节点注释），永不直接产出连线。迁移期缺口与 eval 波及见 ADR-0013。 |
 | Evolution Workbench（演进推演台） | 矩阵三视图中唯一新建视图（ADR-0015）：自由文本意图入口，LLM 单次意图解析 + 引擎意图锚点落地目标，解析回显披露不反问；产出四段工件卡（惯例清单 / 落位表 / 死代码清单 / 风险 Checklist）。 |
+| Workbench Cards（工件卡持久流） | workbench_cards 表按 (repoId, commit) 流落地演进/排查终态卡（seq 单调、UNIQUE 幂等、删仓级联清理）；SSE 终态载荷披露服务端 cardId/seq，`GET /api/repos/:id/workbench-cards` 全量回放，前端切桶 hydrate 按 id 去重合并。 |
 | Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。v1 MCP 感知面冻结为现有 8 工具，演进类工具随 Issue 25 补齐。 |
 
 ## Open Decisions

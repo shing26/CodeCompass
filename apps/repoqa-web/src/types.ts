@@ -214,7 +214,26 @@ export type QueryEvent =
   | { type: 'mermaid'; code: string }
   | { type: 'anchors'; anchors: Anchor[] }
   | { type: 'done'; payload?: Record<string, unknown> }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; cardId?: string; cardSeq?: number };
+
+/** Issue 25 / Ticket 03 — one persisted workbench card replayed by the
+ * hydrate endpoint (GET /api/repos/:id/workbench-cards). */
+export interface WorkbenchCardRow {
+  id: string;
+  seq: number;
+  kind: 'evolve' | 'incident';
+  intent: string | null;
+  target?: string;
+  status: 'done' | 'error';
+  /** evolve: the intent-echo object; incident: the raw pasted stack text. */
+  echo?: unknown;
+  /** evolve: ModuleEvolutionResult; incident: { answer, anchors, usage, ... }. */
+  result?: unknown;
+  mermaid: string | null;
+  conflict?: unknown;
+  error: string | null;
+  createdAt: string;
+}
 
 export interface ImportRepoInput {
   name: string;
@@ -518,12 +537,18 @@ export interface RepoQaEvolveDone {
   mermaid?: string;
   /** Physical commit the artifacts were minted against (ADR-0012). */
   commit?: string;
+  /** Issue 25 / Ticket 03 — persisted card id/seq (hydrate replay contract). */
+  cardId?: string;
+  cardSeq?: number;
 }
 
 /** SSE payload of repoqa.evolve.error. */
 export interface RepoQaEvolveError {
   error: string;
   conventionConflict?: ConventionConflictDetail;
+  /** Issue 25 / Ticket 03 — persisted error-card id/seq. */
+  cardId?: string;
+  cardSeq?: number;
 }
 
 /** Client-side mirror of one parsed evolve SSE frame. */

@@ -452,6 +452,9 @@ export interface RepoQaEvolveDone {
   mermaid?: string;
   /** Physical commit the artifacts were minted against (ADR-0012). */
   commit?: string;
+  /** Issue 25 / Ticket 03 — persisted card id/seq (hydrate replay contract). */
+  cardId?: string;
+  cardSeq?: number;
 }
 
 /** SSE payload of `repoqa.evolve.error`. */
@@ -459,6 +462,9 @@ export interface RepoQaEvolveError {
   error: string;
   /** Structured detail when a STRICT axis or bean cycle blocked the plan. */
   conventionConflict?: ConventionConflictDetail;
+  /** Issue 25 / Ticket 03 — persisted error-card id/seq. */
+  cardId?: string;
+  cardSeq?: number;
 }
 
 /* ------------------------------------------------------------------ */

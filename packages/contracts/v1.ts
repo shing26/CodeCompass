@@ -149,6 +149,9 @@ export interface RepoQaQueryDone {
   usage: RepoQaTokenUsage;
   /** ADR-0010 — commit the answer's anchors were minted against. */
   commit?: string;
+  /** Issue 25 / Ticket 03 — persisted incident-card id/seq. */
+  cardId?: string;
+  cardSeq?: number;
 }
 
 export interface RepoQaTokenUsage {

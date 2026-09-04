@@ -569,8 +569,24 @@ export function createHttpApp(deps: HttpDeps): express.Express {
           eventType: 'query.failure',
           failureClass: message
         });
+        // Issue 25 / Ticket 03: non-conflict failures of an incident
+        // investigation persist an error card (planned conflict outcomes
+        // carry their own card inside the worker and never get here).
+        let errorPayload: Record<string, unknown> = { error: message };
+        if (mode === 'incident') {
+          const card = deps.repoqa.saveWorkbenchCard({
+            repoId: repo.id,
+            commit: repo.commit ?? 'unversioned',
+            kind: 'incident',
+            intent: question,
+            ...(stack ? { echo: stack } : {}),
+            status: 'error',
+            error: message
+          });
+          errorPayload = { ...errorPayload, cardId: card.cardId, cardSeq: card.seq };
+        }
         res.write(
-          `event: repoqa.query.error\ndata: ${JSON.stringify({ error: message })}\n\n`
+          `event: repoqa.query.error\ndata: ${JSON.stringify(maskEventPayload(errorPayload))}\n\n`
         );
         res.end();
       }
@@ -634,14 +650,48 @@ export function createHttpApp(deps: HttpDeps): express.Express {
           eventType: 'query.failure',
           failureClass: message
         });
+        // Issue 25 / Ticket 03: persist the failed delivery (planned conflict
+        // outcomes carry their own card inside the worker and never get here).
+        const card = deps.repoqa.saveWorkbenchCard({
+          repoId: repo.id,
+          commit: repo.commit ?? 'unversioned',
+          kind: 'evolve',
+          intent,
+          ...(target ? { target } : {}),
+          status: 'error',
+          error: message
+        });
         res.write(
-          `event: repoqa.evolve.error\ndata: ${JSON.stringify({ error: message })}\n\n`
+          `event: repoqa.evolve.error\ndata: ${JSON.stringify(
+            maskEventPayload({ error: message, cardId: card.cardId, cardSeq: card.seq })
+          )}\n\n`
         );
         res.end();
       }
     }
   };
   app.post('/api/repos/:id/evolve', handleEvolve);
+
+  // Issue 25 / Ticket 03 — hydrate replay: the persisted artifact cards of
+  // one (repoId, commit) stream, seq ascending. No commit param = the
+  // repo's current physical stream (repo.commit ?? 'unversioned'); payloads
+  // pass the masking middleware like every other read surface.
+  app.get('/api/repos/:id/workbench-cards', (req, res) => {
+    const repo = deps.repoqa.getRepo(req.params.id);
+    if (!repo) {
+      res.status(404).json({ error: 'Repo not found' });
+      return;
+    }
+    const commitParam =
+      typeof req.query.commit === 'string' && req.query.commit.trim()
+        ? req.query.commit.trim()
+        : undefined;
+    const commit = commitParam ?? repo.commit ?? 'unversioned';
+    const cards = deps.repoqa
+      .listWorkbenchCards(repo.id, commit)
+      .map((card) => maskEventPayload(card));
+    res.json({ repoId: repo.id, commit, cards });
+  });
 
   app.post('/api/repos/:id/anchor-click', (req, res) => {
     const repo = deps.repoqa.getRepo(req.params.id);

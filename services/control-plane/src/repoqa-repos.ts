@@ -30,6 +30,25 @@ export interface Repo {
 }
 
 /**
+ * Issue 25 / Ticket 03 — one persisted workbench artifact card as replayed to
+ * the frontend. `echo`/`result`/`conflict` are the parsed JSON columns
+ * (undefined when absent); `stack` for incident cards rides `echo` as a string.
+ */
+export interface WorkbenchCardRow {
+  id: string;
+  seq: number;
+  kind: 'evolve' | 'incident';
+  intent: string | null;
+  target?: string;
+  status: 'done' | 'error';
+  echo?: unknown;
+  result?: unknown;
+  mermaid: string | null;
+  conflict?: unknown;
+  error: string | null;
+  createdAt: string;
+}
+/**
  * Issue 23 / ADR-0010 — resolve the physical commit of a repo working tree.
  * `hash` when clean, `hash+dirty` when uncommitted changes exist,
  * `unversioned` outside a git work tree or when git is unavailable.
@@ -423,6 +442,9 @@ export class RepoQARepos {
   deleteRepo(repoId: string): void {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM repoqa_events WHERE repo_id = ?').run(repoId);
+      // Issue 25 / Ticket 03: artifact cards die with the repo (HTTP DELETE and
+      // MCP codecompass_remove_repo both funnel through this transaction).
+      this.db.prepare('DELETE FROM workbench_cards WHERE repo_id = ?').run(repoId);
       this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
       this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?').run(repoId);
       this.db.prepare('DELETE FROM repo_files WHERE repo_id = ?').run(repoId);
@@ -522,6 +544,106 @@ export class RepoQARepos {
       );
   }
 
+  /** Max seq for one (repoId, commit) stream; 0 when empty (seq starts at 1). */
+  private maxWorkbenchSeq(repoId: string, commit: string): number {
+    const row = this.db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) AS maxSeq FROM workbench_cards WHERE repo_id = ? AND commit_hash = ?'
+      )
+      .get(repoId, commit) as { maxSeq: number };
+    // Defensive against a stray 0-row: allocation never reissues seq 0.
+    return Math.max(row.maxSeq, 0);
+  }
+
+  /**
+   * Issue 25 / Ticket 03 — persist one terminal artifact card. Idempotent per
+   * (repo_id, commit_hash, seq): an explicit `seq` (tests / deliberate replay)
+   * replaces the existing row; the production path allocates MAX(seq)+1.
+   * JSON-bearing fields are already masked by the caller (maskEventPayload).
+   */
+  saveWorkbenchCard(input: {
+    repoId: string;
+    commit: string;
+    kind: 'evolve' | 'incident';
+    intent?: string;
+    target?: string;
+    status: 'done' | 'error';
+    echo?: unknown;
+    result?: unknown;
+    mermaid?: string;
+    conflict?: unknown;
+    error?: string;
+    /** Explicit seq for idempotency tests; omitted = MAX(seq)+1. */
+    seq?: number;
+  }): { cardId: string; seq: number } {
+    const seq = input.seq ?? this.maxWorkbenchSeq(input.repoId, input.commit) + 1;
+    const info = this.db
+      .prepare(
+        `INSERT OR REPLACE INTO workbench_cards (repo_id, commit_hash, seq, kind, intent, target, status, echo_json, result_json, mermaid, conflict_json, error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.repoId,
+        input.commit,
+        seq,
+        input.kind,
+        input.intent ?? null,
+        input.target ?? null,
+        input.status,
+        input.echo === undefined || input.echo === null ? null : JSON.stringify(input.echo),
+        input.result === undefined || input.result === null ? null : JSON.stringify(input.result),
+        input.mermaid ?? null,
+        input.conflict === undefined || input.conflict === null ? null : JSON.stringify(input.conflict),
+        input.error ?? null,
+        new Date().toISOString()
+      );
+    const row = this.db
+      .prepare('SELECT id, seq FROM workbench_cards WHERE rowid = ?')
+      .get(info.lastInsertRowid) as { id: number; seq: number } | undefined;
+    return { cardId: String(row?.id ?? info.lastInsertRowid), seq: row?.seq ?? seq };
+  }
+
+  /**
+   * Issue 25 / Ticket 03 — hydrate replay: all cards of one (repoId, commit)
+   * stream in delivery order (seq ASC). No commit = the repo's current
+   * physical stream (`repo.commit ?? 'unversioned'`). Unknown repo → [].
+   */
+  listWorkbenchCards(repoId: string, commit?: string): WorkbenchCardRow[] {
+    const resolved =
+      commit ?? this.getRepo(repoId)?.commit ?? 'unversioned';
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM workbench_cards WHERE repo_id = ? AND commit_hash = ? ORDER BY seq ASC'
+      )
+      .all(repoId, resolved) as any[];
+    const parseJson = (value: unknown): unknown => {
+      if (typeof value !== 'string') return undefined;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return undefined;
+      }
+    };
+    return rows.map((row) => {
+      const echo = parseJson(row.echo_json);
+      const result = parseJson(row.result_json);
+      const conflict = parseJson(row.conflict_json);
+      return {
+        id: String(row.id),
+        seq: row.seq,
+        kind: row.kind,
+        intent: row.intent,
+        ...(row.target ? { target: row.target } : {}),
+        status: row.status,
+        ...(echo !== undefined && echo !== null ? { echo } : {}),
+        ...(result !== undefined && result !== null ? { result } : {}),
+        mermaid: row.mermaid ?? null,
+        ...(conflict !== undefined && conflict !== null ? { conflict } : {}),
+        error: row.error ?? null,
+        createdAt: row.created_at
+      };
+    });
+  }
   listEvents(filters: EventFilters = {}): { events: RepoQAEvent[]; total: number } {
     const where: string[] = [];
     const params: any[] = [];

@@ -137,6 +137,31 @@ CREATE TABLE IF NOT EXISTS repoqa_events (
 );
 CREATE INDEX IF NOT EXISTS idx_repoqa_events_repo ON repoqa_events(repo_id);
 CREATE INDEX IF NOT EXISTS idx_repoqa_events_type ON repoqa_events(event_type);
+
+-- Issue 25 / Ticket 03: server-side persistence for the workbench artifact
+-- stream. One row per terminal artifact card, keyed (repo_id, commit_hash, seq)
+-- so hydrate replay is deterministic and duplicate terminal events are
+-- idempotent (INSERT OR REPLACE). The column is commit_hash, not commit:
+-- commit is a SQLite reserved word (see the repos.repo_commit note above).
+CREATE TABLE IF NOT EXISTS workbench_cards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo_id TEXT NOT NULL,
+  commit_hash TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('evolve','incident')),
+  intent TEXT,
+  target TEXT,
+  status TEXT NOT NULL CHECK (status IN ('done','error')),
+  echo_json TEXT,
+  result_json TEXT,
+  mermaid TEXT,
+  conflict_json TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (repo_id, commit_hash, seq) ON CONFLICT REPLACE
+);
+CREATE INDEX IF NOT EXISTS idx_workbench_cards_query
+  ON workbench_cards(repo_id, commit_hash, seq ASC);
 `;
 
 function backupTimestamp(): string {

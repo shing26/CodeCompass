@@ -15,7 +15,8 @@ import type {
   ReverseDepsResult,
   RuntimeInfo,
   SubgraphContextResult,
-  SymbolKind
+  SymbolKind,
+  WorkbenchCardRow
 } from '../types';
 
 /**
@@ -238,6 +239,26 @@ export class RepoQAClient {
     return body.dashboard ?? null;
   }
 
+  /**
+   * Issue 25 / Ticket 03 — hydrate replay of one (repoId, commit) artifact
+   * stream in delivery order. No commit param = the repo's current physical
+   * stream (the backend resolves repo.commit ?? 'unversioned'). 404 (unknown
+   * repo) answers null like getDashboard; the hook treats it as an empty
+   * replay and keeps its in-memory bucket.
+   */
+  async getWorkbenchCards(repoId: string, commit?: string): Promise<WorkbenchCardRow[] | null> {
+    const params = commit ? `?commit=${encodeURIComponent(commit)}` : '';
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/workbench-cards${params}`
+    );
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`getWorkbenchCards failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { cards?: WorkbenchCardRow[] };
+    return body.cards ?? [];
+  }
+
   /** v0.11 — Cmd+K symbol radar: deterministic domain-radar anchors. */
   async radar(repoId: string, query: string): Promise<DomainRadarResult> {
     const res = await this.fetcher(
@@ -427,8 +448,19 @@ export class QueryStream implements QueryStreamLike {
     });
     source.addEventListener('repoqa.query.error', (e) => {
       try {
-        const payload = JSON.parse(this.data(e)) as { error?: string };
-        this.emit({ type: 'error', error: payload.error ?? 'query failed' });
+        // Issue 25 / Ticket 03 — the error payload carries the persisted
+        // card id/seq; forward both so the hook can adopt the server id.
+        const payload = JSON.parse(this.data(e)) as {
+          error?: string;
+          cardId?: string;
+          cardSeq?: number;
+        };
+        this.emit({
+          type: 'error',
+          error: payload.error ?? 'query failed',
+          ...(payload.cardId !== undefined ? { cardId: payload.cardId } : {}),
+          ...(payload.cardSeq !== undefined ? { cardSeq: payload.cardSeq } : {})
+        });
       } catch {
         this.emit({ type: 'error', error: this.data(e) });
       }
