@@ -1019,7 +1019,8 @@ def check_mcp_composite_tools(
     record(
         "v0.20 codecompass_scan returns four candidate buckets over MCP",
         '"buckets"' in scan_text and '"orphanedPublic"' in scan_text
-        and '"hubs"' in scan_text and '"deepChains"' in scan_text,
+        and '"hubs"' in scan_text and '"deepChains"' in scan_text
+        and '"oversizedFiles"' in scan_text,
         f"len={len(scan_text)}",
     )
 

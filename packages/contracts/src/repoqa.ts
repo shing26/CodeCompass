@@ -484,7 +484,7 @@ export interface ScanCandidate {
 }
 
 export interface ScanBucket {
-  id: 'orphanedPublic' | 'hubs' | 'oversized' | 'deepChains';
+  id: 'orphanedPublic' | 'hubs' | 'oversized' | 'deepChains' | 'oversizedFiles';
   title: string;
   /** Why-this-bucket guidance: the deterministic next tool to run. */
   nextAction: string;

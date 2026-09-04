@@ -74,7 +74,8 @@ describe('runScan', () => {
       'orphanedPublic',
       'hubs',
       'oversized',
-      'deepChains'
+      'deepChains',
+      'oversizedFiles'
     ]);
     for (const bucket of result.buckets) {
       expect(bucket.nextAction).toContain('codecompass_');
@@ -136,6 +137,37 @@ describe('runScan', () => {
     const top = chains.items[0];
     expect(top.kind).toBe('route');
     expect(top.detail).toMatch(/chain depth \d+: .+ → .+/);
+  });
+
+  it('aggregates many medium methods into a file-level debt candidate', () => {
+    // Three 200-line methods in one file: none crosses the method threshold
+    // (that is the blind spot codex hit), but the file span is 600 lines.
+    const piled = [1, 2, 3].map((part) =>
+      symbol({
+        kind: 'method',
+        name: `mediumMethod${part}`,
+        parentType: 'Db',
+        filePath: 'src/db.py',
+        lineStart: part * 210,
+        lineEnd: part * 210 + 209
+      })
+    );
+    const result = runScan({
+      ...BASE,
+      symbols: [...SYMBOLS, ...piled],
+      baseUrl: 'http://localhost:43110'
+    });
+    const files = result.buckets[4];
+    expect(files.id).toBe('oversizedFiles');
+    expect(files.total).toBe(1);
+    expect(files.items[0]).toMatchObject({
+      symbol: 'db.py',
+      kind: 'file',
+      filePath: 'src/db.py',
+      detail: expect.stringContaining('629 lines across 3 indexed symbols')
+    });
+    // Next action pushes the agent back to reading code with evidence.
+    expect(files.nextAction).toContain('codecompass_reverse_deps');
   });
 
   it('is byte-for-byte deterministic across runs', () => {

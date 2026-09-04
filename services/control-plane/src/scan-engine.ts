@@ -23,6 +23,9 @@ export const SCAN_TOP_LIMIT = 10;
 /** A method spanning ≥150 lines is a deterministic complexity proxy. */
 export const OVERSIZED_METHOD_LINES = 150;
 
+/** A file whose symbol-covered span reaches ≥600 lines is a debt hotspot. */
+export const OVERSIZED_FILE_LINES = 600;
+
 interface ScanInput {
   repoId: string;
   repoName: string;
@@ -163,6 +166,44 @@ export function runScan(input: ScanInput): ScanResult {
     detail: `chain depth ${entry.depth}: ${entry.hops.join(' → ')}`
   }));
 
+  /* Bucket 5 — oversized files: per-file span of the indexed symbols.
+     Aggregating symbol spans per file surfaces "many medium methods piled
+     into one big file" — the debt a method-level bucket cannot see. The
+     span is the index's own byproduct, a pure fact about size. */
+  const fileSpans = new Map<string, { start: number; end: number; symbolCount: number }>();
+  for (const symbol of symbols) {
+    if (!symbol.lineStart || isTestPath(symbol.filePath)) continue;
+    const span = fileSpans.get(symbol.filePath);
+    if (!span) {
+      fileSpans.set(symbol.filePath, {
+        start: symbol.lineStart,
+        end: symbol.lineEnd ?? symbol.lineStart,
+        symbolCount: 1
+      });
+      continue;
+    }
+    span.start = Math.min(span.start, symbol.lineStart);
+    span.end = Math.max(span.end, symbol.lineEnd ?? symbol.lineStart);
+    span.symbolCount += 1;
+  }
+  const oversizedFileItems: ScanCandidate[] = [...fileSpans.entries()]
+    .map(([filePath, span]) => ({
+      filePath,
+      span,
+      size: span.end - span.start
+    }))
+    .filter((entry) => entry.size >= OVERSIZED_FILE_LINES)
+    .sort((a, b) => b.size - a.size || (a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0))
+    .slice(0, SCAN_TOP_LIMIT)
+    .map((entry) => ({
+      symbol: entry.filePath.split('/').pop() ?? entry.filePath,
+      kind: 'file',
+      filePath: entry.filePath,
+      line: entry.span.start,
+      lineEnd: entry.span.end,
+      detail: `${entry.size} lines across ${entry.span.symbolCount} indexed symbols`
+    }));
+
   return {
     schemaVersion: 1,
     repoId,
@@ -197,6 +238,13 @@ export function runScan(input: ScanInput): ScanResult {
         deepChainItems,
         deepChainTotal,
         'Run codecompass_diagnose on an entry to see the layered chain.'
+      ),
+      bucket(
+        'oversizedFiles',
+        `Oversized files (≥${OVERSIZED_FILE_LINES} lines of indexed span)`,
+        oversizedFileItems,
+        oversizedFileItems.length,
+        'Read the file and assess cohesion — split or extract only with evidence from codecompass_reverse_deps.'
       )
     ],
     cockpitDeepLink: cockpitLink(baseUrl, repoId, repoName, '')

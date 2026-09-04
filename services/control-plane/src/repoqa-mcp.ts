@@ -48,7 +48,7 @@ import {
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.20.0';
+export const MCP_SERVER_VERSION = '0.21.0';
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */
@@ -144,7 +144,8 @@ export const MCP_TOOLS: McpToolMeta[] = [
     name: 'codecompass_get_dashboard',
     description:
       'Aggregate the repo cockpit: tech stack / dependency categories, config key topology (never values), ' +
-      'scale counts (routes, services, methods…) and top @RestController call chains.',
+      'scale counts (routes, services, methods…) and top @RestController call chains. One call replaces ' +
+      'walking the tree yourself — spend the saved context on reading the files that matter.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -357,12 +358,14 @@ export const MCP_TOOLS: McpToolMeta[] = [
     name: 'codecompass_scan',
     description:
       'Candidate Scan — proactive "what should I touch in this repo?" (deterministic, ' +
-      'zero-LLM). Returns four buckets with file:line anchors: orphanedPublic (zero ' +
+      'zero-LLM). Returns five buckets with file:line anchors: orphanedPublic (zero ' +
       'static callers — verify reflectively-invoked code first), hubs (highest ' +
       'PageRank, run refactor_plan before touching), oversized (methods ≥150 lines), ' +
-      'deepChains (longest entry flows — run diagnose on them). Each bucket carries ' +
-      'the deterministic next tool to run. Use this when you know a repo is indexed ' +
-      'but do not know where to start.',
+      'deepChains (longest entry flows — run diagnose on them), oversizedFiles ' +
+      '(file-level debt hotspots). Each bucket carries the deterministic next tool ' +
+      'to run. Use this when you know a repo is indexed but do not know where to ' +
+      'start — one call replaces reading dozens of files just to locate the ' +
+      'interesting ones, saving your context window for the files that matter.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.21.0] - 2026-09-05
+
+### Highlights
+
+- **codex 真实使用反馈闭环**：codex（Python+React 仓库 dogfooding）靠逐文件阅读才发现的文件级技术债（"db.py 47 KB 是技术债"），scan 现在直接给出——新增第五桶 `oversizedFiles`（索引符号覆盖跨度 ≥600 行的文件，top-10 + 全量 total + 跨度/符号数 detail）。它专补方法级桶的盲区："很多中等方法堆成的大文件"。
+- **定位显性化**：README 新增"给 agent 的确定性检索层"定位声明（精确检索工具而非理解工具、上下文经济性、大仓库优先）；scan/dashboard 工具 description 补上下文经济性引导；CONTEXT.md Candidate Scan 词条更新五桶 + 定位红线（scan 只报事实，判断属 agent）。
+
+### Added
+
+- `scan-engine.ts`：`oversizedFiles` 桶——按文件聚合索引符号的行跨度（纯索引副产品，零额外 I/O），`OVERSIZED_FILE_LINES = 600` 阈值导出；契约 `ScanBucket.id` 联合类型扩展。
+- 测试：方法级盲区用例（3 个 210 行方法堆出 630 行文件，方法桶零命中、文件桶命中）；e2e gate scan 冒烟扩五桶断言。
+
+### Notes
+
+- grilling 三问：定位=守检索（用户作答）；文件桶与定位叙事未获作答按推荐默认执行并记录（v0.6 先例）。
+
 ## [0.20.0] - 2026-09-04
 
 ### Highlights

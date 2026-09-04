@@ -758,7 +758,8 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'orphanedPublic',
         'hubs',
         'oversized',
-        'deepChains'
+        'deepChains',
+        'oversizedFiles'
       ]);
       for (const bucket of body.buckets) {
         expect(bucket.nextAction).toContain('codecompass_');
