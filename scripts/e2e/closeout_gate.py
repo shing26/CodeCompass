@@ -76,7 +76,20 @@ def _tail(proc: subprocess.CompletedProcess, limit: int = 200) -> str:
 # ---------------------------------------------------------------- HTTP utils
 
 
+def _assert_loopback(url: str) -> None:
+    """Fail closed unless the request targets the gate's own local server.
+
+    Every urlopen in this gate talks to a control-plane the gate itself
+    spawned on the loopback interface; making that explicit keeps the
+    SSRF surface structurally empty even if a check later passes a
+    malformed URL."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise AssertionError(f"e2e gate must only talk to loopback, got: {url}")
+
+
 def http_json(method: str, url: str, payload: dict | None = None, timeout: float = 30.0):
+    _assert_loopback(url)
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(url, data=data, method=method)
     if data is not None:
@@ -512,6 +525,7 @@ def check_sse_query(base: str, repo_id: str) -> None:
     saw_mermaid = saw_anchors = mermaid_has_graph = False
     try:
         req = urllib.request.Request(f"{base}/api/repos/{repo_id}/query?{params}")
+        _assert_loopback(f"{base}/api/repos/{repo_id}/query?{params}")
         with urllib.request.urlopen(req, timeout=30) as res:
             event = None
             for raw in res:
@@ -551,6 +565,7 @@ def check_incident_sse_query(base: str, repo_id: str) -> None:
     done_payload: dict | None = None
     try:
         req = urllib.request.Request(f"{base}/api/repos/{repo_id}/query?{params}")
+        _assert_loopback(f"{base}/api/repos/{repo_id}/query?{params}")
         with urllib.request.urlopen(req, timeout=60) as res:
             event = None
             data = ""
@@ -1017,7 +1032,7 @@ def check_mcp_composite_tools(
     for item in scan_responses.get(2, {}).get("result", {}).get("content", []):
         scan_text += item.get("text", "")
     record(
-        "v0.20 codecompass_scan returns four candidate buckets over MCP",
+        "v0.21 codecompass_scan returns five candidate buckets over MCP",
         '"buckets"' in scan_text and '"orphanedPublic"' in scan_text
         and '"hubs"' in scan_text and '"deepChains"' in scan_text
         and '"oversizedFiles"' in scan_text,
@@ -1382,6 +1397,7 @@ def _post_evolve_frames(base: str, repo_id: str, payload: dict) -> list[dict]:
         method="POST",
     )
     req.add_header("content-type", "application/json")
+    _assert_loopback(f"{base}/api/repos/{repo_id}/evolve")
     frames: list[dict] = []
     with urllib.request.urlopen(req, timeout=120) as res:
         event = None
