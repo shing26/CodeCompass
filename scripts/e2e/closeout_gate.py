@@ -845,15 +845,6 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
                 "arguments": {"localPath": str(repo_path)},
             },
         },
-        {
-            "jsonrpc": "2.0",
-            "id": 8,
-            "method": "tools/call",
-            "params": {
-                "name": "codecompass_scan",
-                "arguments": {"repoId": "demo-polyglot"},
-            },
-        },
     ]
     responses = _mcp_roundtrip(node, cli, repo_path, data_dir, requests)
 
@@ -981,15 +972,41 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
                 f"repoId={index_repo_id}",
             )
 
+    # v0.20: scan runs on a fresh roundtrip AFTER the index has settled —
+    # calling it inside the main roundtrip would race the id=7 indexing flip.
+    scan_responses = _mcp_roundtrip(
+        node,
+        cli,
+        repo_path,
+        data_dir,
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "gate", "version": "0.0.0"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                "name": "codecompass_scan",
+                "arguments": {"repoId": "demo-polyglot"},
+            }},
+        ],
+    )
     scan_text = ""
-    for item in responses.get(8, {}).get("result", {}).get("content", []):
+    for item in scan_responses.get(2, {}).get("result", {}).get("content", []):
         scan_text += item.get("text", "")
     record(
-        "v0.19 codecompass_scan returns four candidate buckets over MCP",
+        "v0.20 codecompass_scan returns four candidate buckets over MCP",
         '"buckets"' in scan_text and '"orphanedPublic"' in scan_text
         and '"hubs"' in scan_text and '"deepChains"' in scan_text,
         f"len={len(scan_text)}",
     )
+
 
 
 def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path) -> None:

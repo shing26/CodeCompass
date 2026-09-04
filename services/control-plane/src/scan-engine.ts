@@ -8,7 +8,7 @@ import type { SymbolIndex } from './repoqa-callchain';
 import { symbolIdentity } from './repoqa-callchain';
 import { buildRadarGraph, computePageRank } from './domain-radar-engine';
 import { pickTopApis } from './repoqa-dashboard';
-import { isTestPath } from './diagnose-engine';
+import { cockpitLink, isTestPath } from './diagnose-engine';
 
 /**
  * Candidate Scan (v0.19.0) — proactive "what should I touch in this repo?"
@@ -101,7 +101,7 @@ export function runScan(input: ScanInput): ScanResult {
   orphanItems.sort(byLocation);
 
   /* Bucket 2 — hubs: PageRank top; the blast-radius heavyweights. */
-  const hubItems: ScanCandidate[] = [...graph.symbolsById.keys()]
+  const hubRanked = [...graph.symbolsById.keys()]
     .map((id) => {
       const symbol = graph.symbolsById.get(id)!;
       const rankValue = rank.get(id) ?? 0;
@@ -110,9 +110,11 @@ export function runScan(input: ScanInput): ScanResult {
     .sort(
       (a, b) =>
         b.rankValue - a.rankValue ||
-        a.symbol.filePath.localeCompare(b.symbol.filePath) ||
+        (a.symbol.filePath < b.symbol.filePath ? -1 : a.symbol.filePath > b.symbol.filePath ? 1 : 0) ||
         (a.symbol.lineStart ?? 0) - (b.symbol.lineStart ?? 0)
-    )
+    );
+  const hubTotal = hubRanked.length;
+  const hubItems: ScanCandidate[] = hubRanked
     .slice(0, SCAN_TOP_LIMIT)
     .map(({ symbol, rankValue }) => {
       const id = symbolIdentity(symbol);
@@ -135,7 +137,7 @@ export function runScan(input: ScanInput): ScanResult {
     .sort(
       (a, b) =>
         b.lineEnd! - b.lineStart! - (a.lineEnd! - a.lineStart!) ||
-        a.filePath.localeCompare(b.filePath) ||
+        (a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0) ||
         a.lineStart! - b.lineStart!
     )
     .slice(0, SCAN_TOP_LIMIT)
@@ -147,8 +149,12 @@ export function runScan(input: ScanInput): ScanResult {
       )
     );
 
-  /* Bucket 4 — deep call chains: longest statically-resolvable entry flows. */
-  const deepChains = pickTopApis(symbols, 6, SCAN_TOP_LIMIT);
+  /* Bucket 4 — deep call chains: longest statically-resolvable entry flows.
+     maxDepth 6 mirrors pickTopApis' cockpit default; the total needs an
+     uncapped pass so it reports every entry chain, not just the top N. */
+  const DEEP_CHAIN_MAX_DEPTH = 6;
+  const deepChains = pickTopApis(symbols, DEEP_CHAIN_MAX_DEPTH, SCAN_TOP_LIMIT);
+  const deepChainTotal = pickTopApis(symbols, DEEP_CHAIN_MAX_DEPTH, 100).length;
   const deepChainItems: ScanCandidate[] = deepChains.map((entry) => ({
     symbol: entry.controller ? `${entry.controller}.${entry.name}` : entry.name,
     kind: 'route',
@@ -174,7 +180,7 @@ export function runScan(input: ScanInput): ScanResult {
         'hubs',
         'Change-impact hubs (highest PageRank)',
         hubItems,
-        hubItems.length,
+        hubTotal,
         'Run codecompass_refactor_plan on any of these before touching them.'
       ),
       bucket(
@@ -189,10 +195,10 @@ export function runScan(input: ScanInput): ScanResult {
         'deepChains',
         'Deep call chains (longest entry flows)',
         deepChainItems,
-        deepChainItems.length,
+        deepChainTotal,
         'Run codecompass_diagnose on an entry to see the layered chain.'
       )
     ],
-    cockpitDeepLink: `${baseUrl.replace(/\/+$/, '')}/?repo=${encodeURIComponent(repoId)}&focus=${encodeURIComponent(repoName)}`
+    cockpitDeepLink: cockpitLink(baseUrl, repoId, repoName, '')
   };
 }

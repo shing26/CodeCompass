@@ -462,7 +462,7 @@ export interface RepoQaEvolveError {
 }
 
 /* ------------------------------------------------------------------ */
-/* v0.19.0 — Candidate Scan (proactive "what should I touch" engine)    */
+/* v0.20.0 — Candidate Scan (proactive "what should I touch" engine)    */
 /* ------------------------------------------------------------------ */
 
 export interface ScanCandidate {

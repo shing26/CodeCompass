@@ -766,7 +766,7 @@ export function mcpRemoveRepo(deps: McpDeps, args: McpToolHandlerArgs): Record<s
   return { removed: true, repoId: repo.id, name: repo.name };
 }
 
-/** v0.19.0 — Candidate Scan: proactive "where should I start" buckets. */
+/** v0.20.0 — Candidate Scan: proactive "where should I start" buckets. */
 export function mcpScan(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
