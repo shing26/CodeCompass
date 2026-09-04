@@ -25,6 +25,11 @@ v0.5.1/v0.6.0 claim:
   14. v0.16 incident copilot smoke: a pasted stack trace (mode=incident)
       streams a grounded answer (VERIFIED/BREAK markers) whose done payload
       carries provenance + the ADR-0010 pinned commit on anchors
+  15. v0.19 evolution workbench: POST /evolve streams the five pipeline
+      stages in order and a done payload with the four artifact cards
+      (intentEcho / checklists / commit / optional engine mermaid)
+  16. v0.19 convention conflict: a bare-return intent against a STRICT
+      wrapped-return repo streams a structured conventionConflict error
 
 Usage:
   python scripts/e2e/closeout_gate.py [--cli node services/control-plane/dist/cli.js]
@@ -337,6 +342,42 @@ def build_go_repo(root: Path) -> Path:
     repo = root / "demo-go"
     write(repo / "main.go", GO_MAIN)
     write(repo / "go.mod", GO_MOD)
+    return repo
+
+
+def build_conflict_repo(root: Path) -> Path:
+    """Issue 24 / Ticket 06: a wrapped-return STRICT-axis repo (5/5 route
+    methods return ApiResult) over a field-injection backdrop (4 services).
+    An EXTEND intent asking for bare returns on OrderController must collide
+    into a structured conventionConflict error instead of crashing."""
+    repo = root / "demo-conflict"
+    pkg = repo / "src/main/java/com/demo/order"
+    write(repo / "pom.xml", "<project/>\n")
+    for index in range(4):
+        write(
+            pkg / ("FieldService" + str(index) + ".java"),
+            "package com.demo.order;\n"
+            + "public class FieldService" + str(index) + " {\n"
+            + "  @Autowired\n"
+            + "  private OrderRepository orderRepository;\n"
+            + "  public String doWork" + str(index) + "() {\n"
+            + "    return \"v" + str(index) + "\";\n"
+            + "  }\n"
+            + "}\n",
+        )
+    write(pkg / "OrderRepository.java", "package com.demo.order;\npublic class OrderRepository {}\n")
+    write(
+        pkg / "OrderController.java",
+        "package com.demo.order;\n"
+        + "@RestController\n"
+        + "public class OrderController {\n"
+        + "  public ApiResult<String> list() { return ApiResult.ok(); }\n"
+        + "  public ApiResult<String> get() { return ApiResult.ok(); }\n"
+        + "  public ApiResult<String> create() { return ApiResult.ok(); }\n"
+        + "  public ApiResult<String> update() { return ApiResult.ok(); }\n"
+        + "  public ApiResult<String> delete() { return ApiResult.ok(); }\n"
+        + "}\n",
+    )
     return repo
 
 
@@ -812,10 +853,11 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         for tool in responses.get(2, {}).get("result", {}).get("tools", [])
     ]
     record(
-        "v0.8 MCP tools/list exposes the composite tools (13 total since v0.17)",
+        "v0.8 MCP tools/list exposes the composite tools (14 total since v0.18)",
         "codecompass_diagnose" in names and "codecompass_refactor_plan" in names
         and "codecompass_domain_radar" in names and "codecompass_module_evolution" in names
-        and "codecompass_index_repo" in names and len(names) >= 13,
+        and "codecompass_index_repo" in names and "codecompass_remove_repo" in names
+        and len(names) == 14,
         f"tools={len(names)}",
     )
 
@@ -1106,6 +1148,121 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
 
 
 
+def _post_evolve_frames(base: str, repo_id: str, payload: dict) -> list[dict]:
+    """POST /api/repos/:id/evolve and collect SSE frames as {event, data}."""
+    req = urllib.request.Request(
+        f"{base}/api/repos/{repo_id}/evolve",
+        data=json.dumps(payload).encode(),
+        method="POST",
+    )
+    req.add_header("content-type", "application/json")
+    frames: list[dict] = []
+    with urllib.request.urlopen(req, timeout=120) as res:
+        event = None
+        for raw in res:
+            line = raw.decode("utf-8", "replace").rstrip("\r\n")
+            if line.startswith("event:"):
+                event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and event:
+                try:
+                    data = json.loads(line.split(":", 1)[1].strip())
+                except json.JSONDecodeError:
+                    data = {}
+                frames.append({"event": event, "data": data})
+                event = None
+    return frames
+
+
+def check_evolve_workbench_sse(base: str, repo_id: str) -> None:
+    """Issue 24 / Ticket 06: the evolution workbench streams the five-stage
+    pipeline in order and a done payload carrying the four artifact cards
+    (intentEcho, result.checklists, commit, optional engine mermaid)."""
+    try:
+        frames = _post_evolve_frames(
+            base, repo_id,
+            {"intent": "给 OwnerService 加 Excel 导出", "target": "OwnerService"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        record("evolve workbench SSE: five stages in pipeline order", False, str(exc))
+        record("evolve workbench done payload carries the four artifact cards", False, "stream failed")
+        return
+    stage_seq = [
+        f"{frame['data']['stage']}:{frame['data']['status']}"
+        for frame in frames
+        if frame["event"] == "repoqa.evolve.stage"
+        and isinstance(frame["data"], dict)
+        and "stage" in frame["data"] and "status" in frame["data"]
+    ]
+    expected = [
+        "intent_parse:running", "intent_parse:done",
+        "target_resolve:running", "target_resolve:done",
+        "convention_scan:running", "pipeline:running",
+        "convention_scan:done", "pipeline:done",
+        "diagram:running", "diagram:done",
+    ]
+    errors = [frame["data"] for frame in frames if frame["event"] == "repoqa.evolve.error"]
+    ok = stage_seq == expected and not errors
+    record(
+        "evolve workbench SSE: five stages in pipeline order",
+        ok,
+        f"stages={stage_seq}" if stage_seq != expected else "stages=10/10 in order",
+    )
+
+    done = next((frame for frame in frames if frame["event"] == "repoqa.evolve.done"), None)
+    payload = done["data"] if isinstance(done, dict) else None
+    artifacts_ok = False
+    detail = "no done payload"
+    if isinstance(payload, dict):
+        echo = payload.get("intentEcho")
+        result = payload.get("result")
+        mermaid = payload.get("mermaid")
+        commit = payload.get("commit")
+        checklists = result.get("checklists") if isinstance(result, dict) else None
+        blast = result.get("blastRadius") if isinstance(result, dict) else None
+        artifacts_ok = (
+            isinstance(echo, dict) and bool(echo.get("intentType"))
+            and isinstance(checklists, list)
+            and isinstance((blast or {}).get("orphanedSymbols"), list)
+            and bool(commit)
+            and (mermaid is None or isinstance(mermaid, str))
+        )
+        detail = (
+            f"intentType={echo.get('intentType') if isinstance(echo, dict) else '-'} "
+            f"checklists={len(checklists) if isinstance(checklists, list) else '-'} "
+            f"commit={str(commit)[:7]} mermaid={'yes' if isinstance(mermaid, str) else 'absent'}"
+        )
+    record(
+        "evolve workbench done payload carries the four artifact cards",
+        artifacts_ok,
+        detail,
+    )
+
+
+def check_evolve_convention_conflict(base: str, repo_id: str) -> None:
+    """Issue 24 / Ticket 06: a bare-return EXTEND intent against a
+    wrapped-return STRICT-axis repo streams a structured conventionConflict
+    error — a planned outcome, not a crash."""
+    try:
+        frames = _post_evolve_frames(
+            base, repo_id,
+            {"intent": "给 OrderController 加裸返回", "target": "OrderController.list"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        record("evolve convention conflict streams a structured error", False, str(exc))
+        return
+    axis = ""
+    for frame in frames:
+        if frame["event"] == "repoqa.evolve.error" and isinstance(frame["data"], dict):
+            conflict = frame["data"].get("conventionConflict")
+            if isinstance(conflict, dict) and isinstance(conflict.get("axis"), str):
+                axis = conflict["axis"]
+    record(
+        "evolve convention conflict streams a structured error",
+        bool(axis),
+        f"axis={axis or '<missing>'}",
+    )
+
+
 def check_eval_smoke(node: str, cwd: Path) -> None:
     """v0.13: the golden eval must run end-to-end and pass every threshold."""
     tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
@@ -1117,20 +1274,32 @@ def check_eval_smoke(node: str, cwd: Path) -> None:
     try:
         report = json.loads(run.stdout)
         buckets = report.get("buckets", {})
-        incident = buckets.get("incident", {})
+        zero_hallucination = ("incident", "evolve-intent", "convention")
         ok = (
             run.returncode == 0
             and report.get("passed") is True
-            and report.get("totalQuestions", 0) >= 75
+            and report.get("totalQuestions", 0) >= 97
             and all(bucket["recallAtK"] >= 85 for bucket in buckets.values())
-            and incident.get("hallucinationRate", 0.0) == 0.0
+            and all(
+                buckets[name].get("hallucinationRate", 0.0) == 0.0
+                for name in zero_hallucination
+                if name in buckets
+            )
         )
         detail = " ".join(
             f"{name}={bucket['recallAtK']:.0f}%" for name, bucket in buckets.items()
-        ) + (f" incident_hallucination={incident.get('hallucinationRate', 0.0):.1%}" if incident else "")
+        ) + " " + " ".join(
+            f"{name}_hallucination={buckets[name].get('hallucinationRate', 0.0):.1%}"
+            for name in zero_hallucination
+            if name in buckets
+        )
     except Exception as exc:  # noqa: BLE001
         ok, detail = False, f"{exc}: {run.stdout[-200:]} {run.stderr[-200:]}"
-    record("golden eval passes every threshold (75 questions, incident hallucination 0%)", ok, detail)
+    record(
+        "golden eval passes every threshold (97 questions, incident/evolve-intent/convention hallucination 0%)",
+        ok,
+        detail,
+    )
 
 
 # ----------------------------------------------------------------------- main
@@ -1211,6 +1380,10 @@ def main() -> int:
         check_cli_composite(args.node, cli, polyglot, data_dir, tmp)
         # v0.9 — domain radar, module evolution, multi-view artifacts.
         check_v09_radar_evolve(args.node, cli, polyglot, data_dir, tmp)
+        # Issue 24 — evolution workbench stream + convention-conflict gate.
+        check_evolve_workbench_sse(base, py_repo["id"])
+        _conflict = import_repo(base, "demo-conflict", build_conflict_repo(tmp))
+        check_evolve_convention_conflict(base, _conflict["id"])
         # v0.13 — golden eval smoke (recall thresholds must hold).
         check_eval_smoke(args.node, ROOT)
 

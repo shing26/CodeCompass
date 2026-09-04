@@ -10,4 +10,4 @@ grilling 裁决（Issue 24 酝酿会话）。现状缺口：`finalizeAgentResult
 
 否决方案二：按主张分级（代码关系主张的图引擎出图、"纯叙事装饰图"允许模型画）——排障现场不存在不含代码主张的箭头：工程师默认屏幕上每条连线都是物理事实并顺着它查代码，一条脑补边即触发零幻觉违约；该纪律靠评审自觉维持必然渗漏。
 
-代价：叙述性可视表达受限（模型不能再自由画示意图），新图型有引擎实现前置成本——叙事补充由工件卡文字与表格承载。波及面（实施随 Issue 24）：`runReActAgent` prompt（CODE_LINK_MMERMAID_GUIDE 改写为图层指令规范）、`finalizeAgentResult`（mermaid 字段改为引擎渲染产物）、eval（模型自绘 mermaid 相关断言项下线）。迁移期披露：图层指令契约落地前，incident 模型自绘边继续存在（已知缺口），现 eval gate 只覆盖文字断言不覆盖边。
+代价：叙述性可视表达受限（模型不能再自由画示意图），新图型有引擎实现前置成本——叙事补充由工件卡文字与表格承载。波及面（实施随 Issue 24）：`runReActAgent` prompt（CODE_LINK_MMERMAID_GUIDE 改写为图层指令规范）、`finalizeAgentResult`（mermaid 字段改为引擎渲染产物）、eval（模型自绘 mermaid 相关断言项下线）。

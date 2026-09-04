@@ -14,7 +14,15 @@ import {
 } from './repoqa-eval';
 
 const BUCKET_TOTALS: Record<
-  'route-chain' | 'config' | 'architecture' | 'intent-anchor' | 'diagnose-chain' | 'evolution' | 'incident',
+  | 'route-chain'
+  | 'config'
+  | 'architecture'
+  | 'intent-anchor'
+  | 'diagnose-chain'
+  | 'evolution'
+  | 'incident'
+  | 'evolve-intent'
+  | 'convention',
   number
 > = {
   'route-chain': 20,
@@ -23,12 +31,15 @@ const BUCKET_TOTALS: Record<
   'intent-anchor': 5,
   'diagnose-chain': 5,
   evolution: 5,
-  incident: 10
+  incident: 10,
+  // Issue 24 / Ticket 06 — append-only workbench buckets on top of the frozen 75.
+  'evolve-intent': 14,
+  convention: 8
 };
 
 describe('RepoPulse golden eval dataset (Issue 09)', () => {
-  it('freezes exactly 75 golden questions across the seven buckets', () => {
-    expect(GOLDEN_DATASET).toHaveLength(75);
+  it('freezes 97 golden questions: 75 frozen + 22 append-only workbench cases across nine buckets', () => {
+    expect(GOLDEN_DATASET).toHaveLength(97);
     const byMode: Record<string, number> = {
       'route-chain': 0,
       config: 0,
@@ -36,7 +47,9 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       'intent-anchor': 0,
       'diagnose-chain': 0,
       evolution: 0,
-      incident: 0
+      incident: 0,
+      'evolve-intent': 0,
+      convention: 0
     };
     const ids = new Set<string>();
     for (const question of GOLDEN_DATASET) {
@@ -58,7 +71,7 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       ).toBe(true);
     }
     expect(byMode).toEqual(BUCKET_TOTALS);
-    expect(ids.size).toBe(75);
+    expect(ids.size).toBe(97);
   });
 
   it('materializes and commits fixtures deterministically', async () => {
@@ -92,7 +105,7 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       const report = await runGoldenEval(repoqa);
 
       // Report is frozen and green.
-      expect(report.totalQuestions).toBe(75);
+      expect(report.totalQuestions).toBe(97);
       expect(report.passed).toBe(true);
       for (const name of ['repo-a', 'repo-b', 'repo-c', 'repo-d', 'repo-e']) {
         expect(report.fixtureCommits[name]).toMatch(/^[0-9a-f]{40}$/i);
@@ -104,9 +117,15 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       expect(report.buckets['diagnose-chain'].total).toBe(5);
       expect(report.buckets.evolution.total).toBe(5);
       expect(report.buckets.incident.total).toBe(10);
+      expect(report.buckets['evolve-intent'].total).toBe(14);
+      expect(report.buckets.convention.total).toBe(8);
       // Issue 23: the incident bucket enforces the Zero-Hallucination
       // Contract — 0% hallucination, not the ≤2% budget of the other buckets.
       expect(report.buckets.incident.hallucinationRate).toBe(0);
+      // Ticket 06: the workbench buckets carry the same Zero-Hallucination
+      // Contract — a forbidden anchor or a fabricated axis is a failure.
+      expect(report.buckets['evolve-intent'].hallucinationRate).toBe(0);
+      expect(report.buckets.convention.hallucinationRate).toBe(0);
       expect(report.failureTaxonomy).toEqual({ parse: 0, retrieval: 0, generation: 0, anchor: 0 });
       for (const bucket of Object.values(report.buckets)) {
         expect(bucket.recallAtK).toBeGreaterThanOrEqual(EVAL_PASS_THRESHOLDS.recallAtK);
@@ -128,11 +147,11 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         failureTaxonomy: EvalReport['failureTaxonomy'];
       };
       expect(summary.passed).toBe(true);
-      expect(summary.totalQuestions).toBe(75);
+      expect(summary.totalQuestions).toBe(97);
       expect(summary.failureTaxonomy).toEqual({ parse: 0, retrieval: 0, generation: 0, anchor: 0 });
 
       const bucketEvents = events.filter((event) => event.eventType === 'eval.bucket');
-      expect(bucketEvents).toHaveLength(7);
+      expect(bucketEvents).toHaveLength(9);
       const byIntent = new Map(
         bucketEvents.map((event) => [event.intent, event] as const)
       );
@@ -166,7 +185,9 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         'intent-anchor': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         'diagnose-chain': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         evolution: { total: 5, recallAtK: 50, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
-        incident: { total: 10, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
+        incident: { total: 10, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
+        'evolve-intent': { total: 14, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
+        convention: { total: 8, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
       },
       failureTaxonomy: { parse: 1, retrieval: 1, generation: 1, anchor: 1 }
     };
@@ -175,7 +196,7 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
     const run = events.find((event) => event.eventType === 'eval.run');
     expect(run?.failureClass).toBe('eval-failed');
     const committed = events.filter((event) => event.eventType === 'eval.bucket');
-    expect(committed).toHaveLength(7);
+    expect(committed).toHaveLength(9);
     expect(committed.filter((event) => event.failureClass === 'threshold-miss')).toHaveLength(4);
     db.close();
   });
@@ -194,7 +215,9 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
         'intent-anchor': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         'diagnose-chain': { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
         evolution: { total: 5, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
-        incident: { total: 10, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
+        incident: { total: 10, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
+        'evolve-intent': { total: 14, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 },
+        convention: { total: 8, recallAtK: 100, hallucinationRate: 0, anchorValidity: 100, avgLatencyMs: 1 }
       },
       failureTaxonomy: { parse: 0, retrieval: 0, generation: 0, anchor: 0 }
     };

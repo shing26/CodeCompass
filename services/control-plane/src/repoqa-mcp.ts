@@ -46,7 +46,7 @@ import {
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.18.1';
+export const MCP_SERVER_VERSION = '0.19.0';
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */

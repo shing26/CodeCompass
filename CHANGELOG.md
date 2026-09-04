@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0] - 2026-09-04
+
+### Highlights
+
+- **演进工件会话流（Issue 24 / Ticket 05）**：EvolutionView 重构为会话式 append-only 工件卡流——`useEvolutionSession` 按 (repoId, commit) 分桶归组，同仓库同 commit 的演进结果追加成卡不互相覆盖，意图回声/工件卡/图谱卡随帧落入会话。
+- **Intent Eval Bucket（Issue 24 / Ticket 06）**：golden eval 冻结集 75 → 97 题——新增 `evolve-intent`（14 题：DEPRECATE 动词族、EXTEND doc-chunk 桥、拉丁类名、显式路径锚定，覆盖确定性回退与 LLM 双路径的准确率与确定性）与 `convention`（8 题：repo-d 五轴实测值固化）两 bucket；`expectedAbsent` 命中即计幻觉，incident / evolve-intent / convention 三 bucket 幻觉率 0% 纳入 closeout gate 必查。
+- **Closeout Gate 纳管演进管线（Issue 24 / Ticket 06）**：#15 `POST /api/repos/:id/evolve` SSE 五阶段顺序 + done 四工件结构（intentEcho / checklists / commit / 可选引擎 mermaid）；#16 STRICT 轴惯例冲突流式返回结构化 `conventionConflict`（计划的产出而非崩溃）；MCP tools/list 断言收紧为 ==14（含 v0.18 `codecompass_remove_repo`）。
+
+### Changed
+
+- 版本推进 0.18.1 → 0.19.0（root / cli.ts / MCP server / control-plane / web / contracts 六处）。
+- `docs/adr/0013`：删除"迁移期披露"句——图层指令契约已落地，incident 模型自绘边不再是已知缺口。
+
 ## [0.18.1] - 2026-09-04
 
 ### Fixed

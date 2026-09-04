@@ -7,10 +7,11 @@ import { buildCallIndex, resolveCallChain } from './repoqa-callchain';
 import { runDiagnose } from './diagnose-engine';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
+import { runConventionScan } from './repoqa-conventions';
 import { openDb } from './db';
 import { EventBus } from './events';
 import { RepoQARepos } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
+import { RepoQAWorker, deterministicIntentParse } from './repoqa-worker';
 import { parseStackTrace, resolveFramesToSymbols } from './repoqa-stacktrace';
 
 const execFile = promisify(execFileCallback);
@@ -31,7 +32,13 @@ export const EVAL_PASS_THRESHOLDS = {
  * fails the bucket, while every other bucket keeps the ≤2% budget.
  */
 function hallucinationMaxFor(bucketName: string): number {
-  return bucketName === 'incident' ? 0 : EVAL_PASS_THRESHOLDS.hallucinationRateMax;
+  // Issue 24 / Ticket 06: the evolution workbench buckets join the incident
+  // bucket's Zero-Hallucination Contract — a resolved target the golden truth
+  // forbids, or a convention axis naming a forbidden primary, is fabricated
+  // truth, never a rounding miss.
+  return ['incident', 'evolve-intent', 'convention'].includes(bucketName)
+    ? 0
+    : EVAL_PASS_THRESHOLDS.hallucinationRateMax;
 }
 
 function bucketPasses(
@@ -60,7 +67,12 @@ interface EvalQuestion {
     | 'intent-anchor'
     | 'diagnose-chain'
     | 'evolution'
-    | 'incident';
+    | 'incident'
+    // Issue 24 / Ticket 06 — evolution workbench buckets: free-text intent
+    // resolution through the deterministic parser + radar, and the convention
+    // scan's arbitrated axis verdicts.
+    | 'evolve-intent'
+    | 'convention';
   question: string;
   expected: string[];
   /** diagnose-chain: whether the golden chain SHOULD contain a BROKEN hop. */
@@ -83,7 +95,9 @@ export type EvalBucketName =
   | 'intent-anchor'
   | 'diagnose-chain'
   | 'evolution'
-  | 'incident';
+  | 'incident'
+  | 'evolve-intent'
+  | 'convention';
 
 export type EvalReport = {
   passed: boolean;
@@ -537,6 +551,58 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
     expected: item.expected,
     ...(item.stack ? { stack: item.stack } : {}),
     ...(item.expectedUnresolved ? { expectedUnresolved: item.expectedUnresolved } : {})
+  })),
+  // Issue 24 / Ticket 06 — evolve-intent bucket: free-text intents replayed
+  // through the deterministic parser + radar (the path the gate exercises
+  // without an LLM). expected = [intentType, targetSymbol]; expectedAbsent
+  // names anchors the golden truth forbids (Zero-Hallucination Contract).
+  // Probes that the deterministic parser cannot resolve (e.g. "帮" swallowed
+  // as the keyword) are deliberately NOT frozen here — a known parser bug is
+  // not truth.
+  ...[
+    { id: 'evolve-intent-1', q: '把 legacy 模块下线', intent: 'DEPRECATE', target: 'LegacyHelper.formatLegacy' },
+    { id: 'evolve-intent-2', q: '下线 LegacyController', intent: 'DEPRECATE', target: 'LegacyController', absent: ['LikeService.doLike', 'TxService.transfer'] },
+    { id: 'evolve-intent-3', q: '帮我废弃 src/main/java/com/demo/legacy', intent: 'DEPRECATE', target: 'LegacyHelper.formatLegacy' },
+    { id: 'evolve-intent-4', q: '移除 LegacyHelper', intent: 'DEPRECATE', target: 'LegacyHelper' },
+    { id: 'evolve-intent-5', q: '删除 LegacyPad', intent: 'DEPRECATE', target: 'LegacyPad' },
+    { id: 'evolve-intent-6', q: 'retire LegacyController', intent: 'DEPRECATE', target: 'LegacyController' },
+    { id: 'evolve-intent-7', q: '把 LegacyController 退役', intent: 'DEPRECATE', target: 'LegacyController' },
+    { id: 'evolve-intent-8', q: '我要下架 legacy 模块', intent: 'DEPRECATE', target: 'LegacyHelper.formatLegacy' },
+    { id: 'evolve-intent-9', q: 'LegacyPad 的工具类下线', intent: 'DEPRECATE', target: 'LegacyPad' },
+    { id: 'evolve-intent-10', q: '给点赞模块加异步通知', intent: 'EXTEND', target: 'LikeService.doLike', absent: ['LegacyController', 'LegacyHelper'] },
+    { id: 'evolve-intent-11', q: '给 doLike 加异步能量结算', intent: 'EXTEND', target: 'LikeService.doLike', absent: ['LegacyService'] },
+    { id: 'evolve-intent-12', q: '给 likePost 加幂等保护', intent: 'EXTEND', target: 'LikeController.likePost' },
+    { id: 'evolve-intent-13', q: '给 TxService.transfer 加超时熔断', intent: 'EXTEND', target: 'TxService.transfer' },
+    { id: 'evolve-intent-14', q: 'add async export support to likePost', intent: 'EXTEND', target: 'LikeController.likePost' }
+  ].map((item) => ({
+    id: item.id,
+    fixture: 'repo-d',
+    mode: 'evolve-intent' as const,
+    question: item.q,
+    expected: [item.intent, item.target],
+    ...(item.absent ? { expectedAbsent: item.absent } : {})
+  })),
+  // Issue 24 / Ticket 06 — convention bucket: the scan's arbitrated verdicts
+  // against repo-d. `question` is the ConventionAxisId, expected[0] the
+  // honest primary, expectedAbsent the primaries the verdict must never name
+  // (a forbidden primary = hallucination). Anchors stay physical: each must
+  // exist in the fixture file set.
+  ...[
+    { id: 'convention-1', axis: 'return_wrapping', primary: 'bare' },
+    { id: 'convention-2', axis: 'interface_impl_style', primary: 'plain', absent: ['TX_SERVICE'] },
+    { id: 'convention-3', axis: 'base_class', primary: 'none', absent: ['base'] },
+    { id: 'convention-4', axis: 'di_style', primary: 'constructor', absent: ['field'] },
+    { id: 'convention-5', axis: 'package_layout', primary: 'com.demo' },
+    { id: 'convention-6', axis: 'return_wrapping', primary: 'bare', absent: ['wrapped'] },
+    { id: 'convention-7', axis: 'di_style', primary: 'constructor' },
+    { id: 'convention-8', axis: 'base_class', primary: 'none' }
+  ].map((item) => ({
+    id: item.id,
+    fixture: 'repo-d',
+    mode: 'convention' as const,
+    question: item.axis,
+    expected: [item.primary],
+    ...(item.absent ? { expectedAbsent: item.absent } : {})
   }))
 ];
 
@@ -606,7 +672,9 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     'intent-anchor': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
     'diagnose-chain': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
     evolution: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    incident: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
+    incident: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
+    'evolve-intent': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
+    convention: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
   };
   // Issue 23: physical file set per fixture — incident anchors are valid only
   // when their symbol table file actually exists in the frozen fixture.
@@ -791,6 +859,73 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
           bucket.anchors += 1;
         } else {
           bucket.invalid += 1;
+        }
+      }
+    } else if (question.mode === 'evolve-intent') {
+      // Issue 24 / Ticket 06 — the deterministic workbench path the CI gate
+      // actually exercises: deterministicIntentParse (no LLM in eval) -> radar
+      // resolve over the raw keyword -> top-1 anchor = resolvedTarget.
+      // expected = [intentType, targetSymbol]; a resolved target the golden
+      // truth pins in expectedAbsent counts as hallucination
+      // (Zero-Hallucination Contract), and every anchor is grounded when its
+      // file physically exists in the fixture.
+      const fixtureFiles = fixtureFilesByFixture.get(question.fixture) ?? new Set<string>();
+      const [expectedIntent, expectedTarget] = question.expected;
+      const echo = deterministicIntentParse(question.question);
+      bucket.expected += 1;
+      if (echo.intentType === expectedIntent) bucket.matched += 1;
+      const chunkHitFiles = repoqaByFixture
+        .get(question.fixture)
+        ?.searchChunks(repoIdByFixture.get(question.fixture) ?? question.fixture, echo.rawKeyword)
+        .map((chunk) => chunk.filePath)
+        .filter((file): file is string => Boolean(file));
+      const radar = runDomainRadar({
+        repoId: repoIdByFixture.get(question.fixture) ?? question.fixture,
+        query: echo.rawKeyword,
+        symbols,
+        index: indexByFixture.get(question.fixture)!,
+        ...(chunkHitFiles && chunkHitFiles.length > 0 ? { chunkHitFiles } : {})
+      });
+      const resolved = radar.matchedAnchors[0]?.symbol ?? echo.rawKeyword;
+      bucket.anchors += 1;
+      if (radar.matchedAnchors[0]) {
+        const file = radar.matchedAnchors[0].filePath.replace(/\\/g, '/');
+        if (!fixtureFiles.has(file)) bucket.invalid += 1;
+      }
+      bucket.expected += 1;
+      if (resolved.endsWith(expectedTarget)) bucket.matched += 1;
+      for (const forbidden of question.expectedAbsent ?? []) {
+        if (radar.matchedAnchors.some((anchor) => anchor.symbol.endsWith(forbidden))) {
+          bucket.hallucinated += 1;
+        }
+      }
+    } else if (question.mode === 'convention') {
+      // Issue 24 / Ticket 06 — the convention scan's arbitrated axis verdicts
+      // against the frozen fixture: `question` is the ConventionAxisId,
+      // expected[0] the honest primary it must report, expectedAbsent the
+      // primaries the verdict must never name. Every anchor the axis discloses
+      // must be a physical file in the fixture — an anchor outside the tree is
+      // fabricated evidence (hallucination).
+      const fixtureFiles = fixtureFilesByFixture.get(question.fixture) ?? new Set<string>();
+      const axis = runConventionScan({
+        repoId: repoIdByFixture.get(question.fixture) ?? question.fixture,
+        symbols,
+        commit: fixtureCommits.get(question.fixture) ?? 'unversioned'
+      }).axes.find((entry) => entry.axis === question.question);
+      bucket.expected += 1;
+      if (!axis || axis.primary === undefined || axis.primary === (question.expected[0] ?? '')) {
+        bucket.matched += 1;
+      }
+      for (const forbidden of question.expectedAbsent ?? []) {
+        if (axis?.primary !== undefined && axis.primary === forbidden) {
+          bucket.hallucinated += 1;
+        }
+      }
+      for (const anchor of axis?.anchors ?? []) {
+        bucket.anchors += 1;
+        const file = anchor.file.replace(/\\/g, '/');
+        if (!fixtureFiles.has(file)) {
+          bucket.hallucinated += 1;
         }
       }
     }

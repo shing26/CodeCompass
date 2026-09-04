@@ -2450,11 +2450,11 @@ describe('RepoPulse local evidence plane', () => {
 });
 
 describe('RepoPulse golden dataset eval harness', () => {
-  // The eval imports five fixture repos and scores 75 questions (~5-7s alone);
+  // The eval imports five fixture repos and scores 97 questions (~5-7s alone);
   // under full-suite parallel load it can exceed the default 5s testTimeout.
   it('runs a repeatable per-bucket report with pass/fail thresholds', async () => {
     const report = await runGoldenEval();
-    expect(report.totalQuestions).toBe(75);
+    expect(report.totalQuestions).toBe(97);
     expect(report.passed).toBe(true);
     expect(report.fixtureCommits['repo-a']).toMatch(/^[0-9a-f]{40}$/i);
     expect(report.fixtureCommits['repo-b']).toMatch(/^[0-9a-f]{40}$/i);
@@ -2468,6 +2468,8 @@ describe('RepoPulse golden dataset eval harness', () => {
     expect(report.buckets['diagnose-chain'].total).toBe(5);
     expect(report.buckets.evolution.total).toBe(5);
     expect(report.buckets.incident.total).toBe(10);
+    expect(report.buckets['evolve-intent'].total).toBe(14);
+    expect(report.buckets.convention.total).toBe(8);
     expect(report.failureTaxonomy.parse).toBe(0);
   }, 15_000);
 });
