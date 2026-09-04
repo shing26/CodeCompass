@@ -61,6 +61,7 @@
 | Brand Badge（品牌徽标） | 依依赖/配置关键词确定性贴标的技术栈 SVG 徽标（Spring/Redis/MySQL 等），是证据标注而非装饰。 |
 | Async Tool Call（异步工具调用） | MCP 长操作的契约：同步部分只做校验与前置门禁（失败即抛、不落库），建行后立即返回 `indexing` 状态，实际工作后台执行，客户端经 `list_repos` 轮询至 `ready`/`error`（error 行带根因摘要）。见 ADR-0016。 |
 | MatchedBy（锚点溯源） | Domain Radar 锚点的匹配来源标注：`identifier`（标识符模糊命中）、`doc-chunk`（文档证据桥接）——每个入选锚点必有其一，agent 可据此对措辞敏感的锚点降权。 |
+| Candidate Scan（自荐扫描） | 第 15 个 MCP 工具：对已索引仓库输出四桶"该动哪里"候选清单——orphanedPublic（零静态调用者，声明反射误报边界）、hubs（PageRank 波及热点）、oversized（≥150 行方法，行距为方法体级 AST 落地前的代理信号）、deepChains（最深入口链）。每桶 top-N + 总量 + 确定性 nextAction 引导后续工具；纯查询同步契约。 |
 | Architecture & Incident Copilot（排障副驾驶） | Web 端改造新增的排障对话模式：以文字描述 + 粘贴堆栈/日志为入口，独立 6 步 ReAct 预算（普通问答保持 3 步），产出穿透链 + 爆炸半径 + 配置证据的锚定式回答。v1 纯静态边界：不接 APM/日志流。 |
 | Zero-Hallucination Contract（零幻觉合约） | 回答中每条调用链断言必须逐字来自本次会话工具返回的 Call Edge；每个 file:line 引用必须过 raw-file 物理校验；静态不可达边界强制标 BREAK/SUSPECT，禁止叙述性补全。叙述性总结与逻辑串联不要求逐句锚定。验收 = golden eval incident bucket 幻觉率 0%，进发布 gate。 |
 | Physical Anchor（物理锚点） | `repoId + commit + file:line-range + symbolId` 四元组，raw-file 校验通过才可展示；工作区有未提交修改时记为 `commit+dirty`。钉 commit 换取时空可回放性，防止文件改动后行号切片错位成幽灵锚点。 |

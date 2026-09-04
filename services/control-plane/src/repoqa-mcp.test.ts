@@ -228,7 +228,7 @@ async function rawCallTool(
 }
 
 describe('Issue 20 MCP tool metadata', () => {
-  it('exposes the fourteen required tools with JSON Schema input contracts', () => {
+  it('exposes the fifteen required tools with JSON Schema input contracts', () => {
     expect(MCP_TOOLS.map((tool) => tool.name).sort()).toEqual([
       'codecompass_diagnose',
       'codecompass_domain_radar',
@@ -243,6 +243,7 @@ describe('Issue 20 MCP tool metadata', () => {
       'codecompass_refactor_plan',
       'codecompass_remove_repo',
       'codecompass_reverse_deps',
+      'codecompass_scan',
       'codecompass_trace_call_chain'
     ]);
     for (const tool of MCP_TOOLS) {
@@ -304,6 +305,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_refactor_plan',
         'codecompass_remove_repo',
         'codecompass_reverse_deps',
+        'codecompass_scan',
         'codecompass_trace_call_chain'
       ]);
       for (const tool of list.result.tools) {
@@ -322,7 +324,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
     }
   });
 
-  it('tools/list via the SDK Client exposes the same fourteen tools', async () => {
+  it('tools/list via the SDK Client exposes the same fifteen tools', async () => {
     const { deps } = await setupIndexedRepo();
     const { server, clientTransport } = await startServerPair(deps);
     try {
@@ -343,6 +345,7 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'codecompass_refactor_plan',
         'codecompass_remove_repo',
         'codecompass_reverse_deps',
+        'codecompass_scan',
         'codecompass_trace_call_chain'
       ]);
       const trace = tools.tools.find((tool) => tool.name === 'codecompass_trace_call_chain')!;
@@ -716,6 +719,52 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         symbol: expect.any(String)
       });
       expect(main.mermaid).toContain('flowchart');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('tools/call codecompass_scan returns the four candidate buckets with anchors', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text } = await rawCallTool(clientTransport, 'codecompass_scan', {
+        repoId: repo.id
+      });
+      const body = JSON.parse(text) as {
+        repoId: string;
+        buckets: Array<{
+          id: string;
+          nextAction: string;
+          total: number;
+          items: Array<{ symbol: string; filePath: string; line: number; detail: string }>;
+        }>;
+      };
+      expect(body.repoId).toBe(repo.id);
+      expect(body.buckets.map((bucket) => bucket.id)).toEqual([
+        'orphanedPublic',
+        'hubs',
+        'oversized',
+        'deepChains'
+      ]);
+      for (const bucket of body.buckets) {
+        expect(bucket.nextAction).toContain('codecompass_');
+        for (const item of bucket.items) {
+          expect(item.filePath).toBeTruthy();
+          expect(item.line).toBeGreaterThan(0);
+          expect(item.detail).toBeTruthy();
+        }
+      }
+      // The Spring fixture has a route→service→repository chain, so hubs and
+      // deepChains are populated; every item of the orphan bucket carries the
+      // zero-caller evidence.
+      const hubs = body.buckets.find((bucket) => bucket.id === 'hubs')!;
+      expect(hubs.items.length).toBeGreaterThan(0);
+      const orphans = body.buckets.find((bucket) => bucket.id === 'orphanedPublic')!;
+      for (const item of orphans.items) {
+        expect(item.detail).toContain('0 static callers');
+      }
     } finally {
       await server.close();
     }

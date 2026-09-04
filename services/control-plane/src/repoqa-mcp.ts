@@ -21,6 +21,7 @@ import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
+import { runScan } from './scan-engine';
 import {
   cloneGitRepo,
   deriveCloneName,
@@ -46,7 +47,7 @@ import {
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.19.0';
+export const MCP_SERVER_VERSION = '0.20.0';
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */
@@ -340,6 +341,24 @@ export const MCP_TOOLS: McpToolMeta[] = [
       'directory on disk are intentionally kept — re-index the same path later with ' +
       'codecompass_index_repo. Refuses while the repo is still indexing; poll ' +
       'codecompass_list_repos until ready/error first.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repoId: { type: 'string', description: 'Repo id or name (from codecompass_list_repos)' }
+      },
+      required: ['repoId']
+    }
+  },
+  {
+    name: 'codecompass_scan',
+    description:
+      'Candidate Scan — proactive "what should I touch in this repo?" (deterministic, ' +
+      'zero-LLM). Returns four buckets with file:line anchors: orphanedPublic (zero ' +
+      'static callers — verify reflectively-invoked code first), hubs (highest ' +
+      'PageRank, run refactor_plan before touching), oversized (methods ≥150 lines), ' +
+      'deepChains (longest entry flows — run diagnose on them). Each bucket carries ' +
+      'the deterministic next tool to run. Use this when you know a repo is indexed ' +
+      'but do not know where to start.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -747,6 +766,20 @@ export function mcpRemoveRepo(deps: McpDeps, args: McpToolHandlerArgs): Record<s
   return { removed: true, repoId: repo.id, name: repo.name };
 }
 
+/** v0.19.0 — Candidate Scan: proactive "where should I start" buckets. */
+export function mcpScan(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
+  const repo = requireReady(resolveMcpRepo(deps, args.repoId));
+  const graph = deps.worker.getSymbolGraph(repo.id);
+  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  return runScan({
+    repoId: repo.id,
+    repoName: repo.name,
+    symbols: graph.symbols,
+    index: graph.index,
+    baseUrl
+  }) as unknown as Record<string, unknown>;
+}
+
 /* ------------------------------------------------------------------ */
 /* MCP server (SDK)                                                    */
 /* ------------------------------------------------------------------ */
@@ -790,7 +823,8 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_diagnose: (args) => mcpDiagnose(deps, args),
     codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args),
     codecompass_index_repo: (args) => mcpIndexRepo(deps, args),
-    codecompass_remove_repo: (args) => mcpRemoveRepo(deps, args)
+    codecompass_remove_repo: (args) => mcpRemoveRepo(deps, args),
+    codecompass_scan: (args) => mcpScan(deps, args)
   };
 
   // The SDK's registerTool generics infer very deep schemas; register through a

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.20.0] - 2026-09-04
+
+### Highlights
+
+- **`codecompass_scan` 自荐发现引擎（第 15 个 MCP 工具）**：补齐"陌生仓库该动哪里"的主动发现闭环——此前 14 个工具全部要求点名 targetSymbol，scan 首次让引擎主动回答"该看哪"。四桶候选全部确定性产出（零 LLM，ADR-0002/0005 同族）：`orphanedPublic`（零静态调用者的生产符号，排除 route 入口，note 声明反射/动态代理误报边界）、`hubs`（PageRank 波及热点，引导 refactor_plan）、`oversized`（≥150 行方法，行距为方法体级 AST 落地前的代理信号）、`deepChains`（最深入口链，引导 diagnose）。每桶 top-10 + 全量 total + file:line 锚点 + 确定性 nextAction。
+
+### Added
+
+- `services/control-plane/src/scan-engine.ts` + 测试：四桶引擎，一次 `buildRadarGraph` + `computePageRank` 复用（radar 图内建生产 kind 过滤与测试路径排除），`pickTopApis` 复用为深链桶；同仓库两次调用输出逐字节一致。
+- `packages/contracts/src/repoqa.ts`：`ScanCandidate`/`ScanBucket`/`ScanResult` 契约。
+- `codecompass_scan` 工具注册（同步查询契约——图已驻留内存缓存，毫秒级，不触发 ADR-0016 异步门槛）；`mcpScan` handler。
+- e2e gate：scan 冒烟断言（四桶结构）+ 工具数 15 精确断言。
+- CONTEXT.md 词条 Candidate Scan。
+
+### Notes
+
+- 立项访谈未获作答项按推荐默认执行并记录（v0.6 收口先例）：独立工具形态、四桶清单、同步契约、无 buckets 选择参数（Speculative Generality 防线）、挂载点桶推迟。
+
 ## [0.19.0] - 2026-09-04
 
 ### Highlights

@@ -845,6 +845,15 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
                 "arguments": {"localPath": str(repo_path)},
             },
         },
+        {
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_scan",
+                "arguments": {"repoId": "demo-polyglot"},
+            },
+        },
     ]
     responses = _mcp_roundtrip(node, cli, repo_path, data_dir, requests)
 
@@ -853,11 +862,11 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
         for tool in responses.get(2, {}).get("result", {}).get("tools", [])
     ]
     record(
-        "v0.8 MCP tools/list exposes the composite tools (14 total since v0.18)",
+        "v0.8 MCP tools/list exposes the composite tools (15 total since v0.19)",
         "codecompass_diagnose" in names and "codecompass_refactor_plan" in names
         and "codecompass_domain_radar" in names and "codecompass_module_evolution" in names
         and "codecompass_index_repo" in names and "codecompass_remove_repo" in names
-        and len(names) == 14,
+        and "codecompass_scan" in names and len(names) == 15,
         f"tools={len(names)}",
     )
 
@@ -971,6 +980,16 @@ def check_mcp_composite_tools(node: str, cli: Path, repo_path: Path, data_dir: P
                 poll_ready,
                 f"repoId={index_repo_id}",
             )
+
+    scan_text = ""
+    for item in responses.get(8, {}).get("result", {}).get("content", []):
+        scan_text += item.get("text", "")
+    record(
+        "v0.19 codecompass_scan returns four candidate buckets over MCP",
+        '"buckets"' in scan_text and '"orphanedPublic"' in scan_text
+        and '"hubs"' in scan_text and '"deepChains"' in scan_text,
+        f"len={len(scan_text)}",
+    )
 
 
 def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, tmp: Path) -> None:

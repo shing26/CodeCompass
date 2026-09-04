@@ -460,3 +460,39 @@ export interface RepoQaEvolveError {
   /** Structured detail when a STRICT axis or bean cycle blocked the plan. */
   conventionConflict?: ConventionConflictDetail;
 }
+
+/* ------------------------------------------------------------------ */
+/* v0.19.0 — Candidate Scan (proactive "what should I touch" engine)    */
+/* ------------------------------------------------------------------ */
+
+export interface ScanCandidate {
+  /** Fully-qualified display name (`Parent.method` when a parent type exists). */
+  symbol: string;
+  kind: string;
+  filePath: string;
+  line: number;
+  /** End line when the candidate is a span (method/class body). */
+  lineEnd?: number;
+  /** Deterministic evidence that put this item in its bucket. */
+  detail: string;
+}
+
+export interface ScanBucket {
+  id: 'orphanedPublic' | 'hubs' | 'oversized' | 'deepChains';
+  title: string;
+  /** Why-this-bucket guidance: the deterministic next tool to run. */
+  nextAction: string;
+  /** Caveats the agent must pass on (e.g. reflective-call false positives). */
+  note?: string;
+  /** Full count in the bucket before top-N truncation. */
+  total: number;
+  items: ScanCandidate[];
+}
+
+export interface ScanResult {
+  schemaVersion: number;
+  repoId: string;
+  repoName: string;
+  buckets: ScanBucket[];
+  cockpitDeepLink: string;
+}
