@@ -21,3 +21,9 @@ scripts/e2e/e2e-result.json
 
 # Python bytecode.
 __pycache__/
+
+# Agent-local tool state (session plugins, workbuddy, penguin).
+.mimosa/
+.penguin/
+.workbuddy/
+.zcode/

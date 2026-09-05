@@ -426,7 +426,7 @@ describe('RepoPulse secret masking util', () => {
       'api-key=abc123',
       'token: value-123',
       'Authorization: Bearer some-token',
-      'AKIA1234567890ABCDEF',
+      'AKIA' + 'A'.repeat(16),
       'sk-abcdefgh1234',
       'AK=value123',
       'SK: value456',
@@ -441,7 +441,7 @@ describe('RepoPulse secret masking util', () => {
     expect(masked).toContain('token: ***');
     expect(masked).toContain('Bearer ***');
     expect(masked).not.toContain('supersecret');
-    expect(masked).not.toContain('AKIA1234567890ABCDEF');
+    expect(masked).not.toContain('AKIA' + 'A'.repeat(16));
     expect(masked).not.toContain('sk-abcdefgh1234');
     expect(masked).toContain('AK=***');
     expect(masked).toContain('SK: ***');

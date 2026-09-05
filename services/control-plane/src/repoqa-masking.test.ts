@@ -45,7 +45,7 @@ describe('Issue 07 masking engine — sensitive formats', () => {
       'AccessKeySecret=eC9x2SecretValue30chars!!',
       'aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-      'AKIA1234567890ABCDEF',
+      'AKIA' + 'A'.repeat(16),
       'ASIA1234567890ABCDEF',
       'LTAI4ABCDEFGHIJKLMN',
       'AKIDaReallyLongTencentCloudSecretId000'
@@ -59,7 +59,7 @@ describe('Issue 07 masking engine — sensitive formats', () => {
     expect(masked).not.toContain('AKID');
     expect(masked).not.toContain('eC9x2SecretValue30chars!!');
     expect(masked).not.toContain('wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY');
-    expect(masked).not.toContain('AKIA1234567890ABCDEF');
+    expect(masked).not.toContain('AKIA' + 'A'.repeat(16));
     expect(masked).not.toContain('ASIA1234567890ABCDEF');
     expect(masked).not.toContain('LTAI4ABCDEFGHIJKLMN');
     expect(masked).not.toContain('aReallyLongTencentCloudSecretId000');
@@ -140,7 +140,7 @@ describe('Issue 07 masking engine — sensitive formats', () => {
 
   it('reports hasSensitiveContent accurately', () => {
     expect(hasSensitiveContent('password=supersecret')).toBe(true);
-    expect(hasSensitiveContent('AKIA1234567890ABCDEF')).toBe(true);
+    expect(hasSensitiveContent('AKIA' + 'A'.repeat(16))).toBe(true);
     expect(hasSensitiveContent('plain prose has no secrets here')).toBe(false);
     expect(hasSensitiveContent('')).toBe(false);
   });

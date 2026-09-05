@@ -6,6 +6,10 @@
 
 > 定位（ADR-0001/0002）：对源码**只读**、永不写回；只承诺**确定性静态分析**，不调用 LLM 也能给出全部核心结论；每个结论都带可点击的 `file:line` 锚点。
 
+## 定位：给 agent 的确定性检索层
+
+CodeCompass 是**精确检索工具，不是理解工具**——它把 agent 不擅长的大规模确定性查找（全库反向依赖、调用链、规模统计、影响面）做到秒级精确，把省下来的上下文窗口留给 agent 去读真正需要精读的文件。仓库越大价值越大：几千文件以上的项目接近必需，几十文件的迷你项目直接读文件更快。架构判断、设计评审、安全隐患排查仍属于 agent 的读码工作，本引擎不越界。
+
 ## 核心能力
 
 ### 1. AST 确定性调用链
@@ -150,15 +154,18 @@ codecompass /path/to/your/repo          # 打开 Web 驾驶舱
 codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 ```
 
-支持一键写入的 IDE：Cursor、ZCode、Claude Desktop、Windsurf、Cline、Roo Code、Windsurf、Cline (VS Code)、Roo Code (VS Code)。
+支持一键写入的 IDE：Cursor、ZCode、Claude Desktop、Windsurf、Cline (VS Code)、Roo Code (VS Code)。
 
 ## MCP 工具接入
 
-`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 12 个确定性工具：
+`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 15 个确定性工具（全部零 LLM、结果确定性可复现）：
 
 | 工具 | 用途 |
 | --- | --- |
-| `codecompass_list_repos` | 列出已索引仓库的 id / name / status / fileCount |
+| `codecompass_index_repo` | **索引入口**：克隆 GitHub 仓库或索引本地目录；异步契约——立即返回 `indexing`，轮询 `list_repos` 至 ready/error（ADR-0016） |
+| `codecompass_list_repos` | 列出已索引仓库（id / status / fileCount / symbolCount / error 根因） |
+| `codecompass_remove_repo` | 移除索引（级联清除符号/事件，磁盘保留；indexing 中拒删） |
+| `codecompass_scan` | **自荐发现**：五桶候选——零调用者孤儿 / PageRank 热点 / 超长方法 / 深链入口 / 超大文件，每桶带锚点与下一步工具引导 |
 | `codecompass_trace_call_chain` | 解析确定性静态调用链 |
 | `codecompass_get_dashboard` | 聚合零 Prompt 架构驾驶舱 |
 | `codecompass_get_config_evidence` | 配置 key 证据（只返回 file:line，不返回 value） |
@@ -231,9 +238,5 @@ docs/adr/                   # 架构决策记录；术语表见 CONTEXT.md
 ```
 
 ## 版本
-
-## 定位：给 agent 的确定性检索层
-
-CodeCompass 是**精确检索工具，不是理解工具**——它把 agent 不擅长的大规模确定性查找（全库反向依赖、调用链、规模统计、影响面）做到秒级精确，把省下来的上下文窗口留给 agent 去读真正需要精读的文件。仓库越大价值越大：几千文件以上的项目接近必需，几十文件的迷你项目直接读文件更快。架构判断、设计评审、安全隐患排查仍属于 agent 的读码工作，本引擎不越界。
 
 当前版本：`v0.21.0`（CHANGELOG 含 0.5.x–0.21.0 完整条目）。语义化版本规则见 `docs/adr/`。
