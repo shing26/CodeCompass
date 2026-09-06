@@ -562,6 +562,7 @@ export function App({ client: clientProp }: AppProps) {
               repo={currentRepo}
               session={evolutionSession}
               onNavigate={inspector.openFile}
+              client={client}
             />
           ) : (
             <DashboardView

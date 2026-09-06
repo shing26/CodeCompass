@@ -185,14 +185,24 @@ function makeClient(streams: (EvolveStreamLike & { fire?: () => void })[]) {
 function SessionHost({
   client,
   repo: currentRepo,
-  onNavigate
+  onNavigate,
+  radarClient
 }: {
   client: ReturnType<typeof makeClient>;
   repo: Repo | null;
   onNavigate?: (file: string, line: number) => void;
+  /** R3-Bug-01 — optional radar-capable client for the dynamic placeholder. */
+  radarClient?: unknown;
 }) {
   const session = useEvolutionSession(client as never, currentRepo);
-  return <EvolutionView repo={currentRepo} session={session} onNavigate={onNavigate} />;
+  return (
+    <EvolutionView
+      repo={currentRepo}
+      session={session}
+      onNavigate={onNavigate}
+      client={radarClient as never}
+    />
+  );
 }
 
 describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
@@ -249,6 +259,37 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     // Deep-link still works from the latest card.
     await user.click(screen.getAllByText('src/main/java/com/demo/order/OrderExportService.java')[0]);
     expect(onNavigate).toHaveBeenCalledWith('src/main/java/com/demo/order/OrderExportService.java', 1);
+  });
+
+  it('names a real hub symbol in the example placeholder when a client is available (R3-Bug-01)', async () => {
+    const radarClient = {
+      radar: vi.fn(async () => ({
+        schemaVersion: 1,
+        repoId: 'repo-1',
+        matchedAnchors: [],
+        hubNodes: [
+          { symbol: 'OrderController', inDegree: 9, outDegree: 2, pagerank: 0.5, role: 'hub' }
+        ],
+        topApis: [],
+        persistenceEntities: []
+      }))
+    };
+    render(<SessionHost client={makeClient([])} repo={repo} radarClient={radarClient} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('evolve-intent')).toHaveAttribute(
+        'placeholder',
+        '给OrderController加 Excel 导出'
+      )
+    );
+    expect(radarClient.radar).toHaveBeenCalledWith('repo-1', '');
+  });
+
+  it('keeps the generic placeholder without a radar client (R3-Bug-01)', () => {
+    render(<SessionHost client={makeClient([])} repo={repo} />);
+    expect(screen.getByTestId('evolve-intent')).toHaveAttribute(
+      'placeholder',
+      '给订单模块加 Excel 导出'
+    );
   });
 
   it('switching repos opens a new stream and never mixes cards', async () => {

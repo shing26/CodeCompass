@@ -10,6 +10,13 @@ export interface Repo {
   repoUrl?: string;
   localPath: string;
   branch: string;
+  /**
+   * R3-Bug-02 — branch callers can diff against out of the box, resolved
+   * from the working tree (HEAD / origin/HEAD) when repos are served over
+   * HTTP. `branch` keeps its persisted catalog value, which is often stale
+   * ('main' on locally imported repos whose HEAD is actually 'master').
+   */
+  defaultBranch?: string;
   status: 'idle' | 'indexing' | 'ready' | 'error';
   error?: string;
   fileCount: number;
@@ -68,6 +75,37 @@ export function resolveRepoCommitSync(localPath: string): string {
 }
 
 /**
+ * R3-Bug-02 — resolve the branch a caller can diff against out of the box:
+ * HEAD's short name, falling back to the target of `origin/HEAD` when HEAD
+ * is detached, and to `fallback` (the persisted branch, else 'main') when
+ * git is unavailable or the path is not a work tree. Synchronous by design:
+ * it runs per-request in the repos GET handlers, like resolveRepoCommitSync.
+ */
+export function resolveDefaultBranchSync(localPath: string, fallback = 'main'): string {
+  try {
+    const head = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+      cwd: localPath,
+      encoding: 'utf8'
+    });
+    const name = head.stdout?.trim() ?? '';
+    if (head.status === 0 && name && name !== 'HEAD') return name;
+    const originHead = spawnSync(
+      'git',
+      ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'],
+      { cwd: localPath, encoding: 'utf8' }
+    );
+    const originName = originHead.stdout?.trim() ?? '';
+    if (originHead.status === 0 && originName) {
+      const last = originName.split('/').pop() ?? '';
+      if (last) return last;
+    }
+  } catch {
+    // fall through to the fallback below
+  }
+  return fallback;
+}
+
+/**
  * Display-name fallback for a local path — the last path segment. Shared by
  * the worker's indexRepo and the MCP index handler so both derive the same
  * name when no explicit one is supplied (Bug-10 convention).
@@ -93,6 +131,11 @@ export interface RepoSymbolCall {
   http?: { method: string; url: string };
   /** v0.7 — invoked as `go fn(...)` (Goroutine concurrent branch). */
   async?: boolean;
+  /** Issue 02 (dogfooding) — Go import-qualified call (`app.Start(...)`): the
+   * qualifier's local name from the file's import block. Resolution matches the
+   * unique package function with that name whose directory bears the package
+   * name; ambiguous matches stay unresolved (never guessed). */
+  pkg?: string;
 }
 
 export interface RepoSymbol {

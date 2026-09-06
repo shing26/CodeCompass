@@ -172,6 +172,18 @@ describe('TopBar import dialog', () => {
     await user.click(screen.getByTestId('delete-repo'));
     expect(onDelete).toHaveBeenCalledWith(readyRepo);
   });
+
+  it('closes the more-menu on Escape and returns focus to the trigger (R3-Bug-04)', async () => {
+    const user = userEvent.setup();
+    render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
+
+    await user.click(screen.getByTestId('more-actions'));
+    expect(screen.getByTestId('more-menu')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('more-menu')).not.toBeInTheDocument());
+    expect(screen.getByTestId('more-actions')).toHaveFocus();
+  });
 });
 
 describe('TopBar workbench header (Issue 31)', () => {

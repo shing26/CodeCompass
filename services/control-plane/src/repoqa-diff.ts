@@ -87,6 +87,30 @@ export async function git(
   });
 }
 
+/**
+ * R3-Bug-02 — reduce a raw `git <cmd> failed: <stderr>` message to one
+ * UI-ready sentence. Bad refs are recognised from git's own wording and
+ * echoed by name; anything else keeps a generic line. The raw message
+ * travels separately (HTTP `detail`) for the collapsible output block.
+ */
+export function summarizeGitError(message: string): string {
+  const firstLine =
+    message
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) ?? message;
+  const badRef = /(?:ambiguous argument|bad revision|invalid object name)\s+'([^']+)'/i.exec(
+    firstLine
+  );
+  if (badRef) {
+    return `无法解析 git 引用 "${badRef[1]}" — 请确认它存在于当前仓库(如 HEAD~3、HEAD 或远端分支)。`;
+  }
+  if (/not a git repository/i.test(firstLine)) {
+    return '该目录不是 git 仓库,无法做架构差异对比。';
+  }
+  return 'Git 差异命令执行失败 — 请展开"原始 git 输出"查看详情。';
+}
+
 export type GitStatus = 'A' | 'M' | 'D' | 'R' | 'C' | 'U';
 
 export interface GitFileStatus {

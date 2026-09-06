@@ -35,7 +35,11 @@ import { maskEventPayload, maskSensitiveText } from './repoqa-masking';
 import { runDiagnose, frontendCallersForRoute, isTestPath } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
-import { runModuleEvolution, ConventionConflictError } from './module-evolution-engine';
+import {
+  runModuleEvolution,
+  ConventionConflictError,
+  AttachPointNotFoundError
+} from './module-evolution-engine';
 import {
   runConventionScan as runConventionScanEngine,
   type ConventionAnchor,
@@ -945,6 +949,32 @@ export class RepoQAWorker {
         commit
       });
     } catch (error) {
+      if (error instanceof AttachPointNotFoundError) {
+        // R3-Bug-01c: an unanchored target is a planned outcome — persist the
+        // error card WITH the intent echo (resolved target + alternatives) so
+        // the UI can offer the Correction Pill re-anchor instead of a dead
+        // end, and hydrate replays the same guidance after a refresh.
+        const unanchoredEcho = { ...echo, resolvedTarget: undefined, alternatives: error.alternatives };
+        const unanchoredPayload = maskEventPayload({
+          error: error.message,
+          intentEcho: unanchoredEcho
+        });
+        const card = this.repoqa.saveWorkbenchCard({
+          repoId: repo.id,
+          commit,
+          kind: 'evolve',
+          intent: input.question,
+          ...(input.target ? { target: input.target } : {}),
+          status: 'error',
+          echo: unanchoredPayload.intentEcho,
+          error: unanchoredPayload.error
+        });
+        yield {
+          type: 'repoqa.evolve.error',
+          payload: { ...unanchoredPayload, cardId: card.cardId, cardSeq: card.seq }
+        };
+        return;
+      }
       if (error instanceof ConventionConflictError) {
         // Issue 25 / Ticket 03: a conflict is a planned outcome — persist the
         // error card (with the accumulated intent echo) so hydrate replays it.
@@ -2271,6 +2301,9 @@ export class RepoQAWorker {
             // agent can rewrite the intent instead of retrying blind.
             if (error instanceof ConventionConflictError) {
               return { error: error.message, conventionConflict: error.conflict };
+            }
+            if (error instanceof AttachPointNotFoundError) {
+              return { error: error.message, alternatives: error.alternatives };
             }
             return { error: (error as Error).message };
           }

@@ -44,6 +44,12 @@ export function CiGateView({ repo, dashboard }: CiGateViewProps) {
     return () => window.clearTimeout(timer);
   }, [copied]);
 
+  // R3-Bug-02 — same default-base fix as ArchitectureDeltaView: prefer the
+  // working tree's default branch over the hardcoded origin/main.
+  useEffect(() => {
+    if (repo?.defaultBranch) setBase(repo.defaultBranch);
+  }, [repo?.id, repo?.defaultBranch]);
+
   const command = useMemo(() => {
     const parts = ['npx codecompass pr-summary', base, head];
     if (repo?.localPath) parts.push(`"${repo.localPath}"`);

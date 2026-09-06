@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { RepoQAClient } from '../client/RepoQAClient';
 import type { EvolutionCard, UseEvolutionSessionResult } from '../hooks/useEvolutionSession';
 import { MermaidDiagram } from './MermaidDiagram';
 import type { ModuleEvolutionResult, Repo } from '../types';
@@ -9,6 +10,13 @@ interface EvolutionViewProps {
   session: UseEvolutionSessionResult;
   /** Jump an anchor / placement file into the Monaco Inspector. */
   onNavigate?: (file: string, line: number) => void;
+  /**
+   * Round 3 Bug-01 — optional client used to fetch a hub symbol for the
+   * example-intent placeholder, so the sample names a class that really
+   * exists in this repo (the old hardcoded 订单模块 example failed target
+   * anchoring on every repo). Absent in some tests; the view must cope.
+   */
+  client?: Pick<RepoQAClient, 'radar'>;
 }
 
 /** Stage pipeline shown as the run header of one artifact card. */
@@ -370,8 +378,28 @@ function StreamCard({
 }
 
 /** Issue 24 / Ticket 24.5 — Evolution workbench: append-only artifact stream. */
-export function EvolutionView({ repo, session, onNavigate }: EvolutionViewProps) {
+export function EvolutionView({ repo, session, onNavigate, client }: EvolutionViewProps) {
   const [intent, setIntent] = useState('');
+  // Round 3 Bug-01 — placeholder names a real hub symbol (e.g. OrderController)
+  // instead of the old always-wrong 订单模块 example. Fails soft: without a
+  // client (tests) or on fetch errors the generic example stays.
+  const [placeholder, setPlaceholder] = useState('给订单模块加 Excel 导出');
+  useEffect(() => {
+    if (!repo || !client || typeof client.radar !== 'function') return;
+    let cancelled = false;
+    client
+      .radar(repo.id, '')
+      .then((radar) => {
+        const hub = radar.hubNodes?.[0]?.symbol;
+        if (!cancelled && hub) setPlaceholder(`给${hub}加 Excel 导出`);
+      })
+      .catch(() => {
+        // keep the generic fallback placeholder
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repo?.id, client]);
   // Explicit expand/collapse overrides; untracked cards default to
   // "latest open, history collapsed" so the newest answer reads first.
   const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
@@ -415,7 +443,7 @@ export function EvolutionView({ repo, session, onNavigate }: EvolutionViewProps)
         <section className="rounded-md border border-line bg-surface p-3">
           <label className="flex flex-col gap-2 text-xs text-muted">
             {cards.length === 0
-              ? '演进意图(自然语言,如「给订单模块加 Excel 导出」)'
+              ? `演进意图(自然语言,如「${placeholder}」)`
               : '继续追问(基于当前落位点追加,新卡片进入同一工件流)'}
             <textarea
               data-testid="evolve-intent"
@@ -423,7 +451,9 @@ export function EvolutionView({ repo, session, onNavigate }: EvolutionViewProps)
               onChange={(e) => setIntent(e.target.value)}
               rows={2}
               className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-accent"
-              placeholder={cards.length === 0 ? '给订单模块加 Excel 导出' : '如:排查这次落位对调用方的影响面'}
+              placeholder={
+                cards.length === 0 ? placeholder : '如:排查这次落位对调用方的影响面'
+              }
             />
           </label>
           <button

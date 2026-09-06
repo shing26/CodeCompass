@@ -8,6 +8,12 @@ export interface Repo {
   repoUrl?: string;
   localPath: string;
   branch: string;
+  /**
+   * R3-Bug-02 — working tree's default branch as served by GET /api/repos
+   * (resolved from HEAD / origin/HEAD). `branch` keeps the stale catalog
+   * value; the delta/CI views default their base ref to this one.
+   */
+  defaultBranch?: string;
   status: RepoStatus;
   fileCount: number;
   symbolCount: number;

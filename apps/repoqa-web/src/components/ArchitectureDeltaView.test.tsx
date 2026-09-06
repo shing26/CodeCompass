@@ -145,4 +145,36 @@ describe('ArchitectureDeltaView (v0.6.0)', () => {
     await waitFor(() => expect(screen.getByTestId('delta-added')).toBeInTheDocument());
     expect(screen.queryByTestId('delta-diagram')).not.toBeInTheDocument();
   });
+
+  it('defaults the base ref to the repo default branch (R3-Bug-02)', async () => {
+    const user = userEvent.setup();
+    const getArchitectureDelta = vi.fn().mockResolvedValue(delta);
+    render(
+      <ArchitectureDeltaView
+        repo={{ ...readyRepo, defaultBranch: 'master' }}
+        client={{ getArchitectureDelta }}
+      />
+    );
+    await user.click(screen.getByTestId('delta-run'));
+    await waitFor(() =>
+      expect(getArchitectureDelta).toHaveBeenCalledWith('repo-1', 'master', 'HEAD')
+    );
+  });
+
+  it('renders a one-line error with the raw git output collapsed (R3-Bug-02)', async () => {
+    const user = userEvent.setup();
+    const failure = Object.assign(
+      new Error('无法解析 git 引用 "origin/main" — 请确认它存在于当前仓库。'),
+      { detail: 'git diff failed: fatal: ambiguous argument' }
+    );
+    const getArchitectureDelta = vi.fn().mockRejectedValue(failure);
+    render(
+      <ArchitectureDeltaView repo={readyRepo} client={{ getArchitectureDelta }} />
+    );
+    await user.click(screen.getByTestId('delta-run'));
+    await waitFor(() =>
+      expect(screen.getByTestId('delta-error-detail')).toBeInTheDocument()
+    );
+    expect(screen.getByTestId('architecture-delta')).toHaveTextContent('无法解析 git 引用');
+  });
 });

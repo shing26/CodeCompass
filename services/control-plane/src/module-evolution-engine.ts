@@ -831,6 +831,84 @@ function runDeprecate(
 
 /* ------------------------------- EXTEND -------------------------------- */
 
+/**
+ * Class-level attach kinds for EXTEND anchoring (R3-Bug-01): every kind the
+ * adapters emit for a *type declaration* can host an extension. Route
+ * controllers (`@RestController`, kind `route`) are the canonical miss -
+ * OrderController-indexed-as-route used to throw "Attach point not found"
+ * even though the domain radar had already resolved it with score 100.
+ * `method` has its own candidate channel; `field`/`sql`/`dependency` are
+ * member/edge symbols, not attach points.
+ */
+const CLASS_LEVEL_ATTACH_KINDS = new Set<RepoSymbol['kind']>([
+  'class',
+  'interface',
+  'route',
+  'service',
+  'repository',
+  'mapper',
+  'advice',
+  'config'
+]);
+
+/**
+ * Thrown when no class-level or method symbol matches the resolved target
+ * (R3-Bug-01c). Carries deterministic nearest-candidate alternatives so
+ * callers (agent tool / MCP / UI Correction Pill) can offer a one-click
+ * re-anchor instead of a dead end; an empty list means the index holds no
+ * related symbol at all (generic intents like a Chinese module nickname).
+ */
+export class AttachPointNotFoundError extends Error {
+  readonly target: string;
+  readonly alternatives: Array<{ symbol: string; score: number }>;
+
+  constructor(target: string, alternatives: Array<{ symbol: string; score: number }>) {
+    super(
+      alternatives.length > 0
+        ? `Attach point not found: ${target}. Closest candidates: ${alternatives
+            .slice(0, 3)
+            .map((alt) => `${alt.symbol} (${alt.score})`)
+            .join(', ')}.`
+        : `Attach point not found: ${target}. No class-level or method symbol matches ` +
+          `this name in the current index - re-index the repo if the symbol was just ` +
+          `added, or target an existing module/class.`
+    );
+    this.name = 'AttachPointNotFoundError';
+    this.target = target;
+    this.alternatives = alternatives;
+  }
+}
+
+/**
+ * Deterministic nearest-candidate suggestion for an unresolvable target:
+ * containment pass over class-level symbol names, most specific (shortest)
+ * first. Identifier-based only - cross-language nickname matching stays out
+ * of the deterministic engine.
+ */
+function attachPointAlternatives(
+  symbols: RepoSymbol[],
+  target: string
+): Array<{ symbol: string; score: number }> {
+  const needle = target.toLowerCase().trim();
+  if (!needle) return [];
+  const scored: Array<{ symbol: string; score: number }> = [];
+  for (const symbol of symbols) {
+    if (!CLASS_LEVEL_ATTACH_KINDS.has(symbol.kind) || isTestPath(symbol.filePath)) continue;
+    const bare = symbol.name.toLowerCase();
+    let score = 0;
+    if (bare === needle) score = 95;
+    else if (bare.includes(needle) || needle.includes(bare)) score = 80;
+    if (score > 0) scored.push({ symbol: symbol.name, score });
+  }
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.symbol.length - b.symbol.length ||
+      a.symbol.localeCompare(b.symbol)
+  );
+  return scored.slice(0, 3);
+}
+
 function runExtend(
   input: ModuleEvolutionInput,
   target: string,
@@ -847,18 +925,21 @@ function runExtend(
         `${symbol.parentType ?? ''}.${symbol.name}`.toLowerCase() === name)
   );
   // Class-level attach points (cross-cutting / AOP shapes) resolve too.
+  // R3-Bug-01: the whitelist covers every type-declaration kind the adapters
+  // emit - `route` controllers were the hole that made every EXTEND intent
+  // against a controller fail.
   const classCandidates =
     methodCandidates.length > 0
       ? []
       : symbols.filter(
           (symbol) =>
-            (symbol.kind === 'service' || symbol.kind === 'class') &&
+            CLASS_LEVEL_ATTACH_KINDS.has(symbol.kind) &&
             !isTestPath(symbol.filePath) &&
             symbol.name.toLowerCase() === name
         );
   const candidates = (methodCandidates.length > 0 ? methodCandidates : classCandidates).slice(0, 20);
   if (candidates.length === 0) {
-    throw new Error(`Attach point not found: ${target}`);
+    throw new AttachPointNotFoundError(target, attachPointAlternatives(symbols, target));
   }
   const primary = candidates[0];
   // METHOD/CLASS/INTERFACE lookup is unified in transactionBoundaryFor, which

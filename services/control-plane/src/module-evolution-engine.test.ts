@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildCallIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
-import { ConventionConflictError, runModuleEvolution, transactionBoundaryFor } from './module-evolution-engine';
+import {
+  AttachPointNotFoundError,
+  ConventionConflictError,
+  runModuleEvolution,
+  transactionBoundaryFor
+} from './module-evolution-engine';
 
 /**
  * v0.9.0 — Module evolution: fixed-point orphan cascade (DEPRECATE) and
@@ -87,6 +92,17 @@ const LIVE_DTO = moduleSymbol({
   kind: 'class',
   name: 'MoneyDto',
   filePath: 'src/main/java/com/shop/common/MoneyDto.java'
+});
+
+/* R3-Bug-01 — verify-routes-style controller: a route symbol whose *name* is
+   the controller class (what the domain radar ranks as a hub). */
+const ORDER_CONTROLLER_ROUTE = moduleSymbol({
+  kind: 'route',
+  name: 'OrderController',
+  filePath: 'src/main/java/com/shop/api/OrderController.java',
+  parentType: 'OrderController',
+  displayPath: '/api/orders',
+  moduleName: 'api'
 });
 
 const SYMBOLS: RepoSymbol[] = [
@@ -254,6 +270,43 @@ describe('runModuleEvolution EXTEND', () => {
     });
     // OrderService resolves as a class target (not a method) → AOP.
     expect(result.scaffoldTemplates?.[0].suggestedPattern).toBe('AOP_ASPECT');
+  });
+
+  it('anchors a route-kind controller instead of failing (R3-Bug-01)', () => {
+    // The verify-routes regression: EXTEND intents aimed at a controller
+    // (kind 'route') must resolve like service/class attach points.
+    const symbols = [...SYMBOLS, ORDER_CONTROLLER_ROUTE];
+    const result = runModuleEvolution({
+      repoId: 'r1',
+      intentType: 'EXTEND',
+      targetSymbolOrModule: 'OrderController',
+      extensionGoal: 'add Excel export',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    expect(result.intentType).toBe('EXTEND');
+    expect(result.target).toBe('OrderController');
+    expect(result.scaffoldTemplates?.length).toBeGreaterThan(0);
+    expect(result.checklists.length).toBeGreaterThan(0);
+  });
+
+  it('carries nearest-candidate alternatives on unanchored targets (R3-Bug-01c)', () => {
+    let caught: unknown;
+    try {
+      runModuleEvolution({
+        repoId: 'r1',
+        intentType: 'EXTEND',
+        targetSymbolOrModule: 'CheckinModule',
+        symbols: SYMBOLS,
+        index: INDEX
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AttachPointNotFoundError);
+    const attachError = caught as AttachPointNotFoundError;
+    expect(attachError.message).toContain('Attach point not found');
+    expect(attachError.alternatives.map((alt) => alt.symbol)).toContain('checkIn');
   });
 
   it('throws when the attach point cannot be resolved', () => {

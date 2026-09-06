@@ -16,6 +16,7 @@ import {
   pickModifiedSymbols,
   renderMarkdown,
   renderPolicyMarkdown,
+  summarizeGitError,
   type AffectedApiEntry,
   type DiffReport,
   type FileChangedLines
@@ -1147,5 +1148,22 @@ describe('Issue 22 detectConfigChanges', () => {
     expect(byKey.get('app.feature.newKey')?.status).toBe('added');
     // 值永不进入报告。
     for (const change of changes) expect(change.key).not.toMatch(/true|false|"x"/);
+  });
+});
+
+describe('summarizeGitError (R3-Bug-02)', () => {
+  it('names the bad ref in one line', () => {
+    const summary = summarizeGitError(
+      "git diff failed: fatal: ambiguous argument 'origin/main': unknown revision or path not in the working tree."
+    );
+    expect(summary).not.toContain('\n');
+    expect(summary).toContain('origin/main');
+  });
+
+  it('keeps the non-git-repo and generic cases single-line', () => {
+    expect(
+      summarizeGitError('git diff failed: fatal: not a git repository (or any of the parent directories): .git')
+    ).not.toContain('\n');
+    expect(summarizeGitError('git diff failed: ')).not.toContain('\n');
   });
 });

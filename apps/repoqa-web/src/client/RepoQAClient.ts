@@ -287,16 +287,24 @@ export class RepoQAClient {
       }
     );
     if (!res.ok) {
-      let detail = '';
+      let message = `getArchitectureDelta failed: ${res.status}`;
+      let rawDetail: string | undefined;
       try {
-        const body = (await res.json()) as { error?: unknown };
+        const body = (await res.json()) as { error?: unknown; detail?: unknown };
         if (typeof body.error === 'string' && body.error !== '') {
-          detail = `: ${body.error}`;
+          // R3-Bug-02 — the backend already reduced the git failure to one
+          // line; the raw git output rides along as `detail`.
+          message = body.error;
+        }
+        if (typeof body.detail === 'string' && body.detail !== '') {
+          rawDetail = body.detail;
         }
       } catch {
-        // non-JSON body — fall back to the status-only message below
+        // non-JSON body — keep the status-only message
       }
-      throw new Error(`getArchitectureDelta failed: ${res.status}${detail}`);
+      const err = new Error(message) as Error & { detail?: string };
+      if (rawDetail !== undefined) err.detail = rawDetail;
+      throw err;
     }
     const body = (await res.json()) as { delta?: ArchitectureDeltaReport };
     if (!body.delta) {

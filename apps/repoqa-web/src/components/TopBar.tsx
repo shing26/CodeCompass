@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   IndexingProgress,
   LlmRuntimeMode,
@@ -75,6 +75,11 @@ function watcherState(status: Repo['status'] | undefined) {
  * TopBar: 48px workbench header with repo/watcher state on the left, the
  * topo/metrics/gate segmented tabs in the middle and privacy/theme/agent
  * actions on the right. Repo lifecycle actions live in the overflow menu.
+ *
+ * Round 3 Bug-03 — below 1280px the header wraps: the tab strip moves to a
+ * second header row (order-3, full width) instead of being overlapped by the
+ * right cluster; status capsules collapse to dots and the copy button to a
+ * short label. At ≥1280px the original single-row layout is byte-identical.
  */
 export function TopBar({
   repos,
@@ -107,6 +112,23 @@ export function TopBar({
   const [copied, setCopied] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const watcher = watcherState(currentRepo?.status);
+  const moreActionsRef = useRef<HTMLButtonElement | null>(null);
+
+  // Round 3 Bug-04 — Esc closes the overflow menu and returns focus to the
+  // ⋯ trigger. Scoped to the open state so other Escape handlers (import
+  // dialog) are unaffected; stopPropagation keeps them from double-firing
+  // if both happen to be open.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setMenuOpen(false);
+      moreActionsRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [menuOpen]);
 
   const handleExport = async () => {
     if (!currentRepo || exporting) return;
@@ -135,8 +157,8 @@ export function TopBar({
 
   return (
     <>
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-subtle bg-surface px-2 sm:gap-3 sm:px-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
+    <header className="flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1 border-b border-subtle bg-surface px-2 py-1 sm:gap-x-3 sm:px-3">
+      <div className="order-1 flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
         <button
           type="button"
           data-testid="sidebar-toggle"
@@ -149,7 +171,7 @@ export function TopBar({
         </button>
         <div
           data-testid="brand-logo"
-          className="flex h-8 shrink-0 items-center gap-2 rounded-md border border-line bg-subtle px-2"
+          className="flex h-8 shrink-0 items-center gap-2 rounded-md border border-line bg-subtle px-2 max-sm:hidden"
         >
           <span className="grid h-4 w-4 place-items-center rounded-sm bg-accent text-[10px] font-bold text-white">
             CC
@@ -173,7 +195,7 @@ export function TopBar({
         </select>
         <span
           data-testid="watcher-status"
-          className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2 py-1 text-[11px] font-medium text-muted min-[520px]:inline-flex"
+          className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2 py-1 text-[11px] font-medium text-muted xl:inline-flex"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${watcher.dotClass}`} />
           Watcher: {watcher.label}
@@ -182,40 +204,26 @@ export function TopBar({
           type="button"
           data-testid="open-import"
           onClick={() => setShowImport(true)}
+          aria-label="Import repo"
           className="h-8 shrink-0 rounded-md bg-accent px-2 text-sm font-medium text-white hover:bg-accent/90 sm:px-3"
         >
-          Import<span className="hidden sm:inline"> repo</span>
+          <span className="sm:hidden" aria-hidden>
+            +
+          </span>
+          <span className="hidden sm:inline">
+            Import<span className="hidden md:inline"> repo</span>
+          </span>
         </button>
       </div>
 
-      <nav
-        data-testid="workbench-tabs"
-        aria-label="Workbench views"
-        className="flex h-8 shrink-0 items-center gap-0.5 rounded-md border border-line bg-subtle p-0.5"
-      >
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            data-testid={`tab-${tab.id}`}
-            aria-pressed={activeView === tab.id}
-            onClick={() => onSelectView(tab.id)}
-            className={`h-7 whitespace-nowrap rounded px-2 text-xs font-medium transition-colors ${
-              activeView === tab.id
-                ? 'bg-surface text-ink shadow-sm'
-                : 'text-muted hover:text-ink'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+      {/* Round 3 Bug-03 — right cluster stays on row 1; it must never overlap
+          the tab strip, which now owns row 2 on <1280px. */}
+      <div className="order-2 flex min-w-0 flex-1 items-center justify-end gap-1.5 xl:order-3 xl:gap-2">
         {currentRepo && (
           <div className="relative shrink-0">
             <button
               type="button"
+              ref={moreActionsRef}
               data-testid="more-actions"
               onClick={() => setMenuOpen((v) => !v)}
               aria-label="更多操作"
@@ -282,7 +290,7 @@ export function TopBar({
         )}
         <span
           data-testid="masked-badge"
-          className="hidden rounded-full border border-line bg-subtle px-2 py-1 text-[10px] font-medium text-muted lg:inline-flex"
+          className="hidden shrink-0 rounded-full border border-line bg-subtle px-2 py-1 text-[10px] font-medium text-muted xl:inline-flex"
         >
           13-Rules Masked
         </span>
@@ -295,22 +303,58 @@ export function TopBar({
           title={theme === 'cyber' ? '切换到 Clean 主题' : '切换到 Cyber 主题'}
           className="h-8 shrink-0 rounded-md border border-line px-2 text-xs font-medium text-muted hover:border-accent hover:text-accent"
         >
-          {theme === 'cyber' ? 'Clean' : 'Cyber'}
+          <span aria-hidden className="sm:hidden">
+            {theme === 'cyber' ? '🌙' : '☀️'}
+          </span>
+          <span className="hidden sm:inline">{theme === 'cyber' ? 'Clean' : 'Cyber'}</span>
         </button>
         <button
           type="button"
           data-testid="topbar-copy-context"
           onClick={handleCopyAgentContext}
           disabled={!canCopyAgentContext || copying}
-          className={`h-8 shrink-0 rounded-md px-3 text-xs font-medium transition-colors disabled:opacity-50 ${
+          aria-label="复制 Agent 上下文"
+          className={`h-8 shrink-0 rounded-md px-2.5 text-xs font-medium transition-colors disabled:opacity-50 xl:px-3 ${
             copied
               ? 'bg-success text-white'
               : 'bg-accent text-white hover:bg-accent/90'
           }`}
         >
-          {copied ? '已复制' : '复制 Agent 上下文'}
+          {copied ? '已复制' : (
+            <>
+              <span className="hidden xl:inline">复制 Agent 上下文</span>
+              <span className="xl:hidden">复制</span>
+            </>
+          )}
         </button>
       </div>
+
+      {/* Round 3 Bug-03 — the tab strip wraps to its own header row on
+          <1280px (w-full + flex-wrap keeps every tab fully visible and
+          hittable, no horizontal scroll, no overlap) and returns to the
+          middle slot of the single 48px row at ≥1280px. */}
+      <nav
+        data-testid="workbench-tabs"
+        aria-label="Workbench views"
+        className="order-3 flex w-full flex-wrap items-center gap-0.5 rounded-md border border-line bg-subtle p-0.5 xl:order-2 xl:w-auto xl:shrink-0"
+      >
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            data-testid={`tab-${tab.id}`}
+            aria-pressed={activeView === tab.id}
+            onClick={() => onSelectView(tab.id)}
+            className={`h-7 whitespace-nowrap rounded px-2 text-xs font-medium transition-colors ${
+              activeView === tab.id
+                ? 'bg-surface text-ink shadow-sm'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
 
       {showImport && (
         <ImportRepoModal

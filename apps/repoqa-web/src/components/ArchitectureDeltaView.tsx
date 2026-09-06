@@ -40,7 +40,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
   const [head, setHead] = useState('HEAD');
   const [delta, setDelta] = useState<ArchitectureDeltaReport | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; detail?: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -49,6 +49,13 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
     return () => window.clearTimeout(timer);
   }, [copied]);
 
+  // R3-Bug-02 — default the base ref to the repo's real default branch
+  // (HEAD / origin/HEAD, resolved by the backend) instead of a hardcoded
+  // origin/main that 400s on master-first repos out of the box.
+  useEffect(() => {
+    if (repo?.defaultBranch) setBase(repo.defaultBranch);
+  }, [repo?.id, repo?.defaultBranch]);
+
   const runDelta = async () => {
     if (!repo || loading) return;
     setLoading(true);
@@ -56,7 +63,8 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
     try {
       setDelta(await client.getArchitectureDelta(repo.id, base.trim(), head.trim()));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const e = err as Error & { detail?: string };
+      setError({ message: e.message, detail: e.detail });
     } finally {
       setLoading(false);
     }
@@ -157,6 +165,11 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
               <input
                 data-testid="delta-base"
                 value={base}
+                placeholder={
+                  repo?.defaultBranch
+                    ? `如 ${repo.defaultBranch} 或 HEAD~3`
+                    : '如 HEAD~3 或 origin/master'
+                }
                 onChange={(e) => setBase(e.target.value)}
                 className="h-8 rounded-md border border-line bg-surface px-2 font-mono text-xs text-ink outline-none focus:border-accent"
               />
@@ -180,7 +193,21 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
               {loading ? '分析中…' : '运行差异分析'}
             </button>
           </div>
-          {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+          {error && (
+            <div className="mt-2 text-xs text-danger">
+              <p>{error.message}</p>
+              {error.detail && error.detail !== error.message && (
+                <details className="mt-1" data-testid="delta-error-detail">
+                  <summary className="cursor-pointer select-none text-muted">
+                    原始 git 输出
+                  </summary>
+                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-code px-2 py-1 font-mono text-[11px] text-muted">
+                    {error.detail}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
         </section>
 
         {delta && (

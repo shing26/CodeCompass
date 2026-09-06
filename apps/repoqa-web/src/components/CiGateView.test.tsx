@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CiGateView } from './CiGateView';
 import type { Repo, RepoDashboard } from '../types';
@@ -51,6 +51,15 @@ describe('CiGateView (Issue 31)', () => {
     fireEvent.change(screen.getByTestId('ci-max-routes'), { target: { value: '5' } });
     expect(screen.getByTestId('ci-command')).toHaveTextContent('--max-affected-routes 5');
     expect(screen.getByTestId('ci-command')).toHaveTextContent('--fail-on-auth-impact');
+  });
+
+  it('defaults the base ref to the repo default branch (R3-Bug-02)', async () => {
+    render(<CiGateView repo={{ ...repo, defaultBranch: 'master' }} dashboard={dashboard} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('ci-command')).toHaveTextContent(
+        'npx codecompass pr-summary master HEAD'
+      )
+    );
   });
 
   it('shows an empty state without a repo', () => {

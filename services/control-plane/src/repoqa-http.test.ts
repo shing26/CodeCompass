@@ -1135,9 +1135,35 @@ describe('RepoPulse symbol extraction HTTP API', () => {
         }
       );
       expect(missing.status).toBe(400);
+
+      // R3-Bug-02 — the catalog serves the working tree's default branch…
+      const catalog = await fetch(`${ctx.baseUrl}/api/repos`);
+      const catalogBody = (await catalog.json()) as {
+        repos: Array<{ id: string; defaultBranch?: string }>;
+      };
+      const served = catalogBody.repos.find((entry) => entry.id === repoId);
+      expect(typeof served?.defaultBranch).toBe('string');
+      expect(served?.defaultBranch?.length ?? 0).toBeGreaterThan(0);
+
+      // …and a bad ref yields a one-line UI message plus the raw git detail.
+      const badRef = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/architecture-delta`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ base: 'origin/nope', head: 'HEAD' })
+        }
+      );
+      expect(badRef.status).toBe(400);
+      const badBody = (await badRef.json()) as { error: string; detail: string };
+      expect(badBody.error).not.toContain('\n');
+      expect(badBody.detail).toContain('failed');
     } finally {
       await ctx.close();
-      await fs.rm(root, { recursive: true, force: true });
+      // The extra git spawns above (default-branch resolve + bad-ref probe)
+      // release their cwd handle a beat after exit on Windows; retry the
+      // temp-dir cleanup through the transient EBUSY window.
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   }, 60_000);
 

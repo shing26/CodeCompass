@@ -27,3 +27,6 @@ __pycache__/
 .penguin/
 .workbuddy/
 .zcode/
+
+# Product-experience report screenshots (large binary evidence, kept local).
+产品体验报告/ui-shots/

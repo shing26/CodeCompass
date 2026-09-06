@@ -6,7 +6,8 @@ import type { Repos } from './repos';
 import type { Orchestrator, TaskAction } from './orchestrator';
 import type { HarnessManager } from './harness-manager';
 import type { EventBus } from './events';
-import type { RepoQARepos } from './repoqa-repos';
+import { resolveDefaultBranchSync } from './repoqa-repos';
+import type { Repo, RepoQARepos } from './repoqa-repos';
 import type { RepoQAWorker } from './repoqa-worker';
 import { exportWorkspace, importWorkspace } from './workspace-export';
 import { maskSensitiveText, maskEventPayload } from './repoqa-masking';
@@ -22,7 +23,7 @@ import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-expo
 import { previewRepo } from './repoqa-scan';
 import { llmRuntimeInfo, maskHostname } from './repoqa-llm';
 import { extractSubgraphContext } from './repoqa-graphrag';
-import { analyzeDiff } from './repoqa-diff';
+import { analyzeDiff, summarizeGitError } from './repoqa-diff';
 import { runDomainRadar } from './domain-radar-engine';
 
 export interface HttpDeps {
@@ -248,8 +249,16 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     }
   });
 
+  // R3-Bug-02 — serve the working tree's actual default branch so the
+  // delta/CI views can default to a ref that exists (the persisted `branch`
+  // is often stale, e.g. 'main' on a locally imported master-first repo).
+  const withDefaultBranch = (repo: Repo): Repo => ({
+    ...repo,
+    defaultBranch: resolveDefaultBranchSync(repo.localPath, repo.branch || 'main')
+  });
+
   app.get('/api/repos', (_req, res) => {
-    res.json({ repos: deps.repoqa.listRepos() });
+    res.json({ repos: deps.repoqa.listRepos().map(withDefaultBranch) });
   });
 
   app.get('/api/repos/:id', (req, res) => {
@@ -258,7 +267,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(404).json({ error: 'Repo not found' });
       return;
     }
-    res.json({ repo });
+    res.json({ repo: withDefaultBranch(repo) });
   });
 
   app.get('/api/repos/:id/symbols', (req, res) => {
@@ -397,9 +406,10 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       const report = await analyzeDiff({ repoPath: repo.localPath, base, head });
       res.json({ delta: report.architectureDelta ?? null });
     } catch (error) {
-      res.status(400).json({
-        error: error instanceof Error ? error.message : String(error)
-      });
+      const message = error instanceof Error ? error.message : String(error);
+      // R3-Bug-02 — one UI-ready sentence plus the raw git output for the
+      // collapsible detail block (was: raw multi-line git stderr as-is).
+      res.status(400).json({ error: summarizeGitError(message), detail: message });
     }
   });
 
