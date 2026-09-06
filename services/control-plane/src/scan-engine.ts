@@ -36,7 +36,14 @@ interface ScanInput {
 
 const ORPHAN_NOTE =
   'Static zero-caller only: reflective lookups, dynamic proxies and MQ ' +
-  'subscriptions are invisible to AST analysis — verify before removing.';
+  'subscriptions are invisible to AST analysis — verify before removing. ' +
+  'Externally wired symbols (Spring @Bean/@FeignClient/…, entry points) are ' +
+  'excluded from candidates and counted in wiredExcluded.';
+
+const HUBS_NOTE =
+  'Board only: accessor methods (get/set/is prefix, ≤5-line body) rank high ' +
+  'on PageRank because every read/write routes through them, but carry no ' +
+  'refactor signal — they are excluded from this board and its total.';
 
 const OVERSIZED_NOTE =
   'Line span is a deterministic complexity proxy until method-body AST ' +
@@ -46,6 +53,49 @@ const OVERSIZED_NOTE =
  * call it cannot make — "run X on an entry" with zero entries dead-ends. */
 const EMPTY_BUCKET_ACTION =
   "No candidates found by this bucket's deterministic rules — nothing to act on here.";
+
+/**
+ * Issue 04 (dogfooding) — annotations that wire a symbol into the runtime, so
+ * zero STATIC callers is the normal, healthy form (Spring injects/proxies/
+ * reflects them). Stored annotation texts carry the `@` (JavaAdapter emits
+ * full annotation text, e.g. `@FeignClient("customers")`).
+ */
+const WIRED_ANNOTATIONS: ReadonlyArray<RegExp> = [
+  /^@Bean\b/,
+  /^@FeignClient\b/,
+  /^@EventListener\b/,
+  /^@Configuration\b/,
+  /^@SpringBootApplication\b/
+];
+
+/** Issue 04 — why a zero-static-caller symbol is not an orphan candidate.
+ * `wiredTypes` carries annotation-wired CLASS/INTERFACE names so members of a
+ * `@Configuration` class or a `@FeignClient` interface count as wired even
+ * without an own annotation (review fix: parent-annotation leak). */
+export function wiredKindOf(
+  symbol: RepoSymbol,
+  wiredTypes?: ReadonlySet<string>
+): 'di' | 'entry' | undefined {
+  if (symbol.kind === 'method' && symbol.name === 'main') return 'entry';
+  for (const annotation of symbol.annotations ?? []) {
+    const text = annotation.trim();
+    if (WIRED_ANNOTATIONS.some((re) => re.test(text))) return 'di';
+  }
+  if (symbol.parentType && wiredTypes?.has(symbol.parentType)) return 'di';
+  return undefined;
+}
+
+/** Issue 06 (dogfooding) — a named accessor whose declaration span is ≤5
+ * lines carries no real logic; it ranks as a PageRank hub only because every
+ * read/write routes through it. Both conditions must hold so
+ * `getOrCreateX`-style methods with real bodies stay on the board. (Span, not
+ * body: signature + braces count — conservative by design, review note.) */
+export function isAccessorLike(symbol: RepoSymbol): boolean {
+  if (symbol.kind !== 'method' || !symbol.parentType) return false;
+  if (!/^(get|set|is)[A-Z]/.test(symbol.name)) return false;
+  if (symbol.lineStart === undefined || symbol.lineEnd === undefined) return false;
+  return symbol.lineEnd - symbol.lineStart <= 5;
+}
 
 function candidateOf(
   symbol: RepoSymbol,
@@ -74,7 +124,8 @@ function bucket(
   items: ScanCandidate[],
   total: number,
   nextAction: string,
-  note?: string
+  note?: string,
+  wiredExcluded?: number
 ): ScanBucket {
   return {
     id,
@@ -82,7 +133,8 @@ function bucket(
     items,
     total,
     nextAction: total === 0 ? EMPTY_BUCKET_ACTION : nextAction,
-    ...(note ? { note } : {})
+    ...(note ? { note } : {}),
+    ...(wiredExcluded !== undefined ? { wiredExcluded } : {})
   };
 }
 
@@ -96,11 +148,33 @@ export function runScan(input: ScanInput): ScanResult {
 
   /* Bucket 1 — orphaned public code: production symbols with zero callers.
      Routes are external HTTP entry points, so a missing caller is normal for
-     them and they are excluded. */
+     them and they are excluded. Issue 04 (dogfooding): symbols wired through
+     annotations or program entry points are not dead code either — Spring
+     injects/proxies them, the runtime calls main(). They leave the candidate
+     list and are counted in wiredExcluded. */
   const orphanItems: ScanCandidate[] = [];
+  let wiredExcluded = 0;
+  // Annotation-wired type names, so members of a @Configuration class or a
+  // @FeignClient interface inherit the wired status without an own annotation.
+  // Built from the raw symbol input: PRODUCTION_KINDS gates the graph node
+  // set and does not carry 'config'/'advice', which is exactly where
+  // @Configuration classes land (review fix: parent-annotation leak).
+  const TYPE_KINDS = new Set(['class', 'interface', 'service', 'repository', 'route', 'config', 'advice', 'mapper']);
+  const wiredTypes = new Set<string>();
+  for (const symbol of symbols) {
+    if (!TYPE_KINDS.has(symbol.kind) || isTestPath(symbol.filePath)) continue;
+    if ((symbol.annotations ?? []).some((a) => WIRED_ANNOTATIONS.some((re) => re.test(a.trim())))) {
+      wiredTypes.add(symbol.name);
+    }
+  }
   for (const [id, symbol] of graph.symbolsById) {
     if (symbol.kind === 'route') continue;
     if ((graph.inDegree.get(id) ?? 0) !== 0) continue;
+    const wired = wiredKindOf(symbol, wiredTypes);
+    if (wired !== undefined) {
+      wiredExcluded += 1;
+      continue;
+    }
     const span =
       symbol.lineEnd !== undefined && symbol.lineStart !== undefined
         ? symbol.lineEnd - symbol.lineStart
@@ -115,7 +189,10 @@ export function runScan(input: ScanInput): ScanResult {
   }
   orphanItems.sort(byLocation);
 
-  /* Bucket 2 — hubs: PageRank top; the blast-radius heavyweights. */
+  /* Bucket 2 — hubs: PageRank top; the blast-radius heavyweights.
+     Issue 06 (dogfooding): ≤5-line named accessors rank high only because
+     every read/write routes through them — no refactor signal, so they leave
+     the board (the graph itself still ranks them for other consumers). */
   const hubRanked = [...graph.symbolsById.keys()]
     .map((id) => {
       const symbol = graph.symbolsById.get(id)!;
@@ -127,7 +204,8 @@ export function runScan(input: ScanInput): ScanResult {
         b.rankValue - a.rankValue ||
         (a.symbol.filePath < b.symbol.filePath ? -1 : a.symbol.filePath > b.symbol.filePath ? 1 : 0) ||
         (a.symbol.lineStart ?? 0) - (b.symbol.lineStart ?? 0)
-    );
+    )
+    .filter(({ symbol }) => !isAccessorLike(symbol));
   const hubTotal = hubRanked.length;
   const hubItems: ScanCandidate[] = hubRanked
     .slice(0, SCAN_TOP_LIMIT)
@@ -227,14 +305,16 @@ export function runScan(input: ScanInput): ScanResult {
         orphanItems.slice(0, SCAN_TOP_LIMIT),
         orphanItems.length,
         'Plan a safe teardown with codecompass_module_evolution (DEPRECATE) before deleting anything.',
-        ORPHAN_NOTE
+        ORPHAN_NOTE,
+        wiredExcluded
       ),
       bucket(
         'hubs',
         'Change-impact hubs (highest PageRank)',
         hubItems,
         hubTotal,
-        'Run codecompass_refactor_plan on any of these before touching them.'
+        'Run codecompass_refactor_plan on any of these before touching them.',
+        HUBS_NOTE
       ),
       bucket(
         'oversized',

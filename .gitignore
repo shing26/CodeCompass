@@ -11,7 +11,13 @@ Thumbs.db
 .git-askpass.ps1
 
 # E2E gate scratch artifacts (sample repo, indexed data, screenshots, probes).
-.scratch/
+# Issue-tracker convention (docs/agents/issue-tracker.md) keeps specs/issues as
+# markdown under .scratch/<feature>/ — those must stay tracked. Ignore the
+# artifacts, re-include directories and *.md (v0.23.0: specs were silently
+# untracked before this negation).
+.scratch/**
+!.scratch/**/
+!.scratch/**/*.md
 
 # Test runner artifacts.
 test-results/

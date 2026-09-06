@@ -104,6 +104,126 @@ describe('runScan', () => {
     expect(orphans.note).toContain('reflective');
   });
 
+  it('excludes externally wired symbols from orphanedPublic and counts them (issue 04)', () => {
+    const wired = [
+      symbol({
+        kind: 'method',
+        name: 'loadBalancedRestTemplate',
+        parentType: 'ApiGatewayApplication',
+        lineStart: 55,
+        lineEnd: 57,
+        annotations: ['@Bean']
+      }),
+      symbol({
+        kind: 'interface',
+        name: 'CustomersServiceClient',
+        lineStart: 27,
+        lineEnd: 41,
+        annotations: ['@FeignClient("customers")']
+      }),
+      symbol({
+        kind: 'method',
+        name: 'main',
+        filePath: 'src/main/java/com/demo/Application.java',
+        lineStart: 20,
+        lineEnd: 22
+      }),
+      symbol({
+        kind: 'class',
+        name: 'PetClinicApplication',
+        lineStart: 26,
+        lineEnd: 31,
+        annotations: ['@SpringBootApplication']
+      })
+    ];
+    const result = runScan({
+      ...BASE,
+      symbols: [...SYMBOLS, ...wired],
+      baseUrl: 'http://localhost:43110'
+    });
+    const orphans = result.buckets[0];
+    const names = orphans.items.map((item) => item.symbol);
+    expect(names).not.toContain('loadBalancedRestTemplate');
+    expect(names).not.toContain('CustomersServiceClient');
+    expect(names).not.toContain('main');
+    expect(names).not.toContain('PetClinicApplication');
+    expect(orphans.total).toBe(2); // LegacyHelper + OrderRepository class, unchanged by wired symbols
+    expect(orphans.wiredExcluded).toBe(4);
+    expect(orphans.note).toContain('wiredExcluded');
+  });
+
+  it('inherits wired status from the parent type annotation (review fix)', () => {
+    // A @Configuration class's own un-annotated zero-caller method must not
+    // surface as a teardown candidate; a @FeignClient interface's methods too.
+    const configClass = symbol({
+      kind: 'config',
+      name: 'BeansConfig',
+      lineStart: 10,
+      lineEnd: 40,
+      annotations: ['@Configuration']
+    });
+    const plainHelper = symbol({
+      kind: 'method',
+      name: 'buildDefaults',
+      parentType: 'BeansConfig',
+      lineStart: 20,
+      lineEnd: 30
+    });
+    const feignIface = symbol({
+      kind: 'interface',
+      name: 'VisitsServiceClient',
+      lineStart: 50,
+      lineEnd: 60,
+      annotations: ['@FeignClient("visits")']
+    });
+    const feignMethod = symbol({
+      kind: 'method',
+      name: 'createVisit',
+      parentType: 'VisitsServiceClient',
+      lineStart: 55,
+      lineEnd: 57
+    });
+    const result = runScan({
+      ...BASE,
+      symbols: [...SYMBOLS, configClass, plainHelper, feignIface, feignMethod],
+      baseUrl: 'http://localhost:43110'
+    });
+    const orphans = result.buckets[0];
+    const names = orphans.items.map((item) => item.symbol);
+    expect(names).not.toContain('BeansConfig.buildDefaults');
+    expect(names).not.toContain('VisitsServiceClient.createVisit');
+    expect(orphans.wiredExcluded).toBe(3); // plainHelper + feignIface + feignMethod; the config class itself is not a graph node (PRODUCTION_KINDS), so never a candidate
+  });
+
+  it('keeps accessor methods with real bodies on the hubs board (issue 06)', () => {
+    // Pure ≤5-line setter must NOT make the hubs board; a get* method with a
+    // real body stays eligible.
+    const setter = symbol({
+      kind: 'method',
+      name: 'setPetId',
+      parentType: 'Visit',
+      lineStart: 79,
+      lineEnd: 81
+    });
+    const logicGetter = symbol({
+      kind: 'method',
+      name: 'getOrCreateOwner',
+      parentType: 'OwnerService',
+      lineStart: 90,
+      lineEnd: 120,
+      calls: [{ file: JAVA_FILE, method: 'findOrders', line: 100, receiver: 'orderService' }]
+    });
+    const result = runScan({
+      ...BASE,
+      symbols: [...SYMBOLS, setter, logicGetter],
+      baseUrl: 'http://localhost:43110'
+    });
+    const hubs = result.buckets[1];
+    const hubNames = hubs.items.map((item) => item.symbol);
+    expect(hubNames).not.toContain('Visit.setPetId');
+    expect(hubNames).toContain('OwnerService.getOrCreateOwner');
+  });
+
   it('ranks the fan-out service as a hub with pagerank and degree evidence', () => {
     const result = runScan({ ...BASE, baseUrl: 'http://localhost:43110' });
     const hubs = result.buckets[1];

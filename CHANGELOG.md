@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.23.0] - 2026-09-07
+
+### Highlights
+
+- **scan 信号提纯第二轮（dogfooding issues 04 + 06）**：spring-petclinic 取证显示孤儿桶 top10 约 9 成是 DI/入口假阳性且 nextAction 引导去 DEPRECATE 拆除（危险），hubs 榜首是 getter——本版把两类噪声从榜单清除，候选只留真实的死代码线索。
+- **孤儿桶 wired 过滤**：携带 `@Bean`/`@FeignClient`/`@EventListener`/`@Configuration`/`@SpringBootApplication` 的符号与 `main` 入口（Java/Go 通用）不再进孤儿桶候选与 total，改由新增的 `ScanBucket.wiredExcluded` 计数单列（contracts additive optional，零破坏）。note 同步披露，DEPRECATE 引导与 note 的矛盾消除。白名单常量与 `wiredKindOf` 集中在 scan-engine，供多语言复用。
+- **hubs 榜单 accessor 降权**：`^get/^set/^is` 命名且方法体 ≤5 行的 accessor（如 petclinic 榜首 `Vet.getSpecialtiesInternal`、`Visit.setPetId`）不再占 hubs 榜单与 total——它们 PageRank 高只因每次读写都路过，无重构信号。双条件保护 `getOrCreateX` 类带真实逻辑的方法不误伤；PageRank 全图计算不动，仅滤榜单展示。
+
+### Dogfooding 遗留与归属
+
+- 取证与决策记录：`.scratch/scan-purify-v023/spec.md`（grill 定案：LLM 节点池热切换**整件归智能体工作台线**——worker 会话编排在那边，本线保持纯 MCP 分析工具面）。
+- 遗留（后续增量候选）：方法体级 AST 提取器（backlog #1，oversized 桶从行跨度代理升级为真实复杂度度量）；Go 跨文件类型引用（`declaredTypes` 按文件，跨文件 `g *Gui` 不绑定——lazygit 孤儿率残余噪声主因）。
+
 ## [0.22.0] - 2026-09-06
 
 ### Highlights

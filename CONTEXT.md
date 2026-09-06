@@ -1,7 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具已随 Issue 24/25 落地：get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 降级为向后兼容别名）。当前版本 0.21.0（Issue 25 Copilot 整合收官：Incident 卡流重构（Canvas 拔气泡回归纯拓扑工作台）+ 演进感知 MCP 工具 `codecompass_get_conventions`/`codecompass_plan_evolution` 落地（第 16/17 个，`module_evolution` 转为向后兼容别名）+ 工件卡服务端持久化与 hydrate 回放（workbench_cards 按 (repoId,commit) 流落库、`GET workbench-cards` 回放端点、SSE 终态载荷披露 cardId/seq、前端切桶自动 hydrate 去重合并）；Issue 24 演进工作台收官：`POST /api/repos/:id/evolve` 单遍流式 Intent→四工件卡、STRICT 惯例冲突结构化拦截、Intent Eval Bucket 入 eval 冻结集；Issue 23 排障副驾驶 `mode=incident` 零幻觉合约延续，物理锚点四元组见 ADR-0010，静态边界见 ADR-0011）。
+11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具 get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 为向后兼容别名）。当前版本 0.23.0（v0.22.0 scan dogfooding 四修复：`IGNORED_DIRS` 补 vendor、Go 裸调用/跨包调用边静态解析（pkg 桥 + 同目录兜底）、`isTestPath` 补 TS/Go/Python 测试文件模式并收拢单一实现、空桶 nextAction 中性文案；v0.23.0 scan 信号提纯：孤儿桶排除外部接线符号（@Bean/@FeignClient/@EventListener/@Configuration/@SpringBootApplication/main → `wiredExcluded` 计数单列，DEPRECATE 引导不再矛盾），hubs 榜单排除 ≤5 行命名 accessor（PageRank 全图不动）；两轮均源自真实仓库 dogfooding 取证 `.scratch/scan-dogfooding-v021/` 与 `.scratch/scan-purify-v023/`。LLM 节点池热切换经 grilling 裁定归智能体工作台线）。
 
 ## Naming
 

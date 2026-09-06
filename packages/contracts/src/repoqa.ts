@@ -493,6 +493,9 @@ export interface ScanBucket {
   /** Full count in the bucket before top-N truncation. */
   total: number;
   items: ScanCandidate[];
+  /** v0.23.0 — orphanedPublic only: zero-caller symbols excluded because they
+   * are externally wired (DI annotations / entry points), not dead code. */
+  wiredExcluded?: number;
 }
 
 export interface ScanResult {
