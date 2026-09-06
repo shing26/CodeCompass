@@ -762,7 +762,12 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
         'oversizedFiles'
       ]);
       for (const bucket of body.buckets) {
-        expect(bucket.nextAction).toContain('codecompass_');
+        // Issue 05: empty buckets carry a neutral action, not a tool pointer.
+        if (bucket.total === 0) {
+          expect(bucket.nextAction).not.toContain('codecompass_');
+        } else {
+          expect(bucket.nextAction).toContain('codecompass_');
+        }
         for (const item of bucket.items) {
           expect(item.filePath).toBeTruthy();
           expect(item.line).toBeGreaterThan(0);

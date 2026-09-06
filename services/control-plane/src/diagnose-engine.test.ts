@@ -4,13 +4,36 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildCallIndex } from './repoqa-callchain';
 import type { RepoSymbol } from './repoqa-repos';
-import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
+import { runDiagnose, frontendCallersForRoute, isTestPath } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 
 /**
  * v0.8.0 — Composite agent engines. Deterministic, zero-LLM: every status and
  * count is derived from the statically bound call graph.
  */
+
+describe('isTestPath', () => {
+  it('keeps recognizing Java-style test directories', () => {
+    expect(isTestPath('src/test/java/com/x/FooTest.java')).toBe(true);
+    expect(isTestPath('services/app/test/util.go')).toBe(true);
+  });
+
+  it('recognizes TS/Go/Python test file conventions (issue 03)', () => {
+    expect(isTestPath('apps/web/src/App.test.tsx')).toBe(true);
+    expect(isTestPath('apps/web/src/App.test.ts')).toBe(true);
+    expect(isTestPath('apps/web/src/App.spec.ts')).toBe(true);
+    expect(isTestPath('pkg/gui/helpers_test.go')).toBe(true);
+    expect(isTestPath('pkg/gui/test_helpers.py')).toBe(true);
+    expect(isTestPath('pkg/gui/helpers_test.py')).toBe(true);
+  });
+
+  it('does not misclassify lookalike production files', () => {
+    expect(isTestPath('pkg/gui/window_arrangement_helper.go')).toBe(false);
+    expect(isTestPath('src/latest.ts')).toBe(false);
+    expect(isTestPath('src/template.py')).toBe(false);
+    expect(isTestPath('src/App.tsx')).toBe(false);
+  });
+});
 
 const FRONTEND: RepoSymbol = {
   repoId: 'r1',

@@ -204,6 +204,10 @@ export function parseGoSource(
   // v0.7 — nesting depth inside `go ...` statements; calls made here are
   // concurrent branches and get the async marker on their edge.
   let goDepth = 0;
+  // Issue 02 (dogfooding) — local names this file binds imports to (alias or
+  // last path segment). A selector `pkgName.Func` whose qualifier is here is a
+  // package-qualified call, not a variable receiver.
+  const importNames = new Set<string>();
 
   const tree = parser.parse(source);
   tree.iterate({
@@ -212,6 +216,18 @@ export function parseGoSource(
 
       if (node.name === 'GoStatement') {
         goDepth += 1;
+        return;
+      }
+
+      if (node.name === 'ImportSpec') {
+        // `import alias "path"` binds `alias`; `"a/b/leaf"` binds `leaf`.
+        // Blank (`_`) and dot (`.`) imports bind nothing callable.
+        const pathNode = node.getChild('String');
+        const aliasNode = node.getChild('PackageName');
+        const importPath = pathNode ? unquote(textOf(pathNode, source)) : undefined;
+        const alias = aliasNode ? textOf(aliasNode, source) : undefined;
+        const localName = alias ?? importPath?.split('/').pop();
+        if (localName && localName !== '_' && localName !== '.') importNames.add(localName);
         return;
       }
 
@@ -462,39 +478,57 @@ export function parseGoSource(
         let call: RepoSymbolCall | undefined;
 
         if (parts.length >= 2) {
-          const receiver =
-            parts.length >= 3 ? parts[1] : parts[0];
-          const method = parts[parts.length - 1];
-          let receiverType: string | undefined;
-          if (parts.length >= 3) {
-            const ownerType =
-              scope?.params.get(parts[0]) ??
-              scope?.locals.get(parts[0]) ??
-              (scope?.selfType
-                ? declaredTypes.get(scope.selfType)?.fields.get(parts[0])
-                : undefined);
-            receiverType = ownerType
-              ? declaredTypes.get(ownerType)?.fields.get(receiver)
-              : undefined;
+          const base = parts[0];
+          const verb = parts[parts.length - 1];
+          // Issue 02 — `pkg.Func(...)` where the qualifier is an import: a
+          // package-qualified call, statically resolvable via the pkg stamp
+          // (see resolvePkgQualifiedCall). `pkg.Type.Method` stays dynamic:
+          // the type lives in another package and cannot be bound here.
+          if (parts.length === 2 && importNames.has(base)) {
+            call = {
+              file: relativePath,
+              method: verb,
+              line,
+              dynamic: false,
+              pkg: base
+            };
           } else {
-            receiverType = receiverTypeOf(scope, declaredTypes, receiver);
+            const receiver = parts.length >= 3 ? parts[1] : parts[0];
+            const method = parts[parts.length - 1];
+            let receiverType: string | undefined;
+            if (parts.length >= 3) {
+              const ownerType =
+                scope?.params.get(parts[0]) ??
+                scope?.locals.get(parts[0]) ??
+                (scope?.selfType
+                  ? declaredTypes.get(scope.selfType)?.fields.get(parts[0])
+                  : undefined);
+              receiverType = ownerType
+                ? declaredTypes.get(ownerType)?.fields.get(receiver)
+                : undefined;
+            } else {
+              receiverType = receiverTypeOf(scope, declaredTypes, receiver);
+            }
+            call = {
+              file: relativePath,
+              method,
+              line,
+              receiver,
+              receiverType,
+              dynamic: receiverType === undefined
+            };
           }
-          call = {
-            file: relativePath,
-            method,
-            line,
-            receiver,
-            receiverType,
-            dynamic: receiverType === undefined
-          };
         } else if (first?.name === 'VariableName') {
+          // Issue 02 — a bare identifier call is a package-level function (or
+          // a sibling method on the receiver). Go has no dynamic dispatch on
+          // bare identifiers, so this is statically resolvable by name.
           call = {
             file: relativePath,
             method: textOf(first, source),
             line,
             receiver: scope?.selfType ? 'this' : undefined,
             receiverType: scope?.selfType,
-            dynamic: !scope?.selfType
+            dynamic: false
           };
         }
 

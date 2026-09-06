@@ -458,6 +458,26 @@ function pickOverload(candidates: RepoSymbol[], callerFile: string): RepoSymbol 
 
 type ResolveResult = { target: RepoSymbol } | { reason: string };
 
+/**
+ * Issue 03 (dogfooding) — production symbols win over test helpers. Lives here
+ * (not diagnose-engine) because the same-directory name-resolution below needs
+ * it and diagnose-engine imports this module; re-exported from diagnose-engine
+ * for its existing callers.
+ */
+export function isTestPath(filePath: string): boolean {
+  const p = filePath.replace(/\\/g, '/').toLowerCase();
+  if (p.includes('/test/') || p.includes('/src/test') || p.includes('test/java')) {
+    return true;
+  }
+  const base = p.slice(p.lastIndexOf('/') + 1);
+  return (
+    /\.(test|spec)\.[cm]?[jt]sx?$/.test(base) ||
+    /_test\.go$/.test(base) ||
+    /^test_.*\.py$/.test(base) ||
+    /_test\.py$/.test(base)
+  );
+}
+
 /** Resolve a call against an implementation type (interface dispatch target). */
 function resolveImpl(
   index: SymbolIndex,
@@ -528,6 +548,30 @@ function resolvePrismaCall(
   return { target: candidates[0] };
 }
 
+/**
+ * Issue 02 (dogfooding) — Go package-qualified call bridge. `app.Start(...)`
+ * types no receiver: `app` is an import qualifier, not a variable, so the
+ * adapter used to mark the whole call dynamic and every edge vanished (lazygit
+ * reported 43% of its symbols "zero-caller"). Resolution is by evidence: the
+ * unique symbol with that name whose file directory bears the package name
+ * (Go convention: package ≈ directory). Zero or several matches stay
+ * unresolved — never guessed.
+ */
+/** Directory of a repo-relative file path (`pkg/app/entry_point.go` → `pkg/app`). */
+function dirBaseName(filePath: string): string {
+  const dir = filePath.replace(/\\/g, '/');
+  return dir.slice(0, dir.lastIndexOf('/')).split('/').pop() ?? '';
+}
+
+function resolvePkgQualifiedCall(index: SymbolIndex, call: RepoSymbolCall): ResolveResult {
+  const pkg = call.pkg!;
+  const candidates = (index.methodsByName.get(call.method) ?? []).filter(
+    (symbol) => dirBaseName(symbol.filePath) === pkg
+  );
+  if (candidates.length === 1) return { target: candidates[0] };
+  return { reason: STATIC_ANALYSIS_BREAK_UNRESOLVED };
+}
+
 function resolveCall(
   index: SymbolIndex,
   caller: RepoSymbol,
@@ -544,6 +588,11 @@ function resolveCall(
   // schema's operation node when the method is a Prisma operation.
   const prismaTarget = resolvePrismaCall(index, call);
   if (prismaTarget) return prismaTarget;
+  // Issue 02: Go import-qualified call — before candidateTypes so the untyped
+  // qualifier (`app` in `app.Start`) is not mistaken for a variable receiver.
+  if (call.pkg) {
+    return resolvePkgQualifiedCall(index, call);
+  }
   const candidateTypesList = candidateTypes(index, caller, call);
   for (const typeName of candidateTypesList) {
     const info = index.types.get(typeName);
@@ -608,6 +657,22 @@ function resolveCall(
     }
     const global = index.methodsByName.get(call.method);
     if (global && global.length > 0) {
+      // Issue 02 (dogfooding): a bare call in Go binds inside the current
+      // package — prefer same-directory candidates (test files excluded, see
+      // the _test.go warning in issue 02) before the cross-module
+      // earliest-declaration tiebreak, or lazygit's `Run(...)` bound to
+      // IntegrationTest.Run three packages away instead of the package-level
+      // Run sitting one file over. Non-Go keeps the Issue 15 rule alone: TS
+      // monorepos have same-named `src` directories in unrelated packages.
+      if (call.file.endsWith('.go')) {
+        const dir = dirBaseName(call.file);
+        const sameDir = global.filter(
+          (symbol) => dirBaseName(symbol.filePath) === dir && !isTestPath(symbol.filePath)
+        );
+        if (sameDir.length > 0) {
+          return { target: pickOverload(sameDir, call.file) };
+        }
+      }
       // Issue 15: across modules a bare method name can collide; prefer the
       // caller's own file, otherwise the earliest declaration — never the
       // arbitrary index-0 of symbol insertion order.

@@ -10,6 +10,7 @@ import {
   normalizeRoutePath,
   resolveCallChain,
   symbolIdentity,
+  isTestPath,
   type SymbolIndex
 } from './repoqa-callchain';
 import { maskSensitiveText } from './repoqa-masking';
@@ -27,11 +28,9 @@ import type { RepoSymbol } from './repoqa-repos';
 
 export const DEFAULT_COCKPIT_BASE = 'http://localhost:43110';
 
-/** Mirrors RepoQAWorker.isTestPath: production symbols win over test helpers. */
-export function isTestPath(filePath: string): boolean {
-  const p = filePath.replace(/\\/g, '/').toLowerCase();
-  return p.includes('/test/') || p.includes('/src/test') || p.includes('test/java');
-}
+/** Single shared implementation lives in repoqa-callchain (it needs it for
+ * same-directory name resolution); re-exported for existing callers. */
+export { isTestPath };
 
 /** Route-entry form: "POST /api/v1/posts/:id/like". */
 const ROUTE_ENTRY_RE = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(\/\S*)$/i;

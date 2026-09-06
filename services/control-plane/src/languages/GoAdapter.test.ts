@@ -198,3 +198,72 @@ describe('v0.7 — go statement async marker', () => {
     expect(processCalls.filter((call) => call.async).length).toBe(1);
   });
 });
+
+describe('Issue 02 (dogfooding) — Go call-edge resolution', () => {
+  it('records package-level bare calls as static and resolves them across files', () => {
+    const entry = [
+      'package app',
+      '',
+      'func Start(buildInfo *BuildInfo) {',
+      '  Run(buildInfo)',
+      '}'
+    ].join('\n');
+    const runFile = [
+      'package app',
+      '',
+      'func Run(buildInfo *BuildInfo) {}'
+    ].join('\n');
+    // Decoy: same name in another package must NOT capture the bare call.
+    const decoyFile = [
+      'package integration',
+      '',
+      'func Run() {}'
+    ].join('\n');
+
+    const entrySymbols = parseGoSource(entry, 'pkg/app/entry_point.go', 'r1');
+    const start = entrySymbols.find((symbol) => symbol.name === 'Start');
+    expect(start?.calls?.[0]).toMatchObject({ method: 'Run', dynamic: false });
+
+    const runSymbols = parseGoSource(runFile, 'pkg/app/app.go', 'r1');
+    const decoySymbols = parseGoSource(decoyFile, 'pkg/integration/types.go', 'r1');
+    const all = [...entrySymbols, ...runSymbols, ...decoySymbols];
+    const trace = resolveCallChain(all, start!, 4);
+    expect(trace.map((hop) => hop.method)).toEqual(['Start', 'Run']);
+    expect(trace[trace.length - 1].file).toBe('pkg/app/app.go');
+  });
+
+  it('resolves import-qualified calls through the pkg stamp', () => {
+    const main = [
+      'package main',
+      '',
+      'import (',
+      '  "example.com/mod/pkg/app"',
+      '  "example.com/mod/pkg/extra"',
+      ')',
+      '',
+      'func main() {',
+      '  app.Start()',
+      '  extra.Noise()',
+      '}'
+    ].join('\n');
+    const appFile = [
+      'package app',
+      '',
+      'func Start() {}'
+    ].join('\n');
+
+    const mainSymbols = parseGoSource(main, 'main.go', 'r1');
+    const mainFn = mainSymbols.find((symbol) => symbol.name === 'main');
+    expect(mainFn?.calls?.[0]).toMatchObject({
+      method: 'Start',
+      dynamic: false,
+      pkg: 'app'
+    });
+
+    const appSymbols = parseGoSource(appFile, 'pkg/app/app.go', 'r1');
+    const all = [...mainSymbols, ...appSymbols];
+    // extra.Noise has no indexed target → deterministic break, not a guess.
+    const trace = resolveCallChain(all, mainFn!, 4);
+    expect(trace.map((hop) => hop.method)).toEqual(['main', 'Start']);
+  });
+});

@@ -78,7 +78,13 @@ describe('runScan', () => {
       'oversizedFiles'
     ]);
     for (const bucket of result.buckets) {
-      expect(bucket.nextAction).toContain('codecompass_');
+      // Issue 05: empty buckets get a neutral action — they must not point the
+      // agent at a tool call with no candidate to run it on.
+      if (bucket.total === 0) {
+        expect(bucket.nextAction).not.toContain('codecompass_');
+      } else {
+        expect(bucket.nextAction).toContain('codecompass_');
+      }
       expect(bucket.total).toBeGreaterThanOrEqual(0);
     }
     expect(result.cockpitDeepLink).toContain('?repo=r1');
@@ -196,5 +202,19 @@ describe('runScan', () => {
     // 15 synthetic orphans + LegacyHelper + the OrderRepository class (a
     // 0-caller class symbol — its calls point outward, nothing points at it).
     expect(orphans.total).toBe(SCAN_TOP_LIMIT + 5 + 2);
+  });
+
+  it('gives empty buckets a neutral nextAction instead of a tool pointer (issue 05)', () => {
+    // The fixture has no deep chains whose depth reaches a meaningful entry
+    // flow beyond what pickTopApis reports — assert whatever bucket ends up
+    // empty does not tell the agent to run a tool on a nonexistent candidate.
+    const empty = runScan({ ...BASE, symbols: [], index: buildCallIndex([]), baseUrl: 'http://localhost:43110' });
+    for (const bucket of empty.buckets) {
+      if (bucket.total > 0) continue;
+      expect(bucket.items).toHaveLength(0);
+      expect(bucket.nextAction).not.toMatch(/Run codecompass_/);
+      expect(bucket.nextAction).toMatch(/No candidates/);
+    }
+    expect(empty.buckets.some((bucket) => bucket.total === 0)).toBe(true);
   });
 });

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.22.0] - 2026-09-06
+
+### Highlights
+
+- **scan dogfooding 回访闭环（issue 01/02/03/05）**：用真实仓库（lazygit Go 45k 符号、spring-petclinic-microservices Java 多模块）压测五桶后修掉四个硬伤——(1) `IGNORED_DIRS` 补 `vendor`，lazygit 44% 的 .go 文件（第三方/生成代码）不再污染 hubs/oversized/oversizedFiles 榜单；(2) Go 裸调用与 import 限定调用（`pkg.Func`）从 dynamic 改为静态解析，新增 `resolvePkgQualifiedCall` 确定性桥 + 同目录优先的名字兜底，lazygit 孤儿桶 43% → 31%，lazygit 实锤误报 `Run`（entry_point.go:177 有真实调用点却报零调用者）消灭；(3) `isTestPath` 补 `*.test.ts(x)`/`*.spec.*`/`*_test.go`/`test_*.py` 文件名模式（此前只认 Java 目录式路径），并让 worker 复用同一实现；(4) 空桶 `nextAction` 不再指向"对不存在的候选运行某工具"（lazygit deepChains 空桶引导失效），改为中性说明。
+
+### Fixed
+
+- issue 01（dogfooding）：`vendor/` 加入 `IGNORED_DIRS`（索引层排除），hubs / oversized / oversizedFiles 三桶不再被第三方符号占据。
+- issue 02（dogfooding）：Go 调用边大面积丢失——`GoAdapter` 裸调用恒标 `dynamic`（`repoqa-callchain` 对 dynamic 跳过名字解析），包级/跨包调用边全不可见。修复分三层：裸调用 `dynamic:false`；`RepoSymbolCall` 新增可选 `pkg` 字段（限定符来自 import 块），`resolvePkgQualifiedCall` 按目录名唯一匹配解析；名字兜底加同目录优先（Go 包作用域语义），修掉同名符号跨包误绑（lazygit `Run` 曾绑到三个包之外的 `IntegrationTest.Run`）。`trace_call_chain`/`diagnose`/`refactor_plan` 共用此解析器，同步受益。
+- issue 03（dogfooding）：`isTestPath` 只认 `/test/`、`test/java` 目录式路径，TS/Go/Python 测试文件全部漏过——本仓库孤儿桶 top10 有 8 个是 `App.test.tsx` mock 方法。补文件名模式后统一为单一实现（移至 `repoqa-callchain`，`diagnose-engine` 转发导出，`repoqa-worker` 删除私有镜像改为复用）。
+- issue 05（dogfooding）：空桶 `nextAction` 引导失效（lazygit deepChains `total:0` 仍提示 "Run codecompass_diagnose on an entry"）。空桶返回中性文案，字段恒存在，零契约变更。
+
+### Dogfooding 取证与遗留
+
+- 取证报告与 issue 分流：`.scratch/scan-dogfooding-v021/`（spec + issues 01–06）。环境基线 HANDOFF §6 全绿后取样。
+- 遗留（needs-triage，未入本版）：issue 04 孤儿桶 DI/入口点假阳性（petclinic `@Bean`/`@FeignClient`/`main` 进候选，nextAction 有 DEPRECATE 危险引导）；issue 06 hubs 桶 getter/setter 占榜。Go 跨文件类型引用（`declaredTypes` 按文件，`g *Gui` 跨文件不绑定）是孤儿率残余噪声的主因，与 issue 04 一并设计。
+
 ## [0.21.0] - 2026-09-05
 
 ### Highlights

@@ -23,6 +23,7 @@ describe('isIgnoredDir', () => {
       'build',
       '.idea',
       'node_modules',
+      'vendor',
       'dist',
       'out',
       '.git',
@@ -52,6 +53,7 @@ describe('isIgnoredDir', () => {
     expect(isIgnoredDir('Target')).toBe(true);
     expect(isIgnoredDir('BUILD')).toBe(true);
     expect(isIgnoredDir('Node_Modules')).toBe(true);
+    expect(isIgnoredDir('Vendor')).toBe(true);
   });
 
   it('does not ignore normal source directories', () => {

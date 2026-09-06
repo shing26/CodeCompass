@@ -69,6 +69,9 @@ export const BINARY_EXTENSIONS = new Set([
  * Issue 18 — directories that are never indexed. Matching is case-insensitive
  * (`Target` ≡ `target`) because the same repo is often checked out on macOS
  * (exact case) and Windows (case-insensitive filesystem).
+ * Issue 01 (dogfooding) — `vendor` joined: lazygit's scan had 44% of its .go
+ * files under vendor/, polluting hubs/oversized/oversizedFiles with third-
+ * party symbols and squeezing every real file off the oversizedFiles top-10.
  */
 const IGNORED_DIRS = new Set([
   '.git',
@@ -94,6 +97,7 @@ const IGNORED_DIRS = new Set([
   '__pycache__',
   'test-results',
   'node_modules',
+  'vendor',
   'dist',
   'build',
   'target',

@@ -42,6 +42,11 @@ const OVERSIZED_NOTE =
   'Line span is a deterministic complexity proxy until method-body AST ' +
   'extraction lands; it measures size, not quality.';
 
+/** Issue 05 (dogfooding): an empty bucket must not point the agent at a tool
+ * call it cannot make — "run X on an entry" with zero entries dead-ends. */
+const EMPTY_BUCKET_ACTION =
+  "No candidates found by this bucket's deterministic rules — nothing to act on here.";
+
 function candidateOf(
   symbol: RepoSymbol,
   detail: string,
@@ -71,7 +76,14 @@ function bucket(
   nextAction: string,
   note?: string
 ): ScanBucket {
-  return { id, title, items, total, nextAction, ...(note ? { note } : {}) };
+  return {
+    id,
+    title,
+    items,
+    total,
+    nextAction: total === 0 ? EMPTY_BUCKET_ACTION : nextAction,
+    ...(note ? { note } : {})
+  };
 }
 
 export function runScan(input: ScanInput): ScanResult {

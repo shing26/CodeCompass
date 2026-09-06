@@ -32,7 +32,7 @@ import {
   applyImplicitInterfaces
 } from './repoqa-callchain';
 import { maskEventPayload, maskSensitiveText } from './repoqa-masking';
-import { runDiagnose, frontendCallersForRoute } from './diagnose-engine';
+import { runDiagnose, frontendCallersForRoute, isTestPath } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution, ConventionConflictError } from './module-evolution-engine';
@@ -1853,19 +1853,12 @@ export class RepoQAWorker {
       (symbol) =>
         symbol.kind === 'method' &&
         symbol.name.toLowerCase() === name &&
-        !this.isTestPath(symbol.filePath)
+        !isTestPath(symbol.filePath)
     );
     if (prod.length > 0) return prod;
     return symbols.filter(
       (symbol) => symbol.kind === 'method' && symbol.name.toLowerCase() === name
     );
-  }
-
-  /** Test paths (src/test, test/java) rarely carry the chain the user asked
-   * about — a production method wins over a same-named test helper. */
-  private isTestPath(filePath: string): boolean {
-    const p = filePath.replace(/\\/g, '/').toLowerCase();
-    return p.includes('/test/') || p.includes('/src/test') || p.includes('test/java');
   }
 
   private resolveStartSymbol(
@@ -1887,12 +1880,12 @@ export class RepoQAWorker {
       const byName = symbols.find(
         (symbol) =>
           symbol.name.toLowerCase() === explicitStart.name.toLowerCase() &&
-          !this.isTestPath(symbol.filePath)
+          !isTestPath(symbol.filePath)
       );
       if (byName) return { symbol: byName, fallback: false, confidence: 1 };
     }
     const words = question.toLowerCase().match(/[a-z_$][\w$]*/g) ?? [];
-    const prodSymbols = symbols.filter((symbol) => !this.isTestPath(symbol.filePath));
+    const prodSymbols = symbols.filter((symbol) => !isTestPath(symbol.filePath));
     // Issue 05: allow tracing from a route/service/repository/class symbol too;
     // resolveCallChain normalizes the type into its first method.
     const typeKinds = new Set(['class', 'interface', 'route', 'service', 'repository']);
@@ -1910,7 +1903,7 @@ export class RepoQAWorker {
     // natural-language phrasing like "创建 owner 的方法" starts from a real
     // method (createOwner) instead of the type whose name is a word in the
     // question (class Owner normalizes to an arbitrary first method).
-    const fuzzy = findFuzzyStartSymbol(question, symbols, (filePath) => this.isTestPath(filePath));
+    const fuzzy = findFuzzyStartSymbol(question, symbols, (filePath) => isTestPath(filePath));
     if (fuzzy) {
       const score = fuzzyMatchScore(question, fuzzy.name);
       const confidence = Number((0.6 + (score / 100) * 0.39).toFixed(2));
