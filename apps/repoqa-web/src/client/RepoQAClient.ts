@@ -29,6 +29,8 @@ import type {
 export class RepoQAClient {
   readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
+  /** chat-merge (v0.24.0): 对话式智能体子客户端 */
+  readonly chat: ChatMergeClient;
 
   constructor(baseUrl: string, fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl;
@@ -37,6 +39,8 @@ export class RepoQAClient {
     // fetch expects the Window as receiver). The closure keeps the real
     // function's receiver scope so `await this.fetcher(url)` is safe.
     this.fetcher = (...args) => fetcher(...args);
+    // chat-merge: 对话式智能体子客户端（编排层在 control-plane src/chat/）
+    this.chat = new ChatMergeClient(baseUrl, this.fetcher);
   }
 
   async listRepos(): Promise<Repo[]> {
@@ -160,8 +164,7 @@ export class RepoQAClient {
    * off async indexing. Resolves as soon as the clone lands (202), while the
    * repo status remains `indexing` until the catalog poll sees `ready`.
    */
-  async cloneRepo(url: string, branch?: string): Promise<Repo> {
-    const res = await this.fetcher(`${this.baseUrl}/api/repos/clone`, {
+  async cloneRepo(url: string, branch?: string): Promise<Repo> {    const res = await this.fetcher(`${this.baseUrl}/api/repos/clone`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ url, ...(branch ? { branch } : {}) })
@@ -736,4 +739,152 @@ export class EvolveStream implements EvolveStreamLike {
  */
 export function resolveBaseUrl(env: Record<string, string | undefined> = import.meta.env ?? {}): string {
   return (env.VITE_REPOQA_API_BASE ?? '').replace(/\/$/, '');
+}
+
+// ---------------------------------------------------------------------------
+// chat-merge (v0.24.0): 对话式智能体（编排层在 control-plane src/chat/）
+// ---------------------------------------------------------------------------
+
+export interface ChatSessionInfo {
+  id: string;
+  repoId: string;
+  title: string;
+  createdAt: string;
+}
+
+export interface ChatMessageInfo {
+  id: number;
+  sessionId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations: string | null;
+}
+
+export interface ChatCitation {
+  n: number;
+  tool: string;
+  args: Record<string, unknown>;
+  ms: number;
+}
+
+export interface ChatTurnResult {
+  answer: string;
+  citations: ChatCitation[];
+  steps: number;
+  fallback: boolean;
+}
+
+export interface ChatSendHandlers {
+  onDelta: (text: string) => void;
+  onRegenerate?: () => void;
+}
+
+export class ChatMergeClient {
+  constructor(private readonly baseUrl: string, private readonly fetcher: typeof fetch = fetch) {}
+
+  async listSessions(): Promise<ChatSessionInfo[]> {
+    const res = await this.fetcher(`${this.baseUrl}/api/chat/sessions`);
+    const body = (await res.json()) as { sessions?: ChatSessionInfo[] };
+    return body.sessions ?? [];
+  }
+
+  async createSession(repoId: string): Promise<ChatSessionInfo> {
+    const res = await this.fetcher(`${this.baseUrl}/api/chat/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repoId })
+    });
+    const body = (await res.json()) as { session?: ChatSessionInfo; error?: string };
+    if (!res.ok || !body.session) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body.session;
+  }
+
+  async messages(sessionId: string): Promise<ChatMessageInfo[]> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`
+    );
+    const body = (await res.json()) as { messages?: ChatMessageInfo[] };
+    return body.messages ?? [];
+  }
+
+  async switchModel(name: string): Promise<void> {
+    const res = await this.fetcher(`${this.baseUrl}/api/chat/model`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+  }
+
+  async modelInfo(): Promise<{ profiles: string[]; active: string; configured: boolean }> {
+    const res = await this.fetcher(`${this.baseUrl}/api/chat/model`);
+    return (await res.json()) as { profiles: string[]; active: string; configured: boolean };
+  }
+
+  /**
+   * SSE chat stream (POST — EventSource cannot send a body; same fetch+
+   * ReadableStream pattern as the evolve stream). Resolves with the sanitized
+   * final turn from the `done` event.
+   */
+  async chatSend(
+    sessionId: string,
+    message: string,
+    handlers: ChatSendHandlers
+  ): Promise<ChatTurnResult> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message })
+      }
+    );
+    if (!res.ok || !res.body) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let done: ChatTurnResult = { answer: '', citations: [], steps: 0, fallback: false };
+    for (;;) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of frame.split(/\r?\n/)) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+        }
+        if (dataLines.length === 0) continue;
+        let payload: Record<string, unknown>;
+        try {
+          payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (event === 'delta' && payload.text !== undefined) {
+          handlers.onDelta(String(payload.text));
+        } else if (event === 'regenerate' && handlers.onRegenerate) {
+          handlers.onRegenerate();
+        } else if (event === 'done') {
+          done = {
+            answer: String(payload.answer ?? ''),
+            citations: (payload.citations as ChatCitation[]) ?? [],
+            steps: Number(payload.steps ?? 0),
+            fallback: Boolean(payload.fallback)
+          };
+        }
+      }
+    }
+    return done;
+  }
 }

@@ -148,6 +148,21 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
     }),
     exportOnboarding: vi.fn().mockResolvedValue('# petclinic ONBOARDING\n'),
     baseUrl: 'http://localhost:43110',
+    chat: {
+      listSessions: vi.fn().mockResolvedValue([]),
+      createSession: vi
+        .fn()
+        .mockResolvedValue({ id: 'chat-s1', repoId: 'repo-1', title: '会话 09-07 10:00', createdAt: '' }),
+      messages: vi.fn().mockResolvedValue([]),
+      chatSend: vi.fn().mockResolvedValue({
+        answer: '分析完成：orphanedPublic 共 3 项 [cite: 1]',
+        citations: [{ n: 1, tool: 'codecompass_scan', args: { repoId: 'repo-1' }, ms: 3 }],
+        steps: 2,
+        fallback: false
+      }),
+      switchModel: vi.fn().mockResolvedValue(undefined),
+      modelInfo: vi.fn().mockResolvedValue({ profiles: ['default'], active: 'default', configured: true })
+    },
     ...overrides
   } as unknown as RepoQAClient;
 }
@@ -577,30 +592,21 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     await selectRepo(user);
 
     // Issue 25 / Ticket 01 — free-form questions ride the incident composer.
-    await user.click(screen.getByTestId('tab-incident'));
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    await user.type(screen.getByTestId('incident-question'), 'architecture overview');
-    await user.click(screen.getByTestId('incident-submit'));
-    expect(client.queryRepo).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('chat-question'), 'architecture overview');
+    await user.click(screen.getByTestId('chat-send'));
     expect(screen.getByTestId('consent-modal')).toHaveTextContent('api.***.com');
 
     await user.click(screen.getByTestId('consent-confirm'));
-    await waitFor(() =>
-      expect(client.queryRepo).toHaveBeenCalledWith(
-        'repo-1',
-        'architecture overview',
-        'incident',
-        undefined,
-        undefined
-      )
-    );
     expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
+    // Consent 已授权（chatGuardSend 仅在用户再点发送时走已授权通道）
 
     // The consent is in-memory for the session: the second question submits
     // without reopening the modal.
-    await user.type(screen.getByTestId('incident-question'), 'second question');
-    await user.click(screen.getByTestId('incident-submit'));
-    await waitFor(() => expect(client.queryRepo).toHaveBeenCalledTimes(2));
+    await user.type(screen.getByTestId('chat-question'), 'second question');
+    await user.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(client.chat.chatSend).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
   });
 
@@ -616,125 +622,83 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     );
     await selectRepo(user);
 
-    await user.click(screen.getByTestId('tab-incident'));
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    await user.type(screen.getByTestId('incident-question'), 'architecture overview');
-    await user.click(screen.getByTestId('incident-submit'));
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('chat-question'), 'architecture overview');
+    await user.click(screen.getByTestId('chat-send'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('consent-cancel'));
     expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
-    expect(client.queryRepo).not.toHaveBeenCalled();
+    expect(client.chat.chatSend).not.toHaveBeenCalled();
 
     // Asking again reopens the consent; it is still not permanently granted.
-    await user.type(screen.getByTestId('incident-question'), 'another question');
-    await user.click(screen.getByTestId('incident-submit'));
+    await user.type(screen.getByTestId('chat-question'), 'another question');
+    await user.click(screen.getByTestId('chat-send'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
-    expect(client.queryRepo).not.toHaveBeenCalled();
+    expect(client.chat.chatSend).not.toHaveBeenCalled();
   });
 });
 
-describe('Issue 23 incident copilot view', () => {
+describe('chat-merge: chat view replaces the incident copilot (v0.24.0)', () => {
   afterEach(() => {
     window.history.replaceState(null, '', '/');
   });
 
-  it('opens the incident copilot from the TopBar tab and syncs mode=incident', async () => {
+  it('opens the chat view from the TopBar tab and syncs mode=incident', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
 
-    await user.click(screen.getByTestId('tab-incident'));
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    expect(screen.getByTestId('incident-empty')).toBeInTheDocument();
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    expect(screen.getByTestId('chat-session-list')).toBeInTheDocument();
     expect(window.location.search).toContain('mode=incident');
   });
 
-  it('lands on the incident copilot via the ?mode=incident deep link', async () => {
+  it('lands on the chat view via the legacy ?mode=incident deep link (B3: not 404)', async () => {
     window.history.replaceState(null, '', '/?repo=repo-1&mode=incident');
     render(<App client={makeClient()} />);
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    expect(screen.getByTestId('incident-empty')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
   });
 
-  it('submits the incident question through the copilot form (Issue 23)', async () => {
+  it('sends a chat turn through the client.chat stream (Q1 承接)', async () => {
     const client = makeClient();
     const user = userEvent.setup();
     render(<App client={client} />);
     await selectRepo(user);
 
-    await user.click(screen.getByTestId('tab-incident'));
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    await user.type(screen.getByTestId('incident-question'), 'NPE at Demo.run');
-    await user.click(screen.getByTestId('incident-submit'));
-
-    await waitFor(() =>
-      expect(client.queryRepo).toHaveBeenCalledWith(
-        'repo-1',
-        'NPE at Demo.run',
-        'incident',
-        undefined,
-        undefined
-      )
-    );
-    expect(screen.getByTestId('incident-user-message')).toHaveTextContent('NPE at Demo.run');
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('chat-question'), 'NPE at Demo.run');
+    await user.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(client.chat.chatSend).toHaveBeenCalled());
+    // cite 角标被拆分为独立元素，正文文本不含 "[cite: 1]" 字面量
+    expect(screen.getByTestId('chat-messages')).toHaveTextContent('分析完成：orphanedPublic 共 3 项');
+    expect(screen.getByTestId('chat-messages')).toHaveTextContent('NPE at Demo.run');
   });
 
-  it('forwards the pasted stack trace into the query (Issue 23)', async () => {
-    const client = makeClient();
-    const user = userEvent.setup();
-    render(<App client={client} />);
-    await selectRepo(user);
-
-    await user.click(screen.getByTestId('tab-incident'));
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    await user.type(screen.getByTestId('incident-question'), 'NPE at Demo.run');
-    await user.click(screen.getByTestId('incident-toggle-stack'));
-    await user.type(screen.getByTestId('incident-stack'), 'at Demo.run(Demo.java:9)');
-    await user.click(screen.getByTestId('incident-submit'));
-
-    await waitFor(() =>
-      expect(client.queryRepo).toHaveBeenCalledWith(
-        'repo-1',
-        'NPE at Demo.run',
-        'incident',
-        undefined,
-        'at Demo.run(Demo.java:9)'
-      )
-    );
-    expect(screen.getByTestId('incident-user-stack')).toHaveTextContent(
-      'at Demo.run(Demo.java:9)'
-    );
-  });
-
-  it('gates the incident ask behind the remote LLM consent (Issue 23)', async () => {
+  it('restores the draft when the consent gate withholds the send', async () => {
     const client = makeClient({
-      getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'remote', host: 'api.***.com' } }),
-      queryRepo: vi.fn().mockReturnValue(autoDoneStream())
+      getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'remote', host: 'api.***.com' } })
     });
     const user = userEvent.setup();
     render(<App client={client} />);
-    await waitFor(() =>
-      expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型')
-    );
+    await waitFor(() => expect(screen.getByTestId('privacy-pill')).toHaveTextContent('远程模型'));
     await selectRepo(user);
 
-    await user.click(screen.getByTestId('tab-incident'));
-    await waitFor(() => expect(screen.getByTestId('incident-view')).toBeInTheDocument());
-    await user.type(screen.getByTestId('incident-question'), 'NPE at Demo.run');
-    await user.click(screen.getByTestId('incident-submit'));
-    expect(client.queryRepo).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('chat-question'), 'NPE at Demo.run');
+    await user.click(screen.getByTestId('chat-send'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
+    expect(client.chat.chatSend).not.toHaveBeenCalled();
 
     await user.click(screen.getByTestId('consent-confirm'));
-    await waitFor(() =>
-      expect(client.queryRepo).toHaveBeenCalledWith(
-        'repo-1',
-        'NPE at Demo.run',
-        'incident',
-        undefined,
-        undefined
-      )
-    );
+    expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
+    // 草稿已恢复，再次发送直接走已授权通道
+    expect(screen.getByTestId('chat-question')).toHaveValue('NPE at Demo.run');
+    await user.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(client.chat.chatSend).toHaveBeenCalled());
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRepoCatalog } from './hooks/useRepoCatalog';
 import { useChat } from './hooks/useChat';
 import { useEvolutionSession } from './hooks/useEvolutionSession';
@@ -19,7 +19,7 @@ import { DashboardView } from './components/DashboardView';
 import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { EvolutionView } from './components/EvolutionView';
-import { IncidentView } from './components/IncidentView';
+import { ChatView } from './components/ChatView';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
@@ -101,6 +101,7 @@ export function App({ client: clientProp }: AppProps) {
     mode?: QueryMode;
     start?: { name: string; file: string };
     stack?: string;
+    chatMessage?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -173,7 +174,7 @@ export function App({ client: clientProp }: AppProps) {
   // gate are explicit TopBar tabs. Issue 23: ?mode=incident deep-links the
   // incident copilot view.
   const [view, setView] = useState<MainView>(
-    deepLink.mode === 'diff' ? 'delta' : deepLink.mode === 'incident' ? 'incident' : 'topo'
+    deepLink.mode === 'diff' ? 'delta' : deepLink.mode === 'incident' || deepLink.mode === 'chat' ? 'chat' : 'topo'
   );
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   const [indexingProgress, setIndexingProgress] = useState<IndexingProgress | null>(null);
@@ -250,7 +251,7 @@ export function App({ client: clientProp }: AppProps) {
         selectRepo(id);
         setActiveTour(null);
         const mode = params.get('mode');
-        setView(mode === 'diff' ? 'delta' : mode === 'incident' ? 'incident' : 'topo');
+        setView(mode === 'diff' ? 'delta' : mode === 'incident' || mode === 'chat' ? 'chat' : 'topo');
       }
     };
     window.addEventListener('popstate', onPopState);
@@ -265,7 +266,7 @@ export function App({ client: clientProp }: AppProps) {
     try {
       const url = new URL(window.location.href);
       if (view === 'delta') url.searchParams.set('mode', 'diff');
-      else if (view === 'incident') url.searchParams.set('mode', 'incident');
+      else if (view === 'chat') url.searchParams.set('mode', 'incident');
       else url.searchParams.delete('mode');
       window.history.replaceState(null, '', url.toString());
     } catch {
@@ -318,23 +319,30 @@ export function App({ client: clientProp }: AppProps) {
     submit(question, mode, start, stack);
   };
 
-  /** Issue 23 — incident copilot submit (shares the LLM consent gate). */
-  const handleIncidentSubmit = (question: string, stack?: string) => {
-    if (runtime.llm.mode === 'remote' && !llmConsented) {
-      setConsentPending({ question, mode: 'incident', stack });
-      return;
-    }
-    evolutionSession.submitIncident(question, stack);
-  };
+  /** chat-merge — chat send guarded by the same LLM consent gate as the
+   * legacy incident composer. Returns null when consent was cancelled so the
+   * ChatView can restore the draft. */
+  const chatGuardSend = useCallback(
+    (message: string, handlers: { onDelta: (text: string) => void; onRegenerate?: () => void }) => {
+      if (runtime.llm.mode === 'remote' && !llmConsented) {
+        setConsentPending({ question: message, chatMessage: message });
+        return Promise.resolve(null);
+      }
+      if (!currentRepo) return Promise.resolve(null);
+      return client.chat.chatSend(currentRepo.id, message, handlers);
+    },
+    [runtime.llm.mode, llmConsented, currentRepo, client]
+  );
 
   const confirmConsent = () => {
     setLlmConsented(true);
     if (consentPending) {
-      if (consentPending.mode === 'incident') {
-        evolutionSession.submitIncident(consentPending.question, consentPending.stack);
-      } else {
-        submit(consentPending.question, consentPending.mode, consentPending.start, consentPending.stack);
+      if (consentPending.chatMessage) {
+        // chat 路径：输入保留在 ChatView，用户再次发送即走已授权通道
+        setConsentPending(null);
+        return;
       }
+      submit(consentPending.question, consentPending.mode, consentPending.start, consentPending.stack);
     }
     setConsentPending(null);
   };
@@ -533,23 +541,22 @@ export function App({ client: clientProp }: AppProps) {
             />
           ) : view === 'gate' ? (
             <CiGateView repo={currentRepo} dashboard={dashboard} />
-          ) : view === 'incident' ? (
-            <IncidentView
+          ) : view === 'chat' ? (
+            <ChatView
+              client={client}
+              repoId={repoId}
               repoName={currentRepo?.name ?? null}
-              session={evolutionSession}
-              symbols={symbols}
-              onSubmit={handleIncidentSubmit}
-              onNavigate={inspector.openFile}
-              onOpenInWorkbench={() => setView('topo')}
-              onTraceCrash={(symbol, file) => {
+              onNavigate={(symbol) => {
                 setView('topo');
                 // Same deterministic call-chain entry as the Dashboard Top API
-                // click: explicit (name, file) start, LLM bypassed by the worker.
+                // click: explicit (name) start, LLM bypassed by the worker.
                 handleSubmit(`${symbol} 的完整调用链是怎样的？`, 'call-chain', {
                   name: symbol,
-                  file
+                  file: ''
                 });
               }}
+              onBackToWorkbench={() => setView('topo')}
+              onSend={chatGuardSend}
             />
           ) : view === 'delta' ? (
             <ArchitectureDeltaView

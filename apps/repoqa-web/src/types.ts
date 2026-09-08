@@ -71,7 +71,7 @@ export interface RepoSymbol {
 export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'incident';
 
 /** Top-level workbench tabs rendered by the TopBar segmented control. */
-export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident' | 'evolve';
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident' | 'evolve' | 'chat';
 
 /** v0.6.0 — staged indexing pipeline phases broadcast over WebSocket. */
 export type IndexingPhase =

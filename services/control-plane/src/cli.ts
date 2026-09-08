@@ -9,6 +9,9 @@ import {
 import { analyzeDiff, evaluateDiffPolicy, renderMarkdown } from './repoqa-diff';
 import { loadConfig } from './config';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
+import { SessionLogger as ChatSessionLogger } from './chat/log';
+import { LlmManager as ChatLlmManager } from './chat/llm';
+import { startChatRepl } from './chat/repl';
 import { EventBus } from './events';
 import { RepoQARepos } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
@@ -24,7 +27,8 @@ import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadge
 export const VERSION = '0.23.0';
 
 export interface CliArgs {
-  /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR). */
+  /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR,
+   * `chat` opens the conversational copilot REPL). */
   command?:
     | 'mcp'
     | 'diff'
@@ -36,7 +40,8 @@ export interface CliArgs {
     | 'refactor-plan'
     | 'export'
     | 'radar'
-    | 'evolve';
+    | 'evolve'
+    | 'chat';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
   /** `codecompass context <query> [repoPath]` — start-symbol query. */
@@ -106,6 +111,9 @@ Subcommands:
                         repository at <path> is indexed first; Agent clients
                         then call /api-style tools over JSON-RPC (tools/list,
                         tools/call) without any HTTP listener.
+  chat [path]           Open the conversational copilot REPL (v0.24.0
+                        chat-merge): ReAct编排 over the in-process tool
+                        surface, [cite: N]-style sourcing, model hot-switch.
   diff <base> <head>    Analyze a PR's architecture impact: which Java classes
                         and methods changed, which @RestController API entries
                         are affected (reverse reachability), and which config
@@ -418,7 +426,8 @@ export function parseArgs(argv: string[]): ParseResult {
           arg === 'refactor-plan' ||
           arg === 'export' ||
           arg === 'radar' ||
-          arg === 'evolve'
+          arg === 'evolve' ||
+          arg === 'chat'
         )
       ) {
       args.command = arg;
@@ -911,6 +920,25 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         log
       });
     }
+    return { server: null, cockpitUrl: null };
+  }
+
+  if (args.command === 'chat') {
+    // chat-merge Q2: `codecompass chat [path]` — 对话式智能体终端 REPL。
+    // 编排层进程内直调引擎 handler（src/chat/），无需另起 HTTP 服务。
+    const chatEnv = { ...(ctx.env ?? process.env) };
+    if (args.dataDir) chatEnv.MHW_DATA_DIR = args.dataDir;
+    const chatConfig = loadConfig(chatEnv);
+    const chatDb = openDb(chatConfig.dbPath);
+    ensureDefaultWorkspace(chatDb, chatConfig.dataDir);
+    const chatRepoqa = new RepoQARepos(chatDb);
+    chatRepoqa.resetInterrupted();
+    const chatWorker = new RepoQAWorker(chatRepoqa, new EventBus());
+    const chatLog = new ChatSessionLogger(path.join(chatConfig.dataDir, 'chat-logs'));
+    chatLog.start();
+    const chatLlm = new ChatLlmManager(path.join(chatConfig.dataDir, 'llm-profiles.json'), process.env);
+    chatLlm.load();
+    await startChatRepl({ repoqa: chatRepoqa, worker: chatWorker, dataDir: chatConfig.dataDir }, chatLlm, chatLog);
     return { server: null, cockpitUrl: null };
   }
 

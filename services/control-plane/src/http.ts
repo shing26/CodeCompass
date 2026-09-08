@@ -6,6 +6,7 @@ import type { Repos } from './repos';
 import type { Orchestrator, TaskAction } from './orchestrator';
 import type { HarnessManager } from './harness-manager';
 import type { EventBus } from './events';
+import { registerChatRoutes, type ChatRuntime } from './chat/routes';
 import { resolveDefaultBranchSync } from './repoqa-repos';
 import type { Repo, RepoQARepos } from './repoqa-repos';
 import type { RepoQAWorker } from './repoqa-worker';
@@ -40,6 +41,8 @@ export interface HttpDeps {
   /** Absolute path to the built SPA dist. When present (and its index.html
    * exists) the app serves it with an SPA fallback; API/WS routes keep priority. */
   staticDir?: string;
+  /** chat-merge (v0.24.0): 对话式智能体运行时；present → /api/chat/* routes mount. */
+  chat?: ChatRuntime;
 }
 
 const ACTIONS: TaskAction[] = ['pause', 'resume', 'cancel', 'approve', 'reject'];
@@ -988,6 +991,11 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(404).json({ error: 'File not found' });
     }
   });
+
+  // chat-merge (v0.24.0): 对话式智能体路由——必须在 /api 404 兜底之前注册
+  if (deps.chat) {
+    registerChatRoutes(app, deps.chat);
+  }
 
   // Bug-R2-05: unknown /api routes must answer JSON, never Express's default
   // HTML 404 (which also breaks JSON-only API clients).

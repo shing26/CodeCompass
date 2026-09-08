@@ -14,6 +14,11 @@ import { RepoQAWorker } from './repoqa-worker';
 import { RepoWatcher } from './repoqa-watcher';
 import { EventBus } from './events';
 import { createHttpApp } from './http';
+import { ChatStore } from './chat/store.js';
+import { LlmManager } from './chat/llm.js';
+import { InProcessMcpClient } from './chat/client.js';
+import { SessionLogger as ChatSessionLogger } from './chat/log.js';
+import { registerChatRoutes, type ChatRuntime } from './chat/routes.js';
 import type { ServerEvent } from './types';
 
 export interface StartOptions {
@@ -92,6 +97,23 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const orchestrator = new Orchestrator(repos);
   const harnessManager = new HarnessManager({ repos, eventBus });
 
+  // chat-merge: 编排层运行时（进程内直调引擎 handler，见 .scratch/chat-merge/spec.md Q3）
+  const chatLog = new ChatSessionLogger(path.join(config.dataDir, 'chat-logs'));
+  chatLog.start();
+  const chatStore = new ChatStore(db);
+  chatStore.init();
+  const chatLlm = new LlmManager(path.join(config.dataDir, 'llm-profiles.json'), process.env);
+  chatLlm.load();
+  const chatMcp = new InProcessMcpClient({ repoqa, worker, dataDir: config.dataDir }, chatLog);
+  await chatMcp.connect();
+  const chatRuntime: ChatRuntime = {
+    store: chatStore,
+    llm: chatLlm,
+    mcp: chatMcp,
+    log: chatLog,
+    agents: new Map()
+  };
+
   const app = createHttpApp({
     repos,
     orchestrator,
@@ -103,7 +125,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     dataDir: config.dataDir,
     port: config.port,
     exportDir: path.join(config.dataDir, 'exports'),
-    staticDir: config.staticDir
+    staticDir: config.staticDir,
+    chat: chatRuntime
   });
 
   const server = http.createServer(app);
