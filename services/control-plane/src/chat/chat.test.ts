@@ -399,6 +399,15 @@ describe('StreamLeakFilter', () => {
   it('stripTextToolCalls cleans text-form calls', () => {
     expect(stripTextToolCalls('a<tool_call>x</tool_call>b')).toBe('ab');
   });
+
+  it('QA-F-01: strips DeepSeek DSML tool-call blocks leaked as text', () => {
+    const leaked =
+      '结论之前<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name="codecompass_scan">\n<｜｜DSML｜｜/tool_calls>结论之后';
+    const cleaned = stripTextToolCalls(leaked);
+    expect(cleaned).toBe('结论之前结论之后');
+    expect(cleaned).not.toContain('DSML');
+    expect(cleaned).not.toContain('codecompass_scan');
+  });
 });
 
 // ---------- toToolSpecs ----------

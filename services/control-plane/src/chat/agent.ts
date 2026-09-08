@@ -171,22 +171,22 @@ export class ReActAgent {
     }
 
     // M3-03/M3-04 fix (user dogfooding, adversarial intent): some models emit
-    // tool-call attempts as TEXT (`<tool_call><function=…>`) instead of native
-    // calls — that block must never reach the user as an answer, and an empty
-    // or stripped-out answer means the model never actually concluded. Retry
-    // once with an explicit no-tools instruction.
+    // tool-call attempts as TEXT (`<tool_call><function=…>`, DSML tokens)
+    // instead of native calls — that block must never reach the user as an
+    // answer, and an empty or stripped-out answer means the model never
+    // actually concluded. Retry once with an explicit no-tools instruction.
     for (let retries = 0; retries < 1; retries++) {
       const cleaned = stripTextToolCalls(answer);
       if (cleaned === answer && answer.trim()) break;
       answer = cleaned;
       this.deps.log.write('answer_retry', { reason: cleaned ? 'text_tool_call_leak' : 'empty_answer' });
-      // P3-6: 重试标记走专用事件——前端收到即清空流式缓冲并显示独立提示条，
-      // 废弃片段不再残留在最终答案前面（REPL 端仍用文本标记）。
-      onDelta('\n\n---\n\n（回答格式无效，以下为重新生成的最终回答）\n\n');
+      // P3-6/QA-F-04: 重试标记走专用事件——前端收到即清空流式缓冲并显示
+      // 独立提示条；废弃片段不再拼接进最终答案（REPL 端仍用文本标记）。
+      onDelta('\n\n');
       if (opts.onRegenerate) opts.onRegenerate();
       messages.push({
         role: 'user',
-        content: '请基于以上工具结果直接输出文字结论；不要再尝试调用任何工具，不要输出工具调用语法。',
+        content: '请基于以上工具结果直接输出文字结论；不要再尝试调用任何工具，不要输出工具调用语法，也不要重复之前的内容。',
       });
       const retry = await this.deps.llm.chat(messages, { onDelta }, this.deps.fetchImpl);
       answer = stripTextToolCalls(retry.content);
@@ -229,7 +229,7 @@ export class ReActAgent {
     }
     return {
       answer:
-        'LLM 未配置（REPOQA_LLM_*）。当前可用：/call 直调工具、/repos、/tools；或配置 LLM 后重试自由文本。',
+        'LLM 未配置（引擎 .env 的 REPOQA_LLM_*，或 COPILOT_HOME/llm-profiles.json）。当前可用 /tools、/status；或配置 LLM 后重试自由文本。',
       citations: [],
       steps: 0,
       fallback: true,
@@ -320,6 +320,11 @@ export function stripTextToolCalls(text: string): string {
   return text
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
     .replace(/<function=[^>]*>[\s\S]*?<\/function>/gi, '')
+    // QA-F-01: DeepSeek-style DSML tool-call tokens leak as plain text on
+    // multi-step turns (steps>=3) — strip the whole invocation block too.
+    .replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<｜｜DSML｜｜\/tool_calls>/g, '')
+    .replace(/<｜｜DSML｜｜invoke[\s\S]*?<｜｜DSML｜｜\/invoke>/g, '')
+    .replace(/<｜｜DSML｜｜[^>]*>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -329,10 +334,12 @@ export function stripTextToolCalls(text: string): string {
  * like a text-form tool call and drop it once the closing tag passes.
  * The hold remembers WHICH tag opened it — an inner `</function>` must not
  * release an outer `<tool_call>` block (QA-01 regression). A small tail is
- * withheld so split tags (`<tool_` + `call>`) stay caught. */
+ * withheld so split tags (`<tool_` + `call>`) stay caught. DSML tokens
+ * (QA-F-01) have no closing shape we can rely on mid-stream, so the final
+ * answer is re-cleaned by stripTextToolCalls at the exit. */
 export class StreamLeakFilter {
   private buffer = '';
-  private holding: '' | 'tool_call' | 'function' = '';
+  private holding: '' | 'tool_call' | 'function' | 'dsml' = '';
 
   constructor(private readonly sink: (text: string) => void) {}
 
@@ -351,10 +358,10 @@ export class StreamLeakFilter {
 
   private drain(): void {
     let out = '';
-    const tailGuard = this.holding ? 0 : 16;
+    const tailGuard = this.holding ? 0 : 24;
     for (;;) {
       if (!this.holding) {
-        const start = this.buffer.search(/<tool_call|<function=/i);
+        const start = this.buffer.search(/<tool_call|<function=|<｜｜DSML｜｜/i);
         if (start === -1) {
           const safe = Math.max(0, this.buffer.length - tailGuard);
           out += this.buffer.slice(0, safe);
@@ -363,11 +370,28 @@ export class StreamLeakFilter {
         }
         out += this.buffer.slice(0, start);
         this.buffer = this.buffer.slice(start);
-        this.holding = /^<function=/i.test(this.buffer) ? 'function' : 'tool_call';
+        this.holding = /^<function=/i.test(this.buffer)
+          ? 'function'
+          : /^<tool_call/i.test(this.buffer)
+            ? 'tool_call'
+            : 'dsml';
       } else {
-        const closer = this.holding === 'tool_call' ? '</tool_call>' : '</function>';
-        const at = this.buffer.toLowerCase().indexOf(closer);
+        const closer =
+          this.holding === 'tool_call'
+            ? '</tool_call>'
+            : this.holding === 'function'
+              ? '</function>'
+              : '｜｜>';
+        const at = this.buffer.indexOf(closer);
         if (at === -1) {
+          // DSML blocks may never close (QA-F-01) — drop everything buffered
+          // once the leak marker is confirmed; the exit re-clean is the
+          // source of truth for the persisted answer.
+          if (this.holding === 'dsml') {
+            this.buffer = '';
+            this.holding = '';
+            break;
+          }
           this.buffer = this.buffer.slice(-tailGuard);
           break;
         }

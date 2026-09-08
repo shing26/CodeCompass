@@ -101,12 +101,16 @@ export class LlmManager {
   resolveActive(): ResolvedLlm | null {
     const profile = this.profiles.find((p) => p.name === this.activeName);
     if (!profile) return null;
-    const url = profile.url ?? this.env.COPILOT_LLM_URL;
-    const base = profile.baseUrl ?? this.env.COPILOT_LLM_BASE;
+    // QA-F-02: engine-merged key names take precedence — the workbench .env
+    // carries REPOQA_LLM_* and COPILOT_LLM_* is the standalone-copilot legacy.
+    const url = profile.url ?? this.env.REPOQA_LLM_URL ?? this.env.COPILOT_LLM_URL;
+    const base = profile.baseUrl ?? this.env.REPOQA_LLM_BASE ?? this.env.COPILOT_LLM_BASE;
     if (!url && !base) return null;
-    const model = profile.model ?? this.env.COPILOT_LLM_MODEL;
+    const model = profile.model ?? this.env.REPOQA_LLM_MODEL ?? this.env.COPILOT_LLM_MODEL;
     if (!model) return null;
-    const apiKey = this.env[profile.apiKeyEnv ?? 'COPILOT_LLM_API_KEY'];
+    const apiKey =
+      this.env[profile.apiKeyEnv ?? 'REPOQA_LLM_API_KEY'] ??
+      this.env[profile.apiKeyEnv ?? 'COPILOT_LLM_API_KEY'];
     if (!apiKey) return null;
     const endpoint = url ?? `${base!.replace(/\/$/, '')}/chat/completions`;
     return { profileName: profile.name, endpoint, model, apiKey };
