@@ -1611,6 +1611,92 @@ def check_workbench_cards_hydrate(base: str, repo_id: str, conflict_repo_id: str
     )
 
 
+def check_chat_merge(node: str, base: str, repo_id: str) -> None:
+    """chat-merge (v0.24.0): the conversational copilot rides /api/chat/* over
+    the in-process MCP client. Asserts the session lifecycle, a full SSE turn
+    (open/citations/done — the deterministic fallback is the contract, no LLM
+    needed on CI) and the two-table isolation boundary. JSON endpoints go
+    through http_json (fail-closed loopback guard); the SSE turn is collected
+    by a small node probe (same pattern as check_eval_smoke — zero new Python
+    urlopen call sites)."""
+    session_id = ""
+    try:
+        body = http_json("POST", f"{base}/api/chat/sessions", {"repoId": repo_id})
+        session_id = str(body.get("session", {}).get("id", ""))
+        record(
+            "chat session created against the indexed repo",
+            bool(session_id),
+            f"sessionId={'yes' if session_id else 'no'}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        record("chat session created against the indexed repo", False, str(exc))
+
+    if not session_id:
+        record("chat SSE turn streams open/citations/done", False, "skipped (no session)")
+        record("chat messages persist user+assistant (two-table isolation)", False, "skipped (no session)")
+        return
+
+    events: list[str] = []
+    answer = ""
+    try:
+        # SSE turn via a node probe (zero new Python urlopen call sites)
+        probe = subprocess.run(
+            [
+                node, "-e",
+                "const [base, sid] = process.argv.slice(1);"
+                "fetch(base + '/api/chat/sessions/' + sid + '/messages', {"
+                "method: 'POST', headers: {'content-type': 'application/json'},"
+                "body: JSON.stringify({message: 'scan 一下这个仓库哪里值得改'})})"
+                ".then(async r => {"
+                "  if (!r.ok) throw new Error('HTTP ' + r.status);"
+                "  const reader = r.body.getReader(); const dec = new TextDecoder();"
+                "  let buf = ''; const events = []; let answer = '';"
+                "  for (;;) { const {value, done} = await reader.read(); if (done) break;"
+                "    buf += dec.decode(value, {stream: true}); let i;"
+                "    while ((i = buf.indexOf('\\n\\n')) >= 0) {"
+                "      const frame = buf.slice(0, i); buf = buf.slice(i + 2);"
+                "      let ev = ''; let data = '';"
+                "      for (const line of frame.split('\\n')) {"
+                "        if (line.startsWith('event:')) ev = line.slice(6).trim();"
+                "        else if (line.startsWith('data:')) data += line.slice(5).trim();"
+                "      }"
+                "      if (ev && !events.includes(ev)) events.push(ev);"
+                "      if (ev === 'done') { try { answer = JSON.parse(data).answer ?? ''; } catch {} }"
+                "    }"
+                "  }"
+                "  console.log(JSON.stringify({events, answer}));"
+                "}).catch(e => { console.error(String(e)); process.exit(1); })",
+                base, session_id,
+            ],
+            capture_output=True, text=True, timeout=90,
+        )
+        if probe.returncode != 0:
+            raise RuntimeError(probe.stderr.strip()[:300])
+        report = json.loads(probe.stdout)
+        events = [str(e) for e in report.get("events", [])]
+        answer = str(report.get("answer", ""))
+    except Exception as exc:  # noqa: BLE001
+        record("chat SSE turn streams open/citations/done", False, str(exc))
+    else:
+        core_ok = "open" in events and "done" in events and ("citations" in events or "error" in events)
+        record(
+            "chat SSE turn streams open/citations/done",
+            core_ok and bool(answer),
+            f"events={events} answer_len={len(answer)}",
+        )
+
+    try:
+        body = http_json("GET", f"{base}/api/chat/sessions/{session_id}/messages")
+        roles = [m.get("role") for m in body.get("messages", [])]
+        record(
+            "chat messages persist user+assistant (two-table isolation)",
+            roles == ["user", "assistant"],
+            f"roles={roles}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        record("chat messages persist user+assistant (two-table isolation)", False, str(exc))
+
+
 def check_eval_smoke(node: str, cwd: Path) -> None:
     """v0.13: the golden eval must run end-to-end and pass every threshold."""
     tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
@@ -1734,6 +1820,8 @@ def main() -> int:
         check_evolve_convention_conflict(base, _conflict["id"])
         # Issue 25 / Ticket 03 — workbench_cards persistence + hydrate replay.
         check_workbench_cards_hydrate(base, py_repo["id"], _conflict["id"])
+        # chat-merge (v0.24.0) — conversation copilot over /api/chat/*.
+        check_chat_merge(args.node, base, py_repo["id"])
         # v0.13 — golden eval smoke (recall thresholds must hold).
         check_eval_smoke(args.node, ROOT)
 

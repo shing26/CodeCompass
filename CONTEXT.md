@@ -1,7 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具 get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 为向后兼容别名）。当前版本 0.23.0（v0.22.0 scan dogfooding 四修复：`IGNORED_DIRS` 补 vendor、Go 裸调用/跨包调用边静态解析（pkg 桥 + 同目录兜底）、`isTestPath` 补 TS/Go/Python 测试文件模式并收拢单一实现、空桶 nextAction 中性文案；v0.23.0 scan 信号提纯：孤儿桶排除外部接线符号（@Bean/@FeignClient/@EventListener/@Configuration/@SpringBootApplication/main → `wiredExcluded` 计数单列，DEPRECATE 引导不再矛盾），hubs 榜单排除 ≤5 行命名 accessor（PageRank 全图不动）；两轮均源自真实仓库 dogfooding 取证 `.scratch/scan-dogfooding-v021/` 与 `.scratch/scan-purify-v023/`。LLM 节点池热切换经 grilling 裁定归智能体工作台线）。
+11 ADRs（0001–0003、0005–0009、0010–0011 accepted，0004 accepted 详见 0.13 CHANGELOG）+ 0012–0015 accepted（2026-09-01 grilling 收官：Copilot 定位升级——只读架构雷达与演进顾问、Intent→Artifact、引擎垄断几何、Pattern Ingestion、演进工作台；MCP 工具面现为 17 个，演进类工具 get_conventions（五轴画像 + 物理锚点校验）与 plan_evolution（NLU 留宿主端、结构化冲突载荷）经 MCP 直达引擎，module_evolution 为向后兼容别名）。当前版本 0.24.0（**chat-merge：对话式智能体融入 Workbench**——compass-copilot 框架毕业进 `services/control-plane/src/chat/` 编排层（进程内直调、McpLike 边界保留），Web 端 ChatView 吸收式替换 incident 卡流（`?mode=incident` 深链兼容重定向），`codecompass chat` REPL 子命令；独立 chat_sessions/chat_messages 表与 workbench_cards 工件回放语义分离；防线全随迁（泄漏过滤/重试/串行锁/cite 校验）；决策与验收 `.scratch/chat-merge/spec.md`；此前 v0.22.0 scan dogfooding 四修复与 v0.23.0 scan 信号提纯（wiredExcluded/accessor 降权）源自 `.scratch/scan-dogfooding-v021/` 与 `.scratch/scan-purify-v023/` 取证）。
 
 ## Naming
 

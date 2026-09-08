@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.24.0] - 2026-09-07
+
+### Highlights
+
+- **chat-merge：对话式智能体融入 Workbench**——compass-copilot 框架毕业进主线（`services/control-plane/src/chat/` 六模块），Web 端新增"智能体对话"tab（ChatView 替换 incident 排障卡流），CLI 新增 `codecompass chat [path]` REPL 子命令。编排层进程内直调引擎 handler（InMemoryTransport，零子进程），17 工具面自动派生，回答带 [cite: N] 溯源且角标可跳转拓扑定位。QA 三轮淬炼的防线全部随迁：文本假调用泄漏过滤、空答案重试、会话级串行、悬空 cite 剔除、SSE 断连韧性。
+- **决策记录**：`.scratch/chat-merge/spec.md`（grill 六问裁决 + 四层验收标准）；incident 深链 `?mode=incident` 兼容重定向至 chat；独立 `chat_sessions`/`chat_messages` 表与 workbench_cards 工件回放语义分离（ADR-0001 #2）。
+
+### Added
+
+- `codecompass chat [path]` 子命令：终端对话 REPL（/tools /model /status，模型热切换）
+- `/api/chat/status|sessions|model|sessions/:id/messages` 路由组（SSE delta/citations/done/regenerate）
+- e2e gate +3 项：chat 会话创建、SSE 回合（open/citations/done，确定性 fallback 即合约）、双表隔离
+
+### Changed
+
+- IncidentView 退役（Q1 吸收式裁决）：排障场景由 chat 承接（超集能力），Canvas 纯拓扑与 evolve 工作台不变（v0.21 裁决延续）
+- MCP 17 工具契约零变化；外部消费者（IDE/autoApprove）无感知
+
 ## [0.23.0] - 2026-09-07
 
 ### Highlights

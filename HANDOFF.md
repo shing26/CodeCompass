@@ -9,7 +9,7 @@
 
 ## 1. 当前状态（一句话版）
 
-**v0.21.0 已发布**：MCP 工具面 **15 个确定性工具**，产品定位收敛为"给 agent 的确定性检索层"（README「定位」节）。三大产品缺口（索引入口 / 健壮性 / 自荐发现）全部闭环；Issue 24/25 的演进工作台与 Incident 卡流由并行线交付并合流进同一版本。
+**v0.24.0 chat-merge 融合完成（未打 tag）**：对话式智能体（compass-copilot 框架毕业）融入 Workbench——编排层在 `services/control-plane/src/chat/`（进程内直调引擎 handler，McpLike 边界保留），Web 端 ChatView 替换 incident 卡流（`?mode=incident` 深链兼容重定向），`codecompass chat` REPL 子命令，17 工具 MCP 契约零变化。决策与验收标准：`.scratch/chat-merge/spec.md`。v0.22.0/v0.23.0 的 scan dogfooding 修复（含 issue 04/06）由智能体线取证驱动落地。
 
 ## 2. 新 agent 上手前必须知道的事实
 
