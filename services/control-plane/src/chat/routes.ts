@@ -59,8 +59,18 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
     const repoId = String(req.body?.repoId ?? '');
     if (!repoId) return res.status(400).json({ error: 'repoId required' });
     const id = randomUUID();
-    const title = `会话 ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
+    // CM-03: title 前缀标注未命名——首条消息到达时由 addMessage 升级为摘要标题
+    const title = String(req.body?.title ?? '').trim() || `未命名会话 · ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
     res.json({ session: chat.store.createSession(id, repoId, title) });
+  });
+
+  app.patch('/api/chat/sessions/:id', (req, res) => {
+    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json' });
+    const newTitle = String(req.body?.title ?? '').trim();
+    if (!newTitle) return res.status(400).json({ error: 'title required' });
+    if (!chat.store.getSession(req.params.id)) return res.status(404).json({ error: 'unknown session' });
+    chat.store.renameSession(req.params.id, newTitle);
+    res.json({ ok: true });
   });
 
   app.get('/api/chat/sessions/:id/messages', (req, res) => {
@@ -115,6 +125,11 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
 
     // R2-01: 用户消息先于 run 入库（顺序陷阱：入库后 historyFor 才取，避免重复）。
     chat.store.addMessage(sessionId, 'user', message);
+    // CM-03: 首条消息升级会话标题为摘要（截断 40 字符），只升级一次
+    const current = chat.store.getSession(sessionId);
+    if (current && current.title.startsWith('未命名会话')) {
+      chat.store.renameSession(sessionId, message.slice(0, 40) + (message.length > 40 ? '…' : ''));
+    }
     let assistantSaved = false;
 
     try {
@@ -147,9 +162,14 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
         },
       });
       flushDelta();
-      chat.store.addMessage(sessionId, 'assistant', turn.answer, turn.citations);
+      // CM-04: planCards 结构化拆除计划随 citations JSON 列一并持久化（勾选状态在客户端）
+      chat.store.addMessage(sessionId, 'assistant', turn.answer, {
+        citations: turn.citations,
+        planCards: turn.planCards ?? []
+      });
       assistantSaved = true;
       send('citations', { citations: turn.citations });
+      send('plan', { planCards: turn.planCards ?? [] });
       send('done', { answer: turn.answer, steps: turn.steps, fallback: turn.fallback });
       if (!closed) res.end();
       else try { res.end(); } catch { /* socket already gone */ }

@@ -1,13 +1,15 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { RepoQAClient, ChatCitation, ChatTurnResult } from '../client/RepoQAClient';
+import type { RepoQAClient, ChatCitation, ChatTurnResult, ChatPlanCard } from '../client/RepoQAClient';
+import { PlanCardView } from './PlanCardView';
 
 interface ChatEntry {
   key: string;
   role: 'user' | 'assistant';
   content: string;
   citations?: ChatCitation[];
+  planCards?: ChatPlanCard[];
   streaming?: boolean;
   regenerating?: boolean;
 }
@@ -139,7 +141,11 @@ export function ChatView(props: {
   onBackToWorkbench: () => void;
   onSend: (
     message: string,
-    handlers: { onDelta: (text: string) => void; onRegenerate?: () => void }
+    handlers: {
+      onDelta: (text: string) => void;
+      onRegenerate?: () => void;
+      onPlan?: (cards: ChatPlanCard[]) => void;
+    }
   ) => Promise<ChatTurnResult | null>;
 }) {
   const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend } = props;
@@ -175,12 +181,33 @@ export function ChatView(props: {
         .messages(session.id)
         .then((messages) =>
           setEntries(
-            messages.map((m) => ({
-              key: `m-${m.id}`,
-              role: m.role,
-              content: m.content,
-              citations: m.citations ? (JSON.parse(m.citations) as ChatCitation[]) : undefined
-            }))
+            messages.map((m) => {
+              // citations JSON 列同时承载 planCards（CM-04 持久化）
+              let citations: ChatCitation[] | undefined;
+              let planCards: ChatPlanCard[] | undefined;
+              if (m.citations) {
+                try {
+                  const parsed = JSON.parse(m.citations) as {
+                    citations?: ChatCitation[];
+                    planCards?: ChatPlanCard[];
+                  };
+                  if (Array.isArray(parsed)) citations = parsed as ChatCitation[];
+                  else {
+                    citations = parsed.citations;
+                    planCards = parsed.planCards;
+                  }
+                } catch {
+                  citations = undefined;
+                }
+              }
+              return {
+                key: `m-${m.id}`,
+                role: m.role,
+                content: m.content,
+                citations,
+                planCards
+              };
+            })
           )
         )
         .catch((e) => setError(String(e)));
@@ -231,7 +258,9 @@ export function ChatView(props: {
           onDelta: (text) =>
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: e.content + text } : e))),
           onRegenerate: () =>
-            setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: '', regenerating: true } : e)))
+            setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: '', regenerating: true } : e))),
+          onPlan: (cards: ChatPlanCard[]) =>
+            setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, planCards: cards } : e)))
         });
         if (!done) {
           // consent 待确认（chatGuardSend 未执行）——撤回本地占位，恢复草稿
@@ -243,7 +272,14 @@ export function ChatView(props: {
         setEntries((prev) =>
           prev.map((e) =>
             e.key === streamKey
-              ? { ...e, content: done.answer, citations: done.citations, streaming: false, regenerating: false }
+              ? {
+                  ...e,
+                  content: done.answer,
+                  citations: done.citations,
+                  planCards: done.planCards,
+                  streaming: false,
+                  regenerating: false
+                }
               : e
           ),
         );
@@ -314,6 +350,9 @@ export function ChatView(props: {
                       回答格式无效，正在重新生成…
                     </div>
                   )}
+                  {entry.planCards?.length ? (
+                    <PlanCardView cards={entry.planCards} sessionId={activeSession?.id ?? 'draft'} />
+                  ) : null}
                   <MessageBody content={entry.content} citations={entry.citations} onNavigate={onNavigate} />
                 </>
               ) : (

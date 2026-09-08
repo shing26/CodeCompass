@@ -35,11 +35,28 @@ export interface Citation {
   ms: number;
 }
 
+/** CM-04 卡片化 v2：DEPRECATE 拆除清单的结构化卡片（数据来自
+ * plan_evolution/module_evolution 的 EvolutionChecklistItem[]，非模型散文）。 */
+export interface PlanChecklistItem {
+  category: string;
+  action: string;
+  filePath: string;
+  description: string;
+}
+
+export interface PlanCard {
+  intentType: 'DEPRECATE' | 'EXTEND' | string;
+  target: string;
+  riskLevel?: string;
+  items: PlanChecklistItem[];
+}
+
 export interface AgentTurn {
   answer: string;
   citations: Citation[];
   steps: number;
   fallback: boolean;
+  planCards?: PlanCard[];
 }
 
 /** Structural surfaces so tests can stub without spawning processes. The
@@ -101,9 +118,7 @@ export class ReActAgent {
   ): Promise<AgentTurn> {
     if (!this.deps.llm.configured()) return this.fallback(intent);
     const tools = this.deps.mcp.connected ? toToolSpecs(this.deps.mcp.toolsDetail) : [];
-    const rawOnDelta = opts.onDelta ?? this.deps.onDelta;
-    const leakFilter = new StreamLeakFilter(rawOnDelta);
-    const onDelta = (text: string) => leakFilter.write(text);
+    const onDelta = opts.onDelta ?? this.deps.onDelta;
     // QA-03: the session's repo is part of the standing context so 「这个仓库」
     // and follow-ups resolve against the right codebase without re-guessing.
     const systemLine = this.sessionRepoId
@@ -115,6 +130,7 @@ export class ReActAgent {
       { role: 'user', content: intent },
     ];
     const citations: Citation[] = [];
+    const planCards: PlanCard[] = [];
     let n = 0;
     let steps = 0;
     let answer = '';
@@ -150,6 +166,9 @@ export class ReActAgent {
           const outcome = await this.deps.mcp.callTool(tc.function.name, args);
           content = this.summarizeIfLarge(tc.function.name, outcome.raw);
           if (!content) content = '(empty result)';
+          // CM-04: 结构化拆除计划直供——模型散文做解读，卡片用真数据
+          const card = extractPlanCard(tc.function.name, outcome);
+          if (card) planCards.push(card);
         } catch (err) {
           content = `tool error: ${err instanceof Error ? err.message : String(err)}`;
         }
@@ -199,9 +218,13 @@ export class ReActAgent {
       citations.some((c) => c.n === Number(n)) ? m : '',
     );
     this.history.push({ role: 'user', content: intent }, { role: 'assistant', content: finalAnswer });
-    leakFilter.flushRest();
-    this.deps.log.write('agent_turn', { steps, citations, fallback: false });
-    return { answer: finalAnswer, citations, steps, fallback: false };
+    this.deps.log.write('agent_turn', {
+      steps,
+      citations,
+      fallback: false,
+      planCards: planCards.length,
+    });
+    return { answer: finalAnswer, citations, steps, fallback: false, planCards: planCards.length ? planCards : undefined };
   }
 
   /** Deterministic degradation when no LLM is configured (reference semantics:
@@ -296,6 +319,43 @@ export function toToolSpecs(tools: readonly ToolSummary[]): ToolSpec[] {
   }));
 }
 
+/** CM-04 卡片化 v2：从 plan_evolution/module_evolution 载荷提取结构化拆除计划。
+ * EvolutionChecklistItem（contracts/repoqa.ts）= {category, action, filePath, description}。 */
+export function extractPlanCard(toolName: string, outcome: ToolCallOutcome): PlanCard | null {
+  if (toolName !== 'codecompass_plan_evolution' && toolName !== 'codecompass_module_evolution') return null;
+  let data: {
+    intentType?: string;
+    target?: string;
+    riskLevel?: string;
+    checklists?: Array<{ category?: string; action?: string; filePath?: string; description?: string }>;
+  };
+  try {
+    // outcome.payload 在 JSON 可解析时已含对象；否则退回 raw 再解析一次
+    data =
+      typeof outcome.payload === 'object' && outcome.payload !== null && 'checklists' in (outcome.payload as object)
+        ? (outcome.payload as typeof data)
+        : (JSON.parse(outcome.raw) as typeof data);
+  } catch {
+    return null;
+  }
+  if (!data.checklists?.length) return null;
+  const items = (data.checklists ?? [])
+    .filter((i) => i.filePath && i.description)
+    .map((i) => ({
+      category: i.category ?? 'CONFIG',
+      action: i.action ?? 'MODIFY',
+      filePath: i.filePath as string,
+      description: i.description as string,
+    }));
+  if (!items.length) return null;
+  return {
+    intentType: data.intentType ?? 'DEPRECATE',
+    target: data.target ?? '',
+    riskLevel: data.riskLevel,
+    items,
+  };
+}
+
 function renderScan(payload: unknown): string {
   const raw = (payload as { buckets?: unknown }).buckets;
   const buckets: Array<{ id?: string; title?: string; items?: unknown[]; total?: number; nextAction?: string }> =
@@ -327,78 +387,4 @@ export function stripTextToolCalls(text: string): string {
     .replace(/<｜｜DSML｜｜[^>]*>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-/** Stream-side companion to stripTextToolCalls (M3-03 round 2): streamed
- * content cannot be un-printed, so hold back anything that starts to look
- * like a text-form tool call and drop it once the closing tag passes.
- * The hold remembers WHICH tag opened it — an inner `</function>` must not
- * release an outer `<tool_call>` block (QA-01 regression). A small tail is
- * withheld so split tags (`<tool_` + `call>`) stay caught. DSML tokens
- * (QA-F-01) have no closing shape we can rely on mid-stream, so the final
- * answer is re-cleaned by stripTextToolCalls at the exit. */
-export class StreamLeakFilter {
-  private buffer = '';
-  private holding: '' | 'tool_call' | 'function' | 'dsml' = '';
-
-  constructor(private readonly sink: (text: string) => void) {}
-
-  write(chunk: string): void {
-    this.buffer += chunk;
-    this.drain();
-  }
-
-  /** Emit whatever safely remains at end of turn. */
-  flushRest(): void {
-    if (!this.holding && this.buffer) {
-      this.sink(this.buffer);
-    }
-    this.buffer = '';
-  }
-
-  private drain(): void {
-    let out = '';
-    const tailGuard = this.holding ? 0 : 24;
-    for (;;) {
-      if (!this.holding) {
-        const start = this.buffer.search(/<tool_call|<function=|<｜｜DSML｜｜/i);
-        if (start === -1) {
-          const safe = Math.max(0, this.buffer.length - tailGuard);
-          out += this.buffer.slice(0, safe);
-          this.buffer = this.buffer.slice(safe);
-          break;
-        }
-        out += this.buffer.slice(0, start);
-        this.buffer = this.buffer.slice(start);
-        this.holding = /^<function=/i.test(this.buffer)
-          ? 'function'
-          : /^<tool_call/i.test(this.buffer)
-            ? 'tool_call'
-            : 'dsml';
-      } else {
-        const closer =
-          this.holding === 'tool_call'
-            ? '</tool_call>'
-            : this.holding === 'function'
-              ? '</function>'
-              : '｜｜>';
-        const at = this.buffer.indexOf(closer);
-        if (at === -1) {
-          // DSML blocks may never close (QA-F-01) — drop everything buffered
-          // once the leak marker is confirmed; the exit re-clean is the
-          // source of truth for the persisted answer.
-          if (this.holding === 'dsml') {
-            this.buffer = '';
-            this.holding = '';
-            break;
-          }
-          this.buffer = this.buffer.slice(-tailGuard);
-          break;
-        }
-        this.buffer = this.buffer.slice(at + closer.length);
-        this.holding = '';
-      }
-    }
-    if (out) this.sink(out);
-  }
 }

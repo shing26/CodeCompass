@@ -102,6 +102,11 @@ export class ChatStore {
     return row ? mapSession(row) : undefined;
   }
 
+  /** CM-03: 会话标题升级/重命名（首条消息摘要或用户改名）。 */
+  renameSession(id: string, title: string): void {
+    this.db.prepare('UPDATE chat_sessions SET title = ? WHERE id = ?').run(title, id);
+  }
+
   listSessions(): SessionRow[] {
     // rowid tiebreak keeps insertion order when two sessions share a timestamp
     // (CI lesson: ubuntu runners create rows within the same millisecond).

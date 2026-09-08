@@ -323,7 +323,14 @@ export function App({ client: clientProp }: AppProps) {
    * legacy incident composer. Returns null when consent was cancelled so the
    * ChatView can restore the draft. */
   const chatGuardSend = useCallback(
-    (message: string, handlers: { onDelta: (text: string) => void; onRegenerate?: () => void }) => {
+    (
+      message: string,
+      handlers: {
+        onDelta: (text: string) => void;
+        onRegenerate?: () => void;
+        onPlan?: (cards: import('./client/RepoQAClient').ChatPlanCard[]) => void;
+      }
+    ) => {
       if (runtime.llm.mode === 'remote' && !llmConsented) {
         setConsentPending({ question: message, chatMessage: message });
         return Promise.resolve(null);

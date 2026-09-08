@@ -767,9 +767,25 @@ export interface ChatCitation {
   ms: number;
 }
 
+/** CM-04 卡片化 v2：DEPRECATE 拆除清单结构化卡片（引擎载荷直供，非模型散文）。 */
+export interface ChatPlanItem {
+  category: string;
+  action: string;
+  filePath: string;
+  description: string;
+}
+
+export interface ChatPlanCard {
+  intentType: string;
+  target: string;
+  riskLevel?: string;
+  items: ChatPlanItem[];
+}
+
 export interface ChatTurnResult {
   answer: string;
   citations: ChatCitation[];
+  planCards?: ChatPlanCard[];
   steps: number;
   fallback: boolean;
 }
@@ -777,6 +793,7 @@ export interface ChatTurnResult {
 export interface ChatSendHandlers {
   onDelta: (text: string) => void;
   onRegenerate?: () => void;
+  onPlan?: (cards: ChatPlanCard[]) => void;
 }
 
 export class ChatMergeClient {
@@ -875,10 +892,13 @@ export class ChatMergeClient {
           handlers.onDelta(String(payload.text));
         } else if (event === 'regenerate' && handlers.onRegenerate) {
           handlers.onRegenerate();
+        } else if (event === 'plan' && handlers.onPlan) {
+          handlers.onPlan((payload.planCards as ChatPlanCard[]) ?? []);
         } else if (event === 'done') {
           done = {
             answer: String(payload.answer ?? ''),
             citations: (payload.citations as ChatCitation[]) ?? [],
+            planCards: (payload.planCards as ChatPlanCard[]) ?? [],
             steps: Number(payload.steps ?? 0),
             fallback: Boolean(payload.fallback)
           };

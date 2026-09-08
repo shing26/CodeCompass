@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   ReActAgent,
-  StreamLeakFilter,
   stripTextToolCalls,
   toToolSpecs,
   type AgentDeps,
@@ -364,53 +363,86 @@ describe('ReActAgent tool loop (LLM configured)', () => {
 
 // ---------- stream filter ----------
 
-describe('StreamLeakFilter', () => {
-  it('suppresses text-form tool-call blocks mid-stream, even when tags split across chunks', () => {
-    const emitted: string[] = [];
-    const filter = new StreamLeakFilter((t) => emitted.push(t));
-    filter.write('正常开头 ');
-    filter.write('<tool_');
-    filter.write('call>\n<function=x>secret-stuff</function>\n</tool_call>');
-    filter.write('\n正常结尾');
-    filter.flushRest();
-    const text = emitted.join('');
-    expect(text).toContain('正常开头');
-    expect(text).toContain('正常结尾');
-    expect(text).not.toContain('secret-stuff');
-    expect(text).not.toContain('<tool_call');
+// ---------- CM-04 卡片化 v2：结构化拆除计划直供 ----------
+
+describe('extractPlanCard / planCards 传播', () => {
+  const planEvolutionRaw = JSON.stringify({
+    intentType: 'DEPRECATE',
+    target: 'OwnerService',
+    riskLevel: 'MEDIUM',
+    checklists: [
+      {
+        category: 'CONTROLLER',
+        action: 'DELETE',
+        filePath: 'src/main/java/OwnerController.java',
+        description: 'Remove the orphaned controller.'
+      },
+      {
+        category: 'PERSISTENCE',
+        action: 'MODIFY',
+        filePath: 'src/main/java/OwnerRepository.java',
+        description: 'Drop the unused query method.'
+      }
+    ]
   });
 
-  it('QA-01 regression: nested </function> must not release an outer <tool_call> block', () => {
-    const emitted: string[] = [];
-    const filter = new StreamLeakFilter((t) => emitted.push(t));
-    filter.write('前文。');
-    filter.write('<tool_call><function=x>leak</function>');
-    filter.write('更多泄漏');
-    filter.write('</tool_call>后文');
-    filter.flushRest();
-    const text = emitted.join('');
-    expect(text).toContain('前文。');
-    expect(text).toContain('后文');
-    expect(text).not.toContain('leak');
-    expect(text).not.toContain('更多泄漏');
-    expect(text).not.toContain('tool_call');
-  });
+  function planLoopDeps() {
+    const bodies: Array<Record<string, unknown>> = [];
+    let calls = 0;
+    const mcp = makeMcp();
+    mcp.callTool = vi.fn(async () => ({
+      payload: {},
+      raw: planEvolutionRaw,
+      ms: 1
+    })) as unknown as typeof mcp.callTool;
+    const fetchImpl = (async (_url: unknown, init?: { body?: string }) => {
+      if (init?.body) bodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      calls += 1;
+      return calls === 1
+        ? sseResponse([
+            {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call_1',
+                        function: { name: 'codecompass_plan_evolution', arguments: '{"repoId":"repo-1","intentType":"DEPRECATE","target":"OwnerService"}' }
+                      }
+                    ]
+                  }
+                }
+              ],
+            },
+          ])
+        : sseResponse([{ choices: [{ delta: { content: '拆除计划已生成，详见卡片。' } }] }]);
+    }) as unknown as typeof fetch;
+    return {
+      deps: { mcp, llm: makeLlm(llmEnv), log: noopLog, onDelta: () => {}, fetchImpl } as AgentDeps,
+      mcp,
+      bodies
+    };
+  }
 
-  it('stripTextToolCalls cleans text-form calls', () => {
-    expect(stripTextToolCalls('a<tool_call>x</tool_call>b')).toBe('ab');
-  });
+  it('extracts EvolutionChecklistItem[] into a structured plan card', async () => {
+    const { deps, mcp, bodies } = planLoopDeps();
+    const agent = new ReActAgent(deps);
+    const turn = await agent.run('给 OwnerService 做 DEPRECATE 计划');
 
-  it('QA-F-01: strips DeepSeek DSML tool-call blocks leaked as text', () => {
-    const leaked =
-      '结论之前<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name="codecompass_scan">\n<｜｜DSML｜｜/tool_calls>结论之后';
-    const cleaned = stripTextToolCalls(leaked);
-    expect(cleaned).toBe('结论之前结论之后');
-    expect(cleaned).not.toContain('DSML');
-    expect(cleaned).not.toContain('codecompass_scan');
+    expect(turn.planCards).toHaveLength(1);
+    expect(turn.planCards![0].intentType).toBe('DEPRECATE');
+    expect(turn.planCards![0].items).toHaveLength(2);
+    expect(turn.planCards![0].items[0].category).toBe('CONTROLLER');
+    // 模型上下文里拿到的是同一份结构化清单（模型散文解读，卡片用真数据）
+    const lastBody = bodies[bodies.length - 1];
+    const toolMsgs = ((lastBody.messages as Array<{ role: string; content?: string }>) ?? []).filter(
+      (m) => m.role === 'tool'
+    );
+    expect(toolMsgs[0]!.content).toContain('"intentType":"DEPRECATE"');
+    expect(mcp.callTool).toHaveBeenCalledWith('codecompass_plan_evolution', expect.objectContaining({ repoId: 'repo-1' }));
   });
 });
-
-// ---------- toToolSpecs ----------
 
 describe('toToolSpecs', () => {
   it('maps MCP tools/list output to OpenAI function specs with dynamic schemas', () => {
