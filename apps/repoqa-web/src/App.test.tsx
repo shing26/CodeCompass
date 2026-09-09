@@ -189,9 +189,7 @@ describe('App scaffold and repo connect', () => {
 
   it('shows empty-state guidance while no repo is selected', async () => {
     render(<App client={makeClient()} />);
-    await waitFor(() =>
-      expect(screen.getByText(/Start by connecting a repo/)).toBeInTheDocument()
-    );
+    await waitFor(() => expect(screen.getByText(/三步开始代码架构分析/)).toBeInTheDocument());
   });
 
   it('imports a repo through the dialog and selects it in the TopBar', async () => {

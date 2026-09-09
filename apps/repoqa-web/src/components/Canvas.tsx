@@ -269,14 +269,24 @@ export function Canvas({
         </>
       ) : (
         <div data-testid="empty-state" className="flex flex-1 items-center justify-center p-8">
-          <div className="max-w-md text-center">
-            <h2 className="text-lg font-semibold text-ink">Start by connecting a repo</h2>
-            <p className="mt-2 text-sm text-muted">
-              Import a local Java repository, wait for indexing to finish, then explore call chains
-              with natural-language questions.
-            </p>
-            <p className="mt-1 text-xs text-muted">
-              Already imported? Pick it from the selector in the top bar.
+          <div className="max-w-lg text-center">
+            <h2 className="text-lg font-semibold text-ink">三步开始代码架构分析</h2>
+            <div className="mt-4 space-y-3 text-left text-sm text-muted">
+              <p>
+                <strong className="text-ink">① 导入仓库</strong> — 顶部「+」按钮，填本机仓库的完整路径
+                （如 C:\projects\petclinic），支持 Java / TS / Python / Go，索引完成后自动就绪。
+              </p>
+              <p>
+                <strong className="text-ink">② 选一个视图</strong> — 「架构指标」看全仓技术栈与热点；
+                「智能体对话」直接用自然语言提问（推荐新手从这里开始）；其余视图深入调用链、CI 门禁、架构差异与演进推演。
+              </p>
+              <p>
+                <strong className="text-ink">③ 提问或探索</strong> — 在对话页输入如
+                <em>「这个仓库哪里最值得改？」</em>，回答附带 [cite: N] 溯源角标，点角标可跳到拓扑定位。
+              </p>
+            </div>
+            <p className="mt-4 text-xs text-muted">
+              已导入过？直接在顶部下拉选择仓库即可。
             </p>
           </div>
         </div>

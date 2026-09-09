@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-  type InputHTMLAttributes
-} from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Repo, RepoPreview } from '../types';
 
 interface ImportRepoModalProps {
@@ -209,19 +202,6 @@ export function ImportRepoModal({
 
   // Browsers expose only relative paths for a picked folder, so the picker
   // best-effort fills the display name and asks for the absolute path.
-  const handleFolderChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files ? Array.from(e.target.files) : [];
-    const first = files.find((f) => f.webkitRelativePath);
-    if (!first) return;
-    const folderName = first.webkitRelativePath.split('/')[0];
-    if (folderName) {
-      setName((prev) => (prev.trim() ? prev : folderName));
-      setFolderHint(
-        `已选择文件夹「${folderName}」。浏览器无法读取它的绝对路径，请在“本地路径”中填写该文件夹的完整路径。`
-      );
-    }
-  };
-
   const remoteRepo = clonedRepoId
     ? repos.find((r) => r.id === clonedRepoId) ?? null
     : null;
@@ -286,7 +266,7 @@ export function ImportRepoModal({
         {tab === 'local' ? (
           <form onSubmit={submitLocal}>
             <label className="mb-2 block text-xs font-medium text-muted">
-              Name
+              仓库名称（列表里的显示名，可自定义）
               <input
                 data-testid="import-name"
                 value={name}
@@ -295,8 +275,8 @@ export function ImportRepoModal({
                 className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
             </label>
-            <label className="mb-2 block text-xs font-medium text-muted">
-              Local path
+            <label className="mb-1 block text-xs font-medium text-muted">
+              本地仓库的完整路径（必须填写绝对路径，如 C:\projects\petclinic 或 D:\Code\my-repo）
               <input
                 data-testid="import-path"
                 value={localPath}
@@ -308,17 +288,10 @@ export function ImportRepoModal({
                 className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
               />
             </label>
-            <label className="mb-2 block text-xs font-medium text-muted">
-              或选择文件夹
-              <input
-                data-testid="import-folder"
-                type="file"
-                {...({ webkitdirectory: '' } as InputHTMLAttributes<HTMLInputElement>)}
-                multiple
-                onChange={handleFolderChange}
-                className="mt-1 w-full rounded-md border border-line px-2 py-1.5 text-xs text-muted outline-none focus:border-accent"
-              />
-            </label>
+            <p className="mb-2 text-xs text-muted">
+              注意：填写的是<strong className="text-ink">本机磁盘上已有的仓库文件夹</strong>，不是压缩包或 URL；
+              路径不存在或不是仓库根目录会导致导入失败。支持 Java / TS / Python / Go 仓库。
+            </p>
             {folderHint && (
               <p data-testid="import-folder-hint" className="mb-2 text-xs text-warning">
                 {folderHint}

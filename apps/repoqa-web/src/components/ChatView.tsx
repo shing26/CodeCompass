@@ -4,6 +4,13 @@ import remarkGfm from 'remark-gfm';
 import type { RepoQAClient, ChatCitation, ChatTurnResult, ChatPlanCard } from '../client/RepoQAClient';
 import { PlanCardView } from './PlanCardView';
 
+const STARTERS = [
+  '这个仓库的整体架构和技术栈是怎样的？',
+  '梳理核心业务的全链路调用关系',
+  '分析此仓是否有死代码或高风险大文件',
+  '画出核心请求的时序图'
+];
+
 interface ChatEntry {
   key: string;
   role: 'user' | 'assistant';
@@ -299,7 +306,7 @@ export function ChatView(props: {
     <div className="chat-view" data-testid="chat-view">
       <aside className="chat-side">
         <div className="chat-side-head">
-          <span className="chat-brand">compass-copilot</span>
+          <span className="chat-brand">架构问答助手</span>
           <button
             className="chat-new"
             data-testid="chat-new-session"
@@ -322,9 +329,11 @@ export function ChatView(props: {
           ))}
           {sessions.length === 0 && <div className="chat-hint">暂无本仓库会话</div>}
         </div>
-        <div className="chat-model">
+        {/* CM-05 前置：模型配置是高级项——默认折叠，等第二 profile 配好后可展开 */}
+        <details className="chat-model">
+          <summary className="chat-hint">模型设置</summary>
           <ModelSelect chatClient={chatClient} />
-        </div>
+        </details>
       </aside>
 
       <div className="chat-main">
@@ -337,8 +346,14 @@ export function ChatView(props: {
         <div className="chat-msgs" ref={listRef} data-testid="chat-messages">
           {entries.length === 0 && (
             <div className="chat-empty">
-              对话式分析（编排层毕业自 compass-copilot）。所有事实来自 CodeCompass 确定性引擎，回答带 [cite: N]
-              角标，点角标可跳转拓扑定位。
+              <div>直接提问即可，回答中的每个结论都来自代码事实，可点 [cite: N] 查证。试试：</div>
+              <div className="chat-starters">
+                {STARTERS.map((s) => (
+                  <button key={s} className="chat-starter" onClick={() => void send(s)}>
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {entries.map((entry) => (

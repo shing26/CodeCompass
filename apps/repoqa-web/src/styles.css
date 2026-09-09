@@ -21,3 +21,12 @@
 .plan-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .plan-file { font-size: 12px; word-break: break-all; }
 .plan-desc { color: var(--muted); font-size: 12.5px; }
+
+/* 用户反馈轮：chat starter 胶囊 + model 折叠 */
+.chat-starters { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; align-items: flex-start; }
+.chat-starter {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px;
+  padding: 7px 14px; font-size: 12.5px; color: var(--text); text-align: left;
+}
+.chat-starter:hover { border-color: var(--accent); color: var(--accent); }
+details.chat-model summary { cursor: pointer; margin-bottom: 6px; }

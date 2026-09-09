@@ -47,13 +47,13 @@ interface TopBarProps {
   indexingProgress?: IndexingProgress | null;
 }
 
-const TABS: Array<{ id: WorkbenchTab; label: string }> = [
-  { id: 'topo', label: '拓扑探查' },
-  { id: 'metrics', label: '架构指标' },
-  { id: 'chat', label: '智能体对话' },
-  { id: 'gate', label: 'CI 门禁' },
-  { id: 'delta', label: '架构差异' },
-  { id: 'evolve', label: '演进推演' }
+const TABS: Array<{ id: WorkbenchTab; label: string; title: string }> = [
+  { id: 'topo', label: '代码拓扑', title: '点击左侧路由或类，查看确定性调用链路与 Mermaid 图' },
+  { id: 'metrics', label: '架构仪表盘', title: '一眼查看全仓技术栈、配置拓扑、代码规模与异常大文件' },
+  { id: 'chat', label: '架构问答', title: '基于确定性 AST 事实的只读代码咨询、定位与时序图绘制（新手推荐起点）' },
+  { id: 'gate', label: '变更审计', title: '复制预置命令，在 CI/CD 流水线中阻断越界影响面' },
+  { id: 'delta', label: 'Diff 影响面', title: '对比两个 Git Commit，精确定位被波及的接口与反向调用者' },
+  { id: 'evolve', label: '规范演进', title: '输入重构意图，检查代码约定冲突并生成防误删推演卡' }
 ];
 
 function watcherState(status: Repo['status'] | undefined) {

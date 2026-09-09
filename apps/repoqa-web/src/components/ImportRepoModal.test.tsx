@@ -52,12 +52,6 @@ function baseProps(overrides: Partial<Parameters<typeof ImportRepoModal>[0]> = {
   };
 }
 
-function makeFile(name: string, path: string): File {
-  const file = new File(['content'], name, { type: 'text/plain' });
-  Object.defineProperty(file, 'webkitRelativePath', { value: path });
-  return file;
-}
-
 describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
   it('switches between the local and GitHub tabs', async () => {
     const user = userEvent.setup();
@@ -171,18 +165,7 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it('pre-fills the name from the picked folder and asks for its path', async () => {
-    render(<ImportRepoModal {...baseProps()} />);
-    fireEvent.change(screen.getByTestId('import-folder'), {
-      target: { files: [makeFile('App.java', 'demo/src/main/App.java')] }
-    });
 
-    expect(screen.getByTestId('import-name')).toHaveValue('demo');
-    expect(screen.getByTestId('import-folder-hint')).toHaveTextContent(
-      '已选择文件夹「demo」'
-    );
-    expect(screen.getByTestId('import-folder-hint')).toHaveTextContent('完整路径');
-  });
 
   it('shows a pre-import preview with file and skipped-dir counts (Round 2 B4)', async () => {
     const user = userEvent.setup();
