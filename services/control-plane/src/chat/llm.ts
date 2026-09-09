@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { readDotEnvFile, dotEnvFilePath } from '../repoqa-llm.js';
 
 export interface LlmProfile {
   name: string;
@@ -103,14 +106,25 @@ export class LlmManager {
     if (!profile) return null;
     // QA-F-02: engine-merged key names take precedence — the workbench .env
     // carries REPOQA_LLM_* and COPILOT_LLM_* is the standalone-copilot legacy.
-    const url = profile.url ?? this.env.REPOQA_LLM_URL ?? this.env.COPILOT_LLM_URL;
-    const base = profile.baseUrl ?? this.env.REPOQA_LLM_BASE ?? this.env.COPILOT_LLM_BASE;
+    // QA-F-02 补遗（CM 轮实测）：chat 路径必须复用引擎的 .env 懒加载约定
+    // （cwd/.env，loadLlmEnv 同款）——LlmManager 只读 process.env 会拿不到值。
+    // .env 查找顺序（CM 轮实测 cwd 敏感）：cwd/.env → repo 根/.env（__dirname
+    // 在 CJS 产物= dist 目录，上三级即 repo 根）→ COPILOT_HOME/.env
+    const candidates = this.env.COPILOT_ENV_FILE
+      ? [this.env.COPILOT_ENV_FILE]
+      : [
+          dotEnvFilePath(),
+          path.resolve(__dirname, '..', '..', '..', '.env'),
+          path.join(os.homedir(), '.compass-copilot', '.env'),
+        ];
+    const dotEnv = candidates.reduce<Record<string, string>>((acc, f) => Object.assign(acc, readDotEnvFile(f)), {});
+    const env: NodeJS.ProcessEnv = { ...dotEnv, ...this.env };
+    const url = profile.url ?? env.REPOQA_LLM_URL ?? env.COPILOT_LLM_URL;
+    const base = profile.baseUrl ?? env.REPOQA_LLM_BASE ?? env.COPILOT_LLM_BASE;
     if (!url && !base) return null;
-    const model = profile.model ?? this.env.REPOQA_LLM_MODEL ?? this.env.COPILOT_LLM_MODEL;
+    const model = profile.model ?? env.REPOQA_LLM_MODEL ?? env.COPILOT_LLM_MODEL;
     if (!model) return null;
-    const apiKey =
-      this.env[profile.apiKeyEnv ?? 'REPOQA_LLM_API_KEY'] ??
-      this.env[profile.apiKeyEnv ?? 'COPILOT_LLM_API_KEY'];
+    const apiKey = env[profile.apiKeyEnv ?? 'REPOQA_LLM_API_KEY'] ?? env[profile.apiKeyEnv ?? 'COPILOT_LLM_API_KEY'];
     if (!apiKey) return null;
     const endpoint = url ?? `${base!.replace(/\/$/, '')}/chat/completions`;
     return { profileName: profile.name, endpoint, model, apiKey };

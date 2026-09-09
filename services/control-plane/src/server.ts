@@ -14,6 +14,7 @@ import { RepoQAWorker } from './repoqa-worker';
 import { RepoWatcher } from './repoqa-watcher';
 import { EventBus } from './events';
 import { createHttpApp } from './http';
+import { readDotEnvFile } from './repoqa-llm';
 import { ChatStore } from './chat/store.js';
 import { LlmManager } from './chat/llm.js';
 import { InProcessMcpClient } from './chat/client.js';
@@ -85,6 +86,11 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   };
 
   await backupDb(config.dbPath);
+  // chat-merge: 引擎 .env 惰性加载的启动固化——cwd 漂移（如从 apps/repoqa-web
+  // 启动）会让后续 loadLlmEnv 找不到 REPOQA_LLM_*，启动时一次性并入 process.env。
+  for (const [key, value] of Object.entries(readDotEnvFile())) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
   const db = openDb(config.dbPath);
   ensureDefaultWorkspace(db, config.dataDir);
 
