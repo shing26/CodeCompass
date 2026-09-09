@@ -4,11 +4,28 @@ import remarkGfm from 'remark-gfm';
 import type { RepoQAClient, ChatCitation, ChatTurnResult, ChatPlanCard } from '../client/RepoQAClient';
 import { PlanCardView } from './PlanCardView';
 
-const STARTERS = [
-  '这个仓库的整体架构和技术栈是怎样的？',
-  '梳理核心业务的全链路调用关系',
-  '分析此仓是否有死代码或高风险大文件',
-  '画出核心请求的时序图'
+/** 改造 3：快捷交互卡片——标题 + 副标题（意图），点击直发请求。 */
+const STARTER_CARDS = [
+  {
+    title: '全库架构透视',
+    subtitle: '梳理整体分层、核心模块与技术栈分布',
+    prompt: '这个仓库的整体架构和技术栈是怎样的？分层和核心模块是什么？'
+  },
+  {
+    title: '高危大文件与孤岛',
+    subtitle: '定位 Top 极值大文件与无入度符号',
+    prompt: '分析此仓是否有死代码或高风险大文件？列出最值得关注的几个。'
+  },
+  {
+    title: '核心业务调用链路',
+    subtitle: '基于当前 Routes 绘制端到端调用链',
+    prompt: '梳理核心业务的全链路调用关系，画出主要请求的时序图。'
+  },
+  {
+    title: '变更风险评估',
+    subtitle: '分析特定方法或未提交修改的受波及面',
+    prompt: '分析这个仓库的变更风险：哪些方法改动影响面最大？'
+  }
 ];
 
 interface ChatEntry {
@@ -348,9 +365,16 @@ export function ChatView(props: {
             <div className="chat-empty">
               <div>直接提问即可，回答中的每个结论都来自代码事实，可点 [cite: N] 查证。试试：</div>
               <div className="chat-starters">
-                {STARTERS.map((s) => (
-                  <button key={s} className="chat-starter" onClick={() => void send(s)}>
-                    {s}
+                {STARTER_CARDS.map((card) => (
+                  <button
+                    key={card.title}
+                    className="chat-starter-card"
+                    data-testid="chat-starter-card"
+                    onClick={() => void send(card.prompt)}
+                    disabled={busy}
+                  >
+                    <span className="chat-starter-title">{card.title}</span>
+                    <span className="chat-starter-sub">{card.subtitle}</span>
                   </button>
                 ))}
               </div>

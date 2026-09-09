@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import { MermaidDiagram } from './MermaidDiagram';
+import { ScenarioGuide } from './ScenarioGuide';
 import type {
   ArchitectureDeltaReport,
   ArchitectureDeltaSymbol,
@@ -140,9 +141,16 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
       <div className="mx-auto max-w-4xl space-y-4">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-ink">架构差异</h2>
+            <h2 className="text-base font-semibold text-ink">Diff 影响面</h2>
             <p className="mt-0.5 truncate text-xs text-muted">{repo.name}</p>
           </div>
+          <ScenarioGuide
+            steps={[
+              '① 选基线与目标 Commit（base/head）',
+              '② 生成差异：新增路由、断边与风险分级一目了然',
+              '③ 点击结果中的符号，定位被波及的调用者'
+            ]}
+          />
           <button
             type="button"
             data-testid="delta-copy"

@@ -202,8 +202,8 @@ export function Inspector({
   return (
     <aside
       data-testid="inspector"
-      className={`fixed inset-y-0 right-0 z-40 flex w-[85vw] max-w-sm flex-col border-l border-line bg-surface transition-transform md:static md:z-auto md:w-[340px] md:shrink-0 md:translate-x-0 ${
-        open ? 'translate-x-0' : 'translate-x-full'
+      className={`fixed inset-y-0 right-0 z-40 flex w-[85vw] max-w-sm flex-col border-l border-line bg-surface transition-transform md:static md:z-auto md:w-[340px] md:shrink-0 md:transition-transform ${
+        open ? 'translate-x-0' : 'translate-x-full md:hidden'
       }`}
     >
       <div className="border-b border-line">

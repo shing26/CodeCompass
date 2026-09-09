@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Repo, RepoDashboard } from '../types';
+import { ScenarioGuide } from './ScenarioGuide';
 
 interface CiGateViewProps {
   repo: Repo | null;
@@ -80,6 +81,13 @@ export function CiGateView({ repo, dashboard }: CiGateViewProps) {
             <h2 className="text-base font-semibold text-ink">CI 门禁</h2>
             <p className="mt-0.5 truncate text-xs text-muted">{repo.name}</p>
           </div>
+          <ScenarioGuide
+            steps={[
+              '① 配置基线：选择基线分支与调用链/诊断/扫描检查项',
+              '② 生成预置命令：复制到 CI/CD 流水线阻断越界影响面',
+              '③ 本地自查：任何改动先在这里验证调用边界，再做合并决策'
+            ]}
+          />
           <button
             type="button"
             data-testid="copy-ci-command"

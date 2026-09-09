@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import type { EvolutionCard, UseEvolutionSessionResult } from '../hooks/useEvolutionSession';
 import { MermaidDiagram } from './MermaidDiagram';
+import { ScenarioGuide } from './ScenarioGuide';
 import type { ModuleEvolutionResult, Repo } from '../types';
 
 interface EvolutionViewProps {
@@ -432,12 +433,19 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
     <div data-testid="evolution-view" className="flex-1 overflow-y-auto p-4">
       <div className="mx-auto max-w-4xl space-y-4">
         <header>
-          <h2 className="text-base font-semibold text-ink">演进推演</h2>
+          <h2 className="text-base font-semibold text-ink">规范演进</h2>
           <p className="mt-0.5 truncate text-xs text-muted">
             {repo.name}
             {repo.commit ? ` · @ ${repo.commit}` : ''}
             {cards.length > 0 ? ` · ${cards.length} 张工件卡` : ' · 工件流未开始'}
           </p>
+          <ScenarioGuide
+            steps={[
+              '① 输入重构意图（如：给订单模块加导出 / 废弃某 Controller）',
+              '② 引擎扫描约定冲突，防止越界改动',
+              '③ 生成防误删推演卡与拆除清单（勾选追踪）'
+            ]}
+          />
         </header>
 
         <section className="rounded-md border border-line bg-surface p-3">

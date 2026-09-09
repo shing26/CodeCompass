@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRepoCatalog } from './hooks/useRepoCatalog';
 import { useChat } from './hooks/useChat';
 import { useEvolutionSession } from './hooks/useEvolutionSession';
@@ -310,6 +310,24 @@ export function App({ client: clientProp }: AppProps) {
       file: api.filePath
     });
   };
+
+  // 改造 2 (zero-click value): 拓扑首屏自动渲染首条 Top API 的调用链——
+  // 每个仓库只自动触发一次（autoTracedRepoRef 守卫）。确定性 call-chain
+  // 由 worker 绕过 LLM，无需 consent 门（submit 直调而非 handleSubmit）。
+  const autoTracedRepoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!repoId || view !== 'topo' || dashboardLoading || !dashboard) return;
+    if (autoTracedRepoRef.current === repoId) return;
+    const first = dashboard.topApis?.[0];
+    if (first) {
+      autoTracedRepoRef.current = repoId;
+      submit(`${first.name} 的完整调用链是怎样的？`, 'call-chain', {
+        name: first.name,
+        file: first.filePath
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId, view, dashboardLoading, dashboard]);
 
   const handleSubmit: typeof submit = (question, mode, start, stack) => {
     if (runtime.llm.mode === 'remote' && !llmConsented) {

@@ -30,3 +30,51 @@
 }
 .chat-starter:hover { border-color: var(--accent); color: var(--accent); }
 details.chat-model summary { cursor: pointer; margin-bottom: 6px; }
+
+/* 改造 3：Starter 卡片网格 */
+.chat-starters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+  width: 100%;
+  max-width: 560px;
+}
+.chat-starter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: left;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.chat-starter-card:hover:not(:disabled) {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.chat-starter-card:disabled { opacity: 0.5; cursor: default; }
+.chat-starter-title { font-weight: 600; font-size: 13.5px; color: var(--text); }
+.chat-starter-sub { font-size: 12px; color: var(--muted); }
+
+/* 改造 4：场景导览卡 */
+.scenario-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.scenario-step { display: flex; align-items: center; gap: 6px; }
+.scenario-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
+  flex-shrink: 0;
+}

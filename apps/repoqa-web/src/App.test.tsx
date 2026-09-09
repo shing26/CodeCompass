@@ -179,11 +179,12 @@ describe('App scaffold and repo connect', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders the three-pane shell with TopBar, Sidebar, Canvas and Inspector', async () => {
+  it('renders the shell with TopBar, Sidebar and Canvas; Inspector is a drawer (hidden until a node is opened)', async () => {
     render(<App client={makeClient()} />);
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
     expect(screen.getByTestId('sidebar')).toBeInTheDocument();
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
+    // 改造 1: Inspector 按需滑出——未点节点时不在桌面布局占位（jsdom 按 display:none 判定不可见）
     expect(screen.getByTestId('inspector')).toBeInTheDocument();
   });
 
