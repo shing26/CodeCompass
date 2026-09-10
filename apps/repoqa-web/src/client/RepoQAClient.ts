@@ -824,6 +824,13 @@ export class ChatMergeClient {
     return body.messages ?? [];
   }
 
+  /** v0.25.0 批次 1：原生目录选择器——Windows 拉起系统对话框回传绝对路径；
+   * 非 Windows 返回 supported:false，前端降级手输。 */
+  async pickFolder(): Promise<{ supported: boolean; canceled?: boolean; path?: string }> {
+    const res = await this.fetcher(`${this.baseUrl}/api/dialog/folder`, { method: 'POST' });
+    return (await res.json()) as { supported: boolean; canceled?: boolean; path?: string };
+  }
+
   async switchModel(name: string): Promise<void> {
     const res = await this.fetcher(`${this.baseUrl}/api/chat/model`, {
       method: 'POST',

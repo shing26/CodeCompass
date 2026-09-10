@@ -102,3 +102,18 @@ Workbench 吸收式替换：copilot 的编排层+对话 UI 毕业进 CodeCompass
 - 批次 D 模型选型对比（post-v0.24 独立做）
 - 卡片化 v2 结构化分组（backlog，v1 计划卡已够用）
 - JSONL 取证并入 events 体系的具体方式（实施时按最小改动定，不设验收）
+
+## 实施暗礁防御（外部评审补充，v0.25 实施必读）
+
+| 暗礁 | 防御措施 |
+| --- | --- |
+| PowerShell FolderBrowserDialog 依赖 COM STA 线程 | spawn 参数显式 -NoProfile -STA；缺失时部分 Windows 环境抛线程状态异常或静默无响应 |
+| 子进程弹窗易被浏览器遮挡 | 脚本内创建 Form/Dialog 时显式置顶句柄/前台焦点；前端 15s 超时自动降级手输 |
+| 非 Windows 平台契约 | 端点返回 { supported: boolean, canceled?: boolean, path?: string }——前端据 supported 平滑隐藏按钮或显示说明，不用 canceled 混淆 |
+| http.ts 拆域循环引用 | 子路由统一 register(app, deps: HttpDeps) 显式注入；严禁子路由互相 cross-import；跨域交互只通过 contracts 类型或核心服务层中转 |
+| Context 分片破坏 270 条测试 | Providers 全部挂在 <App/> 内部最外层（不迁 main.tsx）；render(<App/>) 自带完整上下文，测试断言零修改 |
+
+### 附注：v0.25.0 P0 批已获批准（grill 三问裁决）
+
+- 范围：P0 工程结构优先（App.tsx 649 行单体 + http.ts 1030 行 41 路由）+ 原生目录选择器 + Context 分片轻改
+- 明确不做：问答/演进入口心智分离文案大改、CI 历史报表等新数据面、大仓性能优化（均 v0.26 backlog）

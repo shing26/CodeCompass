@@ -35,6 +35,8 @@ interface TopBarProps {
   /** Bug-12: repo currently being indexed (from catalog polling) — lets the
    * import dialog show live phase feedback while POST /api/repos is pending. */
   importingRepo?: Repo | null;
+  /** v0.25.0 批次 1：原生目录选择器（可选，未传时按钮隐藏）。 */
+  onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
   llmMode: LlmRuntimeMode;
   llmHost?: string;
   /** Issue 31: active workbench tab. */

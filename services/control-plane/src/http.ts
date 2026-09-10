@@ -22,6 +22,7 @@ import { buildTours } from './repoqa-tours';
 import { buildDashboard } from './repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from './repoqa-export';
 import { previewRepo } from './repoqa-scan';
+import { pickFolderDialog } from './dialog';
 import { llmRuntimeInfo, maskHostname } from './repoqa-llm';
 import { extractSubgraphContext } from './repoqa-graphrag';
 import { analyzeDiff, summarizeGitError } from './repoqa-diff';
@@ -838,6 +839,18 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.status(400).json({
         error: error instanceof Error ? error.message : String(error)
       });
+    }
+  });
+
+  // v0.25.0 批次 1：原生目录选择器——绕过浏览器沙箱拿不到绝对路径的根因。
+  // Windows 拉起系统 FolderBrowserDialog（STA + 置顶）；非 Windows 返回
+  // supported:false 让前端降级手输。契约见 src/dialog.ts。
+  app.get('/api/dialog/folder', async (_req, res) => {
+    try {
+      const result = await pickFolderDialog();
+      res.json(result);
+    } catch (error) {
+      res.json({ supported: true, canceled: true, error: String(error) });
     }
   });
 

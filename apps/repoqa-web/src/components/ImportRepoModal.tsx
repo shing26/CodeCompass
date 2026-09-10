@@ -18,6 +18,9 @@ interface ImportRepoModalProps {
   /** Bug-12: repo currently being indexed (catalog polling) — live phase
    * feedback for the local tab while POST /api/repos is pending. */
   importingRepo?: Repo | null;
+  /** v0.25.0 批次 1：原生目录选择器（Node 侧拉起系统对话框回传绝对路径）。
+   * 未提供时（旧测试/降级）隐藏按钮。 */
+  onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
 }
 
 type Tab = 'local' | 'remote';
@@ -38,7 +41,8 @@ export function ImportRepoModal({
   onPreviewLocal,
   onCloneRemote,
   repos,
-  importingRepo
+  importingRepo,
+  onPickFolder
 }: ImportRepoModalProps) {
   const [tab, setTab] = useState<Tab>('local');
   const [name, setName] = useState('');
@@ -292,6 +296,35 @@ export function ImportRepoModal({
               注意：填写的是<strong className="text-ink">本机磁盘上已有的仓库文件夹</strong>，不是压缩包或 URL；
               路径不存在或不是仓库根目录会导致导入失败。支持 Java / TS / Python / Go 仓库。
             </p>
+            {onPickFolder && (
+              <button
+                type="button"
+                data-testid="import-browse"
+                onClick={() => {
+                  setFolderHint('正在打开系统目录选择对话框…');
+                  void onPickFolder()
+                    .then((result) => {
+                      if (!result.supported) {
+                        setFolderHint('当前平台不支持系统目录选择，请手动填写完整路径。');
+                        return;
+                      }
+                      if (result.canceled || !result.path) {
+                        setFolderHint(null);
+                        return;
+                      }
+                      const picked = result.path.replace(/[\\/]+$/, '');
+                      setLocalPath(picked);
+                      if (!name.trim()) setName(picked.split(/[\\/]/).pop() ?? '');
+                      setFolderHint(null);
+                      runPreview(picked);
+                    })
+                    .catch((err) => setFolderHint(`目录选择失败：${err instanceof Error ? err.message : String(err)}`));
+                }}
+                className="mb-2 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-accent"
+              >
+                📁 浏览文件夹…（调用系统对话框自动填入路径）
+              </button>
+            )}
             {folderHint && (
               <p data-testid="import-folder-hint" className="mb-2 text-xs text-warning">
                 {folderHint}

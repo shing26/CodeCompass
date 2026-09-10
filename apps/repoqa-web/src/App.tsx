@@ -468,6 +468,7 @@ export function App({ client: clientProp }: AppProps) {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
+        onPickFolder={() => client.chat.pickFolder()}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}
         activeView={view === 'tour' ? 'topo' : view}
