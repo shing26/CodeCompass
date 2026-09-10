@@ -177,4 +177,25 @@ describe('ArchitectureDeltaView (v0.6.0)', () => {
     );
     expect(screen.getByTestId('architecture-delta')).toHaveTextContent('无法解析 git 引用');
   });
+
+  it('ticket 14: non-ready repo disables delta-run with rebuild guidance and never hits the client', async () => {
+    const user = userEvent.setup();
+    const getArchitectureDelta = vi.fn();
+    const idleRepo: Repo = { ...readyRepo, status: 'idle' };
+    render(
+      <ArchitectureDeltaView repo={idleRepo} client={{ getArchitectureDelta }} />
+    );
+    const run = screen.getByTestId('delta-run');
+    expect(run).toBeDisabled();
+    expect(run).toHaveAttribute(
+      'title',
+      '该仓库尚未索引完成或无可用 Git 引用，请先在「更多操作」重建索引。'
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('delta-not-ready-hint')).toHaveTextContent('重建索引')
+    );
+    // Pointer-events bypass would still be guarded inside runDelta.
+    await user.click(run).catch(() => undefined);
+    expect(getArchitectureDelta).not.toHaveBeenCalled();
+  });
 });

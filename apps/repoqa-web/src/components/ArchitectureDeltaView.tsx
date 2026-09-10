@@ -57,8 +57,14 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
     if (repo?.defaultBranch) setBase(repo.defaultBranch);
   }, [repo?.id, repo?.defaultBranch]);
 
+  // Ticket 14 (QA-05): an idle/indexing/error repo has no usable git history —
+  // running the delta only produces a raw 400. Gate the action (button stays
+  // disabled with guidance) and keep runDelta's own guard as defense-in-depth.
+  const repoNotReady = repo !== null && repo.status !== 'ready';
+  const notReadyHint = '该仓库尚未索引完成或无可用 Git 引用，请先在「更多操作」重建索引。';
+
   const runDelta = async () => {
-    if (!repo || loading) return;
+    if (!repo || loading || repo.status !== 'ready') return;
     setLoading(true);
     setError(null);
     try {
@@ -195,12 +201,18 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
               type="button"
               data-testid="delta-run"
               onClick={runDelta}
-              disabled={loading || !base.trim() || !head.trim()}
+              disabled={loading || !base.trim() || !head.trim() || repoNotReady}
+              title={repoNotReady ? notReadyHint : undefined}
               className="h-8 shrink-0 self-end rounded-md bg-accent px-4 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
             >
               {loading ? '分析中…' : '运行差异分析'}
             </button>
           </div>
+          {repoNotReady && (
+            <p data-testid="delta-not-ready-hint" className="mt-2 text-[11px] text-warning">
+              {notReadyHint}
+            </p>
+          )}
           {error && (
             <div className="mt-2 text-xs text-danger">
               <p>{error.message}</p>
