@@ -146,6 +146,13 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
       prunedCount: 0,
       text: '# Agent Context: listOrders'
     }),
+    listReverseDeps: vi.fn().mockResolvedValue({
+      repoId: 'repo-1',
+      target: { name: 'listOrders', file: 'src/main/java/OrderController.java', line: 24 },
+      callers: [],
+      count: 0,
+      fallback: false
+    }),
     exportOnboarding: vi.fn().mockResolvedValue('# petclinic ONBOARDING\n'),
     baseUrl: 'http://localhost:43110',
     chat: {
@@ -699,5 +706,129 @@ describe('chat-merge: chat view replaces the incident copilot (v0.24.0)', () => 
     expect(screen.getByTestId('chat-question')).toHaveValue('NPE at Demo.run');
     await user.click(screen.getByTestId('chat-send'));
     await waitFor(() => expect(client.chat.chatSend).toHaveBeenCalled());
+  });
+});
+
+describe('ticket 11 (QA-02): mobile inspector drawer re-opens after mask close', () => {
+  // All navigation entries share the inspector.openFile contract; the sidebar
+  // route rows are the jsdom-reachable stand-in for flow-cards / anchors.
+  const drawerRoutes: RepoSymbol[] = [
+    {
+      id: 901,
+      repoId: 'repo-1',
+      kind: 'route',
+      name: 'getOwners',
+      filePath: 'drawer11/OwnerController.java',
+      lineStart: 12,
+      lineEnd: 15,
+      signature: null,
+      calls: null,
+      displayPath: '/api/owners'
+    },
+    {
+      id: 902,
+      repoId: 'repo-1',
+      kind: 'route',
+      name: 'postOwners',
+      filePath: 'drawer11/OwnerController.java',
+      lineStart: 30,
+      lineEnd: 33,
+      signature: null,
+      calls: null,
+      displayPath: '/api/owners'
+    }
+  ];
+
+  function drawerClient() {
+    return makeClient({
+      listSymbols: vi.fn().mockResolvedValue(drawerRoutes),
+      getFileRaw: vi.fn().mockResolvedValue('class OwnerController {}'),
+      radar: vi.fn().mockResolvedValue({
+        schemaVersion: 1,
+        repoId: 'repo-1',
+        matchedAnchors: [
+          {
+            symbol: 'getOwners',
+            type: 'API',
+            relevanceScore: 90,
+            filePath: 'drawer11/OwnerController.java',
+            line: 12,
+            matchedBy: 'identifier',
+            inDegree: 1,
+            outDegree: 1
+          }
+        ],
+        hubNodes: [],
+        topApis: [],
+        persistenceEntities: []
+      })
+    });
+  }
+
+  async function selectAndRevealRows(user: ReturnType<typeof userEvent.setup>) {
+    render(<App client={drawerClient()} />);
+    await selectRepo(user);
+    await waitFor(() => expect(screen.getAllByTestId('route-item')).toHaveLength(2));
+  }
+
+  async function openDrawerViaRow(
+    user: ReturnType<typeof userEvent.setup>,
+    index: number
+  ) {
+    await user.click(screen.getAllByTestId('route-item')[index]);
+    await waitFor(() => expect(screen.getByTestId('inspector-mask')).toBeInTheDocument());
+    expect(screen.getByTestId('inspector')).toHaveClass('translate-x-0');
+  }
+
+  it('re-clicking the SAME route row after closing via the mask re-opens the drawer', async () => {
+    const user = userEvent.setup();
+    await selectAndRevealRows(user);
+
+    await openDrawerViaRow(user, 0);
+
+    await user.click(screen.getByTestId('inspector-mask'));
+    await waitFor(() => expect(screen.queryByTestId('inspector-mask')).not.toBeInTheDocument());
+    expect(screen.getByTestId('inspector')).toHaveClass('translate-x-full');
+
+    // QA-02 repro: same file, same row — before the fix the [file] effect
+    // never re-fired and the drawer stayed closed forever.
+    await openDrawerViaRow(user, 0);
+  });
+
+  it('same file via the OTHER route row (different line/symbol) re-opens too', async () => {
+    const user = userEvent.setup();
+    await selectAndRevealRows(user);
+
+    await openDrawerViaRow(user, 0);
+    await user.click(screen.getByTestId('inspector-mask'));
+    await waitFor(() => expect(screen.queryByTestId('inspector-mask')).not.toBeInTheDocument());
+
+    await openDrawerViaRow(user, 1);
+  });
+
+  it('command-palette jump to the same file re-opens the drawer after mask close', async () => {
+    const user = userEvent.setup();
+    await selectAndRevealRows(user);
+
+    // NB: `^k` shorthand does not resolve to Ctrl+K under this userEvent
+    // platform detection; use the explicit modifier syntax.
+    await user.keyboard('{Control>}k{/Control}');
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeInTheDocument());
+    await user.type(screen.getByTestId('palette-input'), 'getOwners');
+    await waitFor(() => expect(screen.getByTestId('palette-symbol-1')).toBeInTheDocument());
+    await user.click(screen.getByTestId('palette-symbol-1'));
+    await waitFor(() => expect(screen.getByTestId('inspector-mask')).toBeInTheDocument());
+    expect(screen.getByTestId('inspector')).toHaveClass('translate-x-0');
+
+    await user.click(screen.getByTestId('inspector-mask'));
+    await waitFor(() => expect(screen.queryByTestId('inspector-mask')).not.toBeInTheDocument());
+
+    await user.keyboard('{Control>}k{/Control}');
+    await waitFor(() => expect(screen.getByTestId('command-palette')).toBeInTheDocument());
+    await user.type(screen.getByTestId('palette-input'), 'getOwners');
+    await waitFor(() => expect(screen.getByTestId('palette-symbol-1')).toBeInTheDocument());
+    await user.click(screen.getByTestId('palette-symbol-1'));
+    await waitFor(() => expect(screen.getByTestId('inspector-mask')).toBeInTheDocument());
+    expect(screen.getByTestId('inspector')).toHaveClass('translate-x-0');
   });
 });

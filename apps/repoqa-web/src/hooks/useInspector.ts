@@ -25,6 +25,13 @@ export interface UseInspectorResult extends InspectorState {
   goForward: () => void;
   canGoBack: boolean;
   canGoForward: boolean;
+  /**
+   * Ticket 11 (QA-02): bumped on every openFile navigation action, even when
+   * the target file equals the current one. Consumers (mobile drawer reveal)
+   * must key off navigation actions, not the file string, or re-clicking the
+   * same file after closing the drawer never re-opens it.
+   */
+  navSeq: number;
 }
 
 const FILE_CACHE = new Map<string, string>();
@@ -44,6 +51,7 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
   });
   const [stack, setStack] = useState<NavEntry[]>([]);
   const [index, setIndex] = useState(-1);
+  const [navSeq, setNavSeq] = useState(0);
   const glowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const show = useCallback((entry: NavEntry, text: string | null) => {
@@ -69,6 +77,9 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
   const openFile = useCallback(
     (file: string, line: number, lineEnd?: number, symbolName?: string) => {
       if (!repoId) return;
+      // Ticket 11: a navigation action happened — signal it even when the
+      // target file is the currently-open one (state below is unchanged).
+      setNavSeq((n) => n + 1);
       const entry: NavEntry = { file, line, lineEnd, symbolName };
       const cached = FILE_CACHE.get(file);
       if (cached !== undefined) {
@@ -161,6 +172,7 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
     goBack,
     goForward,
     canGoBack: index > 0,
-    canGoForward: index < stack.length - 1
+    canGoForward: index < stack.length - 1,
+    navSeq
   };
 }

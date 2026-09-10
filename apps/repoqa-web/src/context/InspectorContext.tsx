@@ -46,9 +46,12 @@ export function InspectorProvider({ children }: { children: ReactNode }) {
 
   // Opening a file (diagram node / anchor / tour step) auto-reveals the
   // Inspector on mobile; on desktop the drawer classes are inert (md:static).
+  // Ticket 11 (QA-02): reveal is driven by the navigation action (navSeq),
+  // not the file string alone — closing the drawer via the mask and
+  // re-clicking the same file must open it again.
   useEffect(() => {
     if (inspector.file) setInspectorOpen(true);
-  }, [inspector.file]);
+  }, [inspector.file, inspector.navSeq]);
 
   // v0.7 — masking disclosure: raised after every successful agent-context
   // copy so both entry points (TopBar / Inspector) share one toast.

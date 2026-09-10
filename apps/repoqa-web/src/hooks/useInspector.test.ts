@@ -125,6 +125,28 @@ describe('useInspector (ticket 05)', () => {
     });
     expect(client.getFileRaw).not.toHaveBeenCalled();
     expect(result.current.file).toBeNull();
+    // Ticket 11: a no-op (repo-less) navigation must not raise the signal.
+    expect(result.current.navSeq).toBe(0);
+  });
+
+  it('raises navSeq on every openFile, even when the target file is unchanged (ticket 11)', async () => {
+    const client = makeClient({ getFileRaw: vi.fn().mockResolvedValue('same') });
+    const { result } = renderHook(() => useInspector(client, 'repo-1'));
+    expect(result.current.navSeq).toBe(0);
+
+    act(() => {
+      result.current.openFile('drawer/Same.java', 10);
+    });
+    await waitFor(() => expect(result.current.file).toBe('drawer/Same.java'));
+    expect(result.current.navSeq).toBe(1);
+
+    // QA-02 repro: re-clicking the same file must still signal the action so
+    // the mobile drawer can re-open after the mask closed it.
+    act(() => {
+      result.current.openFile('drawer/Same.java', 20, undefined, 'methodB');
+    });
+    await waitFor(() => expect(result.current.navSeq).toBe(2));
+    expect(result.current.file).toBe('drawer/Same.java');
   });
 
   it('clears state and navigation when the repo changes', async () => {
