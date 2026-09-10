@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
-import type { HttpDeps } from './deps';
+import { requireRepo, type HttpDeps } from './deps';
 import { resolveDefaultBranchSync } from '../repoqa-repos';
 import type { Repo } from '../repoqa-repos';
 import { maskSensitiveText } from '../repoqa-masking';
@@ -30,11 +30,8 @@ export function registerReposCatalogRoutes(app: express.Express, deps: HttpDeps)
   });
 
   app.get('/api/repos/:id', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     res.json({ repo: withDefaultBranch(repo) });
   });
 }
@@ -119,11 +116,8 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
   // and local clones are intentionally left on disk — the user can re-import
   // the same path later.
   app.delete('/api/repos/:id', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     if (repo.status === 'indexing') {
       res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
       return;
@@ -137,11 +131,8 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
   // without opening the import dialog. Returns 202; the catalog poll follows
   // indexing → ready/error like a fresh import.
   app.post('/api/repos/:id/reindex', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     if (repo.status === 'indexing') {
       res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
       return;
@@ -221,11 +212,8 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
   });
 
   app.get('/api/repos/:id/file/raw', async (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
 
     const requested = req.query.path;
     if (typeof requested !== 'string' || requested === '') {

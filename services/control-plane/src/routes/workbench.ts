@@ -1,6 +1,6 @@
 import express from 'express';
 import type { HttpDeps } from './deps';
-import { ACTIONS } from './deps';
+import { ACTIONS, requireRepo } from './deps';
 import type { TaskAction } from '../orchestrator';
 import { exportWorkspace, importWorkspace } from '../workspace-export';
 import { llmRuntimeInfo, maskHostname } from '../repoqa-llm';
@@ -153,11 +153,8 @@ export function registerWorkbenchLateRoutes(app: express.Express, deps: HttpDeps
   // repo's current physical stream (repo.commit ?? 'unversioned'); payloads
   // pass the masking middleware like every other read surface.
   app.get('/api/repos/:id/workbench-cards', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const commitParam =
       typeof req.query.commit === 'string' && req.query.commit.trim()
         ? req.query.commit.trim()
@@ -170,11 +167,8 @@ export function registerWorkbenchLateRoutes(app: express.Express, deps: HttpDeps
   });
 
   app.post('/api/repos/:id/anchor-click', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const body = (req.body ?? {}) as {
       file?: unknown;
       line?: unknown;
@@ -201,11 +195,8 @@ export function registerWorkbenchLateRoutes(app: express.Express, deps: HttpDeps
   });
 
   app.post('/api/repos/:id/feedback', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const body = (req.body ?? {}) as {
       feedback?: unknown;
       sessionId?: unknown;

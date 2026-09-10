@@ -1,5 +1,5 @@
 import express from 'express';
-import type { HttpDeps } from './deps';
+import { requireRepo, type HttpDeps } from './deps';
 import { buildTours } from '../repoqa-tours';
 import { buildDashboard } from '../repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from '../repoqa-export';
@@ -38,11 +38,8 @@ function symbolTypeOf(kind: string): string {
  * 保持原样（query 在 chunks 后、evolve 在 query 后、cards 在 evolve 后）。 */
 export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): void {
   app.get('/api/repos/:id/symbols', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const kind =
       typeof req.query.kind === 'string' && req.query.kind !== ''
         ? req.query.kind
@@ -62,11 +59,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
 
   // v0.5.1 (D8): HTTP twin of MCP `codecompass_reverse_deps`.
   app.get('/api/repos/:id/reverse-deps', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const symbolName =
       typeof req.query.symbolName === 'string' ? req.query.symbolName.trim() : '';
     if (!symbolName) {
@@ -83,11 +77,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
 
   // Issue 11: AST-heuristic onboarding tours. Deterministic, no LLM involved.
   app.get('/api/repos/:id/tours', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols });
     const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
@@ -100,11 +91,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // Issue 12: zero-prompt dashboard aggregation. Config values are never
   // indexed (Issue 06), and the payload is defensively masked as well.
   app.get('/api/repos/:id/dashboard', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const dashboard = buildDashboard({ repoId: repo.id, repoName: repo.name, symbols });
     res.json({ dashboard: maskEventPayload(dashboard) });
@@ -115,11 +103,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // 60s per-(repoId, query) cache so the palette's 300ms-debounced keystrokes
   // do not recompute PageRank on every hit.
   app.get('/api/repos/:id/radar', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const query = typeof req.query.query === 'string' ? req.query.query.trim() : '';
     try {
       const key = `${repo.id}\u0000${query}`;
@@ -157,11 +142,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // v0.6.0 — Architecture Delta: base/head 两个 git ref 的多语言路由增删、
   // 断边与风险分级。复用 `codecompass diff` 的只读 git 内核，不触碰工作区。
   app.post('/api/repos/:id/architecture-delta', async (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const body = (req.body ?? {}) as { base?: unknown; head?: unknown };
     const base = typeof body.base === 'string' ? body.base.trim() : '';
     const head = typeof body.head === 'string' ? body.head.trim() : '';
@@ -184,11 +166,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // the query through the worker, walks callers/callees over the in-memory
   // symbol graph and returns agent-ready Markdown with credential masking.
   app.get('/api/repos/:id/subgraph-context', async (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const query =
       typeof req.query.query === 'string' ? req.query.query.trim() : '';
     if (!query) {
@@ -234,11 +213,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // tours into a standard Markdown doc; config values are never indexed
   // (Issue 06), and the text is defensively masked one more time.
   app.get('/api/repos/:id/export/onboarding', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const { symbols } = deps.worker.getSymbolGraph(repo.id);
     const markdown = buildOnboardingMarkdown({
       repoId: repo.id,
@@ -254,11 +230,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   });
 
   app.get('/api/repos/:id/chunks', (req, res) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const query =
       typeof req.query.q === 'string' ? req.query.q.trim() : '';
     if (!query) {
@@ -271,11 +244,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // Issue 23 — GET stays the primary form; POST accepts the same parameters in
   // a JSON body so very long pasted stack traces never hit URL length limits.
   const handleQuery = async (req: express.Request, res: express.Response) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     // Parameters come from the query string (GET) with a JSON-body fallback
     // (POST body wins when both are present).
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -377,11 +347,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // the query stream: `repoqa.evolve.stage|done|error` events, payloads pass
   // the masking middleware before leaving the process.
   const handleEvolve = async (req: express.Request, res: express.Response) => {
-    const repo = deps.repoqa.getRepo(req.params.id);
-    if (!repo) {
-      res.status(404).json({ error: 'Repo not found' });
-      return;
-    }
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const intent =
       typeof body.intent === 'string'

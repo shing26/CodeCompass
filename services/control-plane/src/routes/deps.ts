@@ -1,8 +1,9 @@
+import type { Response } from 'express';
 import type { Repos } from '../repos';
 import type { Orchestrator, TaskAction } from '../orchestrator';
 import type { HarnessManager } from '../harness-manager';
 import type { EventBus } from '../events';
-import type { RepoQARepos } from '../repoqa-repos';
+import type { RepoQARepos, Repo } from '../repoqa-repos';
 import type { RepoQAWorker } from '../repoqa-worker';
 import type { ChatRuntime } from '../chat/routes';
 
@@ -26,4 +27,23 @@ export interface HttpDeps {
   staticDir?: string;
   /** chat-merge (v0.24.0): 对话式智能体运行时；present → /api/chat/* routes mount. */
   chat?: ChatRuntime;
+}
+
+/**
+ * #09 — repo-scoped 端点守卫：命中返回 `Repo`；未命中则按统一 404 契约
+ * `{ error: string }` 发出响应并返回 `null`，调用方据此 `return`。收敛 v0.25.0
+ * 批2 拆分时原样搬迁的 `getRepo → if(!repo) 404` 同形样板（三域 18 处）。
+ * 端点路径/方法/成功形状零变化，未命中统一走此一处。
+ */
+export function requireRepo(
+  deps: HttpDeps,
+  res: Response,
+  repoId: string | undefined
+): Repo | null {
+  const repo = repoId ? deps.repoqa.getRepo(repoId) : undefined;
+  if (!repo) {
+    res.status(404).json({ error: 'Repo not found' });
+    return null;
+  }
+  return repo;
 }
