@@ -62,6 +62,35 @@ function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
 }
 
 describe('TopBar import dialog', () => {
+  it('forwards onPickFolder to the modal so the browse button renders on Windows (QA-01)', async () => {
+    // jsdom 默认 navigator.platform 为空串——显式伪装 Win 宿主，锁死
+    // TopBar→ImportRepoModal 的透传接线（QA 回归抓到的组合层零覆盖缺陷）。
+    const original = Object.getOwnPropertyDescriptor(window.navigator, 'platform');
+    Object.defineProperty(window.navigator, 'platform', {
+      value: 'Win32',
+      configurable: true
+    });
+    try {
+      const user = userEvent.setup();
+      render(<TopBar {...baseProps({ onPickFolder: vi.fn() })} />);
+      await user.click(screen.getByTestId('open-import'));
+      expect(screen.getByTestId('import-browse')).toBeInTheDocument();
+    } finally {
+      if (original) {
+        Object.defineProperty(window.navigator, 'platform', original);
+      } else {
+        delete (window.navigator as { platform?: string }).platform;
+      }
+    }
+  });
+
+  it('renders no browse button when onPickFolder is not provided', async () => {
+    const user = userEvent.setup();
+    render(<TopBar {...baseProps()} />);
+    await user.click(screen.getByTestId('open-import'));
+    expect(screen.queryByTestId('import-browse')).not.toBeInTheDocument();
+  });
+
   it('closes the dialog on Escape (Bug-11)', async () => {
     const user = userEvent.setup();
     render(<TopBar {...baseProps()} />);

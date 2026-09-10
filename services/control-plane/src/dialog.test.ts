@@ -45,4 +45,17 @@ describe('pickFolderDialog (v0.25.0 批次 1)', () => {
     const result = await pickFolderDialog('win32', execFile as unknown as typeof import('node:child_process').execFile);
     expect(result).toEqual({ supported: true, canceled: true });
   });
+
+  it('degrades to canceled when the execFile timeout kills the dialog process', async () => {
+    // child_process 超时杀进程时回调带 killed/signal——与崩溃同路降级，
+    // 永不 reject（暗礁防御：对话框挂起不能变成前端错误）。
+    const execFile = vi.fn(
+      (_cmd: string, _args: readonly string[], _opts: object, cb: (err: Error | null, stdout: string) => void) => {
+        cb(Object.assign(new Error('kill ETIMEDOUT'), { killed: true, signal: 'SIGTERM' }), '');
+        return undefined as never;
+      }
+    );
+    const result = await pickFolderDialog('win32', execFile as unknown as typeof import('node:child_process').execFile);
+    expect(result).toEqual({ supported: true, canceled: true });
+  });
 });

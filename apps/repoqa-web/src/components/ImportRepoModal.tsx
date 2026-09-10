@@ -27,12 +27,13 @@ type Tab = 'local' | 'remote';
 type RemotePhase = 'idle' | 'cloning' | 'indexing';
 
 /**
- * Issue 19: repository ingestion hub — local path/folder import and GitHub
- * remote clone, side by side. The local tab keeps the legacy manual path flow
- * plus a `webkitdirectory` folder picker (browsers cannot read the picked
- * folder's absolute path, so the picker only pre-fills the name); the remote
- * tab clones through POST /api/repos/clone with a cloning → indexing two-phase
- * loading and auto-closes when the repo is indexed.
+ * Issue 19: repository ingestion hub — local path import and GitHub remote
+ * clone, side by side. The local tab takes a manual absolute path plus a
+ * native folder picker (v0.25.0 批次 1: GET /api/dialog/folder raises the OS
+ * dialog so the real absolute path lands in the form — browsers cannot read
+ * one; hidden on non-Windows hosts, 15s 超时降级手输); the remote tab clones
+ * through POST /api/repos/clone with a cloning → indexing two-phase loading
+ * and auto-closes when the repo is indexed.
  */
 export function ImportRepoModal({
   open,
@@ -45,6 +46,10 @@ export function ImportRepoModal({
   onPickFolder
 }: ImportRepoModalProps) {
   const [tab, setTab] = useState<Tab>('local');
+  // 批次 1 验收：非 Windows 平台隐藏浏览按钮（服务端 supported:false 仍是
+  // 最终防线——UA 判断只用于展示层平滑，不作为能力真值）。
+  const isWindowsHost =
+    typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent || '');
   const [name, setName] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
@@ -296,14 +301,23 @@ export function ImportRepoModal({
               注意：填写的是<strong className="text-ink">本机磁盘上已有的仓库文件夹</strong>，不是压缩包或 URL；
               路径不存在或不是仓库根目录会导致导入失败。支持 Java / TS / Python / Go 仓库。
             </p>
-            {onPickFolder && (
+            {onPickFolder && isWindowsHost && (
               <button
                 type="button"
                 data-testid="import-browse"
                 onClick={() => {
                   setFolderHint('正在打开系统目录选择对话框…');
-                  void onPickFolder()
+                  // 暗礁防御（spec 批次 1）：弹窗可能被遮挡导致请求长期挂起，
+                  // 前端 15s 超时自动降级手输；后端子进程自身还有更长超时兜底。
+                  const timedOut = new Promise<'timeout'>((resolve) =>
+                    setTimeout(() => resolve('timeout'), 15_000)
+                  );
+                  void Promise.race([onPickFolder(), timedOut])
                     .then((result) => {
+                      if (result === 'timeout') {
+                        setFolderHint('目录选择超时（对话框可能被遮挡），请手动填写完整路径。');
+                        return;
+                      }
                       if (!result.supported) {
                         setFolderHint('当前平台不支持系统目录选择，请手动填写完整路径。');
                         return;

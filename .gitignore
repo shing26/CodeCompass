@@ -36,3 +36,7 @@ __pycache__/
 
 # Product-experience report screenshots (large binary evidence, kept local).
 产品体验报告/ui-shots/
+
+# Ad-hoc screenshots dropped at repo root during real-use feedback rounds
+# (v0.25.0 收口: untracked image*.png — 二进制证据留本地，参考截图归档进报告目录).
+/image*.png

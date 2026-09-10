@@ -98,6 +98,7 @@ export function TopBar({
   onToggleSidebar,
   sidebarOpen,
   importingRepo,
+  onPickFolder,
   llmMode,
   llmHost,
   activeView,
@@ -367,6 +368,7 @@ export function TopBar({
           onCloneRemote={onCloneRemote}
           repos={repos}
           importingRepo={importingRepo}
+          onPickFolder={onPickFolder}
         />
       )}
     </header>

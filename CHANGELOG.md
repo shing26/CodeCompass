@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.25.0] - 2026-09-10
+
+### Highlights
+
+- **P0 工程结构批（v0.25.0 三批）**：两条 600+ 行巨石完成拆域，行为零变化——(1) `services/control-plane/src/http.ts` 1030 行按域缩为 ~110 行组装层（workbench/repos-catalog/analysis/repos-ingest 四组共 37 条路由），路由文件统一 `register(app, deps: HttpDeps)` 显式参数注入、子路由零 cross-import（批次 2 暗礁防御）；(2) `apps/repoqa-web/src/App.tsx` 650 行单体分片为 `context/` 三片（RepoContext / InspectorContext / ChatRuntimeContext），Provider 挂 `<App/>` 内部最外层、不迁 main.tsx，`render(<App/>)` 自带完整上下文（批次 3 暗礁防御）。
+- **原生目录选择器（批次 1）**：Windows 下 `GET /api/dialog/folder` 拉起系统 FolderBrowserDialog（`-NoProfile -STA` 保 COM 线程模型、Form 置顶防被浏览器遮挡），契约 `{supported, canceled?, path?}`——非 Windows 返回 `supported:false` 前端隐藏按钮并降级手输；请求挂起时前端 15s 超时自动降级。根治"浏览器沙箱拿不到绝对路径"导致导入必须手打的痛点。
+- **原生目录选择器（批次 1）**：Windows 下 `GET /api/dialog/folder` 拉起系统 FolderBrowserDialog（`-NoProfile -STA` 保 COM 线程模型、Form 置顶防被浏览器遮挡），契约 `{supported, canceled?, path?}`——非 Windows 返回 `supported:false` 前端隐藏按钮并降级手输；请求挂起时前端 15s 超时自动降级。根治"浏览器沙箱拿不到绝对路径"导致导入必须手打的痛点。
+
+### 真实使用反馈轮（v0.24.0 tag 后落地，随本版发布）
+
+- 首批六项（`8ac9bea`）：导入动线、空态导览、tab 重命名与悬停简介、chat 去黑话。
+- 四步改造（`a53fdd5`）：按需抽屉、拓扑首屏即图、组件化问答初始屏、场景导览。
+- Top3（`446473d`）：CM-04 拆除计划卡片化 v2（新增 SSE `plan` 事件与 PATCH `/api/chat/sessions/:id` 标题更新——本组端点变化属此轮而非重构批）、CM-03 会话标题摘要升级、CM-01 DSML 裁决（StreamLeakFilter 拆除，出口 stripTextToolCalls + done.answer 重写为防线）。
+- F-02（`769c78c`）：LLM .env 发现在 cwd 漂移下硬化。
+
+### Added
+
+- `services/control-plane/src/dialog.ts`：`pickFolderDialog()`——PowerShell execFile 常量脚本（零用户输入拼接）、空 stdout=canceled、spawn 崩溃/超时降级 canceled 不拒绝；单测 5 项（STA 参数/路径解析/取消契约/崩溃降级/超时降级）。
+- `ImportRepoModal` "📁 浏览文件夹…"按钮：选中即填路径+自动 preview+自动填名称；取消静默；不支持平台显示手输说明。
+- e2e gate 零新增断言（纯重构轮）：批次 2 验收 = 原 55 项全绿证明路由注册顺序行为契约不变。
+
+### Changed
+
+- `services/control-plane/src/routes/{deps,workbench,analysis,repos}.ts`：HttpDeps 与 `ACTIONS` 上收 deps.ts；repos 拆为 catalog（读取面）与 ingest（导入/preview/dialog/delete/reindex/clone/file-raw）两函数，以保住原注册顺序（catalog 在 analysis 前、ingest 在 events 后）。
+- `apps/repoqa-web/src/context/`：RepoContext 持有 catalog/符号/导览/仪表盘/视图路由/URL 同步/FS-watcher 热更新；InspectorContext 持有文件符号导航/2-Hop 反查/子图/移动抽屉/命令面板聚焦/拷贝脱敏提示；ChatRuntimeContext 持有 runtime 探测/consent 门/程序化调用链/演进流/首屏自动 trace。
+- `RepoQAClient.pickFolder` 调用方法 POST→GET，与路由对齐（批次 1 遗留错位顺手修）。
+- 双轴 review + QA 定点回归修正（v0.25 批内）：**QA-01 [P0]** TopBar 未透传 `onPickFolder` 致浏览按钮在交付构建恒不渲染（批次 1 自带缺陷、组合层零覆盖）——补透传与 2 条 TopBar 集成测试，真实 Chromium 双画像复核（Win32 渲染 / 非 Win 隐藏）；dialog 端点防御兜底不再外泄错误字符串、严格守住响应契约；ImportRepoModal 落实 15s 超时降级与非 Windows 隐藏按钮；dialog 单测补 execFile 超时 killed 降级用例；routes/deps.ts 清除死 import。
+- MCP 17 工具契约零变化；批次 2/3 为纯重构轮——REST/SSE 端点与响应形状零变化，该两批验收时 270 条 web 测试与 579 条控制面测试断言零修改全绿（断言文案改动只发生在真实使用反馈轮，属其自身验收范围）；收口 QA 修复后基线 web 272 / 控制面 580。
+
 ## [0.24.0] - 2026-09-07
 
 ### Highlights
