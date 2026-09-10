@@ -56,7 +56,7 @@ TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.po
 - **根因穿透**：`codecompass_diagnose` 从方法名或 `"POST /api/owners"` 出发，穿透 前端组件 → 路由 → Service → Mapper/XML SQL，逐层标 `VERIFIED / BROKEN / SUSPECT`；Java 全栈四层全开，其他语言按实际索引层级降级输出，缺层不硬凑。CLI 同款：`codecompass diagnose <symbol> [repoPath]`（输出 JSON，CI 可直接消费）。
 - **爆炸半径**：`codecompass_refactor_plan` 递归聚合直接/间接调用方，上卷受波及对外路由与桥接前端组件，给出 HIGH/MEDIUM/LOW 风险评级与迁移步骤。CLI 同款：`codecompass refactor-plan <symbol> [--change-type <t>]`。
 - **诊断工件**：`codecompass export <symbol> [--file out.html]` 输出单文件自包含 HTML（内联 mermaid 运行时，断网可渲染，可随 PR 归档），断链在拓扑图中红色描边。
-- **深链现场还原**：工具结果的 `cockpitDeepLink` 携带 `?focus=<symbol>&traceId=<id>&mode=diff`，打开即闪烁聚焦目标卡片 / 直达架构差异视图。
+- **深链现场还原**：工具结果的 `cockpitDeepLink` 携带 `?focus=<symbol>&traceId=<id>&mode=diff`，打开即闪烁聚焦目标卡片 / 直达架构差异视图。URL 是选库的唯一真理源：后退到无 `repo` 参数的历史条目即取消选库。`mode` 取值：不带 = 代码拓扑，`diff` = 架构差异视图，`incident` = 架构问答；`incident` 为规范值，历史别名 `mode=chat` 仍被接受但 URL 静默归一为 `incident`（既定行为）。
 补丁类生成内容归 LLM 编排层并显式标注（ADR-0006）；链路追踪 100% 确定性（ADR-0005）。
 
 ### 9. 模块演进副驾与领域雷达（v0.9）

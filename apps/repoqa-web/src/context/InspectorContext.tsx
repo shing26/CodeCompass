@@ -53,6 +53,15 @@ export function InspectorProvider({ children }: { children: ReactNode }) {
     if (inspector.file) setInspectorOpen(true);
   }, [inspector.file, inspector.navSeq]);
 
+  // Ticket 13 (QA-04): when history navigation cancels the selection, the
+  // drawer must not linger over the onboarding guide showing the previous
+  // repo's source slice (privacy + consistency). File/text/symbol and the nav
+  // stack are already reset by useInspector's [repoId] effect; only the open
+  // flag needs an explicit drop.
+  useEffect(() => {
+    if (!repoId) setInspectorOpen(false);
+  }, [repoId]);
+
   // v0.7 — masking disclosure: raised after every successful agent-context
   // copy so both entry points (TopBar / Inspector) share one toast.
   const [maskingToastAt, setMaskingToastAt] = useState(0);

@@ -299,6 +299,14 @@ describe('App scaffold and repo connect', () => {
 });
 
 describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
+  // Ticket 16 made handleSelectRepo honor a pending ?mode= (URL-as-truth);
+  // without this reset the delta tab's replaceState URL leaks into the next
+  // test, auto-selects on mount and starves selectOptions (same-value → no
+  // change event). Same hygiene the Issue 14 describe applies (Bug-R2-02).
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
   it('lands on the topology workbench after selecting a repo', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
@@ -710,6 +718,10 @@ describe('chat-merge: chat view replaces the incident copilot (v0.24.0)', () => 
 });
 
 describe('ticket 11 (QA-02): mobile inspector drawer re-opens after mask close', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
   // All navigation entries share the inspector.openFile contract; the sidebar
   // route rows are the jsdom-reachable stand-in for flow-cards / anchors.
   const drawerRoutes: RepoSymbol[] = [
@@ -830,5 +842,94 @@ describe('ticket 11 (QA-02): mobile inspector drawer re-opens after mask close',
     await user.click(screen.getByTestId('palette-symbol-1'));
     await waitFor(() => expect(screen.getByTestId('inspector-mask')).toBeInTheDocument());
     expect(screen.getByTestId('inspector')).toHaveClass('translate-x-0');
+  });
+});
+
+describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () => {
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  const urlTruthRoutes: RepoSymbol[] = [
+    {
+      id: 951,
+      repoId: 'repo-1',
+      kind: 'route',
+      name: 'getOwners',
+      filePath: 'urltruth13/OwnerController.java',
+      lineStart: 12,
+      lineEnd: 15,
+      signature: null,
+      calls: null,
+      displayPath: '/api/owners'
+    }
+  ];
+
+  it('back to a repo-less URL deselects the repo, resets the inspector and closes the drawer', async () => {
+    const client = makeClient({
+      listSymbols: vi.fn().mockResolvedValue(urlTruthRoutes),
+      getFileRaw: vi.fn().mockResolvedValue('class OwnerController {}')
+    });
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/');
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    // Load a file into the inspector, then switch to the Diff tab (pushes
+    // ?repo=repo-1&mode=diff via replaceState on top of the selection entry).
+    await waitFor(() => expect(screen.getByTestId('route-item')).toBeInTheDocument());
+    await user.click(screen.getByTestId('route-item'));
+    await waitFor(() => expect(screen.getByTestId('inspector-mask')).toBeInTheDocument());
+    await user.click(screen.getByTestId('tab-delta'));
+    await waitFor(() => expect(window.location.search).toContain('mode=diff'));
+
+    // QA-04 repro: back to the repo-less history entry.
+    window.history.back();
+    await waitFor(() => expect(window.location.search).toBe(''));
+
+    // URL truth: selection cleared, main area back to the guide/empty state,
+    // inspector holding no slice of the previous repo, drawer closed.
+    expect(screen.getByTestId('repo-select')).toHaveValue('');
+    await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
+    expect(screen.getByTestId('inspector-file')).toHaveTextContent('No file open');
+    expect(screen.queryByTestId('inspector-mask')).not.toBeInTheDocument();
+
+    // Ticket 13 acceptance: forward re-loads the repo and restores the tab.
+    window.history.forward();
+    await waitFor(() => expect(window.location.search).toContain('repo=repo-1'));
+    expect(screen.getByTestId('repo-select')).toHaveValue('repo-1');
+    await waitFor(() => expect(screen.getByTestId('architecture-delta')).toBeInTheDocument());
+    expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'true');
+    // The restored repo still shows no stale inspector content.
+    expect(screen.getByTestId('inspector-file')).toHaveTextContent('No file open');
+  });
+
+  it('repo-less ?mode=diff deep link: topo stays highlighted while the guide renders, mode is kept, and selecting a repo applies it', async () => {
+    window.history.replaceState(null, '', '/?mode=diff');
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+
+    // Ticket 16 (QA-07): highlight must match content — topo, not delta.
+    expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-topo')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'false');
+    // URL keeps the mode param (no error, no silent drop before a repo exists).
+    expect(window.location.search).toContain('mode=diff');
+
+    // Selecting a repo makes the pending mode take effect.
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('architecture-delta')).toBeInTheDocument());
+    expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('?mode=chat cold load lands on the chat view and normalizes the URL to incident', async () => {
+    window.history.replaceState(null, '', '/?repo=repo-1&mode=chat');
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    // Alias normalization is established behavior (maintainer ruling): the
+    // shared viewFromMode map accepts chat, the URL converges to incident.
+    await waitFor(() => expect(window.location.search).toContain('mode=incident'));
+    expect(screen.getByTestId('tab-chat')).toHaveAttribute('aria-pressed', 'true');
   });
 });

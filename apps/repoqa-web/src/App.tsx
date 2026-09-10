@@ -113,6 +113,11 @@ function WorkbenchShell() {
   const { toggleTheme } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
+  // Ticket 16 (QA-07): one condition source for "the main area renders the
+  // topology guide instead of repo views" — both the TopBar highlight and the
+  // view switch below derive from it, so they can never drift apart.
+  const noRepo = repoId === null;
+
   // v0.11 (Stage 3) — global Cmd/Ctrl+K toggles the palette.
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -145,7 +150,7 @@ function WorkbenchShell() {
         onPickFolder={() => client.chat.pickFolder()}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}
-        activeView={view === 'tour' ? 'topo' : view}
+        activeView={noRepo || view === 'tour' ? 'topo' : view}
         onSelectView={handleSelectView}
         onCopyAgentContext={handleCopyAgentContext}
         canCopyAgentContext={canCopyAgentContext}
@@ -212,7 +217,7 @@ function WorkbenchShell() {
               <span className="truncate text-xs text-muted">Tour · {activeTour?.title ?? ''}</span>
             </div>
           )}
-          {!repoId || view === 'topo' ? (
+          {noRepo || view === 'topo' ? (
             <Canvas
               repo={currentRepo}
               anchors={canvasAnchors}

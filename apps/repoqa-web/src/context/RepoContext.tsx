@@ -16,6 +16,19 @@ import type {
 /** Main view state: workbench tabs plus the guided Tour player. */
 export type MainView = WorkbenchTab | 'tour';
 
+/**
+ * Ticket 16 (QA-07): the single mapping from the URL's ?mode= to a workbench
+ * view — cold load, popstate and repo selection all go through it so the
+ * alias table never drifts. `incident` is the canonical value for the chat
+ * tab; `chat` is a legacy alias accepted on read, and the URL is normalized
+ * back to `incident` by the view-sync effect (documented in HANDOFF).
+ */
+function viewFromMode(mode: string | null | undefined): MainView {
+  if (mode === 'diff') return 'delta';
+  if (mode === 'incident' || mode === 'chat') return 'chat';
+  return 'topo';
+}
+
 /** Issue 30: derive the same-origin WebSocket endpoint from the API base. */
 function repoUpdatedWebSocketUrl(baseUrl: string): string {
   if (!baseUrl) {
@@ -116,10 +129,10 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
 
   // Issue 31: the three-pane workbench is the default; the dashboard and CI
   // gate are explicit TopBar tabs. Issue 23: ?mode=incident deep-links the
-  // incident copilot view.
-  const [view, setView] = useState<MainView>(
-    deepLink.mode === 'diff' ? 'delta' : deepLink.mode === 'incident' || deepLink.mode === 'chat' ? 'chat' : 'topo'
-  );
+  // incident copilot view. Without a repo the deep-linked view still lands in
+  // state (ticket 16): the main-area/topo fallback keeps highlight + content
+  // consistent until a repo exists (see App.tsx noRepo).
+  const [view, setView] = useState<MainView>(() => viewFromMode(deepLink.mode));
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   const [indexingProgress, setIndexingProgress] = useState<IndexingProgress | null>(null);
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
@@ -200,22 +213,34 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       }
     }
     setActiveTour(null);
-    setView('topo');
+    // Ticket 16 (QA-07): a pending ?mode= deep link takes effect the moment a
+    // repo exists — until then the URL param sat inert behind the topo guide.
+    setView(viewFromMode(new URLSearchParams(window.location.search).get('mode')));
   };
 
   // Bug-08: restore the selected repo when the user navigates back/forward
   // in browser history (the URL is the single source of truth for selection).
   // v0.8: the mode param rides along, so back/forward also restores delta view.
   // Issue 23: mode=incident restores the incident copilot view.
+  // Ticket 13 (QA-04): the doctrine extended to the negative case — a history
+  // entry WITHOUT ?repo means "no repo selected". Back from a repo view to
+  // the plain entry deselects through the same state machine the delete flow
+  // uses (selectRepo('')), which also clears symbols/dashboard and, via the
+  // repoId effect, the Inspector slice + drawer close (InspectorContext).
   useEffect(() => {
     const onPopState = () => {
       const params = new URLSearchParams(window.location.search);
       const id = params.get('repo');
-      if (id && id !== currentRepo?.id) {
+      if (!id) {
+        if (currentRepo?.id) selectRepo('');
+        setActiveTour(null);
+        setView(viewFromMode(params.get('mode')));
+        return;
+      }
+      if (id !== currentRepo?.id) {
         selectRepo(id);
         setActiveTour(null);
-        const mode = params.get('mode');
-        setView(mode === 'diff' ? 'delta' : mode === 'incident' || mode === 'chat' ? 'chat' : 'topo');
+        setView(viewFromMode(params.get('mode')));
       }
     };
     window.addEventListener('popstate', onPopState);
