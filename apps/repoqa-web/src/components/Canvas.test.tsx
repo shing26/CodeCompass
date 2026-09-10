@@ -52,6 +52,26 @@ describe('Canvas offline UX (Issue 18)', () => {
   });
 });
 
+describe('Canvas onboarding copy (ticket 15, QA-06)', () => {
+  it('names only current controls: Import repo/+ forms and the six real tab labels', () => {
+    renderCanvas({ repo: null });
+    const guide = screen.getByTestId('empty-state');
+    // 导入入口：桌面/窄屏两形态均有交代
+    expect(guide).toHaveTextContent('Import repo');
+    expect(guide).toHaveTextContent('窄屏为「+」');
+    // 视图名 = 现行六枚 tab 名
+    expect(guide).toHaveTextContent('架构仪表盘');
+    expect(guide).toHaveTextContent('架构问答');
+    expect(guide).toHaveTextContent('变更审计');
+    expect(guide).toHaveTextContent('Diff 影响面');
+    expect(guide).toHaveTextContent('规范演进');
+    // 8ac9bea 轮改名漏网的旧控件名不再出现
+    expect(guide.textContent).not.toContain('架构指标');
+    expect(guide.textContent).not.toContain('智能体对话');
+    expect(guide.textContent).not.toContain('对话页');
+  });
+});
+
 describe('Canvas topology flow cards (Issue 31)', () => {
   const anchors: Anchor[] = [
     { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },

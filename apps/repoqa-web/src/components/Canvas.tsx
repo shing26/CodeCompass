@@ -273,15 +273,18 @@ export function Canvas({
             <h2 className="text-lg font-semibold text-ink">三步开始代码架构分析</h2>
             <div className="mt-4 space-y-3 text-left text-sm text-muted">
               <p>
-                <strong className="text-ink">① 导入仓库</strong> — 顶部「+」按钮，填本机仓库的完整路径
+                <strong className="text-ink">① 导入仓库</strong> —
+                顶部「Import repo」按钮（窄屏为「+」），填本机仓库的完整路径
                 （如 C:\projects\petclinic），支持 Java / TS / Python / Go，索引完成后自动就绪。
               </p>
               <p>
-                <strong className="text-ink">② 选一个视图</strong> — 「架构指标」看全仓技术栈与热点；
-                「智能体对话」直接用自然语言提问（推荐新手从这里开始）；其余视图深入调用链、CI 门禁、架构差异与演进推演。
+                <strong className="text-ink">② 选一个视图</strong> —
+                「架构仪表盘」看全仓技术栈与热点；
+                「架构问答」直接用自然语言提问（推荐新手从这里开始）；其余「代码拓扑」深入调用链、「变更审计」对接
+                CI 门禁、「Diff 影响面」看架构差异、「规范演进」做演进推演。
               </p>
               <p>
-                <strong className="text-ink">③ 提问或探索</strong> — 在对话页输入如
+                <strong className="text-ink">③ 提问或探索</strong> — 在「架构问答」输入如
                 <em>「这个仓库哪里最值得改？」</em>，回答附带 [cite: N] 溯源角标，点角标可跳到拓扑定位。
               </p>
             </div>
