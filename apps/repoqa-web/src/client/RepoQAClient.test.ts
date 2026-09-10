@@ -451,3 +451,34 @@ describe('RepoQAClient onboarding export (issue 14)', () => {
     );
   });
 });
+
+describe('RepoQAClient pickFolder root-domain contract (ticket 08)', () => {
+  it('hits GET /api/dialog/folder from the root client and returns the contract shape', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ supported: true, canceled: false, path: 'C:/projects/petclinic' })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.pickFolder()).resolves.toEqual({
+      supported: true,
+      canceled: false,
+      path: 'C:/projects/petclinic'
+    });
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/dialog/folder');
+  });
+
+  it('serves the non-Windows degradation shape unchanged', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ supported: false })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.pickFolder()).resolves.toEqual({ supported: false });
+  });
+
+  it('exposes pickFolder on the root client only (no chat namespace residue)', () => {
+    const client = new RepoQAClient('http://api', vi.fn() as unknown as typeof fetch);
+    expect(typeof client.pickFolder).toBe('function');
+    expect((client.chat as unknown as { pickFolder?: unknown }).pickFolder).toBeUndefined();
+  });
+});

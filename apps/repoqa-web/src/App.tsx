@@ -147,7 +147,7 @@ function WorkbenchShell() {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
-        onPickFolder={() => client.chat.pickFolder()}
+        onPickFolder={() => client.pickFolder()}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}
         activeView={noRepo || view === 'tour' ? 'topo' : view}
