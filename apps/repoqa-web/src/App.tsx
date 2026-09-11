@@ -236,7 +236,12 @@ function WorkbenchShell() {
               onBack={goTopology}
             />
           ) : view === 'gate' ? (
-            <CiGateView repo={currentRepo} dashboard={dashboard} client={client} />
+            <CiGateView
+              repo={currentRepo}
+              dashboard={dashboard}
+              client={client}
+              onNavigate={inspector.openFile}
+            />
           ) : view === 'chat' ? (
             <ChatView
               client={client}

@@ -56,7 +56,7 @@ gate_run_routes(
 ## 验收门
 
 - [ ] 控制面：新表/守卫/双写/分页/级联删除/dirty 独立流/策略快照不回溯 单测全绿（基线 580 起）；既有 delta/policy/events/workbench-cards 断言**零修改**通过。
-- [ ] web：CiGateView 三段新断言（运行并记录→行入表；展开树节点点击→Inspector 打开；error 行折叠 detail）；基线 284 起。
+- [x] web：CiGateView 三段新断言（运行并记录→行入表；展开树节点点击→Inspector 打开；error 行折叠 detail）；基线 284 起（B02 收 300，B03 收 307）。
 - [x] e2e gate：55 → **60**，新增五条「gate 落库→回放同序 / event 双写 / 票 14 错误契约 / 失败行入库」能力断言（scripts/e2e/closeout_gate.py；规划时预估 +1 条，实施按断言语义拆细为 5 条）。
 - [ ] ADR-0017 已入库；`CONTEXT.md` 增补 Gate Run（门禁运行）词条。
 - [ ] 版本六处推进归收口（v0.26.0 本线预占）。

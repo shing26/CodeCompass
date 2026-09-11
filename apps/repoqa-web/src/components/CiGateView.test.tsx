@@ -360,4 +360,151 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     expect(screen.getByTestId('gate-run')).toBeDisabled();
     expect(screen.getByTestId('ci-fail-on-auth-impact')).toBeChecked();
   });
+
+  // —— B03：行内受波及树。payload 里 impactedApis 与 delta 同源字段族。
+  function payloadRun(overrides: Partial<GateRunRow> = {}): GateRunRow {
+    return gateRunRow({
+      payload: {
+        summary: 's',
+        affectedRoutes: 2,
+        violations: [],
+        impactedApis: [
+          {
+            routeSymbol: { name: 'getOwners', file: 'src/OwnerController.java', lineStart: 12, lineEnd: 15, kind: 'route', parentType: 'OwnerController', displayPath: '/owners' },
+            affectedBySymbols: ['OwnerService.findOwners', 'OwnerRepository.query'],
+            riskLevel: 'HIGH'
+          },
+          {
+            routeSymbol: { name: 'postVisit', file: 'src/VisitController.java', lineStart: 30, lineEnd: 33, kind: 'route', parentType: 'VisitController', displayPath: '/visits' },
+            affectedBySymbols: ['VisitService.save'],
+            riskLevel: 'MEDIUM'
+          }
+        ]
+      },
+      ...overrides
+    });
+  }
+
+  it('expands a run row into a two-level tree with risk badges (HIGH red / MEDIUM orange / LOW grey)', async () => {
+    const run = payloadRun({
+      id: 't1',
+      payload: {
+        impactedApis: [
+          { routeSymbol: { name: 'a', file: 'A.java', lineStart: 1, lineEnd: 1, kind: 'route' }, affectedBySymbols: ['x.y'], riskLevel: 'HIGH' },
+          { routeSymbol: { name: 'b', file: 'B.java', lineStart: 1, lineEnd: 1, kind: 'route' }, affectedBySymbols: ['p.q'], riskLevel: 'MEDIUM' },
+          { routeSymbol: { name: 'c', file: 'C.java', lineStart: 1, lineEnd: 1, kind: 'route' }, affectedBySymbols: [], riskLevel: 'LOW' }
+        ]
+      }
+    });
+    const user = userEvent.setup();
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs: [run], total: 1 })) }} />
+    );
+    await waitFor(() => expect(screen.getByTestId('gate-tree-toggle')).toBeInTheDocument());
+    await user.click(screen.getByTestId('gate-tree-toggle'));
+
+    const branches = screen.getAllByTestId('gate-impact-branch');
+    expect(branches).toHaveLength(3);
+    // 两层：route 节点 + 其受影响符号叶子
+    expect(screen.getAllByTestId('gate-impact-node')[0]).toHaveTextContent('A.java');
+    expect(screen.getAllByTestId('gate-impact-leaf').map((el) => el.textContent)).toEqual(['x.y', 'p.q']);
+    const badges = screen.getAllByTestId('gate-risk-badge');
+    expect(badges[0]).toHaveTextContent('HIGH');
+    expect(badges[0].className).toContain('text-danger');
+    expect(badges[1].className).toContain('text-warning'); // MEDIUM → 橙
+    expect(badges[2].className).toContain('text-muted');   // LOW → 灰
+  });
+
+  it('clicking a route node navigates to the symbol anchor via onNavigate', async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const run = payloadRun({ id: 't2' });
+    render(
+      <CiGateView
+        repo={repo}
+        dashboard={dashboard}
+        onNavigate={onNavigate}
+        client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs: [run], total: 1 })) }}
+      />
+    );
+    await waitFor(() => expect(screen.getByTestId('gate-tree-toggle')).toBeInTheDocument());
+    await user.click(screen.getByTestId('gate-tree-toggle'));
+    await user.click(screen.getAllByTestId('gate-impact-node')[0]);
+
+    // 票 11 的 openFile(file, line) 契约——第一层 routeSymbol 的 file + lineStart
+    expect(onNavigate).toHaveBeenCalledWith('src/OwnerController.java', 12);
+  });
+
+  it('error rows and empty-impact rows have no expand control (no payload → degraded)', async () => {
+    const errorRow = gateRunRow({ id: 'e1', status: 'FAIL', error: 'boom', detail: 'raw', payload: undefined });
+    const emptyRow = gateRunRow({ id: 'e2', payload: { impactedApis: [] } });
+    const garbageRow = gateRunRow({ id: 'e3', payload: { impactedApis: [{ routeSymbol: { name: 'x' }, riskLevel: 'HIGH', affectedBySymbols: 'nope' }] } });
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs: [errorRow, emptyRow, garbageRow], total: 3 })) }} />
+    );
+    await waitFor(() => expect(screen.getAllByTestId('gate-run-row')).toHaveLength(3));
+    // 全坏条目 payload 被整行拒（防御式解析）——无树可展的行不给 toggle 按钮
+    expect(screen.queryByTestId('gate-tree-toggle')).not.toBeInTheDocument();
+  });
+
+  it('drops only the malformed branches: good ones still render (filter, not row-reject)', async () => {
+    const mixed = gateRunRow({
+      id: 'm1',
+      payload: {
+        impactedApis: [
+          { routeSymbol: { name: 'ok', file: 'Ok.java', lineStart: 2, lineEnd: 2, kind: 'route' }, affectedBySymbols: ['a.b'], riskLevel: 'LOW' },
+          { routeSymbol: { name: 'x' }, riskLevel: 'HIGH', affectedBySymbols: ['c.d'] }
+        ]
+      }
+    });
+    const user = userEvent.setup();
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs: [mixed], total: 1 })) }} />
+    );
+    await waitFor(() => expect(screen.getByTestId('gate-tree-toggle')).toBeInTheDocument());
+    await user.click(screen.getByTestId('gate-tree-toggle'));
+    const branches = screen.getAllByTestId('gate-impact-branch');
+    expect(branches).toHaveLength(1);
+    expect(branches[0]).toHaveTextContent('Ok.java');
+  });
+
+  it('does not crash when a leaf element is a non-string object (P1: Objects-are-not-valid-as-child)', async () => {
+    const row = gateRunRow({
+      id: 'p1',
+      payload: {
+        impactedApis: [
+          { routeSymbol: { name: 'ok', file: 'Ok.java', lineStart: 2, lineEnd: 2, kind: 'route' }, affectedBySymbols: [{ evil: true }], riskLevel: 'HIGH' }
+        ]
+      }
+    });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs: [row], total: 1 })) }} />
+    );
+    await waitFor(() => expect(screen.getByTestId('gate-run-row')).toBeInTheDocument());
+    // 叶子含对象元素 → 该分支整条丢弃，不给 toggle（否则 React 抛 objects-are-not-valid）
+    expect(screen.queryByTestId('gate-tree-toggle')).not.toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('toggles a row closed again (per-row independent expand state)', async () => {
+    const user = userEvent.setup();
+    const runs = [payloadRun({ id: 'x1' }), payloadRun({ id: 'x2' })];
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs, total: 2 })) }} />
+    );
+    await waitFor(() => expect(screen.getAllByTestId('gate-tree-toggle')).toHaveLength(2));
+    const toggles = screen.getAllByTestId('gate-tree-toggle');
+
+    await user.click(toggles[0]);
+    await user.click(toggles[1]);
+    // 两行都展开 → 两棵树（各自独立的展开态）
+    expect(screen.getAllByTestId('gate-impact-tree')).toHaveLength(2);
+
+    await user.click(toggles[0]);
+    // 第一行收起后，其 OwnerController 节点消失，第二行的两分支树仍在
+    expect(screen.getAllByTestId('gate-impact-tree')).toHaveLength(1);
+    expect(screen.getAllByTestId('gate-impact-branch')).toHaveLength(2);
+  });
 });

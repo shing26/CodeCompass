@@ -317,6 +317,60 @@ describe('App scaffold and repo connect', () => {
   });
 });
 
+describe('v0.26-B ticket 03: gate impact tree → Inspector navigation', () => {
+  beforeEach(() => {
+    // tab-gate 的 replaceState ?mode= 会漏进后续用例（票 16 URL 真理源）——
+    // 与 Issue 31 同款卫生措施。
+    window.history.replaceState(null, '', '/');
+  });
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('route node click opens the Inspector on the target file (ticket-11 drawer pattern)', async () => {
+    const run = {
+      id: 'g1', commit: 'a1b2c3d4e5f6', base: 'main', head: 'HEAD', options: {},
+      status: 'FAIL', violationsCount: 1, routesCount: 1,
+      error: null, detail: null, durationMs: 5, source: 'workbench', createdAt: '2026-09-11 07:00:00',
+      payload: {
+        impactedApis: [
+          {
+            routeSymbol: {
+              name: 'getOwners', file: 'impact03/OwnerController.java', lineStart: 12, lineEnd: 15,
+              kind: 'route', parentType: 'OwnerController', displayPath: '/owners'
+            },
+            affectedBySymbols: ['OwnerService.findOwners'],
+            riskLevel: 'HIGH'
+          }
+        ]
+      }
+    };
+    const client = makeClient({
+      listGateRuns: vi.fn().mockResolvedValue({ runs: [run], total: 1 }),
+      getFileRaw: vi.fn().mockResolvedValue('class OwnerController {}')
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-gate'));
+    await waitFor(() => expect(screen.getByTestId('gate-tree-toggle')).toBeInTheDocument());
+    await user.click(screen.getByTestId('gate-tree-toggle'));
+    await user.click(screen.getByTestId('gate-impact-node'));
+
+    // 票 11 同款**状态级**抽屉断言：mask 渲染 ⇔ inspectorOpen（jsdom 默认视口
+    // 1024px，本用例不模拟媒体查询——375px 的 CSS 兑现由 Inspector 的 md: 类
+    // 在真实浏览器保证，与票 11 先例同一验证层级）。
+    await waitFor(() => expect(screen.getByTestId('inspector-mask')).toBeInTheDocument());
+    expect(screen.getByTestId('inspector')).toHaveClass('translate-x-0');
+    // 面包屑显示目标文件（glow 行到位由 Inspector.test 的既有 glow 契约保证）
+    await waitFor(() =>
+      expect(screen.getByTestId('breadcrumb-file')).toHaveTextContent('impact03/OwnerController.java')
+    );
+    expect(client.getFileRaw).toHaveBeenCalledWith('repo-1', 'impact03/OwnerController.java');
+  });
+});
+
 describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
   // Ticket 16 made handleSelectRepo honor a pending ?mode= (URL-as-truth);
   // without this reset the delta tab's replaceState URL leaks into the next

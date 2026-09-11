@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
-import type { GateRunRow, Repo, RepoDashboard } from '../types';
+import type {
+  ArchitectureDeltaImpactedApi,
+  ArchitectureDeltaSymbol,
+  GateRunRow,
+  Repo,
+  RepoDashboard
+} from '../types';
 import { ScenarioGuide } from './ScenarioGuide';
 
 interface CiGateViewProps {
@@ -9,6 +15,9 @@ interface CiGateViewProps {
   /** v0.26-B ticket 02 — 三段化的②「运行并记录」与③「门禁运行史」依赖它；
    * 不传 client 时两段隐藏，现状区（含 Issue 31 既有断言）零影响。 */
   client?: Pick<RepoQAClient, 'runGate' | 'listGateRuns'>;
+  /** v0.26-B ticket 03 — 受波及树节点点击 → Inspector openFile（票 11 navSeq
+   * 契约已保证窄屏抽屉复点同文件可开，这里零新机制）。 */
+  onNavigate?: (file: string, line: number) => void;
 }
 
 /** 运行史每页行数（limit/offset 契约同 /api/events 先例）。 */
@@ -28,6 +37,49 @@ function commitLabel(commit: string): string {
   if (commit === 'unversioned') return commit;
   const hash = commit.replace(/\+dirty$/, '');
   return hash.slice(0, 7);
+}
+
+/** B03 票面色族：HIGH 红 / MEDIUM 橙 / LOW 灰。 */
+function riskBadgeClass(level: ArchitectureDeltaImpactedApi['riskLevel']): string {
+  if (level === 'HIGH') return 'bg-danger/10 text-danger';
+  if (level === 'MEDIUM') return 'bg-warning/15 text-warning';
+  return 'bg-subtle text-muted';
+}
+
+function isImpactedApi(value: unknown): value is ArchitectureDeltaImpactedApi {
+  const api = value as Partial<ArchitectureDeltaImpactedApi> | null;
+  const symbol = api?.routeSymbol as Partial<ArchitectureDeltaSymbol> | undefined;
+  return (
+    !!api &&
+    !!symbol &&
+    typeof symbol.file === 'string' &&
+    typeof symbol.name === 'string' &&
+    // review P1-1：叶子元素逐类型把关——{symbol} 直接把数组元素当 React child
+    // 渲染，blob 里混进对象元素就是「Objects are not valid as a React child」
+    // 整树卸载（全仓无 ErrorBoundary），比崩一行严重一级。
+    typeof symbol.lineStart === 'number' &&
+    Number.isFinite(symbol.lineStart) &&
+    Array.isArray(api.affectedBySymbols) &&
+    api.affectedBySymbols.every((s) => typeof s === 'string') &&
+    (api.riskLevel === 'HIGH' || api.riskLevel === 'MEDIUM' || api.riskLevel === 'LOW')
+  );
+}
+
+/** 防御式解析 payload_json 的 impactedApis（blob 是掩码后的历史快照，形状不
+ * 保证——坏条目逐个丢弃而非整行报错，Q10/票 03「payload 直出、不加结构化列」）。 */
+function parseImpactedApis(payload: unknown): ArchitectureDeltaImpactedApi[] | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const raw = (payload as { impactedApis?: unknown }).impactedApis;
+  if (!Array.isArray(raw)) return null;
+  const apis = raw.filter(isImpactedApi);
+  return apis;
+}
+
+/** 与 ArchitectureDeltaView 同族的符号标签（routeSymbol 带 file/lineStart 才
+ * 有导航坐标；affectedBySymbols 是纯名字文本，零后端下只作呈现）。 */
+function symbolLabel(symbol: ArchitectureDeltaSymbol): string {
+  const parent = symbol.parentType ? `${symbol.parentType}.` : '';
+  return `${parent}${symbol.name}${symbol.displayPath ? ` ${symbol.displayPath}` : ''} @ ${symbol.file}:${symbol.lineStart}`;
 }
 
 async function copyText(text: string): Promise<void> {
@@ -56,7 +108,7 @@ async function copyText(text: string): Promise<void> {
  * 徽章；行尾迷你趋势 div 条按受影响路数定宽，不引图表库；error 行首行人话常显
  * + detail 折叠，票 14 的 delta-error-detail 同款交互）。
  */
-export function CiGateView({ repo, dashboard, client }: CiGateViewProps) {
+export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewProps) {
   const [base, setBase] = useState('origin/main');
   const [head, setHead] = useState('HEAD');
   const [maxRoutes, setMaxRoutes] = useState(10);
@@ -74,6 +126,9 @@ export function CiGateView({ repo, dashboard, client }: CiGateViewProps) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // B03：受波及树行展开态（多行可同开；id 是 gate_runs 全表自增主键的字符串，
+  // 跨库不重号，但切库仍清空——旧库 id 的展开态对新列表无意义）。
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // 切库竞态防线：in-flight 的 listGateRuns / runGate 出口回来后若已换请求代次
   // 则整包丢弃（与票 11 navSeq 同族的「动作信号作废旧响应」模式；代次快照同时
   // 被 handleRun 的两条出口引用，见 review a）。
@@ -126,12 +181,21 @@ export function CiGateView({ repo, dashboard, client }: CiGateViewProps) {
   useEffect(() => {
     setHistory({ runs: [], total: 0 });
     setHistoryError(null);
+    setExpandedIds(new Set());
     if (repo && client) {
       void loadHistory(repo.id, 0);
     } else {
       historySeq.current += 1; // 作废旧库 in-flight 响应
     }
   }, [repo?.id, client, loadHistory]);
+
+  const toggleExpand = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const command = useMemo(() => {
     const parts = ['npx codecompass pr-summary', base, head];
@@ -382,6 +446,11 @@ export function CiGateView({ repo, dashboard, client }: CiGateViewProps) {
                     trendMax > 0 && !dirty
                       ? Math.max(Math.round((run.routesCount / trendMax) * 100), run.routesCount > 0 ? 8 : 0)
                       : 0;
+                  // B03：error 行落库无 payload、PASS 零波及行 impactedApis 为空
+                  // ——两者都不给展开控件（降级态即「不可展开」，不猜别流数据）。
+                  const impacted = parseImpactedApis(run.payload);
+                  const canExpand = impacted !== null && impacted.length > 0;
+                  const expanded = canExpand && expandedIds.has(run.id);
                   return (
                     <li
                       key={run.id}
@@ -421,6 +490,17 @@ export function CiGateView({ repo, dashboard, client }: CiGateViewProps) {
                         </span>
                       )}
                       <span className="shrink-0 text-muted">{run.createdAt}</span>
+                      {canExpand && (
+                        <button
+                          type="button"
+                          data-testid="gate-tree-toggle"
+                          aria-expanded={expanded}
+                          onClick={() => toggleExpand(run.id)}
+                          className="shrink-0 rounded-md border border-line bg-subtle px-2 py-0.5 text-[11px] text-muted hover:border-accent hover:text-accent"
+                        >
+                          {expanded ? '收起受波及树' : '展开受波及树'}
+                        </button>
+                      )}
                       {!dirty && (
                         <div
                           role="progressbar"
@@ -438,6 +518,50 @@ export function CiGateView({ repo, dashboard, client }: CiGateViewProps) {
                             style={{ width: `${pct}%` }}
                           />
                         </div>
+                      )}
+                      {expanded && impacted && (
+                        <ul data-testid="gate-impact-tree" className="w-full space-y-1 pt-1">
+                          {impacted.map((api) => (
+                            <li
+                              key={`${api.routeSymbol.file}:${api.routeSymbol.lineStart}:${api.routeSymbol.parentType ?? ''}.${api.routeSymbol.name}`}
+                              data-testid="gate-impact-branch"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  data-testid="gate-risk-badge"
+                                  className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold ${riskBadgeClass(api.riskLevel)}`}
+                                >
+                                  {api.riskLevel}
+                                </span>
+                                {/* 第一层带 file/lineStart → 可导航；第二层是纯名字文本 */}
+                                <button
+                                  type="button"
+                                  data-testid="gate-impact-node"
+                                  onClick={() => onNavigate?.(api.routeSymbol.file, api.routeSymbol.lineStart)}
+                                  className="min-w-0 truncate text-left font-mono text-[11px] text-ink hover:text-accent"
+                                >
+                                  {symbolLabel(api.routeSymbol)}
+                                </button>
+                              </div>
+                              {/* 零受影响符号（如 LOW 单因）时不挂空 ul——否则
+                                分支下留一截孤立 border-l 残根（review P2-6）。 */}
+                              {api.affectedBySymbols.length > 0 && (
+                                <ul className="ml-6 border-l border-line pl-3">
+                                  {api.affectedBySymbols.map((symbol) => (
+                                    <li
+                                      key={symbol}
+                                      data-testid="gate-impact-leaf"
+                                      className="truncate font-mono text-[10px] text-muted"
+                                      title={symbol}
+                                    >
+                                      {symbol}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       )}
                       {run.error && (
                         <div className="w-full text-danger" data-testid="gate-run-error">
