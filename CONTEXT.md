@@ -67,6 +67,9 @@
 | Physical Anchor（物理锚点） | `repoId + commit + file:line-range + symbolId` 四元组，raw-file 校验通过才可展示；工作区有未提交修改时记为 `commit+dirty`。钉 commit 换取时空可回放性，防止文件改动后行号切片错位成幽灵锚点。 |
 | Stack Trace Parsing（堆栈解析） | 确定性正则解析器：从粘贴的堆栈/日志提取 `Class.method(File.java:123)`，反查符号表后串联 diagnose 穿透与波及面分析；零 LLM 参与。 |
 | Intent→Artifact（意图工件模型） | ADR-0012 定义的交互模型：用户给一个意图，智能体单次产出高密度工件卡（定位节点 + 拓扑图谱 + 落位清单 + 风险 Checklist），不逐步反问；历史是工件流，按 (repoId, commit) 隔离；对工件卡的追问 = 新意图输入。 |
+| 问现状 / 要方案（心智分界） | v0.26 产品语言 canonical 对子：架构问答=问现状（结论皆代码事实），规范演进=要方案（落位建议+风险清单）；共享底线「引擎只读，改动由你执行」，两入口与产出物上常驻声明。「读侧/写侧」仅为内部分析语言，禁入用户可见文案。 |
+| Plan Digest（方案摘要卡） | 问答答案流内对 done.payload.planCards 的重塑呈现：由「拆除计划+勾选框」更名而来，头部常驻「引擎只读，改动由你执行」，CTA 跳规范演进展开完整工件流；是两视图的桥，非问答自产方案的反例。 |
+| Gate Run（门禁运行） | 服务器端一次门禁策略判定（analyzeDiff + evaluateDiffPolicy）的落库快照，按 (repoId, commit) 成流、策略选项随快照存储（回放不追改）；语义=工作台执行史而非 CI 遥测（ADR-0017）。受波及树=单次运行内 路由→受影响符号 的两层展开，是运行明细的呈现形态，非独立图谱能力。 |
 | Artifact Stream（工件流） | 会话历史的呈现形态：时间序高密度工件卡列表（ADR-0012），每张卡自带物理锚点与溯源元信息，非聊天气泡。 |
 | Pattern Ingestion（模式嗅探） | 演进建议生成前对目标代码库既有惯例的确定性抽取（ADR-0014：惯例清单带物理锚点 + 覆盖率；近邻优先、全局多数兜底、披露强制；骨架由 LLM 消费惯例清单生成并标注 llm-generated）；契约按 ADR-0005 零 LLM（嗅探轴 v1 清单待 Issue 24）。 |
 | Engine-rendered Diagram（引擎渲染图） | 图谱几何一律由确定性引擎从 Call Edge 边表渲染（ADR-0013 白名单：traceToMermaid、配置拓扑、Tour 路线）；LLM 仅产出结构化图层指令（图型、focus、折叠层级、节点注释），永不直接产出连线。迁移期缺口与 eval 波及见 ADR-0013。 |
