@@ -154,6 +154,25 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
       fallback: false
     }),
     exportOnboarding: vi.fn().mockResolvedValue('# petclinic ONBOARDING\n'),
+    // v0.26-B ticket 02: CiGateView（gate tab）挂载即回放运行史。runGate 桩
+    // 给合法 GateRunRow 形状——若有用例点「运行并记录」，prepend 消费的是
+    // 真字段（{} 会在 isDirtyRun(run.commit) 上抛 TypeError，review h）。
+    listGateRuns: vi.fn().mockResolvedValue({ runs: [], total: 0 }),
+    runGate: vi.fn().mockResolvedValue({
+      id: 'gate-echo',
+      commit: 'a1b2c3d',
+      base: 'origin/main',
+      head: 'HEAD',
+      options: { maxAffectedRoutes: 10, failOnBreak: true },
+      status: 'PASS',
+      violationsCount: 0,
+      routesCount: 0,
+      error: null,
+      detail: null,
+      durationMs: 1,
+      source: 'workbench',
+      createdAt: '2026-09-11 07:00:00'
+    }),
     baseUrl: 'http://localhost:43110',
     chat: {
       listSessions: vi.fn().mockResolvedValue([]),

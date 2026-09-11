@@ -482,3 +482,67 @@ describe('RepoQAClient pickFolder root-domain contract (ticket 08)', () => {
     expect((client.chat as unknown as { pickFolder?: unknown }).pickFolder).toBeUndefined();
   });
 });
+
+describe('RepoQAClient gate runs (v0.26-B ticket 02)', () => {
+  const run = {
+    id: '42', commit: 'a1b2c3d', base: 'main', head: 'HEAD',
+    options: { maxAffectedRoutes: 10, failOnBreak: true },
+    status: 'PASS', violationsCount: 0, routesCount: 3,
+    error: null, detail: null, durationMs: 12, source: 'workbench', createdAt: '2026-09-11 07:00:00'
+  };
+
+  it('runGate POSTs the policy knobs and resolves the stored echo row', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 201, json: async () => ({ run }) });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+
+    await expect(
+      client.runGate('r 1', 'main', 'HEAD', { maxAffectedRoutes: 10, failOnBreak: true, failOnAuthImpact: false })
+    ).resolves.toEqual(run);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://api/api/repos/r%201/gate/run',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base: 'main', head: 'HEAD', maxAffectedRoutes: 10, failOnBreak: true, failOnAuthImpact: false }) }
+    );
+  });
+
+  it('runGate surfaces the ticket-14 400 contract as Error message + detail', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: false, status: 400,
+      json: async () => ({ error: '无法解析 git 引用 "origin/nope"。', detail: 'fatal: ambiguous argument origin/nope' })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+
+    let err: (Error & { detail?: string }) | undefined;
+    try {
+      await client.runGate('repo-1', 'origin/nope', 'HEAD');
+      throw new Error('runGate should have rejected');
+    } catch (e) {
+      err = e as Error & { detail?: string };
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect(err?.message).toBe('无法解析 git 引用 "origin/nope"。');
+    expect(err?.detail).toBe('fatal: ambiguous argument origin/nope');
+  });
+
+  it('listGateRuns builds newest-first paging query and reads {runs,total}', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ runs: [run], total: 1 }) });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+
+    await expect(client.listGateRuns('r 1', { limit: 20, offset: 20, commit: 'a1b2c3d' })).resolves.toEqual({ runs: [run], total: 1 });
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/gate-runs?limit=20&offset=20&commit=a1b2c3d');
+  });
+
+  it('listGateRuns omits absent params', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ runs: [], total: 0 }) });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+
+    await expect(client.listGateRuns('repo-1')).resolves.toEqual({ runs: [], total: 0 });
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/gate-runs');
+  });
+
+  it('listGateRuns throws on a non-ok response', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    await expect(client.listGateRuns('repo-1')).rejects.toThrow('listGateRuns failed: 500');
+  });
+});

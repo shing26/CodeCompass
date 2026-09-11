@@ -236,7 +236,7 @@ function WorkbenchShell() {
               onBack={goTopology}
             />
           ) : view === 'gate' ? (
-            <CiGateView repo={currentRepo} dashboard={dashboard} />
+            <CiGateView repo={currentRepo} dashboard={dashboard} client={client} />
           ) : view === 'chat' ? (
             <ChatView
               client={client}

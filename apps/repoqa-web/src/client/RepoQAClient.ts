@@ -3,6 +3,8 @@ import type {
   ArchitectureDeltaReport,
   DomainRadarResult,
   EvolveEvent,
+  GateRunPolicyOptions,
+  GateRunRow,
   ImportRepoInput,
   QueryEvent,
   QueryMode,
@@ -322,6 +324,63 @@ export class RepoQAClient {
       throw new Error('getArchitectureDelta failed: missing delta in response');
     }
     return body.delta;
+  }
+
+  /** v0.26-B ticket 01 — 服务器端门禁：跑 analyzeDiff + evaluateDiffPolicy 并
+   * 落库（ADR-0017「门禁运行史」数据面）。成功 201 回显落库行；git/引擎失败走
+   * 票 14 契约 400 `{error: 人话首行, detail: 原始输出}`——错误面与
+   * getArchitectureDelta 同构，UI 可复用折叠 detail。 */
+  async runGate(
+    repoId: string,
+    base: string,
+    head: string,
+    options?: GateRunPolicyOptions
+  ): Promise<GateRunRow> {
+    const res = await this.fetcher(`${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/gate/run`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ base, head, ...(options ?? {}) })
+    });
+    if (!res.ok) {
+      let message = `runGate failed: ${res.status}`;
+      let rawDetail: string | undefined;
+      try {
+        const body = (await res.json()) as { error?: unknown; detail?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          message = body.error;
+        }
+        if (typeof body.detail === 'string' && body.detail !== '') {
+          rawDetail = body.detail;
+        }
+      } catch {
+        // non-JSON body — keep the status-only message
+      }
+      const err = new Error(message) as Error & { detail?: string };
+      if (rawDetail !== undefined) err.detail = rawDetail;
+      throw err;
+    }
+    const body = (await res.json()) as { run?: GateRunRow | null };
+    if (!body.run) throw new Error('runGate failed: missing run in response');
+    return body.run;
+  }
+
+  /** v0.26-B ticket 01 — newest-first 回放（`{runs, total}` 契约照抄 /api/events
+   * 先例；非法分页参数服务端容错）。commit 参数切物理流（hash/hash+dirty/unversioned）。 */
+  async listGateRuns(
+    repoId: string,
+    params?: { limit?: number; offset?: number; commit?: string }
+  ): Promise<{ runs: GateRunRow[]; total: number }> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    if (params?.commit) search.set('commit', params.commit);
+    const qs = search.toString();
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/gate-runs${qs ? `?${qs}` : ''}`
+    );
+    if (!res.ok) throw new Error(`listGateRuns failed: ${res.status}`);
+    const body = (await res.json()) as { runs?: GateRunRow[]; total?: number };
+    return { runs: body.runs ?? [], total: body.total ?? 0 };
   }
 
   /** Issue 11/13: AST-heuristic onboarding tours, optionally filtered by type. */

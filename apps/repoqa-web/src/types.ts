@@ -241,6 +241,36 @@ export interface WorkbenchCardRow {
   createdAt: string;
 }
 
+/** v0.26-B ticket 01 / ADR-0017 — policy knobs snapshot stored with a gate
+ * run (server mirrors this shape; verdict replays never re-read live config). */
+export interface GateRunPolicyOptions {
+  maxAffectedRoutes?: number;
+  failOnBreak?: boolean;
+  failOnAuthImpact?: boolean;
+}
+
+/** v0.26-B ticket 01 — one persisted server-side gate run, as replayed by
+ * GET /api/repos/:id/gate-runs and echoed by POST .../gate/run. `error`
+ * non-null marks a run that broke (ticket-14 semantics, first human line;
+ * raw output in `detail`, folded in the UI). `commit` carries the physical
+ * stream tag: hash / hash+dirty / unversioned (dirty runs isolate per Q12). */
+export interface GateRunRow {
+  id: string;
+  commit: string;
+  base: string;
+  head: string;
+  options: GateRunPolicyOptions;
+  status: 'PASS' | 'FAIL';
+  violationsCount: number;
+  routesCount: number;
+  error: string | null;
+  detail: string | null;
+  durationMs: number | null;
+  source: string;
+  createdAt: string;
+  payload?: unknown;
+}
+
 export interface ImportRepoInput {
   name: string;
   localPath: string;
