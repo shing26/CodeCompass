@@ -2,7 +2,7 @@
 
 > *2026-09-10 v0.26 grill 拆票生成。Parent spec: `.scratch/v026-mind-split/spec.md`（验收门封条）；沿用票 15 的文案回归哨模式。*
 
-Status: ready-for-agent
+Status: in-review
 标签：test / P2 / 来源：v0.26 预留 A 验收封条
 
 ## Agent Brief
@@ -25,3 +25,32 @@ Status: ready-for-agent
 **Blocked by:** 01-positioning-copy-sweep、02-plan-digest-cta、03-evolve-artifact-naming（全部合入后开工）。
 
 **触碰面声明：** apps/repoqa-web 测试层为主。零后端、零新文案。
+
+## Comments
+
+### 自动化部分完成（2026-09-11，ZCode）——剩人工核对阻塞
+
+- **文件系统哨**：新建 `src/copy-guard.test.ts`（3 例）——①七词黑名单（推演卡/拆除计划/约定冲突/架构指标/智能体对话/读侧/写侧）对 `src/**.{ts,tsx,css}` 全文件行级 grep **零命中含注释**（哨自身词表拆分构造自豁免）；②侧栏英文 `Evolution` 节标题按 DOM 位点断言（标识符豁免）；③三定位句源码字面量存在钉（tooltip/空态/PlanCard 头部/Canvas 两动词/evolve 底线，防组件重构连带蒸发）。机械判据升级为「普通 grep 即可复核，无豁免行」。
+- **自命中面重构**：TopBar.test（注释+regex）、EvolutionView.test（regex）、Canvas.test/PlanCardView.test（负断言字面量）、styles.css（注释引旧名）共 6 处改拆分写法。
+- tsconfig 对 copy-guard 单独 exclude（浏览器 tsconfig 无 node types，不为此引 @types/node 依赖；vitest 转译照常执行）。web **320/320**（+3 哨例）、tsc 净。
+- **截图台**：`.scratch/v026-mind-split/qa/a04-shots/`（gitignored）——`rig.mjs`（真控制面+真 db+dist 首用样式，6 面 × 375/1280 = **12 张 PNG 已产出**，零 pageerror）+ `overflow-check.mjs`（DOM 级截断机械测量：两视口四面 **ALL-CLEAN**，另核验空态两动词锚点真实命中非空选择器假绿）。重跑：`MHW_CP_PORT=43119 MHW_STATIC_DIR=apps/repoqa-web/dist node services/control-plane/dist/cli.js` 后 `node rig.mjs`。
+- **移交登记**（A01/A02/A03 review 累积，归本闸裁决）：①「查调用链」按钮名实残差（接线仅 setView('topo') 不自动 trace；(i) 导航措辞或 (ii) 升级接线+重命名 open-chat 标识符）；②risk 色族跨视图统一（gate 红橙灰 vs delta 黄蓝绿）；③gate payload 渲染上限；④styles.css 首次生效=chat 视觉首秀，**眼验重点在 chat 侧栏/消息区排版是否成立**。
+
+### 人工核对清单（maintainer，销票 15 遗留同一动作）
+
+看图目录：`D:\CodeCompass\.scratch\v026-mind-split\qa\a04-shots\`
+
+- [ ] `empty-state-375.png`：两动词前置结构在窄屏不溢出、行不破版
+- [ ] `chat-375.png` / `chat-1280.png`：**chat 样式首秀**——侧栏/空态/底线句完整，视觉成立
+- [ ] `gate-375.png` / `gate-1280.png`：三段布局、策略旋钮两列在 375 的堆叠
+- [ ] `evolve-375.png` / `evolve-1280.png`：ScenarioGuide ①②③ 新措辞 + 「风险 Checklist」混排（uppercase 已去，眼验最终呈现）
+- [ ] `topo-375/1280.png`：侧栏「规范演进」门牌与 tab 同文
+- [ ] `dashboard-375/1280.png`：「查调用链」按钮宽度自适应
+- 完成核对后回「A04 过」或指出坏点，本票方可 closed 并入收口。
+
+**Acceptance criteria:**
+- [x] 用户可见文案黑名单零命中自动化（copy-guard.test.ts，文件系统级含注释）
+- [x] 存在断言：三句定位句锚点在位（哨③钉源码字面量 + 票 01/02 组件测试钉渲染）
+- [x] 全前端 src grep 复核（哨即自动化本体；dist 已重建非旧快照）
+- [ ] **[阻塞项·人工] 375px + 1280px 截图核对——12 张已产出，等 maintainer 眼验**
+- [x] web 全量绿（320 = 284 基线 + A01–A04 增量）

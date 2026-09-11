@@ -1,5 +1,5 @@
 
-/* CM-04 方案摘要卡（v0.26-A Q3 正名，原「拆除计划」） */
+/* CM-04 方案摘要卡（v0.26-A Q3 正名，旧卡名见 issues/02——copy-guard 封条禁旧词回潮） */
 .plan-cards { margin: 0 0 10px; }
 .plan-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel-2); }
 .plan-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(79,156,249,0.10); font-weight: 600; font-size: 13px; }

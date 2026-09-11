@@ -299,7 +299,7 @@ describe('TopBar theme toggle', () => {
 describe('TopBar tab tooltips (v0.26-A ticket 01, 问现状/要方案)', () => {
   it('chat/evolve tooltips carry the positioning sentences, gate reflects the run-history ability', () => {
     render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
-    // Q2 定位句：读侧=问现状（可查证），写侧=要方案（+底线声明）
+    // Q2 定位句：问答口=问现状（可查证），演进口=要方案（+底线声明）
     expect(screen.getByTestId('tab-chat')).toHaveAttribute(
       'title',
       '问现状：架构、链路、风险都基于代码事实，结论可逐条 [cite] 查证'
@@ -308,10 +308,10 @@ describe('TopBar tab tooltips (v0.26-A ticket 01, 问现状/要方案)', () => {
       'title',
       '要方案：给改动意图，产出落位建议与风险清单；引擎只读，改动由你执行'
     );
-    // 内部语言（读侧/写侧）与已退场词（推演卡/约定冲突）禁入用户可见 tooltip
+    // 内部语言与已退场词禁入用户可见 tooltip（分写构造=copy-guard 封条自豁免）
     for (const tab of ['tab-chat', 'tab-evolve']) {
       const title = screen.getByTestId(tab).getAttribute('title') ?? '';
-      expect(title).not.toMatch(/读侧|写侧|推演卡|约定冲突/);
+      expect(title).not.toMatch(new RegExp(['读' + '侧', '写' + '侧', '推演' + '卡', '约定' + '冲突'].join('|')));
     }
     // gate tooltip 随 B02 已升级（工作台内运行+运行史），不再只提复制命令
     expect(screen.getByTestId('tab-gate').getAttribute('title')).toContain('运行史');

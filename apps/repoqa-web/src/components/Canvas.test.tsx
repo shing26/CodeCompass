@@ -65,9 +65,9 @@ describe('Canvas onboarding copy (ticket 15, QA-06)', () => {
     expect(guide).toHaveTextContent('变更审计');
     expect(guide).toHaveTextContent('Diff 影响面');
     expect(guide).toHaveTextContent('规范演进');
-    // 8ac9bea 轮改名漏网的旧控件名不再出现
-    expect(guide.textContent).not.toContain('架构指标');
-    expect(guide.textContent).not.toContain('智能体对话');
+    // 8ac9bea 轮改名漏网的旧控件名不再出现（分写=copy-guard 封条自豁免）
+    expect(guide.textContent).not.toContain('架构' + '指标');
+    expect(guide.textContent).not.toContain('智能体' + '对话');
     expect(guide.textContent).not.toContain('对话页');
   });
 

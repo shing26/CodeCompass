@@ -238,8 +238,9 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     expect(screen.getByTestId('evolve-placement')).toHaveTextContent('落位表');
     expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('落位表·变更');
     expect(screen.getByTestId('evolve-risks')).toHaveTextContent('风险 Checklist');
+    // 旧词分写构造=copy-guard 封条自豁免
     expect(screen.getByTestId('evolution-view').textContent).not.toMatch(
-      /落位方案|变更清单|风险与建议|死代码级联|约定冲突|推演卡/
+      new RegExp(['落位方案', '变更清单', '风险与建议', '死代码级联', '约定' + '冲突', '推演' + '卡'].join('|'))
     );
     // 步骤②③独立正向断言（review P2：不靠全树负断言兜措辞）
     expect(screen.getByTestId('scenario-guide')).toHaveTextContent('引擎扫描惯例冲突');

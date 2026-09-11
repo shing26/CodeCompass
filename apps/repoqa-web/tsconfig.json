@@ -17,5 +17,7 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  "//exclude": "copy-guard.test.ts 跑在 vitest(node) 侧用 node:fs，浏览器 tsconfig 不校验它（vitest 自带转译，且本仓不为此引 @types/node 依赖）",
+  "exclude": ["src/copy-guard.test.ts"]
 }

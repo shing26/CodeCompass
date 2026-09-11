@@ -23,8 +23,8 @@ describe('PlanCardView (v0.26-A ticket 02, Q3 方案摘要)', () => {
     expect(head).toHaveTextContent('方案摘要');
     expect(head).toHaveTextContent('DEPRECATE');
     expect(head).toHaveTextContent('LegacyOrderService');
-    // 旧名退场（Q3/黑名单）
-    expect(document.querySelector('.plan-card')?.textContent).not.toContain('拆除计划');
+    // 旧卡名退场（Q3/黑名单；分写=copy-guard 封条自豁免）
+    expect(document.querySelector('.plan-card')?.textContent).not.toContain('拆除' + '计划');
     // 底线句常驻头部行：直接可见文本，非 <details> 折叠
     const line = screen.getByTestId('plan-bottomline');
     expect(line).toHaveTextContent('引擎只读，改动由你执行');
