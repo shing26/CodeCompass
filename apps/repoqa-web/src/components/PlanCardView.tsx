@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import type { ChatPlanCard } from '../client/RepoQAClient';
 
-/** CM-04 卡片化 v2：DEPRECATE 拆除计划结构化卡片——分组、action 徽标、
- * 勾选状态按 session 持久化（localStorage），刷新后保留。执行由人工完成。 */
-export function PlanCardView(props: { cards: ChatPlanCard[]; sessionId: string }) {
-  const { cards, sessionId } = props;
+/** CM-04 卡片化 v2 的结构卡（载荷协议冻结），v0.26-A Q3 重塑为「方案摘要」
+ * （Plan Digest）：卡名正名、底线声明升为头部常驻行、新增 CTA 跳规范演进——
+ * 问答口的方案输出从尴尬点变成两视图的桥。勾选行为语义不变：分组、action
+ * 徽标、勾选状态按 session 持久化（localStorage），执行由人工完成。
+ * `onOpenEvolution` 可选：无回调时 CTA 不渲染（既有渲染点零破坏）。 */
+export function PlanCardView(props: {
+  cards: ChatPlanCard[];
+  sessionId: string;
+  onOpenEvolution?: () => void;
+}) {
+  const { cards, sessionId, onOpenEvolution } = props;
   const storageKey = `chat-plan-checks:${sessionId}`;
 
   const [checked, setChecked] = useState<Set<string>>(() => {
@@ -45,7 +52,7 @@ export function PlanCardView(props: { cards: ChatPlanCard[]; sessionId: string }
         return (
           <div className="plan-card" key={ci}>
             <div className="plan-card-head">
-              🧹 {card.intentType} 拆除计划 · {card.target}
+              📋 {card.intentType} 方案摘要 · {card.target}
               <span className={`plan-risk risk-${(card.riskLevel ?? 'LOW').toLowerCase()}`}>
                 {card.riskLevel ?? 'LOW'}
               </span>
@@ -53,7 +60,11 @@ export function PlanCardView(props: { cards: ChatPlanCard[]; sessionId: string }
                 {doneCount}/{card.items.length}
               </span>
             </div>
-            <div className="plan-card-note">勾选仅作本地追踪，执行由人工完成（引擎只读）。</div>
+            {/* Q3：两入口共享底线，常驻头部行（非折叠/非角落） */}
+            <div className="plan-card-bottomline" data-testid="plan-bottomline">
+              引擎只读，改动由你执行。
+            </div>
+            <div className="plan-card-note">勾选仅作本地追踪。</div>
             {[...groups.entries()].map(([category, items]) => (
               <div className="plan-group" key={category}>
                 <div className="plan-group-head">{category}</div>
@@ -73,6 +84,13 @@ export function PlanCardView(props: { cards: ChatPlanCard[]; sessionId: string }
                 })}
               </div>
             ))}
+            {onOpenEvolution && (
+              <div className="plan-card-cta">
+                <button type="button" data-testid="plan-open-evolution" onClick={onOpenEvolution}>
+                  在规范演进中展开 →
+                </button>
+              </div>
+            )}
           </div>
         );
       })}

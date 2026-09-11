@@ -317,6 +317,49 @@ describe('App scaffold and repo connect', () => {
   });
 });
 
+describe('v0.26-A ticket 02: plan-digest bridge (chat answer → 方案摘要 → CTA → evolve)', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('routes the plan CTA into the evolution workbench with the bottom line pinned', async () => {
+    const client = makeClient();
+    Object.assign(client.chat, {
+      chatSend: vi.fn().mockResolvedValue({
+        answer: '拆解完成 [cite: 1]',
+        citations: [{ n: 1, tool: 'codecompass_plan_evolution', args: { repoId: 'repo-1' }, ms: 4 }],
+        planCards: [
+          {
+            intentType: 'DEPRECATE',
+            target: 'LegacyOrderService',
+            riskLevel: 'HIGH',
+            items: [{ category: '删除清单', action: 'DELETE', filePath: 'src/Legacy.java', description: '待删' }]
+          }
+        ],
+        steps: 2,
+        fallback: false
+      })
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    await user.type(screen.getByTestId('chat-question'), '拆掉 LegacyOrderService');
+    await user.click(screen.getByTestId('chat-send'));
+
+    await waitFor(() => expect(screen.getByTestId('plan-cards')).toBeInTheDocument());
+    // 底线句常驻（非角落）；CTA 是问答口→方案口的桥
+    expect(screen.getByTestId('plan-bottomline')).toHaveTextContent('引擎只读，改动由你执行');
+    await user.click(screen.getByTestId('plan-open-evolution'));
+    await waitFor(() => expect(screen.getByTestId('evolution-view')).toBeInTheDocument());
+  });
+});
+
 describe('v0.26-B ticket 03: gate impact tree → Inspector navigation', () => {
   beforeEach(() => {
     // tab-gate 的 replaceState ?mode= 会漏进后续用例（票 16 URL 真理源）——

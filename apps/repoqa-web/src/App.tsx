@@ -258,6 +258,8 @@ function WorkbenchShell() {
               }}
               onBackToWorkbench={() => setView('topo')}
               onSend={chatGuardSend}
+              // v0.26-A ticket 02 (Q3)：方案摘要卡 → 规范演进之桥
+              onOpenEvolution={goEvolution}
             />
           ) : view === 'delta' ? (
             <ArchitectureDeltaView

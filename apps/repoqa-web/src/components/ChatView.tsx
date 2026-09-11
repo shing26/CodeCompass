@@ -171,8 +171,10 @@ export function ChatView(props: {
       onPlan?: (cards: ChatPlanCard[]) => void;
     }
   ) => Promise<ChatTurnResult | null>;
+  /** v0.26-A ticket 02 (Q3)：方案摘要卡 CTA 跳规范演进——App 组合层注入。 */
+  onOpenEvolution?: () => void;
 }) {
-  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend } = props;
+  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution } = props;
   const chatClient = client.chat;
   const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSessionInfo | null>(null);
@@ -392,7 +394,11 @@ export function ChatView(props: {
                     </div>
                   )}
                   {entry.planCards?.length ? (
-                    <PlanCardView cards={entry.planCards} sessionId={activeSession?.id ?? 'draft'} />
+                    <PlanCardView
+                      cards={entry.planCards}
+                      sessionId={activeSession?.id ?? 'draft'}
+                      onOpenEvolution={onOpenEvolution}
+                    />
                   ) : null}
                   <MessageBody content={entry.content} citations={entry.citations} onNavigate={onNavigate} />
                 </>
