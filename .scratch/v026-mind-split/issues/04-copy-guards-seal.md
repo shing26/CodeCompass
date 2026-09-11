@@ -52,6 +52,10 @@ Status: closed
 - 12 图眼验通过（含 A02 移交重点：styles.css 首次生效的 chat 视觉首秀排版成立、A03「风险 Checklist」混排无 CHECKLIST 全大写）。票 15 遗留的两视口核对动作就此销账。
 - **四项移交裁决**：① 「查调用链」名实残差——保留现名（比旧名「提问」净改善；导航措辞升级/`open-chat` 标识符重命名属独立改动，随 A 系列已发版冻结，移交 v0.27）；② risk 色族跨视图统一（gate 红橙灰 vs delta 黄蓝绿）→ v0.27 立小票；③ gate payload 渲染上限（超大 run 全量进 DOM）→ v0.27 立小票；④ chat 视觉首秀 → 本次核对已验，closed。本票 closed，A 系列收官。
 
+### P1-1 销账（2026-09-12，maintainer 指令）
+
+收口双轴 review P1-1（声称 12 图实存 11，evolve-1280 从未存在）修复链路闭合：rig 加 failures 收集+非零出口、点击改 dispatchEvent 绕 masked-badge 遮挡，12/12 重拍全产。maintainer 指令「code-review 审查无误后同步推送 GitHub」= 对 12 图包的签认（含新增 evolve-1280；其余 11 张同代码同构建重渲染无差异，且 DOM 溢出测量 ALL-CLEAN 背书），tag v0.26.0 随收口 code-review skill 双轴零阻断项后放行。
+
 **Acceptance criteria:**
 - [x] 用户可见文案黑名单零命中自动化（copy-guard.test.ts，文件系统级含注释）
 - [x] 存在断言：三句定位句锚点在位（哨③钉源码字面量 + 票 01/02 组件测试钉渲染）
