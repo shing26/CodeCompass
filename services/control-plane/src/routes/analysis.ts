@@ -4,7 +4,12 @@ import { buildTours } from '../repoqa-tours';
 import { buildDashboard } from '../repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from '../repoqa-export';
 import { runDomainRadar } from '../domain-radar-engine';
-import { analyzeDiff, summarizeGitError } from '../repoqa-diff';
+import { analyzeDiff, evaluateDiffPolicy, summarizeGitError } from '../repoqa-diff';
+import {
+  resolveRepoCommitSync,
+  type GateRunPolicyOptions,
+  type GateRunRouteRow
+} from '../repoqa-repos';
 import { extractSubgraphContext } from '../repoqa-graphrag';
 import { maskEventPayload, maskSensitiveText } from '../repoqa-masking';
 
@@ -160,6 +165,130 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       // collapsible detail block (was: raw multi-line git stderr as-is).
       res.status(400).json({ error: summarizeGitError(message), detail: message });
     }
+  });
+
+  // v0.26-B / ADR-0017 — server-side gate execution history. POST runs the
+  // same deterministic engine `pr-summary` uses (analyzeDiff +
+  // evaluateDiffPolicy), persists verdict + materialized routes + masked
+  // payload through the single store seam (saveGateRun also writes the
+  // `gate.run` event). A git/engine failure follows the ticket-14 contract
+  // (400 `{error: 人话首行, detail: 原始输出}`) AND still lands as a FAIL row
+  // with `error` set — the history must show runs that broke; a policy FAIL
+  // without `error` is a normal verdict row. GET replays newest-first with
+  // /api-events-style paging. Commit stream = live resolveRepoCommitSync
+  // (hash / hash+dirty / unversioned; dirty runs isolate per Q12).
+  app.post('/api/repos/:id/gate/run', async (req, res) => {
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const base = typeof body.base === 'string' ? body.base.trim() : '';
+    const head = typeof body.head === 'string' ? body.head.trim() : '';
+    if (!base || !head) {
+      res.status(400).json({ error: 'base and head git refs are required' });
+      return;
+    }
+    const options: GateRunPolicyOptions = {};
+    if (body.maxAffectedRoutes !== undefined) {
+      if (
+        typeof body.maxAffectedRoutes !== 'number' ||
+        !Number.isInteger(body.maxAffectedRoutes) ||
+        body.maxAffectedRoutes < 0
+      ) {
+        res.status(400).json({ error: 'maxAffectedRoutes must be a non-negative integer' });
+        return;
+      }
+      options.maxAffectedRoutes = body.maxAffectedRoutes;
+    }
+    if (typeof body.failOnBreak === 'boolean') options.failOnBreak = body.failOnBreak;
+    if (typeof body.failOnAuthImpact === 'boolean') options.failOnAuthImpact = body.failOnAuthImpact;
+
+    const commit = resolveRepoCommitSync(repo.localPath);
+    const started = Date.now();
+    try {
+      const report = await analyzeDiff({ repoPath: repo.localPath, base, head });
+      const policy = evaluateDiffPolicy(report, options);
+      const impacted = report.architectureDelta?.impactedApis ?? [];
+      // Key = displayPath#Controller.method: displayPath alone carries neither
+      // verb nor controller (GET+POST on one path collide → silent dedup), so
+      // the materialized line must identify the API (dual-axis review #1).
+      const routes: GateRunRouteRow[] = impacted.map((api) => ({
+        route: `${api.routeSymbol.displayPath ?? ''}#${api.routeSymbol.parentType ?? ''}.${api.routeSymbol.name}`,
+        displayPath: api.routeSymbol.displayPath ?? null,
+        riskLevel: api.riskLevel ?? null
+      }));
+      const payload = maskEventPayload({
+        summary: report.summary,
+        affectedRoutes: report.affectedApis.length,
+        violations: policy.violations,
+        impactedApis: impacted
+      });
+      // Echo the STORED row by runId — never "latest of the stream" (two
+      // concurrent runs would make an echo steal another request's verdict;
+      // dual-axis review #2a).
+      const { runId } = deps.repoqa.saveGateRun({
+        repoId: repo.id,
+        commit,
+        base,
+        head,
+        options,
+        status: policy.status,
+        violationsCount: policy.violations.length,
+        routes,
+        durationMs: Date.now() - started,
+        payload
+      });
+      const { runs } = deps.repoqa.listGateRuns(repo.id, { limit: 1, id: runId });
+      res.status(201).json({ run: runs[0] ?? null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const line = summarizeGitError(message);
+      // The history write must never eat the ticket-14 response: a repo
+      // deleted mid-analyze makes this INSERT throw on FK, and Express 4
+      // would hang the request (dual-axis review #2c). error/detail are
+      // masked on the way in — every persisted text column obeys the same
+      // masking invariant as payload (#4); the 400 body stays raw per the
+      // ticket-14 contract.
+      try {
+        deps.repoqa.saveGateRun({
+          repoId: repo.id,
+          commit,
+          base,
+          head,
+          options,
+          status: 'FAIL',
+          violationsCount: 0,
+          routes: [],
+          error: maskSensitiveText(line),
+          detail: maskSensitiveText(message),
+          durationMs: Date.now() - started
+        });
+      } catch {
+        // history unavailable — the verdict response still stands
+      }
+      res.status(400).json({ error: line, detail: message });
+    }
+  });
+
+  app.get('/api/repos/:id/gate-runs', (req, res) => {
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
+    const query = req.query as Record<string, unknown>;
+    const asString = (value: unknown): string | undefined =>
+      typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+    const asNumber = (value: unknown): number | undefined => {
+      if (typeof value !== 'string' || value.trim() === '') return undefined;
+      const parsed = Number(value);
+      // v0.26-B ticket 02 review：只认整数——小数交给 SQLite 隐式截断太含糊，
+      // 非法值按容错契约回退默认分页（与 subgraph-context 的整数校验精神一致）。
+      return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+    };
+    res.json(
+      deps.repoqa.listGateRuns(repo.id, {
+        limit: asNumber(query.limit),
+        offset: asNumber(query.offset),
+        commit: asString(query.commit)
+      })
+    );
   });
 
   // Issue 28: Graph RAG subgraph extraction. Deterministic (no LLM): resolves

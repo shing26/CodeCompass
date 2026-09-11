@@ -55,6 +55,42 @@ export interface WorkbenchCardRow {
   error: string | null;
   createdAt: string;
 }
+
+/**
+ * v0.26-B / ADR-0017 — one persisted server-side gate run. Types are
+ * structural (not imported from repoqa-diff) to keep the store free of an
+ * import cycle: repoqa-diff consumes repoqa-parse types, this module must not
+ * consume repoqa-diff.
+ */
+export interface GateRunPolicyOptions {
+  maxAffectedRoutes?: number;
+  failOnBreak?: boolean;
+  failOnAuthImpact?: boolean;
+}
+
+export interface GateRunRouteRow {
+  route: string;
+  displayPath: string | null;
+  riskLevel: string | null;
+}
+
+export interface GateRunRow {
+  id: string;
+  commit: string;
+  base: string;
+  head: string;
+  /** The options snapshot stored with the run — verdicts never re-read live config. */
+  options: GateRunPolicyOptions;
+  status: 'PASS' | 'FAIL';
+  violationsCount: number;
+  routesCount: number;
+  error: string | null;
+  detail: string | null;
+  durationMs: number | null;
+  source: string;
+  createdAt: string;
+  payload?: unknown;
+}
 /**
  * Issue 23 / ADR-0010 — resolve the physical commit of a repo working tree.
  * `hash` when clean, `hash+dirty` when uncommitted changes exist,
@@ -687,6 +723,150 @@ export class RepoQARepos {
       };
     });
   }
+
+  /**
+   * v0.26-B / ADR-0017 — single write seam for one gate run: the history row,
+   * its materialized route lines, AND the lightweight `gate.run` event all
+   * commit in one transaction. Routes must not call recordEvent separately —
+   * the double-write invariant (timeline never misses a gate run) lives here.
+   * `payload` is expected already masked (maskEventPayload) by the caller.
+   * Route lines are deduped by key before insert: `gate_run_routes` has
+   * PK (run_id, route) and INSERT OR REPLACE would silently mask the
+   * HIGH/LOW badge of an earlier same-key line (dual-axis review #1);
+   * routes_count therefore counts what actually lands (spec Q12: the column
+   * is a denormalization of the child rows, never of the input array).
+   */
+  saveGateRun(input: {
+    repoId: string;
+    commit: string;
+    base: string;
+    head: string;
+    options: GateRunPolicyOptions;
+    /** A failed git/engine run is stored as FAIL with `error` set (ticket 14). */
+    status: 'PASS' | 'FAIL';
+    violationsCount: number;
+    routes: GateRunRouteRow[];
+    error?: string;
+    detail?: string;
+    durationMs?: number;
+    payload?: unknown;
+    source?: string;
+  }): { runId: string } {
+    const uniqueRoutes = [...new Map(input.routes.map((r) => [r.route, r])).values()];
+    const write = this.db.transaction(() => {
+      const info = this.db
+        .prepare(
+          `INSERT INTO gate_runs (repo_id, commit_hash, base, head, policy_options, status, violations_count, routes_count, error, detail, duration_ms, payload_json, source, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          input.repoId,
+          input.commit,
+          input.base,
+          input.head,
+          JSON.stringify(input.options ?? {}),
+          input.status,
+          input.violationsCount,
+          uniqueRoutes.length,
+          input.error ?? null,
+          input.detail ?? null,
+          input.durationMs ?? null,
+          input.payload === undefined || input.payload === null
+            ? null
+            : JSON.stringify(input.payload),
+          input.source ?? 'workbench',
+          new Date().toISOString()
+        );
+      const runId = String(info.lastInsertRowid);
+      const insertRoute = this.db.prepare(
+        'INSERT OR REPLACE INTO gate_run_routes (run_id, route, display_path, risk_level) VALUES (?, ?, ?, ?)'
+      );
+      for (const route of uniqueRoutes) {
+        insertRoute.run(runId, route.route, route.displayPath ?? null, route.riskLevel ?? null);
+      }
+      this.recordEvent({
+        repoId: input.repoId,
+        eventType: 'gate.run',
+        // repoqa_events.intent is an enumerated low-cardinality dimension
+        // ('evolve'/'incident'/mode) — refs and verdict ride `feedback`
+        // (precedent: repoqa-worker JSON-line feedback), failureClass keeps
+        // the failure taxonomy (dual-axis review #3).
+        intent: 'gate',
+        feedback: JSON.stringify({
+          base: input.base,
+          head: input.head,
+          status: input.status
+        }),
+        failureClass: input.error ? 'gate-exec-failure' : undefined
+      });
+      return runId;
+    });
+    return { runId: write() };
+  }
+
+  /**
+   * v0.26-B — gate history replay, newest first. Unlike workbench-cards (a
+   * single (repo,commit) stream), the history panel lists ALL streams of a
+   * repo by default; `commit` opts into one stream (dirty runs are their own
+   * stream per Q12). `payload` returns masked-on-write, never re-parsed raw.
+   */
+  listGateRuns(
+    repoId: string,
+    filters: { limit?: number; offset?: number; commit?: string; id?: string } = {}
+  ): { runs: GateRunRow[]; total: number } {
+    const where: string[] = ['repo_id = ?'];
+    const params: any[] = [repoId];
+    if (filters.commit) {
+      where.push('commit_hash = ?');
+      params.push(filters.commit);
+    }
+    if (filters.id) {
+      where.push('id = ?');
+      params.push(Number(filters.id));
+    }
+    const whereSql = `WHERE ${where.join(' AND ')}`;
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) AS count FROM gate_runs ${whereSql}`).get(...params) as {
+        count: number;
+      }
+    ).count;
+    const limit = sanitizePaging(filters.limit, 50, 200);
+    const offset = sanitizePaging(filters.offset, 0, Number.MAX_SAFE_INTEGER);
+    const rows = this.db
+      .prepare(`SELECT * FROM gate_runs ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as any[];
+    const parseJson = (value: unknown): unknown => {
+      if (typeof value !== 'string') return undefined;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return undefined;
+      }
+    };
+    return {
+      runs: rows.map((row) => {
+        const payload = parseJson(row.payload_json);
+        return {
+          id: String(row.id),
+          commit: row.commit_hash,
+          base: row.base,
+          head: row.head,
+          options: (parseJson(row.policy_options) ?? {}) as GateRunPolicyOptions,
+          status: row.status,
+          violationsCount: row.violations_count,
+          routesCount: row.routes_count,
+          error: row.error ?? null,
+          detail: row.detail ?? null,
+          durationMs: row.duration_ms ?? null,
+          source: row.source,
+          createdAt: row.created_at,
+          ...(payload !== undefined && payload !== null ? { payload } : {})
+        };
+      }),
+      total
+    };
+  }
+
   listEvents(filters: EventFilters = {}): { events: RepoQAEvent[]; total: number } {
     const where: string[] = [];
     const params: any[] = [];

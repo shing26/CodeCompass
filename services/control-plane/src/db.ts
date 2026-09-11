@@ -162,6 +162,43 @@ CREATE TABLE IF NOT EXISTS workbench_cards (
 );
 CREATE INDEX IF NOT EXISTS idx_workbench_cards_query
   ON workbench_cards(repo_id, commit_hash, seq ASC);
+
+-- v0.26-B / ADR-0017: server-side gate execution history. One row per workbench
+-- gate run (analyzeDiff + evaluateDiffPolicy executed by this server — CI
+-- telemetry is explicitly NOT the subject; the source column reserves the
+-- future additive CLI-report channel). status CHECK has no 'ERROR' state: a
+-- failed git/engine run lands as a FAIL row carrying error/detail (ticket 14
+-- contract), a policy verdict FAIL is a normal result row with error NULL.
+-- Column is commit_hash, not commit (SQLite reserved word; see above note).
+CREATE TABLE IF NOT EXISTS gate_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  repo_id TEXT NOT NULL,
+  commit_hash TEXT NOT NULL,
+  base TEXT NOT NULL,
+  head TEXT NOT NULL,
+  policy_options TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('PASS','FAIL')),
+  violations_count INTEGER NOT NULL DEFAULT 0,
+  routes_count INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  detail TEXT,
+  duration_ms INTEGER,
+  payload_json TEXT,
+  source TEXT NOT NULL DEFAULT 'workbench',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (repo_id) REFERENCES repos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_gate_runs_query
+  ON gate_runs(repo_id, commit_hash, id);
+
+CREATE TABLE IF NOT EXISTS gate_run_routes (
+  run_id INTEGER NOT NULL,
+  route TEXT NOT NULL,
+  display_path TEXT,
+  risk_level TEXT CHECK (risk_level IN ('HIGH','MEDIUM','LOW')),
+  PRIMARY KEY (run_id, route),
+  FOREIGN KEY (run_id) REFERENCES gate_runs(id) ON DELETE CASCADE
+);
 `;
 
 function backupTimestamp(): string {

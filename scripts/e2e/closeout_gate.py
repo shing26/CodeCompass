@@ -30,6 +30,10 @@ v0.5.1/v0.6.0 claim:
       (intentEcho / checklists / commit / optional engine mermaid)
   16. v0.19 convention conflict: a bare-return intent against a STRICT
       wrapped-return repo streams a structured conventionConflict error
+  17. v0.26-B gate history: workbench POST /gate/run persists the verdict in
+      gate_runs (ADR-0017), GET /gate-runs replays newest-first, the gate.run
+      event rides the evidence plane, and a bad ref keeps the ticket-14 error
+      contract (400 one-line + error row recorded)
 
 Usage:
   python scripts/e2e/closeout_gate.py [--cli node services/control-plane/dist/cli.js]
@@ -706,6 +710,78 @@ def check_architecture_delta(base: str, repo_id: str) -> None:
         "architecture-delta emits a mermaid graph",
         isinstance(delta.get("mermaid"), str) and "graph" in (delta.get("mermaid") or ""),
         f"mermaid_len={len(delta.get('mermaid') or '')}",
+    )
+
+
+def check_gate_history(base: str, repo_id: str) -> None:
+    """v0.26-B / ADR-0017: workbench-side gate runs persist server-side and
+    replay newest-first; the ticket-14 error contract rides along (bad ref =>
+    400 one-line error + an error row still recorded in history)."""
+    run = http_json(
+        "POST",
+        f"{base}/api/repos/{repo_id}/gate/run",
+        {"base": "HEAD~1", "head": "HEAD", "maxAffectedRoutes": 0},
+        timeout=90,
+    )["run"]
+    record(
+        "gate run verdict persisted server-side (ADR-0017)",
+        run is not None
+        and run.get("error") is None
+        # status is CHECK-constrained to PASS/FAIL — asserting membership is a
+        # tautology; pin the FIXTURE-EXPECTED verdict (demo-python head adds a
+        # route against maxAffectedRoutes=0 ⇒ FAIL) and cross-check the stored
+        # violation count agrees with it (dual-axis review #6).
+        and run.get("status") == "FAIL"
+        and (run.get("violationsCount") or 0) >= 1
+        and run.get("base") == "HEAD~1"
+        and run.get("head") == "HEAD"
+        and run.get("options") == {"maxAffectedRoutes": 0}
+        and run.get("source") == "workbench",
+        f"status={run.get('status')} violations={run.get('violationsCount')} routes={run.get('routesCount')}",
+    )
+    replay = http_json("GET", f"{base}/api/repos/{repo_id}/gate-runs")
+    runs = replay.get("runs") or []
+    first = runs[0] if runs else {}
+    verdict_fields = ("id", "status", "violationsCount", "routesCount", "commit", "base", "head", "options", "source")
+    record(
+        "gate history replays the stored row verbatim (newest-first)",
+        replay.get("total", 0) >= 1 and all(first.get(k) == run.get(k) for k in verdict_fields),
+        f"total={replay.get('total')} first={first.get('id')}/{first.get('status')}",
+    )
+    events = http_json("GET", f"{base}/api/events?repoId={repo_id}&eventType=gate.run")
+    record(
+        "gate.run event double-written into the evidence plane",
+        events.get("total", 0) >= 1,
+        f"events={events.get('total')}",
+    )
+    ok = False
+    error_detail = ""
+    try:
+        http_json(
+            "POST",
+            f"{base}/api/repos/{repo_id}/gate/run",
+            {"base": "origin/nope", "head": "HEAD"},
+            timeout=90,
+        )
+        error_detail = "expected HTTP 400 for a bad ref"
+    except urllib.error.HTTPError as exc:
+        body = json.loads(exc.read().decode())
+        ok = (
+            exc.code == 400
+            and isinstance(body.get("error"), str)
+            and "\n" not in body["error"]
+            and isinstance(body.get("detail"), str)
+            and body["detail"] != ""
+        )
+        error_detail = f"code={exc.code} error={str(body.get('error'))[:60]!r}"
+    except Exception as exc:
+        error_detail = str(exc)
+    record("gate bad-ref run follows the ticket-14 error contract", ok, error_detail)
+    error_runs = http_json("GET", f"{base}/api/repos/{repo_id}/gate-runs?limit=1").get("runs") or []
+    record(
+        "failed gate run still lands as a history row",
+        bool(error_runs) and error_runs[0].get("error") not in (None, ""),
+        f"error={str(error_runs[0].get('error'))[:60]!r}" if error_runs else "no rows",
     )
 
 
@@ -1798,6 +1874,7 @@ def main() -> int:
         check_incident_sse_query(base, py_repo["id"])
         check_symbols_typed(base, py_repo["id"])
         check_architecture_delta(base, py_repo["id"])
+        check_gate_history(base, py_repo["id"])
 
         _py = import_repo(base, "demo-python", python_repo)
         check_dashboard(base, _py["id"], "python/fastapi")
