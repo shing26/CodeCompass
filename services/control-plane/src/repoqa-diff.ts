@@ -888,6 +888,13 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
   if (!rootStat?.isDirectory()) {
     throw new Error(`repo path is not a directory: ${options.repoPath}`);
   }
+  // 收口双轴 review P1-2：base/head 以 `-` 起头会被 git 当作选项解析
+  // （`git diff --output=<path>` 可写工作区外）。execFile 无 shell 注入，但 argv
+  // 尾部的 ref 仍是选项面。这是所有 git 调用的咽喉，一处守卫罩住 delta/gate/CLI。
+  // 与路由前置校验互补：路由先挡（不落 error 历史行），此处兜底直连调用方。
+  if (/^-/.test(options.base) || /^-/.test(options.head)) {
+    throw new Error('git refs must not start with "-"');
+  }
 
   const [statuses, diffText, baseSha, headSha] = await Promise.all([
     getDiffStatus(repoPath, options.base, options.head),

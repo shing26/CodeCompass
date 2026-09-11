@@ -2,7 +2,7 @@
 
 > *2026-09-10 v0.26 grill 拆票生成。Parent spec: `.scratch/v026-mind-split/spec.md`（验收门封条）；沿用票 15 的文案回归哨模式。*
 
-Status: in-review
+Status: closed
 标签：test / P2 / 来源：v0.26 预留 A 验收封条
 
 ## Agent Brief
@@ -36,21 +36,25 @@ Status: in-review
 - **截图台**：`.scratch/v026-mind-split/qa/a04-shots/`（gitignored）——`rig.mjs`（真控制面+真 db+dist 首用样式，6 面 × 375/1280 = **12 张 PNG 已产出**，零 pageerror）+ `overflow-check.mjs`（DOM 级截断机械测量：两视口四面 **ALL-CLEAN**，另核验空态两动词锚点真实命中非空选择器假绿）。重跑：`MHW_CP_PORT=43119 MHW_STATIC_DIR=apps/repoqa-web/dist node services/control-plane/dist/cli.js` 后 `node rig.mjs`。
 - **移交登记**（A01/A02/A03 review 累积，归本闸裁决）：①「查调用链」按钮名实残差（接线仅 setView('topo') 不自动 trace；(i) 导航措辞或 (ii) 升级接线+重命名 open-chat 标识符）；②risk 色族跨视图统一（gate 红橙灰 vs delta 黄蓝绿）；③gate payload 渲染上限；④styles.css 首次生效=chat 视觉首秀，**眼验重点在 chat 侧栏/消息区排版是否成立**。
 
-### 人工核对清单（maintainer，销票 15 遗留同一动作）
+### 人工核对清单（maintainer 已完成，2026-09-11 回「A04 过」）
 
 看图目录：`D:\CodeCompass\.scratch\v026-mind-split\qa\a04-shots\`
 
-- [ ] `empty-state-375.png`：两动词前置结构在窄屏不溢出、行不破版
-- [ ] `chat-375.png` / `chat-1280.png`：**chat 样式首秀**——侧栏/空态/底线句完整，视觉成立
-- [ ] `gate-375.png` / `gate-1280.png`：三段布局、策略旋钮两列在 375 的堆叠
-- [ ] `evolve-375.png` / `evolve-1280.png`：ScenarioGuide ①②③ 新措辞 + 「风险 Checklist」混排（uppercase 已去，眼验最终呈现）
-- [ ] `topo-375/1280.png`：侧栏「规范演进」门牌与 tab 同文
-- [ ] `dashboard-375/1280.png`：「查调用链」按钮宽度自适应
-- 完成核对后回「A04 过」或指出坏点，本票方可 closed 并入收口。
+- [x] `empty-state-375.png`：两动词前置结构在窄屏不溢出、行不破版
+- [x] `chat-375.png` / `chat-1280.png`：**chat 样式首秀**——侧栏/空态/底线句完整，视觉成立
+- [x] `gate-375.png` / `gate-1280.png`：三段布局、策略旋钮两列在 375 的堆叠
+- [x] `evolve-375.png` / `evolve-1280.png`：ScenarioGuide ①②③ 新措辞 + 「风险 Checklist」混排（uppercase 已去，眼验最终呈现）
+- [x] `topo-375/1280.png`：侧栏「规范演进」门牌与 tab 同文
+- [x] `dashboard-375/1280.png`：「查调用链」按钮宽度自适应
+
+### 人工核对完成（2026-09-11，maintainer 回「A04 过」）
+
+- 12 图眼验通过（含 A02 移交重点：styles.css 首次生效的 chat 视觉首秀排版成立、A03「风险 Checklist」混排无 CHECKLIST 全大写）。票 15 遗留的两视口核对动作就此销账。
+- **四项移交裁决**：① 「查调用链」名实残差——保留现名（比旧名「提问」净改善；导航措辞升级/`open-chat` 标识符重命名属独立改动，随 A 系列已发版冻结，移交 v0.27）；② risk 色族跨视图统一（gate 红橙灰 vs delta 黄蓝绿）→ v0.27 立小票；③ gate payload 渲染上限（超大 run 全量进 DOM）→ v0.27 立小票；④ chat 视觉首秀 → 本次核对已验，closed。本票 closed，A 系列收官。
 
 **Acceptance criteria:**
 - [x] 用户可见文案黑名单零命中自动化（copy-guard.test.ts，文件系统级含注释）
 - [x] 存在断言：三句定位句锚点在位（哨③钉源码字面量 + 票 01/02 组件测试钉渲染）
 - [x] 全前端 src grep 复核（哨即自动化本体；dist 已重建非旧快照）
-- [ ] **[阻塞项·人工] 375px + 1280px 截图核对——12 张已产出，等 maintainer 眼验**
+- [x] **[阻塞项·人工] 375px + 1280px 截图核对**——12 图已由 maintainer 眼验通过（2026-09-11「A04 过」），见上清单逐项勾记
 - [x] web 全量绿（320 = 284 基线 + A01–A04 增量）

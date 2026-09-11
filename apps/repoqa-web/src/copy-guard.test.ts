@@ -57,6 +57,11 @@ describe('copy guard (v0.26-A ticket 04)', () => {
     expect(head, 'sidebar-evolution-head 锚点必须在位（A03 门牌哨的前提）').toBeTruthy();
     expect(head![1]).toContain('规范演进');
     expect(head![1]).not.toMatch(/\bEvolution\b/);
+    // P2-8 补位点：按钮 label 同门牌（收口 review：只测节标题会漏未来按钮漂移）。
+    const button = sidebar.match(/data-testid="sidebar-evolution"[\s\S]*?<\/button>/);
+    expect(button, 'sidebar-evolution 按钮必须在位').toBeTruthy();
+    expect(button![0]).toContain('规范演进');
+    expect(button![0]).not.toMatch(/>\s*Evolution\s*</);
   });
 
   it('the three positioning sentences stand at their anchors (Q2 existence seal)', () => {

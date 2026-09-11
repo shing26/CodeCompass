@@ -1,7 +1,7 @@
 # CodeCompass 开发交接文档（Handoff）
 
 > 写给：接手 CodeCompass 开发的下一个 agent（fresh session）
-> 交接时点：2026-09-05，v0.21.0 已发布并推送（tag `v0.21.0` = `b4fae3b`）
+> 交接时点：2026-09-12，v0.26.0 实施全部完成（tag 见 git log；master 已同步）
 > 工作区：`D:\CodeCompass`（Windows 11 / Git Bash / Node 24）
 > 远端：`git@github.com:shing26/CodeCompass.git`（master 与 tag 均已同步）
 
@@ -9,9 +9,9 @@
 
 ## 1. 当前状态（一句话版）
 
-**v0.25.0 工程结构批 + 原生目录选择器（三批收口，全部门禁绿）**：http.ts 1030 行 41 路由按域拆为 `routes/{deps,workbench,analysis,repos}.ts` + ~110 行组装层（统一 `register(app, deps: HttpDeps)` 注入、子路由零 cross-import、注册顺序逐字节保持）；App.tsx 650 行单体分片为 `context/{Repo,Inspector,ChatRuntime}Context.tsx` 三片（Provider 挂 `<App/>` 内部，App.tsx 315 行，270 条断言零修改）；`GET /api/dialog/folder` Windows 拉起 STA 置顶 FolderBrowserDialog（`dialog.ts`，契约 `{supported,canceled?,path?}`），ImportRepoModal "浏览文件夹"按钮根治导入手输绝对路径。MCP/REST/SSE 契约零变化；e2e gate 55/55。此前 0.24.0 chat-merge（对话式智能体融入 Workbench）已发布推 tag。决策与暗礁防御：`.scratch/chat-merge/spec.md`。
+**v0.26.0 门禁运行史 + 问答/演进口心智分离（七票收口，全部门禁绿）**：B 系列三票落地 `gate_runs`/`gate_run_routes` 双表 + `POST gate/run`/`GET gate-runs`（ADR-0017：历史=服务器端执行史），CiGateView 三段化（运行并记录+运行史表+趋势 div 条）+ 行内两层受波及树（route 节点跳 Inspector，票 11 navSeq 复用）；A 系列四票确立「问现状/要方案」canonical 对子 + 底线「引擎只读，改动由你执行」常驻 + PlanCardView→方案摘要（CTA 桥演进）+ 演进侧命名族归一（惯例/落位表/死代码清单/风险 Checklist）+ `copy-guard.test.ts` 文件系统级文案回归哨。收口双轴 review 现场修毕 P1×2（A04 缺图补拍+rig 失败出口；`^-` git ref 选项注入双层守卫），v0.27 台账 9 项在 `.scratch/v027-backlog.md`。e2e 60/60、控制面 588、web 320。MCP 17 工具零变化，REST 新增 gate 两面 additive。决策：`.scratch/v026-gate-history/spec.md`、`.scratch/v026-mind-split/spec.md`。
 
-**环境风险项（接手必读）——Mimosa git-gate 漂移**：ZCode 层 `git commit/push` 是否被 Mimosa L3 以「全仓存量误报（~85 高危）」硬拦，**随用户插件配置漂移、不可假设**（实测：09-05 拦 → 09-08 全放开（v0.24.0 系列直接提交推送成功）→ 09-10 批次 2 提交时复拦；重试与 `--no-verify` 均无效，不可技术绕过）。标准流程：每次收口先自动尝试 commit+push；被拦则如实报告并把「add+commit+tag+push」收敛为 `.scratch/<feature>/` 下单条 `.cmd`（勿用 bash 脚本——用户 cmd 里 bash 解析到 WSL 会失败）交用户本机执行，agent 负责跑后验证落地与 CI。
+**环境风险项（接手必读）——Mimosa git-gate 漂移**：ZCode 层 `git commit/push` 是否被 Mimosa L3 以「全仓存量误报（~85 高危）」硬拦，**随用户插件配置漂移、不可假设**（实测：09-05 拦 → 09-08 放开 → 09-10 复拦 → **09-11/12 全程放行，v0.26 七票全部直提成功**；重试与 `--no-verify` 均无效，不可技术绕过）。标准流程：每次收口先自动尝试 commit+push；被拦则如实报告并把「add+commit+tag+push」收敛为 `.scratch/<feature>/` 下单条 `.cmd`（勿用 bash 脚本——用户 cmd 里 bash 解析到 WSL 会失败）交用户本机执行，agent 负责跑后验证落地与 CI。**另有环境坑：本机 C 盘 100% 满——vitest/e2e 前必须 `TMPDIR=/d/zcode-tmp TMP=... TEMP=...`，否则 ENOSPC 伪装成测试失败。**
 
 ## 2. 新 agent 上手前必须知道的事实
 

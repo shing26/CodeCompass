@@ -625,6 +625,17 @@ describe('Issue 29 diff policy gate', () => {
 /* ------------------------------------------------------------------ */
 
 describe('Issue 22 analyzeDiff end-to-end', () => {
+  it('rejects option-injection refs before any git call (closeout review P1-2 engine throat)', async () => {
+    const { root, base, head } = await makeFixtureRepo();
+    // `--output=<path>` 类值会被 git 解析为选项（可写工作区外）——咽喉必须拒收。
+    await expect(
+      analyzeDiff({ repoPath: root, base: '--output=evil', head })
+    ).rejects.toThrow(/git refs must not start with "-"/);
+    await expect(
+      analyzeDiff({ repoPath: root, base, head: '--output=evil' })
+    ).rejects.toThrow(/git refs must not start with "-"/);
+  });
+
   it(
     'finds the upstream controller when a bottom-layer repository method changes',
     async () => {

@@ -156,6 +156,12 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       res.status(400).json({ error: 'base and head git refs are required' });
       return;
     }
+    // 收口 review P1-2：`-` 起头的 ref 会被 git 当选项（--output 写文件面）。
+    // 路由前置挡=校验失败而非执行失败：不走 catch、不落 error 历史行（票 14 语义不受碰）。
+    if (/^-/.test(base) || /^-/.test(head)) {
+      res.status(400).json({ error: 'git refs must not start with "-"' });
+      return;
+    }
     try {
       const report = await analyzeDiff({ repoPath: repo.localPath, base, head });
       res.json({ delta: report.architectureDelta ?? null });
@@ -185,6 +191,12 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
     const head = typeof body.head === 'string' ? body.head.trim() : '';
     if (!base || !head) {
       res.status(400).json({ error: 'base and head git refs are required' });
+      return;
+    }
+    // 收口 review P1-2（同 architecture-delta）：选项注入面在落库前挡下，
+    // 校验失败不落 error 历史行、不触票 14 语义。
+    if (/^-/.test(base) || /^-/.test(head)) {
+      res.status(400).json({ error: 'git refs must not start with "-"' });
       return;
     }
     const options: GateRunPolicyOptions = {};

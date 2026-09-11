@@ -336,6 +336,21 @@ describe('gate run endpoints (v0.26-B)', () => {
       ).json()) as GateListResponse;
       expect(afterBad.runs[0].error).toBeTruthy();
       expect(afterBad.total).toBe(2);
+
+      // 收口 review P1-2：选项注入 ref（`--output=` 起头）在落库前挡下——
+      // 400 人话单行、票 14 形状，且**不落 error 行**（校验失败≠执行失败），total 仍 2。
+      const injected = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/gate/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ base: '--output=evil', head: 'HEAD' })
+      });
+      expect(injected.status).toBe(400);
+      const injBody = (await injected.json()) as { error: string };
+      expect(injBody.error).toBe('git refs must not start with "-"');
+      const afterInject = (await (
+        await fetch(`${ctx.baseUrl}/api/repos/${repoId}/gate-runs`)
+      ).json()) as GateListResponse;
+      expect(afterInject.total).toBe(2);
     } finally {
       await ctx.close();
     }

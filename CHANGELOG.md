@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.26.0] - 2026-09-12
+
+### Highlights
+
+- **门禁运行史（v0.26-B 三票，ADR-0017）**：变更审计（CiGateView）从纯静态展示升级为「配置→执行→回看」工作台内闭环。(1) **B01 数据面**：新表 `gate_runs` + `gate_run_routes`（子表物化受影响路、`ON DELETE CASCADE`、策略快照不回溯、dirty 独立流 Q12），单一写入口 `saveGateRun`（表+子表+`gate.run` event 同事务），`POST /api/repos/:id/gate/run` 服务器端跑 `analyzeDiff`+`evaluateDiffPolicy` 并落库、`GET /api/repos/:id/gate-runs` newest-first 回放——历史语义=**服务器端执行史**（非 CI 遥测；CLI `--report-to` 降为预留 additive 口）。(2) **B02 三段化**：视图纵向三段（现状区不动→「运行并记录」→「门禁运行史」表），策略旋钮升级为 runGate 入参，PASS 绿/FAIL 红/dirty 徽章 + 行内趋势 div 条（零图表库，dirty 从标尺过滤），400 失败走票 14 错误面且折叠原始输出。(3) **B03 受波及树**：展开历史行→route→symbols 两层 + 风险徽章（HIGH 红/MEDIUM 橙/LOW 灰），route 节点点击跳 Inspector（票 11 navSeq 契约复用），blob 防御解析逐元素把关（对象叶不崩树）。
+- **问答/演进口心智分离（v0.26-A 四票）**：确立产品语言 canonical 对子「**问现状**→架构问答 / **要方案**→规范演进」，共享底线「引擎只读，改动由你执行」在两入口与产出物常驻。(1) **A01** 定位句落地读侧动线（TopBar tooltip 含补修 `title` 从未挂 DOM 的死配置、ChatView 去「助手」+「新对话→新会话」+空态底线句、Canvas 空态两动词前置、Dashboard「提问→查调用链」只改名不改接线）。(2) **A02** PlanCardView 重塑为「方案摘要」（Plan Digest）：底线升头部常驻 + CTA「在规范演进中展开→」跳 evolve；**实拍发现并接线 styles.css**——该文件自 446473d 创建即漏挂加载链、chat 样式从未生效（monaco #12 同型），一并补齐 8 个缺失 CSS 变量别名。(3) **A03** 演进侧工件命名族归一（惯例冲突/落位表/死代码清单/风险 Checklist/拆除清单按 intentType 收口、Sidebar 中文门牌）。(4) **A04** 文案回归哨总闸：`copy-guard.test.ts` 文件系统级 grep 八词黑名单零命中（含注释、拆分构造自豁免）+ 两视口截图人工核对。
+
+### Added
+
+- `gate_runs` / `gate_run_routes` 表 + `saveGateRun`/`listGateRuns` store 方法 + `POST gate/run`/`GET gate-runs` 路由（复用 `requireRepo` 守卫与 `resolveRepoCommitSync` 三态）。测试 `repoqa-gate-runs.test.ts`；e2e 新增五条落库/回放/event 双写/票 14 契约/失败行入库存活断言（55→60）。
+- `RepoQAClient.runGate`/`listGateRuns`、`GateRunRow`/`GateRunPolicyOptions` 类型镜像；CiGateView 三段化与行内两层受波及树（expandedIds 多行独立、切库清空）。
+- `PlanCardView` CTA `onOpenEvolution`（可选 prop，无回调不渲染保既有挂载点零破坏）；`copy-guard.test.ts` 三例（黑名单/门牌/存在钉）。
+- ADR-0017（gate 运行史=服务器端执行史）；CONTEXT glossary 新增 问现状/要方案、Plan Digest、Gate Run 三词条。
+
+### Changed
+
+- 读侧动线文案：`TABS` 补 `title` 接线并修正 topo/metrics 两条从未生效的失实 tooltip（Mermaid 图/异常大文件→按组件现状）；ChatView/Canvas/EvolutionView/Sidebar/PlanCardView 命名族统一（详见 A01–A04 票 Comments）。
+- `main.tsx` 挂 `import './styles.css'`；`index.css` 两主题块补 `--accent/--text/--muted/--danger/--warn/--ok/--border/--panel-2` 语义别名（治 `var(--accent)` IACVT 致 CTA 边框消失 + 存量 4 处误用）。
+
+### Security（收口双轴 review P1-2）
+
+- `analyzeDiff` 咽喉 + architecture-delta / gate/run 两路由前置 `^-` ref 守卫：挡 `git diff --output=<path>` 一类选项注入（server 绑全网卡无鉴权暴露面）；校验失败 400 不落 error 历史行、票 14 响应形状不受碰。127.0.0.1 绑定收敛与 LAN 评估立 `.scratch/v027-backlog.md` V27-1。
+
+### 质量门（v0.26.0 基线）
+
+- 控制面 **587→588**（analyzeDiff `^-` 咽喉守卫 +1 例；gate 注入断言并入既有用例）、web **284→320**（B 系列 +23、A 系列 +13，逐票加和票面可追）、e2e **55→60**、`tsc --noEmit` 净；bridge-adapters 独立 0.6.0 版本线未被牵连（六处 bump 核验通过）。
+- 收口双轴 review：三硬约束（A01 只改名/B01 票14契约冻结/A04 两视口核对）逐条给证；跨票 CiGateView seq 守卫与树态正交、A01→A03→A04 文案链三闸同向；P1×2 现场修毕、P2×12 处置/登记（v0.27 台账 9 项）。
+- **A04 人工核对**：`.scratch/v026-mind-split/qa/a04-shots/` 12 图 × 两视口，maintainer 眼验通过（含 chat 样式首秀、风险 Checklist 混排无 CHECKLIST 全大写）；截图台 `rig.mjs` 已加失败非零出口（收口 P1-1：杜绝「声称 12 图实存 11」）。
+
+### 契约稳定性
+
+- MCP 17 工具面零变化（gate 走 REST，未加 MCP 工具）；REST/SSE 既有端点形状不变（新增 gate 两表面 additive、`--output` 守卫仅新增一类 400）；`planCards`/`onPlan`/`chatSend` CM-04 载荷协议冻结面守住（A02 纯前端渲染重塑、零 services/client diff）。
+
 ## [0.25.0] - 2026-09-10
 
 ### Highlights
