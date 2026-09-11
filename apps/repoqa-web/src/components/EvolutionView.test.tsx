@@ -233,6 +233,20 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('OrderExportService.java');
     expect(screen.getByTestId('evolve-diagram')).toBeInTheDocument();
 
+    // v0.26-A ticket 03 (Q5)：卡型名一一对应 glossary 四段、旧名退场——
+    // 落位方案→落位表、变更清单→落位表·变更、风险与建议→风险 Checklist。
+    expect(screen.getByTestId('evolve-placement')).toHaveTextContent('落位表');
+    expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('落位表·变更');
+    expect(screen.getByTestId('evolve-risks')).toHaveTextContent('风险 Checklist');
+    expect(screen.getByTestId('evolution-view').textContent).not.toMatch(
+      /落位方案|变更清单|风险与建议|死代码级联|约定冲突|推演卡/
+    );
+    // 步骤②③独立正向断言（review P2：不靠全树负断言兜措辞）
+    expect(screen.getByTestId('scenario-guide')).toHaveTextContent('引擎扫描惯例冲突');
+    expect(screen.getByTestId('scenario-guide')).toHaveTextContent(
+      '产出落位表、死代码清单与风险 Checklist；引擎只读，改动由你执行'
+    );
+
     // Stream header shows the isolation key and one card.
     expect(screen.getByTestId('evolution-view')).toHaveTextContent('abc1234');
     expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张工件卡');
@@ -463,6 +477,9 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     const dead = await waitFor(() => screen.getByTestId('evolve-deadcode'));
     expect(dead).toHaveTextContent('OrderRepository.findAll');
     expect(screen.queryByTestId('evolve-placement')).not.toBeInTheDocument();
+    // review P1：DEPRECATE 的 checklist 区不得顶「落位表」牌（EXTEND 语境专属小节名）
+    expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('拆除清单');
+    expect(screen.getByTestId('evolve-checklists').textContent).not.toMatch(/落位表/);
 
     await user.click(screen.getByText('src/main/java/com/demo/order/OrderRepository.java:9'));
     expect(onNavigate).toHaveBeenCalledWith(

@@ -235,8 +235,8 @@ export function Sidebar({
       </section>
 
       <section className="border-b border-line p-3">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          Evolution
+        <h2 data-testid="sidebar-evolution-head" className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+          规范演进
         </h2>
         <button
           type="button"
@@ -245,7 +245,7 @@ export function Sidebar({
           className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left text-xs text-muted hover:bg-accent/10 hover:text-accent"
         >
           <span className="shrink-0">🧬</span>
-          <span className="min-w-0 flex-1">演进推演工作台</span>
+          <span className="min-w-0 flex-1">规范演进</span>
         </button>
       </section>
 

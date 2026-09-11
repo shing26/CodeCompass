@@ -115,7 +115,7 @@ function PlacementCard({
   if (!placement) return null;
   return (
     <section data-testid="evolve-placement" className="rounded-md border border-line bg-surface p-3">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">落位方案</h3>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">落位表</h3>
       <p className="mb-1 font-mono text-[11px] text-ink">{placement.packagePath}</p>
       <ul className="space-y-1 text-xs text-ink">
         {placement.files.map((file) => (
@@ -153,7 +153,7 @@ function DeadCodeCard({
   return (
     <section data-testid="evolve-deadcode" className="rounded-md border border-line bg-surface p-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-        死代码级联({orphans.length})
+        死代码清单({orphans.length})
       </h3>
       <ul className="space-y-1 text-xs">
         {orphans.map((orphan) => (
@@ -174,7 +174,9 @@ function RiskCard({ result }: { result: ModuleEvolutionResult }) {
   if (risks.length === 0) return null;
   return (
     <section data-testid="evolve-risks" className="rounded-md border border-line bg-surface p-3">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">风险与建议</h3>
+      {/* 中英混排词不套 uppercase（浏览器会渲成 CHECKLIST，与 glossary L76 失配；
+        toHaveTextContent 读 DOM 原文测不到——review P2 视觉项，A04 截图门兜底）。 */}
+      <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted">风险 Checklist</h3>
       <ul className="space-y-2 text-xs">
         {risks.map((risk, index) => (
           <li key={index}>
@@ -354,7 +356,11 @@ function StreamCard({
               )}
               {card.result.checklists.length > 0 && (
                 <section data-testid="evolve-checklists" className="rounded-md border border-line bg-surface p-3">
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">变更清单</h3>
+                  {/* Q5「EXTEND 语境作落位表·变更小节」——按 intentType 收口，
+                    DEPRECATE 的 DELETE 拆除项不得顶落位牌（review P1）。 */}
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                    {card.result.intentType === 'DEPRECATE' ? '拆除清单' : '落位表·变更'}
+                  </h3>
                   <ul className="space-y-1 text-xs">
                     {card.result.checklists.map((item, index) => (
                       <li key={index} className="flex flex-wrap items-baseline gap-2">
@@ -442,8 +448,8 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
           <ScenarioGuide
             steps={[
               '① 输入重构意图（如：给订单模块加导出 / 废弃某 Controller）',
-              '② 引擎扫描约定冲突，防止越界改动',
-              '③ 生成防误删推演卡与拆除清单（勾选追踪）'
+              '② 引擎扫描惯例冲突，防止越界改动',
+              '③ 产出落位表、死代码清单与风险 Checklist；引擎只读，改动由你执行'
             ]}
           />
         </header>
