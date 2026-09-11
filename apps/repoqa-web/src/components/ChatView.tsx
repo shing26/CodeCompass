@@ -94,14 +94,18 @@ function MessageBody(props: {
   };
 
   return (
-    <div className="msg-body">
+    <div className="msg-body min-w-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-subtle [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[11px] [&_a]:text-accent [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-line [&_pre]:bg-code [&_pre]:p-2 [&_strong]:text-ink [&_table]:my-1 [&_table]:text-[11px] [&_td]:border [&_td]:border-line [&_td]:px-1.5 [&_th]:border [&_th]:border-line [&_th]:px-1.5 [&_ul]:list-disc [&_ul]:pl-5">
       {segments.map((segment, i) => (
         <Fragment key={i}>
           {segment.kind === 'text' ? (
             markdownOf(segment.value)
           ) : (
             <button
-              className={`chat-cite${activeCite === Number(segment.value) ? ' chat-cite-active' : ''}`}
+              className={`chat-cite mx-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full align-super text-[10px] font-semibold ${
+                activeCite === Number(segment.value)
+                  ? 'chat-cite-active bg-accent text-white'
+                  : 'bg-accent/15 text-accent hover:bg-accent/30'
+              }`}
               onClick={() => setActiveCite(activeCite === Number(segment.value) ? null : Number(segment.value))}
               title="查看来源工具调用"
             >
@@ -111,10 +115,10 @@ function MessageBody(props: {
         </Fragment>
       ))}
       {active && (
-        <div className="chat-cite-detail" data-testid="chat-cite-detail">
+        <div className="chat-cite-detail mt-2 rounded-md border border-line bg-subtle px-2 py-1.5 font-mono text-[11px] text-muted" data-testid="chat-cite-detail">
           [{active.n}] <code>{active.tool}</code>({JSON.stringify(active.args).slice(0, 140)}) — {active.ms}ms
           {symbolOf(active) && (
-            <button className="chat-cite-jump" onClick={() => onNavigate(symbolOf(active))}>
+            <button className="chat-cite-jump ml-2 text-accent hover:underline" onClick={() => onNavigate(symbolOf(active))}>
               在拓扑中查看 →
             </button>
           )}
@@ -137,6 +141,7 @@ function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
     <>
       <select
         data-testid="chat-model-select"
+        className="w-full rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
         value={model?.active ?? ''}
         onChange={(e) =>
           void chatClient
@@ -152,7 +157,7 @@ function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
           </option>
         ))}
       </select>
-      <div className="chat-hint">{error ?? (model?.configured ? '热切换即时生效' : 'LLM 未配置')}</div>
+      <div className="chat-hint text-[11px] text-muted">{error ?? (model?.configured ? '热切换即时生效' : 'LLM 未配置')}</div>
     </>
   );
 }
@@ -182,7 +187,20 @@ export function ChatView(props: {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // v0.27-UI ticket 01: 375px 会话侧栏 off-canvas（模式对齐 App 全局 Sidebar 抽屉）。
+  const [sideOpen, setSideOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // 自适应高度挂在 input 的 effect 上（review P1-1）：命令式 style 不会被
+  // React 重渲染重置，放 onChange 会让「发送清空/consent 草稿恢复/程序化
+  // 赋值」三条路径留下最高 128px 的空框——effect 统一覆盖全部 value 变化。
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 128)}px`;
+  }, [input]);
 
   const refreshSessions = useCallback(() => {
     chatClient
@@ -320,14 +338,28 @@ export function ChatView(props: {
   );
 
   // Issue 23 场景承接（chat-merge Q1）：排障对话由 chat 承接，composer 即入口。
+  // v0.27-UI ticket 01：骨架样式补全——这些 chat-* 类名自 chat-merge 起只存在于
+  // TSX、全仓 CSS 从未定义（裸 HTML 渲染的根因）。方案=Tailwind 语义 token 落地
+  // （与主应用同一语言、clean/cyber 主题自动跟随），语义类名保留作测试与未来 CSS 钩子。
 
   return (
-    <div className="chat-view" data-testid="chat-view">
-      <aside className="chat-side">
-        <div className="chat-side-head">
-          <span className="chat-brand" data-testid="chat-brand">架构问答</span>
+    <div className="chat-view flex min-h-0 flex-1 overflow-hidden" data-testid="chat-view">
+      {sideOpen && (
+        <div
+          className="chat-side-backdrop fixed inset-0 z-30 bg-ink/30 md:hidden"
+          data-testid="chat-side-backdrop"
+          onClick={() => setSideOpen(false)}
+        />
+      )}
+      <aside
+        className={`chat-side fixed inset-y-0 left-0 z-40 flex w-[280px] shrink-0 flex-col gap-2 border-r border-line bg-surface p-3 transition-transform md:static md:z-auto md:translate-x-0 ${
+          sideOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="chat-side-head flex items-center justify-between gap-2">
+          <span className="chat-brand text-sm font-semibold text-ink" data-testid="chat-brand">架构问答</span>
           <button
-            className="chat-new"
+            className="chat-new shrink-0 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-50"
             data-testid="chat-new-session"
             onClick={() => void startSession()}
             disabled={busy}
@@ -335,36 +367,53 @@ export function ChatView(props: {
             + 新会话
           </button>
         </div>
-        <div className="chat-sessions" data-testid="chat-session-list">
+        <div className="chat-sessions flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto" data-testid="chat-session-list">
           {sessions.map((s) => (
             <button
               key={s.id}
-              className={`chat-session${activeSession?.id === s.id ? ' active' : ''}`}
+              className={`chat-session truncate rounded-md px-2 py-1.5 text-left text-xs hover:bg-subtle hover:text-ink ${
+                activeSession?.id === s.id ? 'active bg-accent/10 text-accent' : 'text-muted'
+              }`}
               onClick={() => openSession(s)}
               title={s.createdAt}
             >
               {s.title}
             </button>
           ))}
-          {sessions.length === 0 && <div className="chat-hint">暂无本仓库会话</div>}
+          {sessions.length === 0 && <div className="chat-hint text-[11px] text-muted">暂无本仓库会话</div>}
         </div>
         {/* CM-05 前置：模型配置是高级项——默认折叠，等第二 profile 配好后可展开 */}
-        <details className="chat-model">
-          <summary className="chat-hint">模型设置</summary>
+        <details className="chat-model text-xs">
+          <summary className="chat-hint cursor-pointer text-muted">模型设置</summary>
           <ModelSelect chatClient={chatClient} />
         </details>
       </aside>
 
-      <div className="chat-main">
-        <div className="chat-head">
-          <b data-testid="chat-session-title">{activeSession ? activeSession.title : `新会话 · ${repoName}`}</b>
-          <button className="chat-back" onClick={onBackToWorkbench}>
+      <div className="chat-main flex min-w-0 flex-1 flex-col">
+        <div className="chat-head flex items-center justify-between gap-2 border-b border-line px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              className="chat-side-toggle shrink-0 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent hover:text-accent md:hidden"
+              data-testid="chat-side-toggle"
+              onClick={() => setSideOpen((v) => !v)}
+              aria-label="切换会话列表"
+            >
+              ☰
+            </button>
+            <b data-testid="chat-session-title" className="truncate text-sm text-ink">{activeSession ? activeSession.title : `新会话 · ${repoName}`}</b>
+          </div>
+          <button
+            className="chat-back shrink-0 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent hover:text-accent"
+            onClick={onBackToWorkbench}
+          >
             ← 返回工作台
           </button>
         </div>
-        <div className="chat-msgs" ref={listRef} data-testid="chat-messages">
+        <div className="chat-msgs flex min-h-0 flex-1 overflow-y-auto px-3 py-4" ref={listRef} data-testid="chat-messages">
+          {/* spec 布局段：消息列与 composer/空态同一 max-w-3xl 居中语言（review P1-2） */}
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
           {entries.length === 0 && (
-            <div className="chat-empty">
+            <div className="chat-empty flex w-full flex-col gap-3 text-center text-sm text-muted">
               <div>
                 直接提问即可，回答中的每个结论都来自代码事实，可点 [cite: N] 查证。引擎只读，改动由你执行。试试：
               </div>
@@ -385,11 +434,18 @@ export function ChatView(props: {
             </div>
           )}
           {entries.map((entry) => (
-            <div key={entry.key} className={`chat-msg ${entry.role}`}>
+            <div
+              key={entry.key}
+              className={`chat-msg ${entry.role} flex max-w-[85%] flex-col rounded-lg px-3 py-2 text-sm leading-relaxed ${
+                entry.role === 'assistant'
+                  ? 'self-start rounded-tl-none border border-line bg-surface text-ink'
+                  : 'self-end rounded-tr-none bg-accent/10 text-ink'
+              }`}
+            >
               {entry.role === 'assistant' ? (
                 <>
                   {entry.regenerating && entry.streaming && (
-                    <div className="chat-regen" data-testid="chat-regen-banner">
+                    <div className="chat-regen mb-1 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning" data-testid="chat-regen-banner">
                       回答格式无效，正在重新生成…
                     </div>
                   )}
@@ -403,29 +459,40 @@ export function ChatView(props: {
                   <MessageBody content={entry.content} citations={entry.citations} onNavigate={onNavigate} />
                 </>
               ) : (
-                <div className="chat-user-text">{entry.content}</div>
+                <div className="chat-user-text whitespace-pre-wrap">{entry.content}</div>
               )}
             </div>
           ))}
+          </div>
         </div>
-        {error && <div className="chat-error" data-testid="chat-error">{error}</div>}
-        <div className="chat-composer">
-          <textarea
-            data-testid="chat-question"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            placeholder={busy ? '思考中…' : '问点什么…（Enter 发送，Shift+Enter 换行）'}
-            disabled={busy}
-          />
-          <button className="chat-send" data-testid="chat-send" onClick={() => void send()} disabled={busy || !input.trim()}>
-            {busy ? '…' : '发送'}
-          </button>
+        {error && <div className="chat-error mx-3 mb-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger" data-testid="chat-error">{error}</div>}
+        <div className="chat-composer sticky bottom-0 border-t border-line bg-canvas/95 px-3 py-2 backdrop-blur">
+          <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+            <textarea
+              data-testid="chat-question"
+              ref={taRef}
+              value={input}
+              rows={1}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              placeholder={busy ? '思考中…' : '问点什么…（Enter 发送，Shift+Enter 换行）'}
+              disabled={busy}
+              className="min-h-8 max-h-32 flex-1 resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
+            />
+            <button
+              className="chat-send shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+              data-testid="chat-send"
+              onClick={() => void send()}
+              disabled={busy || !input.trim()}
+            >
+              {busy ? '…' : '发送'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

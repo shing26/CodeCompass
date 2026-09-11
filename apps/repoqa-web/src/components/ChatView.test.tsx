@@ -127,3 +127,52 @@ describe('ChatView read-side naming (v0.26-A ticket 01)', () => {
     expect(screen.getByTestId('chat-session-title')).toHaveTextContent('新会话 · petclinic');
   });
 });
+
+describe('ChatView layout completion (v0.27-UI ticket 01)', () => {
+  // 骨架 CSS 从未存在（裸 HTML 根因）——本轮以 Tailwind 语义类补全，
+  // jsdom 不装 CSS，断言类名/DOM 结构即布局契约。
+  it('composer is a sticky bottom bar with an auto-growing textarea', async () => {
+    renderChat({ listSessions: vi.fn().mockResolvedValue([]) });
+    await waitFor(() => expect(screen.getByTestId('chat-question')).toBeInTheDocument());
+    const composer = screen.getByTestId('chat-question').closest('.chat-composer');
+    expect(composer).not.toBeNull();
+    expect(composer).toHaveClass('sticky', 'bottom-0');
+    expect(screen.getByTestId('chat-question')).toHaveAttribute('rows', '1');
+  });
+
+  it('messages render as role bubbles: assistant self-start surface, user self-end accent', async () => {
+    const user = userEvent.setup();
+    renderChat();
+    await waitFor(() => expect(screen.getByTestId('chat-question')).toBeInTheDocument());
+    await user.type(screen.getByTestId('chat-question'), '这个仓库架构如何？');
+    await user.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(screen.getByTestId('chat-messages').querySelector('.chat-msg.user')).toBeTruthy());
+
+    const userBubble = screen.getByTestId('chat-messages').querySelector('.chat-msg.user');
+    const assistantBubble = screen.getByTestId('chat-messages').querySelector('.chat-msg.assistant');
+    expect(userBubble?.className).toMatch(/self-end/);
+    expect(userBubble?.className).toMatch(/bg-accent\/10/);
+    await waitFor(() => expect(assistantBubble?.textContent).toContain('本轮结论'));
+    expect(assistantBubble?.className).toMatch(/self-start/);
+    expect(assistantBubble?.className).toMatch(/bg-surface/);
+  });
+
+  it('narrow-screen session sidebar is off-canvas and toggles via ☰ with a backdrop', async () => {
+    const user = userEvent.setup();
+    renderChat({ listSessions: vi.fn().mockResolvedValue([]) });
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    const side = document.querySelector('.chat-side');
+    expect(side).not.toBeNull();
+    // 默认收起（md: 以上由 md:translate-x-0 静态展开，jsdom 只看类）
+    expect(side?.className).toMatch(/-translate-x-full/);
+    expect(screen.queryByTestId('chat-side-backdrop')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('chat-side-toggle'));
+    expect(side?.className).toMatch(/(^|\s)translate-x-0(\s|$)/);
+    expect(screen.getByTestId('chat-side-backdrop')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('chat-side-backdrop'));
+    expect(side?.className).toMatch(/-translate-x-full/);
+    expect(screen.queryByTestId('chat-side-backdrop')).not.toBeInTheDocument();
+  });
+});
