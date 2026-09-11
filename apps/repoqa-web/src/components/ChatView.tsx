@@ -323,7 +323,7 @@ export function ChatView(props: {
     <div className="chat-view" data-testid="chat-view">
       <aside className="chat-side">
         <div className="chat-side-head">
-          <span className="chat-brand">架构问答助手</span>
+          <span className="chat-brand" data-testid="chat-brand">架构问答</span>
           <button
             className="chat-new"
             data-testid="chat-new-session"
@@ -355,7 +355,7 @@ export function ChatView(props: {
 
       <div className="chat-main">
         <div className="chat-head">
-          <b>{activeSession ? activeSession.title : `新对话 · ${repoName}`}</b>
+          <b data-testid="chat-session-title">{activeSession ? activeSession.title : `新会话 · ${repoName}`}</b>
           <button className="chat-back" onClick={onBackToWorkbench}>
             ← 返回工作台
           </button>
@@ -363,7 +363,9 @@ export function ChatView(props: {
         <div className="chat-msgs" ref={listRef} data-testid="chat-messages">
           {entries.length === 0 && (
             <div className="chat-empty">
-              <div>直接提问即可，回答中的每个结论都来自代码事实，可点 [cite: N] 查证。试试：</div>
+              <div>
+                直接提问即可，回答中的每个结论都来自代码事实，可点 [cite: N] 查证。引擎只读，改动由你执行。试试：
+              </div>
               <div className="chat-starters">
                 {STARTER_CARDS.map((card) => (
                   <button

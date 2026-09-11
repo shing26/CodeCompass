@@ -108,7 +108,7 @@ export function DashboardView({
             onClick={onOpenChat}
             className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90"
           >
-            提问
+            查调用链
           </button>
         </header>
 

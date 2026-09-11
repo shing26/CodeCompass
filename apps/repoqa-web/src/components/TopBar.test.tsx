@@ -295,3 +295,44 @@ describe('TopBar theme toggle', () => {
     expect(button).toHaveTextContent('Cyber');
   });
 });
+
+describe('TopBar tab tooltips (v0.26-A ticket 01, 问现状/要方案)', () => {
+  it('chat/evolve tooltips carry the positioning sentences, gate reflects the run-history ability', () => {
+    render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
+    // Q2 定位句：读侧=问现状（可查证），写侧=要方案（+底线声明）
+    expect(screen.getByTestId('tab-chat')).toHaveAttribute(
+      'title',
+      '问现状：架构、链路、风险都基于代码事实，结论可逐条 [cite] 查证'
+    );
+    expect(screen.getByTestId('tab-evolve')).toHaveAttribute(
+      'title',
+      '要方案：给改动意图，产出落位建议与风险清单；引擎只读，改动由你执行'
+    );
+    // 内部语言（读侧/写侧）与已退场词（推演卡/约定冲突）禁入用户可见 tooltip
+    for (const tab of ['tab-chat', 'tab-evolve']) {
+      const title = screen.getByTestId(tab).getAttribute('title') ?? '';
+      expect(title).not.toMatch(/读侧|写侧|推演卡|约定冲突/);
+    }
+    // gate tooltip 随 B02 已升级（工作台内运行+运行史），不再只提复制命令
+    expect(screen.getByTestId('tab-gate').getAttribute('title')).toContain('运行史');
+    // title 接线让 topo/metrics 两条死配置复活——措辞按组件现状立哨（review P1-1/2：
+    // Canvas 无 Mermaid、仪表盘无大文件设施，失实宣称一旦回流即红）
+    expect(screen.getByTestId('tab-topo')).toHaveAttribute(
+      'title',
+      '点击左侧路由或类，逐步走查确定性调用链路（Caller→Target→Callee）'
+    );
+    expect(screen.getByTestId('tab-metrics')).toHaveAttribute(
+      'title',
+      '一眼查看全仓技术栈、配置拓扑、代码规模与 Top Core API 入口'
+    );
+  });
+
+  it('every tab button exposes its positioning sentence as a native tooltip (wiring, was dead config)', () => {
+    render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
+    // A01 实拍发现：TABS.title 字段自 8ac9bea 起从未挂 DOM——本票补接线后
+    // 六条 title 必须全部可达 hover 层。
+    for (const id of ['topo', 'metrics', 'chat', 'gate', 'delta', 'evolve']) {
+      expect(screen.getByTestId(`tab-${id}`).getAttribute('title')).toBeTruthy();
+    }
+  });
+});

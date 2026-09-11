@@ -50,12 +50,14 @@ interface TopBarProps {
 }
 
 const TABS: Array<{ id: WorkbenchTab; label: string; title: string }> = [
-  { id: 'topo', label: '代码拓扑', title: '点击左侧路由或类，查看确定性调用链路与 Mermaid 图' },
-  { id: 'metrics', label: '架构仪表盘', title: '一眼查看全仓技术栈、配置拓扑、代码规模与异常大文件' },
-  { id: 'chat', label: '架构问答', title: '基于确定性 AST 事实的只读代码咨询、定位与时序图绘制（新手推荐起点）' },
-  { id: 'gate', label: '变更审计', title: '复制预置命令，在 CI/CD 流水线中阻断越界影响面' },
+  // title 接线（本票实拍发现）让 topo/metrics 两条死配置复活——措辞已按
+  // 组件现状修正（review P1-1/P1-2：Canvas 不渲 Mermaid；仪表盘无大文件设施）。
+  { id: 'topo', label: '代码拓扑', title: '点击左侧路由或类，逐步走查确定性调用链路（Caller→Target→Callee）' },
+  { id: 'metrics', label: '架构仪表盘', title: '一眼查看全仓技术栈、配置拓扑、代码规模与 Top Core API 入口' },
+  { id: 'chat', label: '架构问答', title: '问现状：架构、链路、风险都基于代码事实，结论可逐条 [cite] 查证' },
+  { id: 'gate', label: '变更审计', title: '运行并记录门禁、回看本机门禁运行史，也可复制预置命令到 CI/CD 流水线' },
   { id: 'delta', label: 'Diff 影响面', title: '对比两个 Git Commit，精确定位被波及的接口与反向调用者' },
-  { id: 'evolve', label: '规范演进', title: '输入重构意图，检查代码约定冲突并生成防误删推演卡' }
+  { id: 'evolve', label: '规范演进', title: '要方案：给改动意图，产出落位建议与风险清单；引擎只读，改动由你执行' }
 ];
 
 function watcherState(status: Repo['status'] | undefined) {
@@ -347,6 +349,9 @@ export function TopBar({
             type="button"
             data-testid={`tab-${tab.id}`}
             aria-pressed={activeView === tab.id}
+            // A01 实拍发现：title 字段此前从未挂 DOM（六 tab tooltip 整排是死
+            // 配置）——定位句要 hover 可见，接线在此补上。
+            title={tab.title}
             onClick={() => onSelectView(tab.id)}
             className={`h-7 whitespace-nowrap rounded px-2 text-xs font-medium transition-colors ${
               activeView === tab.id

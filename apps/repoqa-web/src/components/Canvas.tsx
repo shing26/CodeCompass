@@ -32,10 +32,10 @@ interface CanvasProps {
 
 /**
  * Main canvas: pure topology view. The free-input chat bubble stream was
- * removed (Issue 25 / Ticket 01 — free-form questions live in the incident
- * copilot and the evolution workbench now); what stays is the focused trace
- * topology — flow cards, the trace-step strip and the offline hint — plus the
- * Mermaid diagram that renders inside the flow-card focus chain.
+ * removed (Issue 25 / Ticket 01 — free-form questions live in the chat workbench
+ * and the evolution workbench now); what stays is the focused trace topology —
+ * flow cards, the trace-step strip and the offline hint. No Mermaid renders
+ * here (the diagram lives in the delta/evolution views) — see ticket 01 review.
  */
 export function Canvas({
   repo,
@@ -279,9 +279,9 @@ export function Canvas({
               </p>
               <p>
                 <strong className="text-ink">② 选一个视图</strong> —
-                「架构仪表盘」看全仓技术栈与热点；
-                「架构问答」直接用自然语言提问（推荐新手从这里开始）；其余「代码拓扑」深入调用链、「变更审计」对接
-                CI 门禁、「Diff 影响面」看架构差异、「规范演进」做演进推演。
+                <strong className="text-ink">要方案 →</strong>「规范演进」给改动意图，产出落位与风险清单（引擎只读）；
+                <strong className="text-ink">问现状 →</strong>「架构问答」自然语言提问，结论可逐条查证（推荐新手从这里开始）。
+                其余：「代码拓扑」深入调用链、「架构仪表盘」看全仓热点、「变更审计」对接 CI 门禁、「Diff 影响面」看架构差异。
               </p>
               <p>
                 <strong className="text-ink">③ 提问或探索</strong> — 在「架构问答」输入如

@@ -108,3 +108,22 @@ describe('ChatView (chat-merge Q4)', () => {
     await waitFor(() => expect(chatClient.createSession).toHaveBeenCalledWith('repo-1'));
   });
 });
+
+describe('ChatView read-side naming (v0.26-A ticket 01)', () => {
+  it('brands the entry 架构问答 (no 助手) and folds the read-only bottom line into the empty state', async () => {
+    renderChat({ listSessions: vi.fn().mockResolvedValue([]) });
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    // 入口名唯一化：去"助手"
+    const brand = screen.getByTestId('chat-brand');
+    expect(brand).toHaveTextContent('架构问答');
+    expect(brand.textContent).not.toContain('助手');
+    // 空态底线声明常驻（与 [cite] 溯源句同段）
+    expect(screen.getByTestId('chat-messages')).toHaveTextContent('引擎只读，改动由你执行');
+  });
+
+  it('titles a fresh session 新会话 (canonical, was 新对话)', async () => {
+    renderChat({ listSessions: vi.fn().mockResolvedValue([]) });
+    await waitFor(() => expect(screen.getByTestId('chat-session-title')).toBeInTheDocument());
+    expect(screen.getByTestId('chat-session-title')).toHaveTextContent('新会话 · petclinic');
+  });
+});

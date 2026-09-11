@@ -70,6 +70,21 @@ describe('Canvas onboarding copy (ticket 15, QA-06)', () => {
     expect(guide.textContent).not.toContain('智能体对话');
     expect(guide.textContent).not.toContain('对话页');
   });
+
+  it('② uses the 两动词前置结构 with the read-only bottom line (v0.26-A ticket 01)', () => {
+    renderCanvas({ repo: null });
+    const text = screen.getByTestId('empty-state').textContent ?? '';
+    // 存在性先行（review P1-3：indexOf 缺失返回 -1 会恒小于，动词退场时空过）
+    expect(text).toContain('要方案');
+    expect(text).toContain('问现状');
+    // 动词前置：「要方案」紧邻其入口名之前、「问现状」亦然——新人 10 秒选对入口
+    expect(text.indexOf('要方案')).toBeLessThan(text.indexOf('规范演进'));
+    expect(text.indexOf('问现状')).toBeLessThan(text.indexOf('架构问答'));
+    expect(text.indexOf('要方案')).toBeLessThan(text.indexOf('问现状')); // spec 清单 6 顺序
+    // 底线声明随动词常驻；退场的旧收尾不再出现
+    expect(text).toContain('引擎只读');
+    expect(text).not.toContain('演进推演');
+  });
 });
 
 describe('Canvas topology flow cards (Issue 31)', () => {

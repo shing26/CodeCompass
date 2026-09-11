@@ -480,7 +480,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 
-  it('switches to the chat view from the dashboard 提问 button', async () => {
+  it('switches to the topology workbench from the dashboard 查调用链 button (v0.26-A ticket 01 改名)', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);

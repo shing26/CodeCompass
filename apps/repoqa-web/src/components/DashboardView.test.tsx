@@ -163,7 +163,7 @@ describe('DashboardView (issue 13)', () => {
     );
   });
 
-  it('opens the chat view from the 提问 button', async () => {
+  it('renames the button 提问→查调用链 (v0.26-A ticket 01) but keeps testid + onOpenChat wiring', async () => {
     const onOpenChat = vi.fn();
     const user = userEvent.setup();
     render(
@@ -180,6 +180,8 @@ describe('DashboardView (issue 13)', () => {
     );
     await user.click(screen.getByTestId('open-chat'));
     expect(onOpenChat).toHaveBeenCalledTimes(1);
+    // 文案哨：Q8 只改名，trace 接线本来就是 setView('topo')，无需动
+    expect(screen.getByTestId('open-chat')).toHaveTextContent('查调用链');
   });
 
   it('shows a loading state while the dashboard is being fetched', () => {
