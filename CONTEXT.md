@@ -77,6 +77,20 @@
 | Workbench Cards（工件卡持久流） | workbench_cards 表按 (repoId, commit) 流落地演进/排查终态卡（seq 单调、UNIQUE 幂等、删仓级联清理）；SSE 终态载荷披露服务端 cardId/seq，`GET /api/repos/:id/workbench-cards` 全量回放，前端切桶 hydrate 按 id 去重合并。 |
 | Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。v1 MCP 感知面冻结为现有 8 工具，演进类工具随 Issue 25 补齐。 |
 
+## Error Code Contract（v0.27-B R3）
+
+HTTP 错误响应统一 `{error: string, code?: string}`（`code` 为稳定机器码，自 v0.27.0 起在五高频面强制）。前端唯一消费口 `apps/repoqa-web/src/client/errorCodes.ts`（`ERROR_COPY` 表 + `describeError`：有码→中文指引+原始错误保留，无码→原样透出）。新码先入本表再实现；文案禁入 copy-guard 七词黑名单。
+
+| 域 | code | 触发 |
+|---|---|---|
+| 通用 | `invalid_json` / `not_found` / `request_error` / `internal_error` | 坏 JSON 体 / 未知 /api 路径 / body-parser 4xx 保真 / 终端中间件兜底（堆栈只进日志） |
+| 传输 | `network_timeout` | 前端 fetch 首字节预算超时（client/timeout.ts；非 HTTP 响应，客户端合成） |
+| 仓库 | `repo_not_found` / `repo_path_required` / `repo_path_invalid` / `import_failed` / `repo_indexing_conflict` / `repo_removed_mid_index` | requireRepo 404 / 缺路径 / 路径不可读 / 导入炸 / indexing 中删改撞 / 索引中仓库被删 |
+| clone | `clone_url_required` / `clone_url_invalid` / `clone_branch_invalid` / `clone_git_failed` | 地址缺 / 白名单拒 / 分支名非法 / git clone 炸 |
+| 文件 | `file_path_required` / `path_escape` / `not_indexed` / `file_not_found` | file/raw 四面 |
+| delta/gate | `git_refs_required` / `git_ref_invalid` / `git_command_failed` / `policy_option_invalid` | ref 缺 / `-` 注入守卫 / 票 14 执行失败（`{error, detail, code}`）/ maxAffectedRoutes 非法 |
+| chat | `unsupported_media_type` / `chat_session_not_found` / `chat_repo_required` / `chat_title_required` / `chat_message_required` / `invalid_model` / `chat_run_failed` | 415 / 404 会话 / 建会话缺 repo / 标题空 / 问题空 / 切模型失败 / 回答中途炸（reason 经 maskSensitiveText 出库，SSE `error` 帧同形） |
+
 ## Open Decisions
 - Post-v1: remote sync backend, advanced approval/guardrail automation, and
   the external Harness adapter ecosystem.

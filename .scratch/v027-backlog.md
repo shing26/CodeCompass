@@ -14,7 +14,7 @@
 | V27-8 | 仓库卫生：`.scratch/test-store-*.db` 40 个测试遗留已入库（含本机绝对路径）——gitignore + 清理 | 收口 review P2-11 | 卫生 |
 | V27-9 | LLM 节点池归智能体线（既有在册，随 v0.27 grill 合并裁决） | [[v023-scan-purify]] | 边界 |
 | V27-10 | copy-guard 英文 Evolution 封条仅锚两个 testid 位点（节标题+按钮），位点外的未来英文「Evolution」用户文案会漏网——可升级为「JSX 文本节点级」扫描或补全局正则位点（现值独立 grep 零命中，属前瞻防护） | 发布前 code-review skill（Spec 轴） | 文案哨 |
-| V27-12 | chat 错误裸传：后端 404 JSON（如 `unknown session`）直出 UI，无中文化无引导无重试——ChatView catch 做人类化映射 | computer-use 走查 D2（v027-ui 票 03） | UX |
+| V27-12 | ~~chat 错误裸传~~ **已随 v0.27-B R3 关闭（2026-09-12）**：五面 code 契约+前端 ERROR_COPY 人类化，见 `.scratch/v027-production-readiness/issues/03` | computer-use 走查 D2（v027-ui 票 03） | UX |
 | V27-13 | **UI 冒烟进 CI**：chatGuardSend P0 存活两天、330 测试全绿零拦（mock 不校验参数、e2e 绕前端层）——把 a04-shots/ui1/ui2 Playwright rig 移植成 Release 管线 smoke job（真实浏览器走 选库→dock 提问→门禁运行 三链路） | computer-use 走查 D3 | 质量 |
 | V27-14 | 未选库 Sidebar 空态噪音（`0 files — expand to browse`/`ROUTES (0)`/中英混排提示），随 V27-11 一并收 | computer-use 走查 D4 | UX |
 | V27-15 | 长 LLM 回答 ~300+ DOM 节点淹没可访问性树（读屏/键盘导航成本高；computer-use 走查亲踩流式后 index 漂移）：消息区 aria landmark 分区 + aria-live=polite + 超长回答折叠「展开全文」 | computer-use 走查 D5 | a11y |
@@ -24,5 +24,6 @@
 | V27-18 | clone/reindex 网络瞬断无策略重试（一次成败，用户手动重按）——2 次指数退避 + 进度流可感知 | 生产就绪度评估 1-缺口3 | 容错 |
 | V27-19 | 企业级套件裁决票：/metrics 指标暴露、外置告警、配置 fail-fast+.env.example——按 Local-First 产品身份多数建议不做，留 grill 显式销项 | 生产就绪度评估 低优先 | 边界 |
 | V27-20 | import/evolve 韧性补全：POST /api/repos 迁 202+WS 进度（消灭 600s 假失败面与超时后重复导入诱因）；EvolveStream 改走注入的 TimedFetch（现在全局 fetch 绕 R2 预算，也测不了） | R2 review P2-1/P2-5 | 容错 |
+| V27-21 | 掩码尺子不统一：chat 成功路径工具结果过 `maskSecrets`（llm.ts 弱三件套 AKIA/sk-/Bearer），与 routes/入库面新用的 `maskSensitiveText`（13-pattern 全套）不同尺——JWT/ghp_/DSN 可随成功结果进模型上下文再回声；scan 分支 summary 从 raw 构造更绕开一切。需专票统一+评测冻结集回归（golden eval 65/97 题按旧行为钉，静默换尺可能翻车） | R3 review P1-2（tool error 侧门已修，成功路径残余） | 安全 |
 
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

@@ -28,6 +28,7 @@ import {
   fetchWithTimeout,
   type TimedFetch
 } from './timeout';
+import { ApiError } from './errorCodes';
 
 /**
  * RepoQAClient — thin typed wrapper over the Control Plane RepoQA API.
@@ -907,8 +908,15 @@ export class ChatMergeClient {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ repoId })
     });
-    const body = (await res.json()) as { session?: ChatSessionInfo; error?: string };
-    if (!res.ok || !body.session) throw new Error(body.error ?? `HTTP ${res.status}`);
+    // v0.27-B R3 (review P1-1): carry the stable code through — a plain Error
+    // here silently un-wired the describeError guidance the ticket shipped.
+    const body = (await res.json()) as { session?: ChatSessionInfo; error?: string; code?: string };
+    if (!res.ok || !body.session)
+      throw new ApiError(
+        body.error ?? `HTTP ${res.status}`,
+        typeof body.code === 'string' ? body.code : undefined,
+        res.status
+      );
     return body.session;
   }
 
@@ -916,6 +924,17 @@ export class ChatMergeClient {
     const res = await this.fetcher(
       `${this.baseUrl}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`
     );
+    // R3 P1-1: a 404 (deleted session) used to fall through as an empty
+    // list — the single most common chat_session_not_found path never saw
+    // its guidance. Fail loud with the code instead.
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(
+        errBody.error ?? `HTTP ${res.status}`,
+        typeof errBody.code === 'string' ? errBody.code : undefined,
+        res.status
+      );
+    }
     const body = (await res.json()) as { messages?: ChatMessageInfo[] };
     return body.messages ?? [];
   }
@@ -927,8 +946,12 @@ export class ChatMergeClient {
       body: JSON.stringify({ name })
     });
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? `HTTP ${res.status}`);
+      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      throw new ApiError(
+        body.error ?? `HTTP ${res.status}`,
+        typeof body.code === 'string' ? body.code : undefined,
+        res.status
+      );
     }
   }
 
@@ -956,8 +979,17 @@ export class ChatMergeClient {
       }
     );
     if (!res.ok || !res.body) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? `HTTP ${res.status}`);
+      // v0.27-B R3: carry the stable `code` through so the UI can render
+      // human guidance (describeError) instead of the raw server sentence.
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+      };
+      throw new ApiError(
+        body.error ?? `HTTP ${res.status}`,
+        typeof body.code === 'string' ? body.code : undefined,
+        res.status
+      );
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -990,6 +1022,19 @@ export class ChatMergeClient {
           handlers.onRegenerate();
         } else if (event === 'plan' && handlers.onPlan) {
           handlers.onPlan((payload.planCards as ChatPlanCard[]) ?? []);
+        } else if (event === 'error') {
+          // v0.27-B R3: previously this frame was silently dropped — the turn
+          // resolved as an empty answer. Fail loud (with code) so ChatView
+          // surfaces guidance instead.
+          const apiErr = new ApiError(
+            String(payload.error ?? 'chat engine failed'),
+            typeof payload.code === 'string' ? payload.code : 'chat_run_failed'
+          );
+          // R3 review P2-1: release the stream explicitly — today the server
+          // closes it right after the frame, but a proxy-buffered variant must
+          // not leave the socket hanging.
+          await reader.cancel().catch(() => {});
+          throw apiErr;
         } else if (event === 'done') {
           done = {
             answer: String(payload.answer ?? ''),

@@ -56,7 +56,8 @@ export function createHttpApp(deps: HttpDeps): express.Express {
         err instanceof SyntaxError &&
         (err as { type?: string }).type === 'entity.parse.failed'
       ) {
-        res.status(400).json({ error: 'invalid JSON body' });
+        // v0.27-B R3: stable code for the malformed-body contract.
+        res.status(400).json({ error: 'invalid JSON body', code: 'invalid_json' });
         return;
       }
       next(err);
@@ -90,7 +91,7 @@ export function createHttpApp(deps: HttpDeps): express.Express {
   // Bug-R2-05: unknown /api routes must answer JSON, never Express's default
   // HTML 404 (which also breaks JSON-only API clients).
   app.use('/api', (_req, res) => {
-    res.status(404).json({ error: 'not found' });
+    res.status(404).json({ error: 'not found', code: 'not_found' });
   });
 
   // Issue 16: single-process production hosting. Mounted after every API/WS

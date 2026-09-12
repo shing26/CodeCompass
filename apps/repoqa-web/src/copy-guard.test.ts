@@ -12,19 +12,14 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { COPY_BLACKLIST } from './client/copyBlacklist';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 
-/** spec 验收门 1 黑名单（中文区）；侧栏英文节标题 Evolution 单独按 DOM 位点断言。 */
-const BLACKLIST: string[] = [
-  '推演' + '卡', // Q5：名词岗退场，「推演」只留动词（开始推演/追加推演/阶段名）
-  '拆除' + '计划', // Q3：PlanCardView 已更名「方案摘要」
-  '约定' + '冲突', // Q4：语系归「惯例」
-  '架构' + '指标', // 8ac9bea 轮退场的旧 tab 名
-  '智能体' + '对话', // 8ac9bea 轮退场的旧 tab 名
-  '读' + '侧', // Q2：内部分析语言，禁入用户可见文案
-  '写' + '侧'
-];
+/** spec 验收门 1 黑名单（中文区）；侧栏英文节标题 Evolution 单独按 DOM 位点断言。
+ * v0.27-B R3（review P2-2）：词表升格为共享权威源 client/copyBlacklist.ts——
+ * copy-guard 与 errorCodes 自查共读一张表，杜绝分叉漂移（拆分构造防自燃）。 */
+const BLACKLIST: string[] = [...COPY_BLACKLIST];
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

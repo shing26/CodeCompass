@@ -511,7 +511,7 @@ describe('RepoPulse repo import HTTP API', () => {
         body: JSON.stringify({})
       });
       expect(missing.status).toBe(400);
-      expect(await missing.json()).toEqual({ error: 'localPath is required' });
+      expect(await missing.json()).toEqual({ error: 'localPath is required', code: 'repo_path_required' });
 
       const invalid = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
         method: 'POST',
@@ -844,7 +844,7 @@ describe('RepoPulse runtime and API 404 plane', () => {
       const response = await fetch(`${ctx.baseUrl}/api/nonexistent`);
       expect(response.status).toBe(404);
       expect(response.headers.get('content-type')).toContain('application/json');
-      expect(await response.json()).toEqual({ error: 'not found' });
+      expect(await response.json()).toEqual({ error: 'not found', code: 'not_found' });
     } finally {
       await ctx.close();
     }

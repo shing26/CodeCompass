@@ -1,5 +1,6 @@
 import type express from 'express';
 import { asyncHandler } from '../http-error';
+import { maskSensitiveText } from '../repoqa-masking';
 import { randomUUID } from 'node:crypto';
 import { ReActAgent } from './agent.js';
 import type { ChatStore } from './store.js';
@@ -41,13 +42,16 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
   });
 
   app.post('/api/chat/model', (req, res) => {
-    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json' });
+    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json', code: 'unsupported_media_type' });
     try {
       chat.llm.switchTo(String(req.body?.name ?? ''));
       chat.log.write('model_switch', { active: chat.llm.activeProfileName, via: 'web' });
       res.json({ ok: true, active: chat.llm.activeProfileName });
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      res.status(400).json({
+        error: maskSensitiveText(err instanceof Error ? err.message : String(err)),
+        code: 'invalid_model'
+      });
     }
   });
 
@@ -56,9 +60,9 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
   });
 
   app.post('/api/chat/sessions', (req, res) => {
-    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json' });
+    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json', code: 'unsupported_media_type' });
     const repoId = String(req.body?.repoId ?? '');
-    if (!repoId) return res.status(400).json({ error: 'repoId required' });
+    if (!repoId) return res.status(400).json({ error: 'repoId required', code: 'chat_repo_required' });
     const id = randomUUID();
     // CM-03: title 前缀标注未命名——首条消息到达时由 addMessage 升级为摘要标题
     const title = String(req.body?.title ?? '').trim() || `未命名会话 · ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
@@ -66,27 +70,27 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
   });
 
   app.patch('/api/chat/sessions/:id', (req, res) => {
-    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json' });
+    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json', code: 'unsupported_media_type' });
     const newTitle = String(req.body?.title ?? '').trim();
-    if (!newTitle) return res.status(400).json({ error: 'title required' });
-    if (!chat.store.getSession(req.params.id)) return res.status(404).json({ error: 'unknown session' });
+    if (!newTitle) return res.status(400).json({ error: 'title required', code: 'chat_title_required' });
+    if (!chat.store.getSession(req.params.id)) return res.status(404).json({ error: 'unknown session', code: 'chat_session_not_found' });
     chat.store.renameSession(req.params.id, newTitle);
     res.json({ ok: true });
   });
 
   app.get('/api/chat/sessions/:id/messages', (req, res) => {
     const session = chat.store.getSession(req.params.id);
-    if (!session) return res.status(404).json({ error: 'unknown session' });
+    if (!session) return res.status(404).json({ error: 'unknown session', code: 'chat_session_not_found' });
     res.json({ messages: chat.store.getMessages(req.params.id) });
   });
 
   app.post('/api/chat/sessions/:id/messages', asyncHandler(async (req, res) => {
-    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json' });
+    if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json', code: 'unsupported_media_type' });
     const sessionId = String(req.params.id);
     const message = String(req.body?.message ?? '').trim();
     const session = chat.store.getSession(sessionId);
-    if (!session) return res.status(404).json({ error: 'unknown session' });
-    if (!message) return res.status(400).json({ error: 'message required' });
+    if (!session) return res.status(404).json({ error: 'unknown session', code: 'chat_session_not_found' });
+    if (!message) return res.status(400).json({ error: 'message required', code: 'chat_message_required' });
 
     // M4-01: client disconnects mid-stream must not crash the server —
     // guard every write, swallow stream errors, still complete + persist.
@@ -175,14 +179,21 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
       if (!closed) res.end();
       else try { res.end(); } catch { /* socket already gone */ }
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      // R1 review P2-5 (closed by R3): provider failures often echo the
+      // request URL/params into `message`. The reason is now masked before it
+      // touches ANY egress— the persisted note, the 500 JSON, and the SSE
+      // error frame alike—and carries the stable `chat_run_failed` code so the
+      // frontend can render human guidance instead of a raw string (V27-12).
+      const reason = maskSensitiveText(
+        err instanceof Error ? err.message : String(err)
+      );
       if (!assistantSaved && chat.store.getSession(sessionId)) {
         chat.store.addMessage(sessionId, 'assistant', `（回答未完成：${reason}）`);
       }
       if (!res.headersSent) {
-        res.status(500).json({ error: reason });
+        res.status(500).json({ error: reason, code: 'chat_run_failed' });
       } else {
-        send('error', { error: reason });
+        send('error', { error: reason, code: 'chat_run_failed' });
         if (!closed) res.end();
         else try { res.end(); } catch { /* socket already gone */ }
       }

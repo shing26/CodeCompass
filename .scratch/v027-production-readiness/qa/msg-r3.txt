@@ -1,0 +1,8 @@
+feat(v0.27-B R3): 错误码契约五面 + chat 人类化（销 V27-12）——28 稳定码入 CONTEXT 权威表
+
+- 后端：requireRepo 收口 repo_not_found 全仓共享；import/preview/clone/409 冲突族/file-raw 四面/delta·gate 票 14 家族 {error,detail,code} 纯 additive；chat 全分支挂码，run 炸时 reason 过 maskSensitiveText 三出口一致（SSE 帧/500 JSON/入库 note，R1 review P2-5 销）
+- 前端：client/errorCodes.ts（ApiError/ERROR_COPY/describeError：有码中文指引+原始错误保留，无码原样透出）；ChatView 四 catch 接线；copy-guard 词表升格共享权威源 copyBlacklist.ts（两哨同表防漂移）
+- review P1×2：createSession/switchModel 断链补码、messages() 404 从静默空列表改 fail-loud；agent 工具错误 echo 侧门（合成轮回声绕过三出口）入口掩码
+- 顺手修：SSE error 帧 reader.cancel；四 catch 原文出库补掩码；routes.test 6 例钉三出口全形状（含帧级 JSON 与 ghp_ 早炸 500 分支）
+- 残余入册 V27-21（maskSecrets 弱三件套与全套掩码不同尺，需专票+评测回归）
+- 门禁：cp 603、web 349、双 tsc 净、build、e2e 60/60

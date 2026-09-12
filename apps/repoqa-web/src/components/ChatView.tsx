@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { RepoQAClient, ChatCitation, ChatTurnResult, ChatPlanCard } from '../client/RepoQAClient';
+import { describeError } from '../client/errorCodes';
 import { PlanCardView } from './PlanCardView';
 
 /** 改造 3：快捷交互卡片——标题 + 副标题（意图），点击直发请求。 */
@@ -147,7 +148,7 @@ function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
           void chatClient
             .switchModel(e.target.value)
             .then(refresh)
-            .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+            .catch((err) => setError(describeError(err)))
         }
         disabled={!model?.profiles.length}
       >
@@ -268,7 +269,7 @@ export function ChatView(props: {
             })
           )
         )
-        .catch((e) => setError(String(e)));
+        .catch((e) => setError(describeError(e)));
     },
     [chatClient]
   );
@@ -288,7 +289,7 @@ export function ChatView(props: {
       setActiveSession(session);
       setEntries([]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeError(e));
     }
   }, [chatClient, repoId, refreshSessions]);
 
@@ -342,7 +343,7 @@ export function ChatView(props: {
           ),
         );
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(describeError(e));
       } finally {
         setEntries((prev) => prev.map((e) => ({ ...e, streaming: false, regenerating: false })));
         setBusy(false);

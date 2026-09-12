@@ -50,7 +50,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       const localPath =
         typeof body.localPath === 'string' ? body.localPath.trim() : '';
       if (!localPath) {
-        res.status(400).json({ error: 'localPath is required' });
+        res.status(400).json({ error: 'localPath is required', code: 'repo_path_required' });
         return;
       }
       const branch =
@@ -67,13 +67,15 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       // repo is null only on the ghost path (row deleted mid-index) — this
       // endpoint awaits the full index, so treat it as an unlikely 409.
       if (!result.repo) {
-        res.status(409).json({ error: 'repo was removed while indexing' });
+        res.status(409).json({ error: 'repo was removed while indexing', code: 'repo_removed_mid_index' });
         return;
       }
       res.status(result.created ? 201 : 200).json({ repo: result.repo });
     } catch (error) {
+      // R3 review P2-3：引擎/FS 报错可能内嵌凭据形状串——出库过掩码，与 chat 面同尺。
       res.status(400).json({
-        error: error instanceof Error ? error.message : String(error)
+        error: maskSensitiveText(error instanceof Error ? error.message : String(error)),
+        code: 'import_failed'
       });
     }
   }));
@@ -87,14 +89,15 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       const localPath =
         typeof body.localPath === 'string' ? body.localPath.trim() : '';
       if (!localPath) {
-        res.status(400).json({ error: 'localPath is required' });
+        res.status(400).json({ error: 'localPath is required', code: 'repo_path_required' });
         return;
       }
       const stats = await previewRepo(localPath);
       res.json({ preview: { path: localPath, ...stats } });
     } catch (error) {
       res.status(400).json({
-        error: error instanceof Error ? error.message : String(error)
+        error: maskSensitiveText(error instanceof Error ? error.message : String(error)),
+        code: 'repo_path_invalid'
       });
     }
   }));
@@ -120,7 +123,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
     if (repo.status === 'indexing') {
-      res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
+      res.status(409).json({ error: 'repo is still indexing; wait for it to finish first', code: 'repo_indexing_conflict' });
       return;
     }
     deps.worker.invalidate(repo.id);
@@ -135,7 +138,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
     if (repo.status === 'indexing') {
-      res.status(409).json({ error: 'repo is still indexing; wait for it to finish first' });
+      res.status(409).json({ error: 'repo is still indexing; wait for it to finish first', code: 'repo_indexing_conflict' });
       return;
     }
     deps.worker.invalidate(repo.id);
@@ -161,12 +164,12 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       const body = (req.body ?? {}) as { url?: unknown; branch?: unknown };
       const url = typeof body.url === 'string' ? body.url.trim() : '';
       if (!url) {
-        res.status(400).json({ error: 'url is required' });
+        res.status(400).json({ error: 'url is required', code: 'clone_url_required' });
         return;
       }
       const urlCheck = validateGitUrl(url);
       if (!urlCheck.ok) {
-        res.status(400).json({ error: urlCheck.error });
+        res.status(400).json({ error: urlCheck.error, code: 'clone_url_invalid' });
         return;
       }
       let branch: string | undefined;
@@ -178,7 +181,8 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         );
       } catch (error) {
         res.status(400).json({
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          code: 'clone_branch_invalid'
         });
         return;
       }
@@ -207,7 +211,9 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       res.status(202).json({ repo: deps.repoqa.getRepo(upsert.repo.id)! });
     } catch (error) {
       res.status(400).json({
-        error: error instanceof Error ? error.message : String(error)
+        // R3 review P2-3：git 认证失败的报错历史上会回显带凭据的 URL。
+        error: maskSensitiveText(error instanceof Error ? error.message : String(error)),
+        code: 'clone_git_failed'
       });
     }
   }));
@@ -218,7 +224,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
 
     const requested = req.query.path;
     if (typeof requested !== 'string' || requested === '') {
-      res.status(400).json({ error: 'path query parameter is required' });
+      res.status(400).json({ error: 'path query parameter is required', code: 'file_path_required' });
       return;
     }
 
@@ -226,7 +232,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     const resolved = path.resolve(root, requested);
     const relative = path.relative(root, resolved);
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      res.status(403).json({ error: 'path escapes the indexed repo' });
+      res.status(403).json({ error: 'path escapes the indexed repo', code: 'path_escape' });
       return;
     }
 
@@ -235,12 +241,12 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       const realResolved = await fs.realpath(resolved);
       const realRelative = path.relative(realRoot, realResolved);
       if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
-        res.status(403).json({ error: 'path escapes the indexed repo' });
+        res.status(403).json({ error: 'path escapes the indexed repo', code: 'path_escape' });
         return;
       }
       const indexedPath = realRelative.split(path.sep).join('/');
       if (!deps.repoqa.isFileIndexed(repo.id, indexedPath)) {
-        res.status(403).json({ error: 'file is not part of the indexed repo' });
+        res.status(403).json({ error: 'file is not part of the indexed repo', code: 'not_indexed' });
         return;
       }
       const raw = await fs.readFile(realResolved, 'utf8');
@@ -251,7 +257,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         fileName === 'pom.xml';
       res.type('text/plain').send(isConfigFile ? maskSensitiveText(raw) : raw);
     } catch {
-      res.status(404).json({ error: 'File not found' });
+      res.status(404).json({ error: 'File not found', code: 'file_not_found' });
     }
   }));
 }

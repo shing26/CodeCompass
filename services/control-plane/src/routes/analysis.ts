@@ -154,13 +154,13 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
     const base = typeof body.base === 'string' ? body.base.trim() : '';
     const head = typeof body.head === 'string' ? body.head.trim() : '';
     if (!base || !head) {
-      res.status(400).json({ error: 'base and head git refs are required' });
+      res.status(400).json({ error: 'base and head git refs are required', code: 'git_refs_required' });
       return;
     }
     // 收口 review P1-2：`-` 起头的 ref 会被 git 当选项（--output 写文件面）。
     // 路由前置挡=校验失败而非执行失败：不走 catch、不落 error 历史行（票 14 语义不受碰）。
     if (/^-/.test(base) || /^-/.test(head)) {
-      res.status(400).json({ error: 'git refs must not start with "-"' });
+      res.status(400).json({ error: 'git refs must not start with "-"', code: 'git_ref_invalid' });
       return;
     }
     try {
@@ -170,7 +170,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       const message = error instanceof Error ? error.message : String(error);
       // R3-Bug-02 — one UI-ready sentence plus the raw git output for the
       // collapsible detail block (was: raw multi-line git stderr as-is).
-      res.status(400).json({ error: summarizeGitError(message), detail: message });
+      res.status(400).json({ error: summarizeGitError(message), detail: message, code: 'git_command_failed' });
     }
   }));
 
@@ -191,13 +191,13 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
     const base = typeof body.base === 'string' ? body.base.trim() : '';
     const head = typeof body.head === 'string' ? body.head.trim() : '';
     if (!base || !head) {
-      res.status(400).json({ error: 'base and head git refs are required' });
+      res.status(400).json({ error: 'base and head git refs are required', code: 'git_refs_required' });
       return;
     }
     // 收口 review P1-2（同 architecture-delta）：选项注入面在落库前挡下，
     // 校验失败不落 error 历史行、不触票 14 语义。
     if (/^-/.test(base) || /^-/.test(head)) {
-      res.status(400).json({ error: 'git refs must not start with "-"' });
+      res.status(400).json({ error: 'git refs must not start with "-"', code: 'git_ref_invalid' });
       return;
     }
     const options: GateRunPolicyOptions = {};
@@ -207,7 +207,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
         !Number.isInteger(body.maxAffectedRoutes) ||
         body.maxAffectedRoutes < 0
       ) {
-        res.status(400).json({ error: 'maxAffectedRoutes must be a non-negative integer' });
+        res.status(400).json({ error: 'maxAffectedRoutes must be a non-negative integer', code: 'policy_option_invalid' });
         return;
       }
       options.maxAffectedRoutes = body.maxAffectedRoutes;
@@ -278,7 +278,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       } catch {
         // history unavailable — the verdict response still stands
       }
-      res.status(400).json({ error: line, detail: message });
+      res.status(400).json({ error: line, detail: message, code: 'git_command_failed' });
     }
   }));
 

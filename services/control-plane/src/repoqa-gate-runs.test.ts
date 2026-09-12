@@ -281,7 +281,7 @@ describe('gate run endpoints (v0.26-B)', () => {
       // unknown repo → shared requireRepo 404 guard (ticket 09)
       const missing = await fetch(`${ctx.baseUrl}/api/repos/nope/gate-runs`);
       expect(missing.status).toBe(404);
-      await expect(missing.json()).resolves.toEqual({ error: 'Repo not found' });
+      await expect(missing.json()).resolves.toEqual({ error: 'Repo not found', code: 'repo_not_found' });
 
       // missing refs → 400
       const badBody = await fetch(`${ctx.baseUrl}/api/repos/${repoId}/gate/run`, {

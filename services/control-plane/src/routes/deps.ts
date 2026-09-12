@@ -42,7 +42,8 @@ export function requireRepo(
 ): Repo | null {
   const repo = repoId ? deps.repoqa.getRepo(repoId) : undefined;
   if (!repo) {
-    res.status(404).json({ error: 'Repo not found' });
+    // v0.27-B R3: repo-scoped 404 across all five surfaces converges here.
+    res.status(404).json({ error: 'Repo not found', code: 'repo_not_found' });
     return null;
   }
   return repo;

@@ -1,6 +1,7 @@
 import type { ToolSummary, ToolCallOutcome } from './types.js';
 import type { ChatMessage, LlmManager, ToolSpec } from './llm.js';
 import { maskSecrets } from './llm.js';
+import { maskSensitiveText } from '../repoqa-masking';
 import type { SessionLogger } from './log.js';
 
 /** Proven parameters from CodeCompass repoqa-llm.ts (chat-merge: 抄答案不抄代码). */
@@ -170,7 +171,14 @@ export class ReActAgent {
           const card = extractPlanCard(tc.function.name, outcome);
           if (card) planCards.push(card);
         } catch (err) {
-          content = `tool error: ${err instanceof Error ? err.message : String(err)}`;
+          // v0.27-B R3 review P1-2: a tool error echoes raw engine/provider
+          // text (DSNs, provider URLs with params) into the model context. The
+          // forced synthesis turn (M3-01) can then echo it into `answer`,
+          // bypassing routes.ts's three masked egress points — mask at the
+          // source so no un-masked reason can ride the answer path to shore.
+          content = maskSensitiveText(
+            `tool error: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
         n += 1;
         const citation: Citation = { n, tool: tc.function.name, args, ms: Date.now() - t0 };

@@ -161,7 +161,7 @@ describe('v0.27-B R1: asyncHandler + error middleware + request id', () => {
         body: '{oops'
       });
       expect(bad.status).toBe(400);
-      expect(await bad.json()).toEqual({ error: 'invalid JSON body' });
+      expect(await bad.json()).toEqual({ error: 'invalid JSON body', code: 'invalid_json' });
     });
     db.close();
     await fs.rm(tempDir, { recursive: true, force: true });

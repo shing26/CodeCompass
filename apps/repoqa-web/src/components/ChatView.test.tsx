@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatView } from './ChatView';
+import { ApiError } from '../client/errorCodes';
 import type { RepoQAClient, ChatTurnResult } from '../client/RepoQAClient';
 
 function makeChatClient(overrides: Partial<RepoQAClient['chat']> = {}): RepoQAClient['chat'] {
@@ -174,5 +175,26 @@ describe('ChatView layout completion (v0.27-UI ticket 01)', () => {
     await user.click(screen.getByTestId('chat-side-backdrop'));
     expect(side?.className).toMatch(/-translate-x-full/);
     expect(screen.queryByTestId('chat-side-backdrop')).not.toBeInTheDocument();
+  });
+
+  it('v0.27-B R3: renders human guidance (not the raw server sentence) when a coded error arrives', async () => {
+    const user = userEvent.setup();
+    renderChat(
+      {},
+      async () => {
+        throw new ApiError('unknown session', 'chat_session_not_found', 404);
+      }
+    );
+    await waitFor(() => expect(screen.getByTestId('chat-new-session')).toBeInTheDocument());
+    await user.click(screen.getByTestId('chat-new-session'));
+    await user.type(screen.getByTestId('chat-question'), '随便一问');
+    await user.click(screen.getByTestId('chat-send'));
+    const box = await waitFor(() => {
+      const el = screen.getByTestId('chat-error');
+      expect(el.textContent).toContain('这个会话已经不在了');
+      return el;
+    });
+    // 指引之外保留原始错误供本机排障
+    expect(box.textContent).toContain('unknown session');
   });
 });
