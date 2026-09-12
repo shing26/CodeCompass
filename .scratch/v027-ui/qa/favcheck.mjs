@@ -1,0 +1,10 @@
+const { chromium } = await import('file:///D:/zcode-tmp/pw/node_modules/playwright-core/index.mjs');
+const b=await chromium.launch({executablePath:'C:/Users/Shing/AppData/Local/ms-playwright/chromium-1243/chrome-win64/chrome.exe',headless:true});
+const p=await b.newPage(); const errs=[];
+p.on('console',m=>{if(m.type()==='error')errs.push(m.text().slice(0,150));});
+p.on('pageerror',e=>errs.push('PE:'+String(e).slice(0,150)));
+await p.goto('http://localhost:5173/?repo=repo-878b3614-80e9-4944-a222-3a2e6e75db58',{waitUntil:'networkidle'});
+await p.waitForTimeout(1500);
+console.log('errors:',errs.length?errs:'（零）');
+console.log('icon link:',await p.evaluate(()=>document.querySelector('link[rel=icon]')?.href||'无'));
+await b.close(); process.exit(errs.length?1:0);
