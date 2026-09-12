@@ -1,0 +1,9 @@
+test(v0.27-B R7): UI 冒烟进 Release 门（销 V27-13）——真 chromium 四链路 + stub LLM 零 token
+
+- scripts/smoke/ui_smoke.mjs：选库→AskDock→chat（consent→stub 流式回答）→门禁真跑（HEAD~1→HEAD fixture）→韧性段：杀后端重启，不刷新页面经 WS 重连收索引进度帧（锁 R2）+落定后可交互
+- scripts/smoke/stub-llm.mjs：本地 OpenAI-SSE 假 endpoint（只服务 /v1/chat/completions；300ms 帧距≫服务端 40ms 批帧窗）；零外网零 token 零真实凭据
+- 两段式流式钉：「前缀无全文」中间态断言——done 兜底不可能出现中间态，渲染必经 delta 通路
+- release.yml：E2E 门后加 UI smoke 步骤（timeout-minutes:12、PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD 防三浏览器全拉、版本钉 1.63.0）
+- review P2×8 全收：stub 路径 404、finally signalCode 防挂死、失败 dump stderr、端口抢占重试、git 配置隔离、导入 5min 硬超时、去 --no-sandbox、waitForSelector 时序
+- 发现 V27-23（索引完成进度条常驻，韧性落定信号因此改走服务端）；本地 3 轮 PASS
+- 门禁：不触产品码（cp 609/web 349/e2e 60 前批已锁）；CHANGELOG 留收口批

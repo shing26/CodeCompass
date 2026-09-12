@@ -15,7 +15,7 @@
 | V27-9 | LLM 节点池归智能体线（既有在册，随 v0.27 grill 合并裁决） | [[v023-scan-purify]] | 边界 |
 | V27-10 | copy-guard 英文 Evolution 封条仅锚两个 testid 位点（节标题+按钮），位点外的未来英文「Evolution」用户文案会漏网——可升级为「JSX 文本节点级」扫描或补全局正则位点（现值独立 grep 零命中，属前瞻防护） | 发布前 code-review skill（Spec 轴） | 文案哨 |
 | V27-12 | ~~chat 错误裸传~~ **已随 v0.27-B R3 关闭（2026-09-12）**：五面 code 契约+前端 ERROR_COPY 人类化，见 `.scratch/v027-production-readiness/issues/03` | computer-use 走查 D2（v027-ui 票 03） | UX |
-| V27-13 | **UI 冒烟进 CI**：chatGuardSend P0 存活两天、330 测试全绿零拦（mock 不校验参数、e2e 绕前端层）——把 a04-shots/ui1/ui2 Playwright rig 移植成 Release 管线 smoke job（真实浏览器走 选库→dock 提问→门禁运行 三链路） | computer-use 走查 D3 | 质量 |
+| V27-13 | ~~UI 冒烟进 CI~~ **已随 v0.27-B R7 关闭（2026-09-13）**：`scripts/smoke/ui_smoke.mjs`+`stub-llm.mjs` 挂 `release.yml`（真 chromium 三链路+两段式流式钉+WS 重连韧性断言；stub LLM 零外网零 token）；发现项登 V27-23；见 issues/07（CHANGELOG 留收口批） | computer-use 走查 D3 | 质量 |
 | V27-14 | 未选库 Sidebar 空态噪音（`0 files — expand to browse`/`ROUTES (0)`/中英混排提示），随 V27-11 一并收 | computer-use 走查 D4 | UX |
 | V27-15 | 长 LLM 回答 ~300+ DOM 节点淹没可访问性树（读屏/键盘导航成本高；computer-use 走查亲踩流式后 index 漂移）：消息区 aria landmark 分区 + aria-live=polite + 超长回答折叠「展开全文」 | computer-use 走查 D5 | a11y |
 | V27-16 | 拓扑首屏自动 trace 选题偏技术侧（CodeCompass 仓选中内部 query 路由而非核心业务）：候选改用 dashboard topApis/inDegree hub 优先，纯内部路由降级 | computer-use 走查 D6 | 产品 |
@@ -26,5 +26,6 @@
 | V27-20 | import/evolve 韧性补全：POST /api/repos 迁 202+WS 进度（消灭 600s 假失败面与超时后重复导入诱因）；EvolveStream 改走注入的 TimedFetch（现在全局 fetch 绕 R2 预算，也测不了） | R2 review P2-1/P2-5 | 容错 |
 | V27-21 | 掩码尺子不统一：chat 成功路径工具结果过 `maskSecrets`（llm.ts 弱三件套 AKIA/sk-/Bearer），与 routes/入库面新用的 `maskSensitiveText`（13-pattern 全套）不同尺——JWT/ghp_/DSN 可随成功结果进模型上下文再回声；scan 分支 summary 从 raw 构造更绕开一切。需专票统一+评测冻结集回归（golden eval 65/97 题按旧行为钉，静默换尺可能翻车） | R3 review P1-2（tool error 侧门已修，成功路径残余） | 安全 |
 | V27-22 | MCP 深链仍硬编码 `http://localhost:${port}`×5（repoqa-mcp.ts:672/702/720/779/923）：R4 确立「展示面跟实际绑定面」后，`MHW_CP_HOST=192.168.x` 具体网卡逃生时深链连空——MCP stdio 进程与 HTTP 服务进程 env 可能分叉，host 传递通道需专票设计（e2e closeout_gate.py:1319 的 `startswith("http://localhost:")` 断言必须成对改） | R4 review P2-2 | 一致性 |
+| V27-23 | 索引完成后顶栏步骤条（StatusStepper）常驻不清——`indexingProgress` 仅在切库 effect 清空（RepoContext.tsx:227），FINALIZING 100% 帧后无人复位（刷新页面才消失）。修法：目录轮询观测到 status=ready 时清 progress。R7 冒烟实施中发现（韧性段落定信号被迫改走服务端状态） | R7 实施（2026-09-12） | UX |
 
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

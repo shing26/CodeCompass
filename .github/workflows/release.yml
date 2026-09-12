@@ -30,6 +30,18 @@ jobs:
           npm run test:web
       - name: E2E gate
         run: python3 scripts/e2e/closeout_gate.py
+      # v0.27-B R7 (V27-13)：真浏览器 UI 冒烟=发布门。立项动机：chatGuardSend
+      # P0 存活两天而 330 单测全绿（mock 不校验参数、e2e 绕前端层）。零外网/
+      # 零 token（本地 stub LLM，见 scripts/smoke/stub-llm.mjs），链=选库→
+      # AskDock→流式回答→门禁真跑→杀后端重启验 WS 重连（不刷新页面）。
+      - name: UI smoke (release gate)
+        timeout-minutes: 12
+        run: |
+          # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD：npm 包 postinstall 不再全量拉三浏览器，
+          # 统一交给 npx playwright install 只拉 chromium（省 ~350MB 与一个失败面）
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node scripts/smoke/ui_smoke.mjs
       - name: Generate sample artifact (open-source fixture)
         run: |
           mkdir -p dist-release
