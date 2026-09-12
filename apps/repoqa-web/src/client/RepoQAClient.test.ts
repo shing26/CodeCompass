@@ -284,7 +284,7 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
     await expect(client.getRuntime()).resolves.toEqual({
       llm: { mode: 'remote', host: 'api.***.com' }
     });
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/runtime');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/runtime', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('unwraps the { dashboard } payload and URL-encodes the repo id', async () => {
@@ -294,7 +294,7 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
     });
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
     await expect(client.getDashboard('r 1')).resolves.toEqual({ repoId: 'r 1' });
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/dashboard');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/dashboard', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('unwraps the { tours } payload and passes an optional type filter', async () => {
@@ -304,7 +304,7 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
     });
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
     await expect(client.getTours('repo-1', 'main-flow')).resolves.toEqual([{ id: 'main-flow' }]);
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/tours?type=main-flow');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/tours?type=main-flow', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('unwraps Issue 28 subgraph context and encodes query + maxTokens', async () => {
@@ -325,7 +325,8 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
     const context = await client.getSubgraphContext('repo-1', 'loadOrders', 1200);
     expect(context.start.name).toBe('loadOrders');
     expect(fetcher).toHaveBeenCalledWith(
-      'http://api/api/repos/repo-1/subgraph-context?query=loadOrders&maxTokens=1200'
+      'http://api/api/repos/repo-1/subgraph-context?query=loadOrders&maxTokens=1200',
+      expect.objectContaining({ signal: expect.anything() })
     );
   });
 
@@ -399,12 +400,12 @@ describe('RepoQAClient personal lifecycle', () => {
     expect(fetcher).toHaveBeenNthCalledWith(
       1,
       'http://api/api/repos/r%201',
-      { method: 'DELETE' }
+      expect.objectContaining({ method: 'DELETE', signal: expect.anything() })
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
       'http://api/api/repos/r%201/reindex',
-      { method: 'POST' }
+      expect.objectContaining({ method: 'POST', signal: expect.anything() })
     );
   });
 
@@ -440,7 +441,7 @@ describe('RepoQAClient onboarding export (issue 14)', () => {
     });
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
     await expect(client.exportOnboarding('r 1')).resolves.toContain('ONBOARDING');
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/export/onboarding');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/export/onboarding', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('throws on non-ok responses so the UI can surface the failure', async () => {
@@ -464,7 +465,7 @@ describe('RepoQAClient pickFolder root-domain contract (ticket 08)', () => {
       canceled: false,
       path: 'C:/projects/petclinic'
     });
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/dialog/folder');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/dialog/folder', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('serves the non-Windows degradation shape unchanged', async () => {
@@ -501,7 +502,7 @@ describe('RepoQAClient gate runs (v0.26-B ticket 02)', () => {
 
     expect(fetcher).toHaveBeenCalledWith(
       'http://api/api/repos/r%201/gate/run',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base: 'main', head: 'HEAD', maxAffectedRoutes: 10, failOnBreak: true, failOnAuthImpact: false }) }
+      expect.objectContaining({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ base: 'main', head: 'HEAD', maxAffectedRoutes: 10, failOnBreak: true, failOnAuthImpact: false }), signal: expect.anything() })
     );
   });
 
@@ -529,7 +530,7 @@ describe('RepoQAClient gate runs (v0.26-B ticket 02)', () => {
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
 
     await expect(client.listGateRuns('r 1', { limit: 20, offset: 20, commit: 'a1b2c3d' })).resolves.toEqual({ runs: [run], total: 1 });
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/gate-runs?limit=20&offset=20&commit=a1b2c3d');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/r%201/gate-runs?limit=20&offset=20&commit=a1b2c3d', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('listGateRuns omits absent params', async () => {
@@ -537,12 +538,63 @@ describe('RepoQAClient gate runs (v0.26-B ticket 02)', () => {
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
 
     await expect(client.listGateRuns('repo-1')).resolves.toEqual({ runs: [], total: 0 });
-    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/gate-runs');
+    expect(fetcher).toHaveBeenCalledWith('http://api/api/repos/repo-1/gate-runs', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('listGateRuns throws on a non-ok response', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
     await expect(client.listGateRuns('repo-1')).rejects.toThrow('listGateRuns failed: 500');
+  });
+});
+
+describe('v0.27-B R2: endpoint→budget map (review P2-7b lock)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const hang = (() =>
+    new Promise<Response>(() => {})) as unknown as typeof fetch;
+
+  it('importRepo survives the 15s default and only fails at its 600s budget', async () => {
+    vi.useFakeTimers();
+    const client = new RepoQAClient('http://api', hang);
+    let settled: 'pending' | 'rejected' = 'pending';
+    client.importRepo({ localPath: 'C:/x', name: 'x' }).catch(() => (settled = 'rejected'));
+    await vi.advanceTimersByTimeAsync(15_001); // default budget must NOT trip
+    expect(settled).toBe('pending');
+    await vi.advanceTimersByTimeAsync(585_000); // reaches 600s total
+    expect(settled).toBe('rejected');
+  });
+
+  it('runGate uses the sync-analyze budget (300s), not the default', async () => {
+    vi.useFakeTimers();
+    const client = new RepoQAClient('http://api', hang);
+    let settled: 'pending' | 'rejected' = 'pending';
+    client.runGate('repo-1', 'main', 'HEAD').catch(() => (settled = 'rejected'));
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(settled).toBe('pending');
+    await vi.advanceTimersByTimeAsync(285_000); // total 300s
+    expect(settled).toBe('rejected');
+  });
+
+  it('pickFolder uses the human-paced dialog budget (120s)', async () => {
+    vi.useFakeTimers();
+    const client = new RepoQAClient('http://api', hang);
+    let settled: 'pending' | 'rejected' = 'pending';
+    client.pickFolder().catch(() => (settled = 'rejected'));
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(settled).toBe('pending');
+    await vi.advanceTimersByTimeAsync(105_000); // total 120s
+    expect(settled).toBe('rejected');
+  });
+
+  it('ordinary GETs keep the 15s default budget', async () => {
+    vi.useFakeTimers();
+    const client = new RepoQAClient('http://api', hang);
+    let settled: 'pending' | 'rejected' = 'pending';
+    client.listRepos().catch(() => (settled = 'rejected'));
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(settled).toBe('rejected');
   });
 });

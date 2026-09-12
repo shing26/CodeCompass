@@ -140,41 +140,85 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
 
   // Issue 30: FS watcher hot reload — re-fetch symbols/dashboard on
   // repo_updated without changing the current view or showing loaders.
+  // v0.27-B R2: the backend restart used to leave this socket permanently
+  // closed (progress silently dead until F5). Now onclose schedules an
+  // exponential-backoff reconnect (1s→2s→…→30s cap, spec Q6); each re-open
+  // (attempt>0) triggers a silent refresh so frames missed while down are
+  // caught up. attempt 0 (initial connect) never refreshes — the caller's
+  // own load already did, and existing repo_updated tests rely on that.
   useEffect(() => {
     if (!repoId || typeof WebSocket === 'undefined') return;
     let ws: WebSocket | null = null;
     let cancelled = false;
-    try {
-      ws = new WebSocket(repoUpdatedWebSocketUrl(client.baseUrl));
-    } catch {
-      return;
-    }
-    ws.onmessage = (event) => {
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const open = () => {
       if (cancelled) return;
+      let socket: WebSocket;
       try {
-        const message = JSON.parse(String(event.data)) as {
-          type?: string;
-          payload?: { repoId?: string; phase?: IndexingProgress['phase']; percent?: number };
-        };
-        if (message.type === 'repoqa.index.progress') {
-          const payload = message.payload as IndexingProgress | undefined;
-          if (payload && payload.repoId === repoId) {
-            setIndexingProgress(payload);
-            if (payload.phase === 'FINALIZING' && payload.percent === 100) {
-              void refreshSymbolsSilent();
-              void refreshDashboardSilent();
-            }
-          }
-        } else if (message.type === 'repo_updated' && message.payload?.repoId === repoId) {
+        socket = new WebSocket(repoUpdatedWebSocketUrl(client.baseUrl));
+      } catch {
+        schedule(); // transient connect failure (e.g. backend mid-restart)
+        return;
+      }
+      ws = socket;
+      const isConnectedRefresh = attempt > 0;
+      socket.onopen = () => {
+        attempt = 0; // reset backoff after a successful link
+        if (isConnectedRefresh) {
           void refreshSymbolsSilent();
           void refreshDashboardSilent();
         }
-      } catch {
-        // malformed frame — ignore and keep the connection alive
-      }
+      };
+      socket.onmessage = (event) => {
+        if (cancelled) return;
+        try {
+          const message = JSON.parse(String(event.data)) as {
+            type?: string;
+            payload?: { repoId?: string; phase?: IndexingProgress['phase']; percent?: number };
+          };
+          if (message.type === 'repoqa.index.progress') {
+            const payload = message.payload as IndexingProgress | undefined;
+            if (payload && payload.repoId === repoId) {
+              setIndexingProgress(payload);
+              if (payload.phase === 'FINALIZING' && payload.percent === 100) {
+                void refreshSymbolsSilent();
+                void refreshDashboardSilent();
+              }
+            }
+          } else if (message.type === 'repo_updated' && message.payload?.repoId === repoId) {
+            void refreshSymbolsSilent();
+            void refreshDashboardSilent();
+          }
+        } catch {
+          // malformed frame — ignore and keep the connection alive
+        }
+      };
+      socket.onclose = () => {
+        if (!cancelled) schedule();
+      };
+      socket.onerror = () => {
+        // onclose always follows; nothing extra to do but keep a no-op here
+        // so an unhandled 'error' never crashes the page.
+      };
     };
+
+    const schedule = () => {
+      if (cancelled || retryTimer) return;
+      const delay = Math.min(1000 * 2 ** attempt, 30_000);
+      attempt += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        open();
+      }, delay);
+    };
+
+    open();
+
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       ws?.close();
     };
   }, [client.baseUrl, repoId, refreshSymbolsSilent, refreshDashboardSilent]);

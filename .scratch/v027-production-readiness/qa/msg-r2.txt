@@ -1,0 +1,7 @@
+feat(v0.27-B R2): 传输层韧性——fetch 首字节预算 + WS 后端重启自动重连
+
+- client/timeout.ts：AbortController+预算分层（默认 15s 只防后端挂起；importRepo 600s、同步重计算 300s、目录对话框 120s、clone 90s、preview 60s）；超时=自给式 reject（不依赖 fetch 认账），NetworkTimeoutError code='network_timeout'，URL 上字段不上 message
+- RepoContext WS：onclose 指数退避重连（1s×2ⁿ 封顶 30s），成功 re-open 静默补刷 symbols/dashboard，卸载清挂起 timer，初连不刷新保既有语义
+- review 处置：P1 pickFolder/gate·delta·subgraph 预算误杀×2 修；P2 调用方 signal 合并、Infinity=不限时、同步 throw 清表、预算映射锁 4 例、unstub 入 afterEach
+- 遗留入册：V27-20（import 迁 202+EvolveStream 走注入 fetcher）；P2-1 文案移交 R3
+- 门禁：web 344/344、tsc 净（本票零触控制面）

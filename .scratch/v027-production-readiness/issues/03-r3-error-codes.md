@@ -15,4 +15,6 @@ Status: open
 
 **R1 review 移交（P2-5，存量）：** `chat/routes.ts:178,183,185` 非流分支把 `agent.runSerialized` 原始 reason 裸 `res.status(500).json({error: reason})` + `send('error')` 上线且未过 `maskEventPayload`（LLM provider 报错常回显 URL/参数）——R3 收编：chat 域错误出网站点统一掩码+挂 code。
 
+**R2 review 移交（P2-1/P2-6）：** 前端渲染层对 `NetworkTimeoutError`（code='network_timeout'，URL 在 err.url 不在 message）给人类化文案「服务无响应（可能后端未启动）」+重试指引；`url-userinfo` 掩码上线后 chat 错误文案可复用同一 code 表。
+
 Blocked by: R1

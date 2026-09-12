@@ -1133,3 +1133,80 @@ describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () 
     expect(screen.getByTestId('tab-chat')).toHaveAttribute('aria-pressed', 'true');
   });
 });
+
+describe('v0.27-B R2: WS auto-reconnect after backend restart', () => {
+  // A FakeWebSocket that can fire open/close so the backoff path is drivable.
+  class ReconnectableWS {
+    static instances: ReconnectableWS[] = [];
+    onopen: ((ev: unknown) => void) | null = null;
+    onmessage: ((ev: MessageEvent) => void) | null = null;
+    onclose: ((ev: unknown) => void) | null = null;
+    onerror: ((ev: unknown) => void) | null = null;
+    readyState = 0;
+    constructor(public url: string) {
+      ReconnectableWS.instances.push(this);
+    }
+    close() {}
+    fireOpen() {
+      this.readyState = 1;
+      this.onopen?.({});
+    }
+    fireClose() {
+      this.readyState = 3;
+      this.onclose?.({});
+    }
+  }
+
+  beforeEach(() => {
+    ReconnectableWS.instances = [];
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reconnects after close and silent-refreshes only on re-open (attempt>0)', async () => {
+    vi.stubGlobal('WebSocket', ReconnectableWS as unknown as typeof WebSocket);
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+    await waitFor(() => expect(ReconnectableWS.instances.length).toBe(1));
+
+    const symbolsBefore = (client.listSymbols as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    const dashBefore = (client.getDashboard as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // First attempt opens — attempt 0 refresh is suppressed (load already ran).
+    ReconnectableWS.instances[0].fireOpen();
+    expect((client.listSymbols as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(symbolsBefore);
+
+    // Backend dies. Backoff 1s → a fresh instance is constructed.
+    ReconnectableWS.instances[0].fireClose();
+    await waitFor(() => expect(ReconnectableWS.instances.length).toBe(2), { timeout: 2500 });
+    expect(ReconnectableWS.instances[1].url).toContain('/ws');
+
+    // Reconnect succeeds → catch-up silent refresh (+1 each).
+    ReconnectableWS.instances[1].fireOpen();
+    await waitFor(() =>
+      expect((client.listSymbols as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(symbolsBefore + 1)
+    );
+    await waitFor(() =>
+      expect((client.getDashboard as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(dashBefore + 1)
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('unmount clears the pending reconnect timer (no ghost sockets)', async () => {
+    vi.stubGlobal('WebSocket', ReconnectableWS as unknown as typeof WebSocket);
+    const client = makeClient();
+    const user = userEvent.setup();
+    const { unmount } = render(<App client={client} />);
+    await selectRepo(user);
+    await waitFor(() => expect(ReconnectableWS.instances.length).toBe(1));
+    unmount();
+    ReconnectableWS.instances[0].fireClose();
+    // give > 1s (the first backoff) to prove no reconnect is scheduled
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(ReconnectableWS.instances.length).toBe(1);
+    vi.unstubAllGlobals();
+  });
+});

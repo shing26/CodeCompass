@@ -20,6 +20,14 @@ import type {
   SymbolKind,
   WorkbenchCardRow
 } from '../types';
+import {
+  DEFAULT_FETCH_TIMEOUT_MS,
+  DIALOG_FETCH_TIMEOUT_MS,
+  IMPORT_FETCH_TIMEOUT_MS,
+  SYNC_ANALYZE_TIMEOUT_MS,
+  fetchWithTimeout,
+  type TimedFetch
+} from './timeout';
 
 /**
  * RepoQAClient — thin typed wrapper over the Control Plane RepoQA API.
@@ -30,19 +38,22 @@ import type {
  */
 export class RepoQAClient {
   readonly baseUrl: string;
-  private readonly fetcher: typeof fetch;
+  /** v0.27-B R2: every JSON call enforces a header-budget timeout;
+   * `TimeoutRequestInit.timeoutMs` overrides per endpoint. */
+  private readonly fetcher: TimedFetch;
   /** chat-merge (v0.24.0): 对话式智能体子客户端 */
   readonly chat: ChatMergeClient;
 
   constructor(baseUrl: string, fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl;
-    // Wrap fetch in a closure: calling it as `this.fetcher(...)` binds `this`
-    // to this class instance, which browsers reject ("Illegal invocation" —
-    // fetch expects the Window as receiver). The closure keeps the real
-    // function's receiver scope so `await this.fetcher(url)` is safe.
-    this.fetcher = (...args) => fetcher(...args);
+    // v0.27-B R2: one wrapper for the whole surface — 15s until response
+    // headers (streams then hand over to the server, see client/timeout.ts).
+    // The closure still calls `fetcher(...)` detached: browsers reject a
+    // `this`-bound fetch ("Illegal invocation" — fetch expects Window).
+    this.fetcher = (input, init) =>
+      fetchWithTimeout(fetcher, input, init, DEFAULT_FETCH_TIMEOUT_MS);
     // chat-merge: 对话式智能体子客户端（编排层在 control-plane src/chat/）
-    this.chat = new ChatMergeClient(baseUrl, this.fetcher);
+    this.chat = new ChatMergeClient(baseUrl, this.fetcher as unknown as typeof fetch);
   }
 
   async listRepos(): Promise<Repo[]> {
@@ -69,10 +80,13 @@ export class RepoQAClient {
   }
 
   async importRepo(input: ImportRepoInput): Promise<Repo> {
+    // R2: this endpoint blocks until the whole index completes (the catalog
+    // only flips to ready in the response) — big repos need the relaxed budget.
     const res = await this.fetcher(`${this.baseUrl}/api/repos`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(input)
+      body: JSON.stringify(input),
+      timeoutMs: IMPORT_FETCH_TIMEOUT_MS
     });
     if (!res.ok) {
       // Bug-05: surface the backend's real error (e.g. an invalid local path)
@@ -99,7 +113,9 @@ export class RepoQAClient {
     const res = await this.fetcher(`${this.baseUrl}/api/repos/preview`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ localPath })
+      body: JSON.stringify({ localPath }),
+      // R2: a cold FS scan of a large tree can outlive the default budget.
+      timeoutMs: 60_000
     });
     if (!res.ok) {
       let detail = '';
@@ -169,7 +185,9 @@ export class RepoQAClient {
   async cloneRepo(url: string, branch?: string): Promise<Repo> {    const res = await this.fetcher(`${this.baseUrl}/api/repos/clone`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url, ...(branch ? { branch } : {}) })
+      body: JSON.stringify({ url, ...(branch ? { branch } : {}) }),
+      // R2: server-side shallow clone budgets 60s — client waits headers + margin.
+      timeoutMs: 90_000
     });
     if (!res.ok) {
       let detail = '';
@@ -192,7 +210,11 @@ export class RepoQAClient {
    * 绝对路径；非 Windows 返回 supported:false，前端降级手输。方法归仓库导入域（与
    * previewRepo/cloneRepo 同层），契约与端点 GET /api/dialog/folder 不变。 */
   async pickFolder(): Promise<{ supported: boolean; canceled?: boolean; path?: string }> {
-    const res = await this.fetcher(`${this.baseUrl}/api/dialog/folder`);
+    // R2 review P1-1: human-paced native dialog — headers only come after the
+    // user clicks. Server budgets 60s (dialog.ts); the client must be longer.
+    const res = await this.fetcher(`${this.baseUrl}/api/dialog/folder`, {
+      timeoutMs: DIALOG_FETCH_TIMEOUT_MS
+    });
     return (await res.json()) as { supported: boolean; canceled?: boolean; path?: string };
   }
 
@@ -296,7 +318,10 @@ export class RepoQAClient {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ base, head })
+        body: JSON.stringify({ base, head }),
+        // R2 review P1-2: analyzeDiff runs to completion server-side before
+        // first byte — 15s would falsely fail a slow-but-successful analyze.
+        timeoutMs: SYNC_ANALYZE_TIMEOUT_MS
       }
     );
     if (!res.ok) {
@@ -339,7 +364,10 @@ export class RepoQAClient {
     const res = await this.fetcher(`${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/gate/run`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ base, head, ...(options ?? {}) })
+      // R2 review P1-2: same synchronous analyzeDiff semantics as the delta
+      // endpoint (and the run persists server-side regardless of our wait).
+      body: JSON.stringify({ base, head, ...(options ?? {}) }),
+      timeoutMs: SYNC_ANALYZE_TIMEOUT_MS
     });
     if (!res.ok) {
       let message = `runGate failed: ${res.status}`;
@@ -403,7 +431,8 @@ export class RepoQAClient {
     const params = new URLSearchParams({ query });
     if (maxTokens !== undefined) params.set('maxTokens', String(maxTokens));
     const res = await this.fetcher(
-      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/subgraph-context?${params.toString()}`
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/subgraph-context?${params.toString()}`,
+      { timeoutMs: SYNC_ANALYZE_TIMEOUT_MS }
     );
     if (!res.ok) throw new Error(`getSubgraphContext failed: ${res.status}`);
     const body = (await res.json()) as { context?: SubgraphContextResult };

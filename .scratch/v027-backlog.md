@@ -23,5 +23,6 @@
 | V27-17 | buildTours 启发式对 TS 前端仓零锚点：CodeCompass 本仓 `GET /tours` 返回 `[]`（Java 仓 nexus-campus / ResuAlign 有 auth-chain），侧栏 Quick Tours 只剩「No tours available」空转——锚点族按 Java 注解写死，需补 TS 侧（Express router 注册/React Context 枢纽/main.tsx 入口链）。内容缺位非界面 bug | 2026-09-12 全功能回归走查 R2（sweep2 段 5 实证） | 内容 |
 | V27-18 | clone/reindex 网络瞬断无策略重试（一次成败，用户手动重按）——2 次指数退避 + 进度流可感知 | 生产就绪度评估 1-缺口3 | 容错 |
 | V27-19 | 企业级套件裁决票：/metrics 指标暴露、外置告警、配置 fail-fast+.env.example——按 Local-First 产品身份多数建议不做，留 grill 显式销项 | 生产就绪度评估 低优先 | 边界 |
+| V27-20 | import/evolve 韧性补全：POST /api/repos 迁 202+WS 进度（消灭 600s 假失败面与超时后重复导入诱因）；EvolveStream 改走注入的 TimedFetch（现在全局 fetch 绕 R2 预算，也测不了） | R2 review P2-1/P2-5 | 容错 |
 
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。
