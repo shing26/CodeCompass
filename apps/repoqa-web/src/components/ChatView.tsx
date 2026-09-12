@@ -174,7 +174,9 @@ export function ChatView(props: {
       onDelta: (text: string) => void;
       onRegenerate?: () => void;
       onPlan?: (cards: ChatPlanCard[]) => void;
-    }
+    },
+    /** 真实会话 id（chat-s*）——调用方需要它来 POST /sessions/:id/messages */
+    sessionId: string
   ) => Promise<ChatTurnResult | null>;
   /** v0.26-A ticket 02 (Q3)：方案摘要卡 CTA 跳规范演进——App 组合层注入。 */
   onOpenEvolution?: () => void;
@@ -317,7 +319,7 @@ export function ChatView(props: {
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: '', regenerating: true } : e))),
           onPlan: (cards: ChatPlanCard[]) =>
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, planCards: cards } : e)))
-        });
+        }, session.id);
         if (!done) {
           // consent 待确认（chatGuardSend 未执行）——撤回本地占位，恢复草稿
           setEntries((prev) => prev.filter((e) => e.key !== streamKey && e.content !== message));

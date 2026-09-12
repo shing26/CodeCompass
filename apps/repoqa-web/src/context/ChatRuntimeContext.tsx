@@ -26,14 +26,16 @@ interface ChatRuntimeContextValue {
   confirmConsent: () => void;
   /** LLM consent 门之后的程序化提问入口（Dashboard Top API / 深链）。 */
   handleSubmit: ReturnType<typeof useChat>['submit'];
-  /** chat-merge — ChatView 的发送入口，同样受 consent 门保护。 */
+  /** chat-merge — ChatView 的发送入口，同样受 consent 门保护。
+   * sessionId 由 ChatView 传入（真实 chat-s*；v0.25 批3 误用 repoId 的回归锁）。 */
   chatGuardSend: (
     message: string,
     handlers: {
       onDelta: (text: string) => void;
       onRegenerate?: () => void;
       onPlan?: (cards: ChatPlanCard[]) => void;
-    }
+    },
+    sessionId: string
   ) => Promise<ChatTurnResult | null>;
   handleTrace: (api: TopApiEntry) => void;
 }
@@ -106,7 +108,9 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
 
   /** chat-merge — chat send guarded by the same LLM consent gate as the
    * legacy incident composer. Returns null when consent was cancelled so the
-   * ChatView can restore the draft. */
+   * ChatView can restore the draft. sessionId 由 ChatView 传入（真实 chat-s*
+   * 行）——v0.25 批3 分片时误把 currentRepo.id 当 sessionId，真实前端全部
+   * 404 unknown session（computer-use 走查抓到，登记 v027-ui 票 03）。 */
   const chatGuardSend = useCallback(
     (
       message: string,
@@ -114,14 +118,15 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
         onDelta: (text: string) => void;
         onRegenerate?: () => void;
         onPlan?: (cards: ChatPlanCard[]) => void;
-      }
+      },
+      sessionId: string
     ) => {
       if (runtime.llm.mode === 'remote' && !llmConsented) {
         setConsentPending({ question: message, chatMessage: message });
         return Promise.resolve(null);
       }
       if (!currentRepo) return Promise.resolve(null);
-      return client.chat.chatSend(currentRepo.id, message, handlers);
+      return client.chat.chatSend(sessionId, message, handlers);
     },
     [runtime.llm.mode, llmConsented, currentRepo, client]
   );

@@ -881,6 +881,12 @@ describe('chat-merge: chat view replaces the incident copilot (v0.24.0)', () => 
     await user.type(screen.getByTestId('chat-question'), 'NPE at Demo.run');
     await user.click(screen.getByTestId('chat-send'));
     await waitFor(() => expect(client.chat.chatSend).toHaveBeenCalled());
+    // Regression (v0.25 批3 分片曾把 currentRepo.id 当 sessionId 传，真实前端全部
+    // 404 unknown session)：首参必须是 ChatView 的 chat-s* 会话，不是 repo-*。
+    const sendArgs = (client.chat.chatSend as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, string];
+    expect(sendArgs[0]).not.toMatch(/^repo-/);
+    expect(sendArgs[0]).toMatch(/^chat-s/);
     // cite 角标被拆分为独立元素，正文文本不含 "[cite: 1]" 字面量
     expect(screen.getByTestId('chat-messages')).toHaveTextContent('分析完成：orphanedPublic 共 3 项');
     expect(screen.getByTestId('chat-messages')).toHaveTextContent('NPE at Demo.run');
