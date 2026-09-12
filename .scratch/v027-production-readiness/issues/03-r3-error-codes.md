@@ -13,4 +13,6 @@ Status: open
 
 **Acceptance:** 每面 code 断言 + ChatView 中文文案测；既有 `{error}` 字符串测试随改列清单。
 
+**R1 review 移交（P2-5，存量）：** `chat/routes.ts:178,183,185` 非流分支把 `agent.runSerialized` 原始 reason 裸 `res.status(500).json({error: reason})` + `send('error')` 上线且未过 `maskEventPayload`（LLM provider 报错常回显 URL/参数）——R3 收编：chat 域错误出网站点统一掩码+挂 code。
+
 Blocked by: R1

@@ -5,6 +5,7 @@ import { registerChatRoutes } from './chat/routes';
 import { registerWorkbenchRoutes, registerWorkbenchLateRoutes } from './routes/workbench';
 import { registerReposCatalogRoutes, registerReposIngestRoutes } from './routes/repos';
 import { registerAnalysisRoutes } from './routes/analysis';
+import { errorMiddleware, requestIdMiddleware } from './http-error';
 import type { HttpDeps } from './routes/deps';
 
 export type { HttpDeps } from './routes/deps';
@@ -32,6 +33,13 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     }
     next();
   });
+
+  // v0.27-B R1: request id for correlating responses with server logs. Placed
+  // before express.json so even the malformed-body 400 carries the header, and
+  // before every route/error handler so both success and 500 paths do too.
+  // (CORS preflight short-circuits above with a body-less 204 and stays id-less
+  // by design — no business traffic to correlate.)
+  app.use(requestIdMiddleware);
 
   app.use(express.json());
 
@@ -107,6 +115,13 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       res.sendFile(path.join(deps.staticDir!, 'index.html'));
     });
   }
+
+  // v0.27-B R1: terminal error middleware — any uncaught handler error
+  // (asyncHandler-forwarded rejections, sync throws, errors from the
+  // Bug-13 SyntaxError guard's next(err)) answers JSON 500 with the stack
+  // staying server-side. Registered after the SPA fallback so it is the
+  // last thing the pipeline can run.
+  app.use(errorMiddleware);
 
   return app;
 }

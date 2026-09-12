@@ -1,0 +1,7 @@
+feat(v0.27-B R1): 全局 error 中间件 + asyncHandler——async rejection 不再悬挂、500 一律 JSON 且堆栈不出网
+
+- http-error 三件套：requestId（x-mhw-request-id 贯穿成功/500）、asyncHandler（rejection→next(err)）、终端 errorMiddleware（headersSent 交 Express 销毁流；4xx 保真透传）
+- 13 处 async 处理器 codemod 包裹（analysis/repos/workbench/chat）
+- review 处置：stderr message/stack 过 maskSensitiveText（P1-1 实测 DSN 裸落修）；stderr 行契约+headersSent 守卫钉为测试
+- 共享缺口顺手补：掩码库新增 url-userinfo 规则（connection-string 口令），普通 URL/端口不误伤
+- 门禁：cp 598（+4）、tsc 净、build、e2e 60/60×2；P2-5（chat 存量裸传）移交 R3

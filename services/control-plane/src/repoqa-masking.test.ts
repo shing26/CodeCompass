@@ -119,6 +119,18 @@ describe('Issue 07 masking engine — sensitive formats', () => {
     expect(masked).toContain('[REDACTED PGP KEY]');
   });
 
+  it('masks connection-string passwords but leaves plain URLs and ports intact (v0.27-B R1)', () => {
+    expect(maskSensitiveText('connect postgres://user:super-secret-pw@db:5432/app')).toBe(
+      'connect postgres://user:***@db:5432/app'
+    );
+    expect(maskSensitiveText('redis://:only-pass@cache')).toBe('redis://:***@cache');
+    // no userinfo / no password => untouched
+    expect(maskSensitiveText('get https://api.deepseek.com/v1/chat/completions ok')).toBe(
+      'get https://api.deepseek.com/v1/chat/completions ok'
+    );
+    expect(maskSensitiveText('listen 127.0.0.1:43110')).toBe('listen 127.0.0.1:43110');
+  });
+
   it('masks Bearer and Basic authorization tokens', () => {
     const masked = maskSensitiveText(
       'Authorization: Bearer some-token\nAuthorization: Basic YWRtaW46c2VjcmV0MTIz\nx-auth-token: abcdef123456'

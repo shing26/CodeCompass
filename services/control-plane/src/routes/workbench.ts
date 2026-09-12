@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncHandler } from '../http-error';
 import type { HttpDeps } from './deps';
 import { ACTIONS, requireRepo } from './deps';
 import type { TaskAction } from '../orchestrator';
@@ -67,7 +68,7 @@ export function registerWorkbenchRoutes(app: express.Express, deps: HttpDeps): v
     }
   });
 
-  app.post('/api/tasks/:id/actions', async (req, res) => {
+  app.post('/api/tasks/:id/actions', asyncHandler(async (req, res) => {
     try {
       const body = req.body as { action: TaskAction; approved?: boolean };
       if (!ACTIONS.includes(body.action)) {
@@ -84,7 +85,7 @@ export function registerWorkbenchRoutes(app: express.Express, deps: HttpDeps): v
       const message = error instanceof Error ? error.message : String(error);
       res.status(400).json({ error: message });
     }
-  });
+  }));
 
   app.get('/api/harnesses', (_req, res) => {
     res.json({ harnesses: deps.repos.listHarnesses() });

@@ -1,4 +1,5 @@
 import express from 'express';
+import { asyncHandler } from '../http-error';
 import { requireRepo, type HttpDeps } from './deps';
 import { buildTours } from '../repoqa-tours';
 import { buildDashboard } from '../repoqa-dashboard';
@@ -146,7 +147,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
 
   // v0.6.0 — Architecture Delta: base/head 两个 git ref 的多语言路由增删、
   // 断边与风险分级。复用 `codecompass diff` 的只读 git 内核，不触碰工作区。
-  app.post('/api/repos/:id/architecture-delta', async (req, res) => {
+  app.post('/api/repos/:id/architecture-delta', asyncHandler(async (req, res) => {
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
     const body = (req.body ?? {}) as { base?: unknown; head?: unknown };
@@ -171,7 +172,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       // collapsible detail block (was: raw multi-line git stderr as-is).
       res.status(400).json({ error: summarizeGitError(message), detail: message });
     }
-  });
+  }));
 
   // v0.26-B / ADR-0017 — server-side gate execution history. POST runs the
   // same deterministic engine `pr-summary` uses (analyzeDiff +
@@ -183,7 +184,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // without `error` is a normal verdict row. GET replays newest-first with
   // /api-events-style paging. Commit stream = live resolveRepoCommitSync
   // (hash / hash+dirty / unversioned; dirty runs isolate per Q12).
-  app.post('/api/repos/:id/gate/run', async (req, res) => {
+  app.post('/api/repos/:id/gate/run', asyncHandler(async (req, res) => {
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -279,7 +280,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       }
       res.status(400).json({ error: line, detail: message });
     }
-  });
+  }));
 
   app.get('/api/repos/:id/gate-runs', (req, res) => {
     const repo = requireRepo(deps, res, req.params.id);
@@ -306,7 +307,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
   // Issue 28: Graph RAG subgraph extraction. Deterministic (no LLM): resolves
   // the query through the worker, walks callers/callees over the in-memory
   // symbol graph and returns agent-ready Markdown with credential masking.
-  app.get('/api/repos/:id/subgraph-context', async (req, res) => {
+  app.get('/api/repos/:id/subgraph-context', asyncHandler(async (req, res) => {
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
     const query =
@@ -348,7 +349,7 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({ error: message });
     }
-  });
+  }));
 
   // Issue 14: one-click ONBOARDING.md handover export. Aggregates dashboard +
   // tours into a standard Markdown doc; config values are never indexed
@@ -480,8 +481,8 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       }
     }
   };
-  app.get('/api/repos/:id/query', handleQuery);
-  app.post('/api/repos/:id/query', handleQuery);
+  app.get('/api/repos/:id/query', asyncHandler(handleQuery));
+  app.post('/api/repos/:id/query', asyncHandler(handleQuery));
 
   // Issue 24 / Ticket 04 — Evolution workbench stream. POST + JSON body (the
   // free-text intent is user prose, not a URL concern). Same SSE framing as
@@ -555,5 +556,5 @@ export function registerAnalysisRoutes(app: express.Express, deps: HttpDeps): vo
       }
     }
   };
-  app.post('/api/repos/:id/evolve', handleEvolve);
+  app.post('/api/repos/:id/evolve', asyncHandler(handleEvolve));
 }

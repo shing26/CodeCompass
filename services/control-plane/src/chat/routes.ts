@@ -1,4 +1,5 @@
 import type express from 'express';
+import { asyncHandler } from '../http-error';
 import { randomUUID } from 'node:crypto';
 import { ReActAgent } from './agent.js';
 import type { ChatStore } from './store.js';
@@ -79,7 +80,7 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
     res.json({ messages: chat.store.getMessages(req.params.id) });
   });
 
-  app.post('/api/chat/sessions/:id/messages', async (req, res) => {
+  app.post('/api/chat/sessions/:id/messages', asyncHandler(async (req, res) => {
     if (!wantsJson(req)) return res.status(415).json({ error: 'content-type must be application/json' });
     const sessionId = String(req.params.id);
     const message = String(req.body?.message ?? '').trim();
@@ -186,7 +187,7 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
         else try { res.end(); } catch { /* socket already gone */ }
       }
     }
-  });
+  }));
 }
 
 function depsStoreAdd(chat: ChatRuntime, sessionId: string, turn: { answer: string; citations: unknown }): void {

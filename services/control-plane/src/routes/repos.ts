@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { asyncHandler } from '../http-error';
 import path from 'node:path';
 import express from 'express';
 import { requireRepo, type HttpDeps } from './deps';
@@ -39,7 +40,7 @@ export function registerReposCatalogRoutes(app: express.Express, deps: HttpDeps)
 /** v0.25.0 批次 2：仓库写入/摄取域——POST 导入、preview、dialog、delete、
  * reindex、clone、file-raw。原 786-1006 行连续段。 */
 export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps): void {
-  app.post('/api/repos', async (req, res) => {
+  app.post('/api/repos', asyncHandler(async (req, res) => {
     try {
       const body = (req.body ?? {}) as {
         localPath?: unknown;
@@ -75,12 +76,12 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         error: error instanceof Error ? error.message : String(error)
       });
     }
-  });
+  }));
 
   // Round 2 B4: read-only pre-import preview. The frontend calls this while
   // the user types a local path so they can see exactly what will be indexed
   // (and which ignored dirs will be skipped) before committing to an import.
-  app.post('/api/repos/preview', async (req, res) => {
+  app.post('/api/repos/preview', asyncHandler(async (req, res) => {
     try {
       const body = (req.body ?? {}) as { localPath?: unknown };
       const localPath =
@@ -96,12 +97,12 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         error: error instanceof Error ? error.message : String(error)
       });
     }
-  });
+  }));
 
   // v0.25.0 批次 1：原生目录选择器——绕过浏览器沙箱拿不到绝对路径的根因。
   // Windows 拉起系统 FolderBrowserDialog（STA + 置顶）；非 Windows 返回
   // supported:false 让前端降级手输。契约见 src/dialog.ts。
-  app.get('/api/dialog/folder', async (_req, res) => {
+  app.get('/api/dialog/folder', asyncHandler(async (_req, res) => {
     try {
       const result = await pickFolderDialog();
       res.json(result);
@@ -110,7 +111,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       // 响应形状严格守住 {supported, canceled?, path?} 契约。
       res.json({ supported: true, canceled: true });
     }
-  });
+  }));
 
   // Personal-use lifecycle: remove the index from the catalog. Source files
   // and local clones are intentionally left on disk — the user can re-import
@@ -155,7 +156,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
   // indexing. The clone runs synchronously (frontend shows a "cloning" phase);
   // the index runs fire-and-forget so the frontend can poll the repo status
   // and show a second "indexing" phase until the catalog flips to ready.
-  app.post('/api/repos/clone', async (req, res) => {
+  app.post('/api/repos/clone', asyncHandler(async (req, res) => {
     try {
       const body = (req.body ?? {}) as { url?: unknown; branch?: unknown };
       const url = typeof body.url === 'string' ? body.url.trim() : '';
@@ -209,9 +210,9 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         error: error instanceof Error ? error.message : String(error)
       });
     }
-  });
+  }));
 
-  app.get('/api/repos/:id/file/raw', async (req, res) => {
+  app.get('/api/repos/:id/file/raw', asyncHandler(async (req, res) => {
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
 
@@ -252,5 +253,5 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     } catch {
       res.status(404).json({ error: 'File not found' });
     }
-  });
+  }));
 }

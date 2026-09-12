@@ -163,6 +163,15 @@ export const MASK_PATTERNS: MaskPattern[] = [
     replacement: '$1***'
   },
   {
+    id: 'url-userinfo',
+    description:
+      'Passwords in connection-string/URL userinfo (postgres://user:pw@host, ' +
+      'redis://:pw@host, …). Only the password segment is masked; scheme and ' +
+      'user survive so the line stays diagnosable.',
+    re: /\b([a-z][a-z0-9+.-]*:\/\/[^:\/?#\s]*:)[^\s@/:?#]+(@)/gi,
+    replacement: '$1***$2'
+  },
+  {
     id: 'credential-assignment',
     description:
       'Key-value assignments for common credential key names. Values may be ' +
