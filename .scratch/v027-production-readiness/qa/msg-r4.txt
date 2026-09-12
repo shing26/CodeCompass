@@ -1,0 +1,8 @@
+feat(v0.27-B R4): 控制面默认绑 127.0.0.1 + MHW_CP_HOST 逃生（销 V27-1）——LAN 零鉴权暴露面收敛
+
+- config.loadConfig 加 host（默认回环，trim/空白防护）；server.listen(port,host)；/health 回显 boundHost
+- LAN 告警判定用解析后监听地址（isLoopbackListenAddress）：127.x 全段不误报、hosts 把 localhost 拐到路由网卡时如实警告（review P2-3a）
+- 展示面跟实际绑定面：cli/index displayHost 共享（0.0.0.0/:: → localhost）、USAGE 文档、.env.development 钉 127.0.0.1（P2-7）
+- Docker：镜像 ENV MHW_CP_HOST=0.0.0.0（-p 映射需 eth0 监听）+ --network host 直暴警告注释；README 绑定说明（破坏性变更，CHANGELOG 留收口批）
+- review P0/P1 零；P2×7：USAGE 吞行修、测试 hermetic（EADDRINUSE 钉 env）+loadConfig/displayHost/isLoopback 单测+不可绑地址 reject；MCP 深链 localhost×5 移交 V27-22
+- 门禁：cp 609、web 349、tsc×2、build 0、e2e 60/60（真进程验回环绑面）

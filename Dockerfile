@@ -34,6 +34,14 @@ COPY --from=build /app/apps/repoqa-web/dist ./apps/repoqa-web/dist
 
 ENV MHW_STATIC_DIR=/app/apps/repoqa-web/dist
 ENV MHW_DATA_DIR=/data
+# v0.27-B R4: the host default binding is loopback-only (V27-1). Inside a
+# container the port mapping (-p) targets the container's eth0 — a 127.0.0.1
+# listener there is unreachable from the host — so the image opts into the
+# documented escape. Exposure control stays with whoever publishes the port.
+# CAUTION: with `docker run --network host` there is no -p gatekeeper — the
+# workbench becomes reachable (and LAN-visible with zero auth) directly on the
+# host's interfaces. Only use host networking on trusted machines/networks.
+ENV MHW_CP_HOST=0.0.0.0
 EXPOSE 43110
 VOLUME ["/data"]
 

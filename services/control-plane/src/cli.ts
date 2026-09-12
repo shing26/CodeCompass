@@ -7,7 +7,7 @@ import {
   type McpTransportFactory
 } from './repoqa-mcp';
 import { analyzeDiff, evaluateDiffPolicy, renderMarkdown } from './repoqa-diff';
-import { loadConfig } from './config';
+import { loadConfig, displayHost } from './config';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { SessionLogger as ChatSessionLogger } from './chat/log';
 import { LlmManager as ChatLlmManager } from './chat/llm';
@@ -172,6 +172,9 @@ Arguments:
 Options:
   --port <number>       HTTP port (default: MHW_CP_PORT or 43110)
   --data-dir <dir>      Data directory (default: MHW_DATA_DIR or ~/.mhw)
+                        Binding: loopback-only by default (127.0.0.1);
+                        MHW_CP_HOST=0.0.0.0 exposes the workbench on the LAN
+                        (no auth — the startup warning says so deliberately).
   --no-browser          Do not auto-open the browser
   --no-watch            Disable FS watcher hot reload for ready repos
   --ide <id>            With install: cursor | zcode | claude | windsurf | cline | roo | all
@@ -980,13 +983,16 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
   const env = { ...(ctx.env ?? process.env) };
   if (args.dataDir) env.MHW_DATA_DIR = args.dataDir;
 
+  // v0.27-B R4 (V27-1)：打印/自动打开的 URL 必须用**实际绑定面**——默认
+  // 127.0.0.1 下若还打 localhost，Windows 的 ::1 优先解析会连空。
+  // displayHost 共享自 config.ts（R4 review P2-3b，index.ts 同源）。
   let running: RunningServer;
   try {
     running = await startServer({
       env,
       port: args.port,
       watch: !args.noWatch,
-      onListening: (port) => log(`CodeCompass running on http://localhost:${port}`)
+      onListening: (port) => log(`CodeCompass running on http://${displayHost(loadConfig(env).host)}:${port}`)
     });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
@@ -1014,14 +1020,15 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     }
   }
 
-  const cockpitUrl = `http://localhost:${running.port}/${repoId ? `?repo=${encodeURIComponent(repoId)}` : ''}`;
+  const hostLabel = displayHost(running.config.host);
+  const cockpitUrl = `http://${hostLabel}:${running.port}/${repoId ? `?repo=${encodeURIComponent(repoId)}` : ''}`;
   if (!args.noBrowser) {
     open(cockpitUrl);
     log(`Opened browser: ${cockpitUrl}`);
   } else if (repoId) {
     log(`Cockpit URL: ${cockpitUrl}`);
   } else {
-    log(`Workbench URL: http://localhost:${running.port}/`);
+    log(`Workbench URL: http://${hostLabel}:${running.port}/`);
   }
   return { server: running, cockpitUrl };
 }

@@ -15,6 +15,8 @@ export function registerWorkbenchRoutes(app: express.Express, deps: HttpDeps): v
       status: 'ok',
       version: deps.version,
       port: deps.port,
+      // R4 (V27-1)：绑定面回显——排障时一眼看出是否被逃生开关放到 LAN。
+      ...(deps.host ? { boundHost: deps.host } : {}),
       dataDir: deps.dataDir
     });
   });

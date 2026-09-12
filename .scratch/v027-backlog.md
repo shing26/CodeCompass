@@ -4,7 +4,7 @@
 
 | # | 项 | 来源 | 类型 |
 |---|---|---|---|
-| V27-1 | **安全**：控制面 `server.ts` 默认绑 `127.0.0.1` 评估 + LAN 暴露面审计（现绑全网卡零鉴权；`^-` ref 注入已由 v0.26 收口 P1-2 双层守卫挡掉，本票做绑定收敛） | 收口 review P1-2 | 安全 |
+| V27-1 | ~~安全：控制面绑全网卡零鉴权~~ **已随 v0.27-B R4 关闭（2026-09-12）**：默认绑 127.0.0.1 + MHW_CP_HOST 逃生（Docker 镜像预设 0.0.0.0），LAN 告警+health 回显+README；见 `.scratch/v027-production-readiness/issues/04`（CHANGELOG 破坏性条目留收口批） | 收口 review P1-2 | 安全 |
 | V27-2 | chat agent 系统提示词含「拆除计划」（`chat/agent.ts:19,23`），模型可能把退场词复述进答案、前端 copy-guard 对运行期文本盲——与 MCP description 残留（`codecompass_module_evolution` 描述「模块演进推演」、README:179、ADR-0014/0015「模式嗅探」）合并做**文档/措辞统一票** | 收口 review P2-5 + A03 移交 | 命名族 |
 | V27-3 | `repoqa-export.ts:78` ONBOARDING 模板标题「架构指标」+ README:37 沿用——命名族半残（非失实，导出确实产该标题），随 V27-2 统一 | 收口 review P2-6 | 命名族 |
 | V27-4 | CiGateView ScenarioGuide 三步滞后三段化（:288-291 仍纯复制命令旧动线）——票 15「引导滞后」病灶萌芽 | 收口 review P2-7 | 文案 |
@@ -25,5 +25,6 @@
 | V27-19 | 企业级套件裁决票：/metrics 指标暴露、外置告警、配置 fail-fast+.env.example——按 Local-First 产品身份多数建议不做，留 grill 显式销项 | 生产就绪度评估 低优先 | 边界 |
 | V27-20 | import/evolve 韧性补全：POST /api/repos 迁 202+WS 进度（消灭 600s 假失败面与超时后重复导入诱因）；EvolveStream 改走注入的 TimedFetch（现在全局 fetch 绕 R2 预算，也测不了） | R2 review P2-1/P2-5 | 容错 |
 | V27-21 | 掩码尺子不统一：chat 成功路径工具结果过 `maskSecrets`（llm.ts 弱三件套 AKIA/sk-/Bearer），与 routes/入库面新用的 `maskSensitiveText`（13-pattern 全套）不同尺——JWT/ghp_/DSN 可随成功结果进模型上下文再回声；scan 分支 summary 从 raw 构造更绕开一切。需专票统一+评测冻结集回归（golden eval 65/97 题按旧行为钉，静默换尺可能翻车） | R3 review P1-2（tool error 侧门已修，成功路径残余） | 安全 |
+| V27-22 | MCP 深链仍硬编码 `http://localhost:${port}`×5（repoqa-mcp.ts:672/702/720/779/923）：R4 确立「展示面跟实际绑定面」后，`MHW_CP_HOST=192.168.x` 具体网卡逃生时深链连空——MCP stdio 进程与 HTTP 服务进程 env 可能分叉，host 传递通道需专票设计（e2e closeout_gate.py:1319 的 `startswith("http://localhost:")` 断言必须成对改） | R4 review P2-2 | 一致性 |
 
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

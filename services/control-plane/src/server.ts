@@ -4,7 +4,7 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { WebSocketServer, WebSocket } from 'ws';
 import type express from 'express';
-import { loadConfig, type Config } from './config';
+import { loadConfig, isLoopbackListenAddress, type Config } from './config';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { Repos } from './repos';
 import { Orchestrator } from './orchestrator';
@@ -23,7 +23,7 @@ import { registerChatRoutes, type ChatRuntime } from './chat/routes.js';
 import type { ServerEvent } from './types';
 
 export interface StartOptions {
-  /** Environment passed to loadConfig (MHW_CP_PORT / MHW_DATA_DIR / MHW_STATIC_DIR). */
+  /** Environment passed to loadConfig (MHW_CP_HOST / MHW_CP_PORT / MHW_DATA_DIR / MHW_STATIC_DIR). */
   env?: NodeJS.ProcessEnv;
   /** Override the loaded port. Unlike MHW_CP_PORT, 0 is honored (random free port). */
   port?: number;
@@ -130,6 +130,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     version: '0.6.0',
     dataDir: config.dataDir,
     port: config.port,
+    // R4：/health 回显实际绑定面（boundHost）。
+    host: config.host,
     exportDir: path.join(config.dataDir, 'exports'),
     staticDir: config.staticDir,
     chat: chatRuntime
@@ -236,9 +238,20 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     };
     server.on('error', onError);
     wss.on('error', onError);
-    server.listen(config.port, () => {
+    server.listen(config.port, config.host, () => {
       const address = server.address();
       const actual = typeof address === 'object' && address ? address.port : config.port;
+      // v0.27-B R4 (V27-1)：默认回环。绑到非回环=局域网零鉴权可达，显式提示
+      // （R4 review P2-3a：判定用**解析后的监听地址**而非配置串——
+      //  hosts 把 localhost 拐到路由网卡时也如实告警，127.x 全段不误报）。
+      const addrObj = typeof address === 'object' && address ? address : null;
+      if (addrObj && !isLoopbackListenAddress(addrObj.address, addrObj.family)) {
+        console.warn(
+          `Control plane bound to ${addrObj.address}:${actual} — LAN exposure, no auth. ` +
+            `Every device on this network can read indexes and call the LLM. ` +
+            `Set MHW_CP_HOST=127.0.0.1 to keep it loopback-only.`
+        );
+      }
       resolved = true;
       options.onListening?.(actual);
       resolve(actual);

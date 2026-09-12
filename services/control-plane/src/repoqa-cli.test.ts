@@ -95,7 +95,7 @@ describe('Issue 16 CLI one-process startup', () => {
     const result = await runCli(
       ['--port', '0', '--no-browser', '--data-dir', dataDir, repoDir],
       {
-        env: { ...process.env, MHW_STATIC_DIR: staticDir },
+        env: { ...process.env, MHW_STATIC_DIR: staticDir, MHW_CP_HOST: undefined },
         openBrowser: openSpy,
         log: () => undefined
       }
@@ -123,8 +123,9 @@ describe('Issue 16 CLI one-process startup', () => {
     expect(await root.text()).toContain('CLI-STATIC');
 
     // The cockpit deep link serves the SPA and points at the imported repo.
+    // R4 (V27-1)：默认绑 127.0.0.1，URL 跟随实际绑面（不再打印会连空的 localhost）。
     expect(result.cockpitUrl).toBe(
-      `http://localhost:${server.port}/?repo=${encodeURIComponent(reposBody.repos[0].id)}`
+      `http://127.0.0.1:${server.port}/?repo=${encodeURIComponent(reposBody.repos[0].id)}`
     );
     const cockpit = await fetch(result.cockpitUrl!);
     expect(cockpit.status).toBe(200);
@@ -150,15 +151,15 @@ describe('Issue 16 CLI one-process startup', () => {
     });
 
     expect(result.server).not.toBeNull();
-    expect(openSpy).toHaveBeenCalledWith(`http://localhost:${result.server!.port}/`);
+    expect(openSpy).toHaveBeenCalledWith(`http://127.0.0.1:${result.server!.port}/`);
     await result.server!.close();
   });
 
   it('fails with a friendly message instead of crashing when the port is taken', async () => {
     const blocker = http.createServer();
-    // Bind without a host so the socket family matches the CLI's default
-    // (all interfaces); a 127.0.0.1-only listener does not collide on Windows.
-    await new Promise<void>((resolve) => blocker.listen(0, resolve));
+    // v0.27-B R4：CLI 默认改绑 127.0.0.1 后，blocker 必须绑**同一地址族**
+    // 才保证 EADDRINUSE（wildcard 与特定回环地址在部分平台可共存）。
+    await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', resolve));
     const address = blocker.address() as AddressInfo;
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'codecompass-cli-'));
     try {
@@ -166,7 +167,8 @@ describe('Issue 16 CLI one-process startup', () => {
       try {
         result = await runCli(
           ['--port', String(address.port), '--no-browser', '--data-dir', path.join(tmp, 'data')],
-          { log: () => undefined }
+          // R4 review P2-6：钉死 host 面（开发者机导出 MHW_CP_HOST 时不破坏同族碰撞）
+          { log: () => undefined, env: { ...process.env, MHW_CP_HOST: undefined } }
         );
       } catch (err) {
         expect((err as Error).message).toMatch(/already in use/i);

@@ -21,6 +21,9 @@ export interface HttpDeps {
   version: string;
   dataDir: string;
   port: number;
+  /** v0.27-B R4：实际绑定地址（/health.boundHost 回显）。可选——直接
+   * 组装 createHttpApp 的测试面不传时 health 省略该字段（additive 契约）。 */
+  host?: string;
   exportDir: string;
   /** Absolute path to the built SPA dist. When present (and its index.html
    * exists) the app serves it with an SPA fallback; API/WS routes keep priority. */

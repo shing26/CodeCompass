@@ -110,6 +110,8 @@ codecompass --version
 
 导入完成后浏览器访问 `http://localhost:<port>`，三栏工作台（clean / cyber 双主题）：
 
+> **绑定说明（v0.27.0 起）**：服务默认只监听 `127.0.0.1`（本机回环）——控制面无鉴权，不再默认暴露到局域网。确需他机访问（如投屏展示）时设 `MHW_CP_HOST=0.0.0.0` 启动，启动日志会打印 LAN 暴露告警；Docker 镜像已在内部预设该逃生值，`-p` 端口映射照常。
+
 - **左侧栏**：Quick Tours 上手导览、路由列表、符号树——支持文本搜索与按符号类型（route / class / method / config / dependency…）过滤。
 - **中央画布**：提问即得确定性调用链时序图；看板 / CI 门禁 / 架构差异为独立 Tab。
 - **右侧 Inspector**：Monaco 只读源码 + 一次性 glow 定位；选中符号可看**反向依赖**（谁调用了它）、**子图透视**（caller / callee 方向切换）、复制 Agent 上下文。
