@@ -21,5 +21,7 @@
 | V27-16 | 拓扑首屏自动 trace 选题偏技术侧（CodeCompass 仓选中内部 query 路由而非核心业务）：候选改用 dashboard topApis/inDegree hub 优先，纯内部路由降级 | computer-use 走查 D6 | 产品 |
 | V27-11 | **视觉去极客化战役**（需独立 spec/grill）：①字号降密——104 处任意值 px（9/10/11px 元数据）收进 sm/base 档；②中英混排收口（Import repo/Select a repo/Watcher/Routes/Symbols/Loading… 等常驻英文）；③黑话残留清扫（AST 提取/2-Hop/锚定/孤岛/波及/工件卡/惯例嗅探/落位表/BROKEN/[cite: N] 印在引导语——引 v0.27-UI 探查报告 §3/§5 清单，注意票 15 实名哨与 copy-guard 双闸会拦，需同步改哨）；④徽章族瘦身（16+ 种胶囊/徽标/丸）；⑤styles.css 存量段（plan/scenario/starter）迁 Tailwind token | 2026-09-12 用户反馈「太工程化/极客」→ v0.27-UI spec U5 裁决 | 视觉 |
 | V27-17 | buildTours 启发式对 TS 前端仓零锚点：CodeCompass 本仓 `GET /tours` 返回 `[]`（Java 仓 nexus-campus / ResuAlign 有 auth-chain），侧栏 Quick Tours 只剩「No tours available」空转——锚点族按 Java 注解写死，需补 TS 侧（Express router 注册/React Context 枢纽/main.tsx 入口链）。内容缺位非界面 bug | 2026-09-12 全功能回归走查 R2（sweep2 段 5 实证） | 内容 |
+| V27-18 | clone/reindex 网络瞬断无策略重试（一次成败，用户手动重按）——2 次指数退避 + 进度流可感知 | 生产就绪度评估 1-缺口3 | 容错 |
+| V27-19 | 企业级套件裁决票：/metrics 指标暴露、外置告警、配置 fail-fast+.env.example——按 Local-First 产品身份多数建议不做，留 grill 显式销项 | 生产就绪度评估 低优先 | 边界 |
 
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。
