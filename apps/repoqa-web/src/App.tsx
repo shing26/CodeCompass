@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { RepoQAClient, resolveBaseUrl } from './client/RepoQAClient';
 import { TopBar } from './components/TopBar';
@@ -10,6 +10,7 @@ import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { EvolutionView } from './components/EvolutionView';
 import { ChatView } from './components/ChatView';
+import { AskDock } from './components/AskDock';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
@@ -112,6 +113,11 @@ function WorkbenchShell() {
 
   const { toggleTheme } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // v0.27-UI ticket 02 (U3)：AskDock 提交的问题经此草稿通道预填进 chat composer。
+  // 草稿带 repoId 归属（review P1-1）：viewFromMode('incident')→chat 让切库不离开
+  // chat 视图，无归属时 A 库的预填会静默残留进 B 库 composer。
+  const [askDraft, setAskDraft] = useState<{ repoId: string; text: string } | null>(null);
+  const clearAskDraft = useCallback(() => setAskDraft(null), []);
 
   // Ticket 16 (QA-07): one condition source for "the main area renders the
   // topology guide instead of repo views" — both the TopBar highlight and the
@@ -244,6 +250,9 @@ function WorkbenchShell() {
             />
           ) : view === 'chat' ? (
             <ChatView
+              // 切库重挂载（review P1-1）：sessions/entries/input 全部随 repoId 归零，
+              // 草稿只在 repoId 归属匹配时注入。
+              key={repoId}
               client={client}
               repoId={repoId}
               repoName={currentRepo?.name ?? null}
@@ -260,6 +269,9 @@ function WorkbenchShell() {
               onSend={chatGuardSend}
               // v0.26-A ticket 02 (Q3)：方案摘要卡 → 规范演进之桥
               onOpenEvolution={goEvolution}
+              // v0.27-UI ticket 02 (U3)：AskDock 草稿预填（不自动发送），repoId 匹配才注入
+              initialDraft={askDraft && askDraft.repoId === repoId ? askDraft.text : undefined}
+              onDraftConsumed={clearAskDraft}
             />
           ) : view === 'delta' ? (
             <ArchitectureDeltaView
@@ -284,6 +296,20 @@ function WorkbenchShell() {
               onTrace={handleTrace}
               onNavigate={inspector.openFile}
               onOpenChat={() => setView('topo')}
+            />
+          )}
+          {/* v0.27-UI ticket 02 (U3)：全局常驻对话条——chat 视图自带 composer 故隐藏；
+              无库无可问；tour 播放器沉浸动线不打断（review P2-4）；窄屏 Inspector 抽屉
+              打开时由遮罩层自然盖住（mask 而非卸载，票 Comments 已记裁决）。 */}
+          {!noRepo && view !== 'chat' && view !== 'tour' && (
+            <AskDock
+              key={repoId}
+              repoName={currentRepo?.name ?? ''}
+              onSubmit={(question) => {
+                if (!repoId) return;
+                setAskDraft({ repoId, text: question });
+                setView('chat');
+              }}
             />
           )}
         </div>

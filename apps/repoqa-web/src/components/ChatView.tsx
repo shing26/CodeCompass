@@ -178,8 +178,11 @@ export function ChatView(props: {
   ) => Promise<ChatTurnResult | null>;
   /** v0.26-A ticket 02 (Q3)：方案摘要卡 CTA 跳规范演进——App 组合层注入。 */
   onOpenEvolution?: () => void;
+  /** v0.27-UI ticket 02 (U3)：AskDock 预填草稿——挂载时进 composer 但不自动发送。 */
+  initialDraft?: string;
+  onDraftConsumed?: () => void;
 }) {
-  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution } = props;
+  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution, initialDraft, onDraftConsumed } = props;
   const chatClient = client.chat;
   const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSessionInfo | null>(null);
@@ -201,6 +204,15 @@ export function ChatView(props: {
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 128)}px`;
   }, [input]);
+
+  // AskDock 预填（U3）：进 composer 即清 App 侧草稿，避免下次进 chat 重复注入；
+  // 发送权留给用户——这里绝不自动 send()。`prev ||` 守卫（review P2-1）：
+  // 用户已在打字时不被未来任何草稿入口静默覆盖。
+  useEffect(() => {
+    if (!initialDraft) return;
+    setInput((prev) => prev || initialDraft);
+    onDraftConsumed?.();
+  }, [initialDraft, onDraftConsumed]);
 
   const refreshSessions = useCallback(() => {
     chatClient
@@ -404,6 +416,7 @@ export function ChatView(props: {
           </div>
           <button
             className="chat-back shrink-0 rounded-md border border-line px-2 py-1 text-xs text-muted hover:border-accent hover:text-accent"
+            data-testid="chat-back"
             onClick={onBackToWorkbench}
           >
             ← 返回工作台

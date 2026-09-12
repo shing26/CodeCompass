@@ -2,7 +2,7 @@
 
 > *2026-09-12 v0.27-UI 立项。Parent spec: `.scratch/v027-ui/spec.md`（裁决 U3/U4）。方向=推荐默认（用户未答方向题，先例 v0.6 收口默认决策）。*
 
-Status: ready-for-agent
+Status: closed
 标签：feature / P1 / 来源：v0.27-UI（用户直接反馈）
 
 ## Agent Brief
@@ -32,3 +32,20 @@ Status: ready-for-agent
 **Blocked by:** 01-chatview-completion（App.tsx/ChatView 草稿通道串行）。
 
 **触碰面声明：** apps/repoqa-web（AskDock.tsx 新建 / App.tsx / ChatView.tsx 草稿通道最小开孔 / 测试）。零后端。
+
+## Comments
+
+### 实施记录（2026-09-12，ZCode）
+
+- AskDock：主区下沿 flex item（不遮挡任何视图），「问现状 →」前缀 + placeholder「问点什么…（架构问答 · {repoName}）」；提交=清空本地输入 + `setAskDraft({repoId,text})` + `setView('chat')`。ChatView 草稿通道：`initialDraft`/`onDraftConsumed`，effect 预填 `setInput(prev => prev || draft)`（防覆盖用户正在输入）+ 消费即清，**绝不自动 send()**。
+- 隐藏条件：`!noRepo && view !== 'chat' && view !== 'tour'`（tour 沉浸动线不打断——review P2-4 顺手收口，票面原文只列 chat/Inspector）。
+- 测试：AskDock.test 3 例 + App.test 集成 4 例（预填不发送/草稿一次性/**跨库隔离**/无库隐藏）。web **330/330**、tsc 净、vite build 过；Playwright 实拍 3 图 + 布局断言（dock bottom=776=footer 顶边、375 无横向溢出、预填 inputValue 校验）。
+
+### Reviewer-Security 独立审查（Request changes → 全修）
+
+- **[P1-1] 跨库草稿污染**：dock 提交写 URL `mode=incident` → chat 视图内切库时 `viewFromMode('incident')→chat` 视图不离开 → ChatView 无 key 保持挂载且 repoId effect 不清 input → A 库预填静默残留进 B 库 composer。修：askDraft 带 `{repoId,text}` 归属校验 + ChatView/AskDock `key={repoId}` 切库重挂载 + 跨库回归用例。
+- **[P1-2] U4 登记缺失**：本段即补——**AskDock 落地消除的是「对话唯一入口=TopBar tab」的入口孤岛前提；V27-5「查调用链」名实升级仍留册**（dock 是自由文本入口，不是调用链按钮的替身；App.tsx `onOpenChat` 与 DashboardView 文案本轮零改动，符合 U4）。
+- **[P2 已修]** `onDraftConsumed` 稳定化（useCallback）+ `prev ||` 防覆盖守卫；AskDock `key={repoId}`（半句草稿不跨库）；chat-back 补 testid（文案双写定位脆弱）；tour 视图隐藏 dock。
+- **[P2 裁决记录]** 票面 Key interfaces 写 Inspector 抽屉打开「不渲染」，实现为**遮罩层盖住不卸载**（mask z-30 fixed 自然覆盖 dock，卸载需引入窄屏判定且宽屏 Inspector 常驻列会误伤）——行为等效，登记偏差勿留偷面先例。
+- **判不成立项**：effect 循环（早退守卫+批渲染，StrictMode 双跑幂等）；双输入框闪烁（同批 commit 无并存帧）；a11y/文案（copy-guard 实跑绿，「问现状」与 A01 定位句同族）；「预填不发送」断言有鉴别力（mode none 直通 chatSend，自动发送必被双杀）。
+- **票面勘正**：「既有 12 例」类计数笔误同票 01。

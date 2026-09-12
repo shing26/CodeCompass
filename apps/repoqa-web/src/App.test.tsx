@@ -317,6 +317,84 @@ describe('App scaffold and repo connect', () => {
   });
 });
 
+describe('v0.27-UI ticket 02: AskDock global bar (问现状入口)', () => {
+  beforeEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+  afterEach(() => {
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('asks from the topology view: Enter prefills the chat composer WITHOUT auto-sending', async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    // 主区下沿常驻对话条（topo 视图）
+    await waitFor(() => expect(screen.getByTestId('ask-dock')).toBeInTheDocument());
+    await user.type(screen.getByTestId('ask-dock-input'), '这个仓库哪里最值得改？');
+    await user.keyboard('{Enter}');
+
+    // 切进 chat 且问题已预填；chatSend 未被调用（发送权留给用户）
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    expect(screen.getByTestId('chat-question')).toHaveValue('这个仓库哪里最值得改？');
+    expect(client.chat.chatSend).not.toHaveBeenCalled();
+    // chat 视图自带 composer → dock 让位
+    expect(screen.queryByTestId('ask-dock')).not.toBeInTheDocument();
+  });
+
+  it('the draft is consumed once: leaving and re-entering chat shows an empty composer', async () => {
+    const client = makeClient();
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await waitFor(() => expect(screen.getByTestId('ask-dock')).toBeInTheDocument());
+    await user.type(screen.getByTestId('ask-dock-input'), '一次性草稿');
+    await user.click(screen.getByTestId('ask-dock-send'));
+    await waitFor(() => expect(screen.getByTestId('chat-question')).toHaveValue('一次性草稿'));
+
+    // 返回工作台 → 再进 chat：草稿已被消费，不复注入
+    await user.click(screen.getByTestId('chat-back'));
+    await waitFor(() => expect(screen.getByTestId('ask-dock')).toBeInTheDocument());
+    await user.click(screen.getByTestId('tab-chat'));
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    expect(screen.getByTestId('chat-question')).toHaveValue('');
+  });
+
+  it('a draft asked in repo A never leaks into repo B chat (review P1-1 cross-repo)', async () => {
+    const repoB = { ...readyRepo, id: 'repo-2', name: 'other-repo' };
+    const client = makeClient({ listRepos: vi.fn().mockResolvedValue([readyRepo, repoB]) });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await waitFor(() => expect(screen.getByTestId('ask-dock')).toBeInTheDocument());
+    await user.type(screen.getByTestId('ask-dock-input'), 'A 库的问题');
+    await user.click(screen.getByTestId('ask-dock-send'));
+    await waitFor(() => expect(screen.getByTestId('chat-question')).toHaveValue('A 库的问题'));
+
+    // chat 视图内切库：URL mode=incident→chat 使视图不离开 chat（RepoContext 语义），
+    // 草稿带 repoId 归属 + key 重挂载——B 库 composer 必须干净。
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
+    await waitFor(() => expect(screen.getByTestId('chat-session-title')).toHaveTextContent('other-repo'));
+    expect(screen.getByTestId('chat-question')).toHaveValue('');
+  });
+
+  it('no repo → no dock; dock returns on non-chat tabs', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    // 未选库：无可问对象，dock 不渲染
+    expect(screen.queryByTestId('ask-dock')).not.toBeInTheDocument();
+
+    await selectRepo(user);
+    await waitFor(() => expect(screen.getByTestId('ask-dock')).toBeInTheDocument());
+    await user.click(screen.getByTestId('tab-metrics'));
+    expect(screen.getByTestId('ask-dock')).toBeInTheDocument();
+  });
+});
+
 describe('v0.26-A ticket 02: plan-digest bridge (chat answer → 方案摘要 → CTA → evolve)', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/');
