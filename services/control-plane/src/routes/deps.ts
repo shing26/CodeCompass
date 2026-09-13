@@ -6,6 +6,7 @@ import type { EventBus } from '../events';
 import type { RepoQARepos, Repo } from '../repoqa-repos';
 import type { RepoQAWorker } from '../repoqa-worker';
 import type { ChatRuntime } from '../chat/routes';
+import type { ServerLogger } from '../log-sink';
 
 export const ACTIONS: TaskAction[] = ['pause', 'resume', 'cancel', 'approve', 'reject'];
 
@@ -30,6 +31,8 @@ export interface HttpDeps {
   staticDir?: string;
   /** chat-merge (v0.24.0): 对话式智能体运行时；present → /api/chat/* routes mount. */
   chat?: ChatRuntime;
+  /** v0.27-B R5：服务端日志 sink；present → 请求行进 jsonl + 错误行落文件。 */
+  logger?: ServerLogger;
 }
 
 /**

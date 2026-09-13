@@ -827,7 +827,7 @@ export class RepoQAWorker {
       this.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
       this.broadcast(taskId, {
         type: 'repoqa.index.error',
-        payload: { error: message }
+        payload: { repoId, error: message }
       } as any);
       const baseRepo = this.repoqa.getRepo(repoId);
       if (!baseRepo) {

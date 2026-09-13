@@ -41,6 +41,43 @@ export function createHttpApp(deps: HttpDeps): express.Express {
   // by design — no business traffic to correlate.)
   app.use(requestIdMiddleware);
 
+  // v0.27-B R5: request-line logging to the ServerLogger sink (jsonl, levelled).
+  // res.locals.serverLogger additionally feeds errorMiddleware so a 500 lands
+  // in the SAME file with the SAME requestId (correlation without a second
+  // log system). No logger (tests / assembly outside startServer) → the
+  // middleware is a pass-through and errors keep R1's stderr fallback.
+  // R5 review P2-1/P2-3：行只用 req.path（query 含用户搜索词/路径，PII 面且
+  // fields.path 已有）；finish 在客户端半途 abort 时不触发——close 补一行
+  // aborted 痕迹（SSE 断连正是最需要取证的形状）。
+  if (deps.logger) {
+    const logger = deps.logger;
+    app.use((req, res, next) => {
+      res.locals.serverLogger = logger;
+      const t0 = Date.now();
+      let settled = false;
+      res.on('finish', () => {
+        settled = true;
+        logger.info('http', `${req.method} ${req.path} ${res.statusCode}`, {
+          requestId: res.locals.requestId as string | undefined,
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          durMs: Date.now() - t0
+        });
+      });
+      res.once('close', () => {
+        if (settled) return;
+        logger.warn('http', `${req.method} ${req.path} aborted`, {
+          requestId: res.locals.requestId as string | undefined,
+          method: req.method,
+          path: req.path,
+          durMs: Date.now() - t0
+        });
+      });
+      next();
+    });
+  }
+
   app.use(express.json());
 
   // Bug-13: malformed JSON bodies must return a JSON 400, never Express's

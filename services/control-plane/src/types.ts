@@ -50,7 +50,7 @@ export type ServerEvent =
   | { type: 'approval.resolved'; payload: { taskId: string; approved: boolean } }
   | { type: 'repoqa.index.progress'; payload: { repoId: string; phase: string; detail?: string } }
   | { type: 'repoqa.index.done'; payload: { repoId: string; status: string; fileCount: number; symbolCount: number } }
-  | { type: 'repoqa.index.error'; payload: { error: string } }
+  | { type: 'repoqa.index.error'; payload: { repoId?: string; error: string } }
   | { type: 'repoqa.query.done'; payload: Record<string, unknown> }
   | { type: 'repoqa.query.error'; payload: { error: string } }
   | { type: 'repo_updated'; payload: { repoId: string; files: string[]; action: 'update' | 'remove'; ts: number } };

@@ -1,0 +1,10 @@
+feat(v0.27-B R5): 服务端最小日志 sink——请求行/错误行/events 进 dataDir/logs jsonl（级别+轮转+retention+fail-soft）
+
+- log-sink.ts ServerLogger：appendFileSync 同步写（消灭 flush 竞态）、MHW_LOG_LEVEL 大小写不敏感 fail-soft、error 先 stderr 后文件、maskSensitiveText+4096 截断、5MB×5 轮转+14 天日期保留 sweep、写失败 dead 永久降级永不冒泡（P1-1：res.on('finish') 裸监听器 throw=整机死）
+- http.ts 请求行中间件：只用 req.path 不带 query（P2-1 PII 面）、close 补 aborted 行（P2-3 SSE 半途断留有痕迹）、requestId 与 R1 错误行同文件关联
+- http-error.ts：500 经 res.locals.serverLogger 走 sink，fallback 保 R1 stderr 行为；server.ts 起停/LAN 告警/events 进 sink
+- P1-2 死分支修正：真失败事件是 repoqa.index.error（index.done 恒 ready）——payload 补 repoId（types+worker），error 行不再静默
+- P1-3 容量封顶：跨天 day 跟踪+sweepStale 构造期生效+rotate 失败重 stat（bytes 不再假 0）
+- 测试 +15（log-sink 10、http-logging 4、http-error sink 路由 1）；假 key 不落盘由 mask 测钉
+- 插曲：Mimosa 对 fs.rmSync 误报命令注入高危，maintainer 裁决保持原写法（参数化 API 零 shell）
+- 门禁：cp 624/624、tsc 净、build、e2e 60/60、实机 ~/.mhw/logs 落盘复证

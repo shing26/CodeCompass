@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { maskSensitiveText } from './repoqa-masking';
+import type { ServerLogger } from './log-sink';
 
 /**
  * v0.27-B R1 — HTTP 错误底线。
@@ -49,24 +50,34 @@ export function asyncHandler(fn: AsyncRequestHandler): RequestHandler {
 }
 
 /**
- * 服务端结构化错误行（stderr JSONL，R5 后迁文件 sink）。
- * 只写 message 与裁剪后的栈顶；不写请求头/请求体（凭据红线）。
- * message/stack 出库前过 maskSensitiveText——错误文本可能内嵌 DSN/Token
- * （pg、LLM provider 报错实测如此），SSE 出站掩码的同一把尺子量日志面。
+ * 未捕获错误的日志落点（R5）：res.locals.serverLogger 在位则走 sink 文件
+ * （ServerLogger 自带 error 双写 stderr 与 maskSensitiveText）；缺席（装配外
+ * 场景与 R1 单测）退回 stderr JSONL 行。只写 message 与栈顶；不写请求头/请求体
+ * （凭据红线）。message/stack 出库前过 maskSensitiveText——错误文本可能内嵌
+ * DSN/Token（pg、LLM provider 报错实测如此），SSE 出站掩码的同一把尺子量日志面。
  */
 function logServerError(req: Request, res: Response, err: unknown): void {
   const e = err instanceof Error ? err : new Error(String(err));
+  const requestId = res.locals.requestId as string | undefined;
+  const stackTop = e.stack ? e.stack.split('\n').slice(0, 6).join('\n') : undefined;
+  const logger = res.locals.serverLogger as ServerLogger | undefined;
+  if (logger) {
+    logger.error('http', `${req.method} ${req.path} unhandled`, {
+      requestId,
+      error: e.message,
+      ...(stackTop ? { stack: stackTop } : {})
+    });
+    return;
+  }
   const line = {
     ts: new Date().toISOString(),
     level: 'error',
     scope: 'http',
-    requestId: res.locals.requestId as string | undefined,
+    requestId,
     method: req.method,
     path: req.path,
     error: maskSensitiveText(e.message),
-    stack: e.stack
-      ? maskSensitiveText(e.stack.split('\n').slice(0, 6).join('\n'))
-      : undefined
+    stack: stackTop ? maskSensitiveText(stackTop) : undefined
   };
   process.stderr.write(JSON.stringify(line) + '\n');
 }

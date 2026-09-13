@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import { WebSocketServer, WebSocket } from 'ws';
 import type express from 'express';
 import { loadConfig, isLoopbackListenAddress, type Config } from './config';
+import { ServerLogger } from './log-sink';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { Repos } from './repos';
 import { Orchestrator } from './orchestrator';
@@ -94,6 +95,15 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const db = openDb(config.dbPath);
   ensureDefaultWorkspace(db, config.dataDir);
 
+  // v0.27-B R5: server-side operational log sink (dataDir/logs/*.jsonl).
+  // MHW_LOG_LEVEL gates it (default info); errors additionally mirror stderr.
+  // R5 review P2-6：options.env 是 cli 在 .env 合并前快照的副本——回退读
+  // 已合并的 process.env，让引擎 .env 里的 MHW_LOG_LEVEL 也生效。
+  const serverLog = new ServerLogger(
+    config.dataDir,
+    options.env?.MHW_LOG_LEVEL ?? process.env.MHW_LOG_LEVEL
+  );
+
   const repos = new Repos(db);
   const repoqa = new RepoQARepos(db);
   repoqa.resetInterrupted();
@@ -134,7 +144,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     host: config.host,
     exportDir: path.join(config.dataDir, 'exports'),
     staticDir: config.staticDir,
-    chat: chatRuntime
+    chat: chatRuntime,
+    logger: serverLog
   });
 
   const server = http.createServer(app);
@@ -212,6 +223,24 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   });
 
   eventBus.on((event) => {
+    // R5: operational trail of the worker/event surface. Progress frames are
+    // high-frequency by design (per-file) → not worth the log volume; every
+    // other repoqa.*/repo_updated/task event is a state change worth keeping.
+    // R5 review P1-2：真实失败事件是 repoqa.index.error（index.done 恒 ready，
+    // done&&status==='error' 是永不命中的死分支）；payload 联合类型宽 → log-only
+    // 鸭子读取 repoId/taskId 存在即可。
+    const payload = event.payload as { repoId?: string; taskId?: string; error?: string };
+    if (event.type !== 'repoqa.index.progress') {
+      serverLog.info('events', event.type, {
+        ...(payload.repoId ? { repoId: payload.repoId } : {}),
+        ...('taskId' in payload && payload.taskId ? { taskId: payload.taskId } : {})
+      });
+    }
+    if (event.type === 'repoqa.index.error') {
+      serverLog.error('worker', `index failed${payload.repoId ? ` for ${payload.repoId}` : ''}`, {
+        error: payload.error
+      });
+    }
     if (event.type === 'repoqa.index.progress' && event.payload.phase === 'parsing') {
       stopRepoWatcher(event.payload.repoId);
     }
@@ -251,6 +280,16 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
             `Every device on this network can read indexes and call the LLM. ` +
             `Set MHW_CP_HOST=127.0.0.1 to keep it loopback-only.`
         );
+        serverLog.warn('server', 'LAN exposure (non-loopback bind, no auth)', {
+          address: addrObj.address,
+          port: actual
+        });
+      } else {
+        serverLog.info('server', 'listening', {
+          address: addrObj?.address ?? config.host,
+          port: actual,
+          dataDir: config.dataDir
+        });
       }
       resolved = true;
       options.onListening?.(actual);
@@ -268,6 +307,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     wss.close();
     server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    serverLog.info('server', 'shutdown');
+    serverLog.close();
     db.close();
   };
 

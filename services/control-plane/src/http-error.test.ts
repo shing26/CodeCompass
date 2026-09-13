@@ -209,7 +209,42 @@ describe('v0.27-B R1: asyncHandler + error middleware + request id', () => {
     }
   });
 
-  // R1 review P2-3 — headersSent 守卫的单元级钉：必须 next(err) 且不碰 res。
+  // R5：res.locals.serverLogger 在位时，500 行由 sink 负责（其 error() 自带
+  // stderr 双写），logServerError 不再重复写裸行。
+  it('500 with a wired ServerLogger goes through the sink, not the stderr fallback', async () => {
+    const seen: Array<{ scope: string; msg: string; fields?: unknown }> = [];
+    const app = express();
+    app.use(requestIdMiddleware);
+    app.use((req, res, next) => {
+      res.locals.serverLogger = {
+        info: () => {},
+        warn: () => {},
+        error: (scope: string, msg: string, fields?: unknown) => seen.push({ scope, msg, fields })
+      };
+      next();
+    });
+    app.get('/boom', asyncHandler(async () => {
+      throw new Error('sink-me postgres://user:pw@db/x');
+    }));
+    app.use(errorMiddleware);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await withServer(app, async (base) => {
+        const res = await fetch(`${base}/boom`);
+        expect(res.status).toBe(500);
+      });
+    } finally {
+      stderrSpy.mockRestore();
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0].scope).toBe('http');
+    expect(seen[0].msg).toContain('/boom');
+    // R5 review P2-7a：语义断言（sink 路径下这条错误行不得再出现在裸 stderr，
+    // 全局 not.toHaveBeenCalled 会被无关 stderr 噪音假红）。
+    const written = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(written).not.toContain('sink-me');
+  });
+
   it('headersSent: guard forwards to next, never touches res (unit-level)', () => {
     const next = vi.fn();
     const res = {
