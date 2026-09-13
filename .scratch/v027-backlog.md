@@ -35,5 +35,6 @@
 | V27-28 | bridge-adapters 零测试面（仅 typecheck；消费方 harness-manager 有 control-plane 侧间接覆盖）——包内 vitest + 4 适配器纯逻辑单测 + CI 接线（B 批附属） | 2026-09-14 全模块验证 | 质量 |
 | V27-29 | web→contracts 单一源手术（B 批附属）：types.ts 重复类型改直接 import，字段考古（defaultBranch/suggestedSubdirs 归属裁决），拆 V27-26 守卫哨，Dockerfile web 段连带 COPY packages | 2026-09-14 grill D4/D7 | 契约 |
 | V27-30 | control-plane 结构轴手术（B 批主线）：repoqa-worker.ts 2556 行拆分（头部工具外迁 + RepoQAWorker 按 ingest/persist/progress/graph 抽协作者）、registerAnalysisRoutes 515 行拆注册、repoqa-* 家族目录归组——零行为变更，全门禁护航 | 2026-09-14 grill D6/D8 + scan oversizedFiles 桶 | 结构 |
+| V27-31 | ~~UI 冒烟「R2 锁」断言在 CI headless-shell 上两轮 retry 皆红~~ **已关闭（2026-09-14 v0.27.0 Release 首跑发现）**：旧判定赌 status-progress DOM 时机（重连/广播/React 提交三方赛跑）且失败无诊断；升级 `__wsLog` socket 探针主判（重连=open、进度=repoqa.index.progress 帧、未刷新=__pageId），确认重连后才 reindex，DOM 降级附加、失败 dump 时间线。语义守住，本地 2 轮全绿；见 issues/12 | v0.27.0 Release CI 首跑 | 质量 |
 
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

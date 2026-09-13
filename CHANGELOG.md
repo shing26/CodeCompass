@@ -25,6 +25,7 @@
 - `/health` version 改由 `version.ts` 单一源驱动（旧值 `0.6.0` 为 server.ts 硬编码残留，e2e 版本一致性检查历史上不覆盖该端点——盲区已随 A2 封堵）。
 - `types.ts` 头注改准：历史上它自称 mirror `contracts/src/repoqa.ts`，实际 `Repo`/`RepoStatus` 族镜像的是 control-plane HTTP 载荷（`repoqa-repos.ts`），contracts 只覆盖 delta/radar/evolve 等 16 型——注释误导一并修正。
 - web `MermaidDiagram.test.tsx` BROKEN 用例断言包 `waitFor`（A4/V27-27）：文件内唯一裸正向注入断言，对 `[svgHtml, traceSteps]` 两段链式 effect 的提交时机敏感，全量并跑偶发红（首轮验证亲踩），对齐姊妹用例模式根治。
+- **R7 冒烟「R2 锁」断言升级（V27-31，v0.27.0 Release CI 首跑实战）**：旧判定赌 `status-progress` DOM 出现时机（重连/广播帧/React 提交三方赛跑），ubuntu headless-shell 上两轮皆红而同期服务端 reindex 落定绿、且失败无诊断。`ui_smoke.mjs` 装 `__wsLog` socket 探针（`addInitScript` 记录 /ws 的 open/close/message + `__pageId` 反证未刷新），判定改为 socket 层可判——确认重连（新 open）后才 POST reindex（消灭「202 早于重连即丢帧」），`repoqa.index.progress` 帧到达为主证据，DOM 进度条降级附加信息（渲染时机属 V27-23 面），失败 dump 探针时间线。断言语义（未刷新+重连+收到进度）不变，R2 真坏依旧红。
 
 ### 质量门（v0.27.0 基线）
 

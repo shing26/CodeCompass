@@ -197,6 +197,40 @@ async function main() {
     });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('pageerror', (e) => fails.push('PAGEERROR :: ' + String(e).slice(0, 200)));
+    // V27-31: WS 探针（socket 层黑盒证据）。CI 首轮 Release 中本冒烟的「R2 锁」
+    // 红而无诊断：断言依赖 status-progress DOM 的出现时机，重连时机、索引帧
+    // 密度、React 提交三者赛跑，本地快机幸存、runner 上翻车。探针记录每个 /ws
+    // socket 的 create/open/close 与 message 的 type——重连是否发生、帧是否
+    // 到达在 socket 层可判，DOM 证据降级为附加信息；失败必 dump 探针时间线。
+    await page.addInitScript(() => {
+      window.__wsLog = [];
+      window.__pageId = 'p' + Math.random().toString(36).slice(2, 8); // reload 即换——「页面未刷新」反证
+      const Native = window.WebSocket;
+      const log = (sock, ev, extra) => {
+        (window.__wsLog ??= []).push({ ev, url: String(sock.url || ''), ...extra, t: Date.now() });
+      };
+      function Patched(url, protocols) {
+        const s = protocols === undefined ? new Native(url) : new Native(url, protocols);
+        if (String(url).includes('/ws')) {
+          log(s, 'create');
+          s.addEventListener('open', () => log(s, 'open'));
+          s.addEventListener('close', (e) => log(s, 'close', { code: e.code }));
+          s.addEventListener('message', (e) => {
+            let type = '';
+            try {
+              type = JSON.parse(String(e.data))?.type || '';
+            } catch {
+              /* non-JSON frame */
+            }
+            log(s, 'message', { type });
+          });
+        }
+        return s;
+      }
+      Patched.prototype = Native.prototype;
+      for (const k of ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED']) Patched[k] = Native[k];
+      window.WebSocket = Patched;
+    });
     await page.goto(`${base}/?repo=${repoId}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     // P2-7 修正：domcontentloaded 换掉了 networkidle 的隐式等待——所有断言改
     // waitForSelector 显式等待（sidebar/dock 是异步加载，一次可见性轮询会抢跑）。
@@ -274,6 +308,18 @@ async function main() {
     }
 
     console.log('--- 4. 韧性：重启后端 → 不刷新页面，WS 重连收进度帧 ---');
+    const pageIdBefore = await page.evaluate(() => window.__pageId);
+    const mark = await page.evaluate(() => {
+      // DOM 证据降级为附加信息（进度条渲染时机是三方赛跑，见 V27-23）；
+      // 主判定走 __wsLog 探针：重连=open、进度到达=repoqa.index.progress 帧。
+      window.__smokeSeenProgress = false;
+      new MutationObserver(() => {
+        if (document.querySelector('[data-testid="status-progress"]')) {
+          window.__smokeSeenProgress = true;
+        }
+      }).observe(document.body, { subtree: true, childList: true });
+      return (window.__wsLog || []).length;
+    });
     srv.child.kill();
     step('后端确实下线', await waitHealthDown(base));
     srv = startServer(port, dataDir, stub.url);
@@ -282,30 +328,44 @@ async function main() {
       if (!up) dumpStderr(); // P2-3：重启失败也要有诊断
       step('后端重启 healthy', up);
     }
-    await new Promise((r) => setTimeout(r, 2500)); // 给 WS 退避重连（1s 起）留窗口
-    await page.evaluate(() => {
-      window.__smokeSeenProgress = false;
-      new MutationObserver(() => {
-        if (document.querySelector('[data-testid="status-progress"]')) {
-          window.__smokeSeenProgress = true;
-        }
-      }).observe(document.body, { subtree: true, childList: true });
-    });
-    const re = await fetch(`${base}/api/repos/${repoId}/reindex`, { method: 'POST' });
-    step('reindex 受理 202', re.status === 202, `status=${re.status}`);
-    let seen = await page
-      .waitForFunction(() => window.__smokeSeenProgress === true, { timeout: 20000 })
+    // ① 重连证据：kill 之后出现新的 socket open（旧 socket 的 open 在 mark 之前）。
+    const reconnected = await page
+      .waitForFunction((m) => (window.__wsLog || []).slice(m).some((e) => e.ev === 'open'), mark, {
+        timeout: 30000,
+        polling: 500
+      })
       .then(() => true)
       .catch(() => false);
-    if (!seen) {
-      // 单轮可能抢跑（索引快于重连）——再触发一次
-      await fetch(`${base}/api/repos/${repoId}/reindex`, { method: 'POST' });
-      seen = await page
-        .waitForFunction(() => window.__smokeSeenProgress === true, { timeout: 20000 })
+    // ② 进度帧证据：确认重连后才触发 reindex（消灭旧脚本「202 早于重连即丢帧」
+    // 的赛跑）；多轮触发防御索引快于观测窗的极端调度。
+    let reindexStatus = 0;
+    let progressFrame = false;
+    for (let round = 0; round < 5 && !progressFrame; round++) {
+      const re = await fetch(`${base}/api/repos/${repoId}/reindex`, { method: 'POST' });
+      if (round === 0) reindexStatus = re.status;
+      progressFrame = await page
+        .waitForFunction(
+          (m) => (window.__wsLog || []).slice(m).some((e) => e.ev === 'message' && e.type === 'repoqa.index.progress'),
+          mark,
+          { timeout: 4000, polling: 300 }
+        )
         .then(() => true)
         .catch(() => false);
     }
-    step('页面未刷新而 WS 重连收到索引进度（R2 锁）', seen);
+    step('reindex 受理 202', reindexStatus === 202, `status=${reindexStatus}`);
+    const noReload = reconnected && (await page.evaluate((id) => window.__pageId === id, pageIdBefore));
+    const domLatch = await page.evaluate(() => window.__smokeSeenProgress === true);
+    step(
+      '页面未刷新而 WS 重连收到索引进度（R2 锁）',
+      reconnected && progressFrame && noReload,
+      `reconnect=${reconnected} progressFrame=${progressFrame} noReload=${noReload} domBar=${domLatch ? '亦见' : '未渲染(仅 socket 证据，V27-23 面)'}`
+    );
+    if (!(reconnected && progressFrame)) {
+      const tail = await page
+        .evaluate((m) => JSON.stringify((window.__wsLog || []).slice(m, m + 40)), mark)
+        .catch(() => '[]');
+      console.log('  · __wsLog[mark:+40]：', tail);
+    }
     // 落定信号走服务端状态（status-progress 在索引完成后不清空——已登 V27-23，
     // 属进度条残留缺陷而非冒烟逻辑）；页侧再给 1 轮 catalog 轮询的时间。
     {
