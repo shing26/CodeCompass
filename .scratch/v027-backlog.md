@@ -28,4 +28,12 @@
 | V27-22 | MCP 深链仍硬编码 `http://localhost:${port}`×5（repoqa-mcp.ts:672/702/720/779/923）：R4 确立「展示面跟实际绑定面」后，`MHW_CP_HOST=192.168.x` 具体网卡逃生时深链连空——MCP stdio 进程与 HTTP 服务进程 env 可能分叉，host 传递通道需专票设计（e2e closeout_gate.py:1319 的 `startswith("http://localhost:")` 断言必须成对改） | R4 review P2-2 | 一致性 |
 | V27-23 | 索引完成后顶栏步骤条（StatusStepper）常驻不清——`indexingProgress` 仅在切库 effect 清空（RepoContext.tsx:227），FINALIZING 100% 帧后无人复位（刷新页面才消失）。修法：目录轮询观测到 status=ready 时清 progress。R7 冒烟实施中发现（韧性段落定信号被迫改走服务端状态） | R7 实施（2026-09-12） | UX |
 
+| V27-24 | ~~Docker 镜像构建破损~~ **已随 v0.27.0 A1 关闭（2026-09-14）**：Dockerfile 补 `COPY packages/` + 基座 node:24 + CI 新 `docker-build` job（构建+容器 /health 冒烟）；实施中另抓 openBrowser 异步 ENOENT 崩服 P1（监听器修复+测试钉住）；见 `.scratch/v027-production-readiness/issues/08` | 2026-09-14 全模块验证 | 构建 |
+| V27-25 | ~~/health 版本漂移~~ **已随 v0.27.0 A2 关闭（2026-09-14）**：`version.ts` 单一源（cli/server 共引）+ e2e `check_versions` 三扩（源挪 version.ts/Dockerfile 基座==engines/health payload 断言，门 60→62）；负测留证（bump 遗漏即红）；见 issues/09 | 2026-09-14 全模块验证 | 一致性 |
+| V27-26 | ~~web↔contracts 镜像零检查~~ **已随 v0.27.0 A3 关闭（2026-09-14）**：`contract-mirror.test.ts` 类型名集合哨（16 型关注清单，交集==清单双向钉）；字段级等值随 V27-29 单一源手术；见 issues/10 | 2026-09-14 全模块验证 | 契约 |
+| V27-27 | ~~web flaky~~ **已随 v0.27.0 A4 关闭（2026-09-14）**：BROKEN 用例断言包 waitFor，实施后全量两跑零红；见 issues/11 | 2026-09-14 全模块验证首轮 | 质量 |
+| V27-28 | bridge-adapters 零测试面（仅 typecheck；消费方 harness-manager 有 control-plane 侧间接覆盖）——包内 vitest + 4 适配器纯逻辑单测 + CI 接线（B 批附属） | 2026-09-14 全模块验证 | 质量 |
+| V27-29 | web→contracts 单一源手术（B 批附属）：types.ts 重复类型改直接 import，字段考古（defaultBranch/suggestedSubdirs 归属裁决），拆 V27-26 守卫哨，Dockerfile web 段连带 COPY packages | 2026-09-14 grill D4/D7 | 契约 |
+| V27-30 | control-plane 结构轴手术（B 批主线）：repoqa-worker.ts 2556 行拆分（头部工具外迁 + RepoQAWorker 按 ingest/persist/progress/graph 抽协作者）、registerAnalysisRoutes 515 行拆注册、repoqa-* 家族目录归组——零行为变更，全门禁护航 | 2026-09-14 grill D6/D8 + scan oversizedFiles 桶 | 结构 |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

@@ -192,9 +192,13 @@ describe('MermaidDiagram trace injection (v0.10 Stage 1)', () => {
     const container = screen.getByTestId('mermaid-diagram').querySelector('.mermaid-embed')!;
     const edges = container.querySelectorAll('g.edgePath');
     // First edge connects hop 0→1, whose target hop is BROKEN.
-    expect(edges[0].classList.contains('ccx-edge-broken')).toBe(true);
+    // V27-27: waitFor-wrapped like the sibling case below — the classes are
+    // applied by a second useEffect chained on [svgHtml, traceSteps], so a
+    // one-shot assertion races its commit (this was the suite's only bare
+    // positive-injection assert and flaked under full-run load).
+    await waitFor(() => expect(edges[0].classList.contains('ccx-edge-broken')).toBe(true));
     const node = container.querySelectorAll('g.node .label')[1]!.closest('g.node')!;
-    expect(node.classList.contains('ccx-node-broken')).toBe(true);
+    await waitFor(() => expect(node.classList.contains('ccx-node-broken')).toBe(true));
   });
 
   it('injects HTTP edge and POST node classes from trace evidence', async () => {

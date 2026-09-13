@@ -23,8 +23,12 @@ import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
 import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadges } from './export-artifact';
+import { VERSION } from './version';
 
-export const VERSION = '0.26.0';
+// V27-25: the version literal moved to ./version.ts (single source shared with
+// server.ts — a cli.ts import here would cycle, since cli already imports server).
+// Kept as a re-export for existing `import { VERSION } from './cli'` consumers.
+export { VERSION };
 
 export interface CliArgs {
   /** Subcommand (`mcp` starts the stdio MCP server, `diff` analyzes a PR,
@@ -459,21 +463,25 @@ export function parseArgs(argv: string[]): ParseResult {
 
 /** Open a URL in the platform default browser; never throws. */
 export function openBrowser(url: string): void {
-  try {
-    if (process.platform === 'win32') {
-      spawn('cmd', ['/c', 'start', '', url], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true
-      }).unref();
-    } else if (process.platform === 'darwin') {
-      spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
-    } else {
-      spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
-    }
-  } catch {
+  // V27-24 (found by the new container smoke): a sync try/catch CANNOT catch
+  // spawn's async ENOENT — e.g. no xdg-open inside node:*-slim images. An
+  // 'error' event with no listener becomes an uncaught exception and kills
+  // the server, which is exactly what the old "best-effort — never crash"
+  // comment claimed but did not implement. The listener makes the comment true.
+  const child =
+    process.platform === 'win32'
+      ? spawn('cmd', ['/c', 'start', '', url], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true
+        })
+      : process.platform === 'darwin'
+        ? spawn('open', [url], { detached: true, stdio: 'ignore' })
+        : spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+  child.on('error', () => {
     // opening a browser is best-effort — never crash the server over it
-  }
+  });
+  child.unref();
 }
 
 export interface CliContext {

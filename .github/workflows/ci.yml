@@ -61,3 +61,26 @@ jobs:
         with:
           name: e2e-result
           path: scripts/e2e/e2e-result.json
+
+  # V27-24 (A1): the image was broken across releases because no gate ever
+  # built it (relative-path imports from services/control-plane into packages/
+  # were invisible to the two `COPY apps/ services/` lines). This job is the
+  # regression door: if a future refactor adds cross-package source references
+  # or base-image drift, PRs go red here instead of users discovering at deploy.
+  docker-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build runtime image
+        run: docker build -t codecompass:ci .
+      - name: Smoke boot + /health inside the container
+        run: |
+          docker run -d --rm --name cc-smoke -p 127.0.0.1:43110:43110 codecompass:ci
+          for i in $(seq 1 15); do
+            sleep 2
+            if curl -fsS http://127.0.0.1:43110/health; then ok=1; break; fi
+          done
+          docker rm -f cc-smoke
+          test -n "$ok"

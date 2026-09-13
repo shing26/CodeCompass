@@ -414,24 +414,50 @@ def import_repo(base: str, name: str, path: Path) -> dict:
 
 def check_versions() -> None:
     root_pkg = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
-    cli_ts = (ROOT / "services/control-plane/src/cli.ts").read_text(encoding="utf-8")
+    version_ts = (ROOT / "services/control-plane/src/version.ts").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     pkg_version = root_pkg["version"]
-    cli_match = re.search(r"VERSION = '([^']+)'", cli_ts)
+    ver_match = re.search(r"VERSION = '([^']+)'", version_ts)
     log_match = re.search(r"^## \[([^\]]+)\]", changelog, re.MULTILINE)
-    cli_version = cli_match.group(1) if cli_match else ""
+    const_version = ver_match.group(1) if ver_match else ""
     log_version = log_match.group(1) if log_match else ""
     engines = root_pkg.get("engines", {}).get("node", "")
     ok = (
-        pkg_version == cli_version == log_version
+        pkg_version == const_version == log_version
         and re.fullmatch(r"\d+\.\d+\.\d+", pkg_version) is not None
         and engines.startswith(">=24")
     )
     record(
-        "version-consistency (package.json == cli.ts == CHANGELOG, engines >=24)",
+        "version-consistency (package.json == version.ts == CHANGELOG, engines >=24)",
         ok,
-        f"root={pkg_version} cli={cli_version} changelog={log_version} engines={engines!r}",
+        f"root={pkg_version} version.ts={const_version} changelog={log_version} engines={engines!r}",
     )
+    # V27-25: the Dockerfile sat at node:20 against an engines contract of >=24
+    # and no gate ever looked. Base major is now pinned to the engines floor.
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    bases = re.findall(r"^FROM node:(\d+)", dockerfile, re.MULTILINE)
+    floor = re.search(r">=(\d+)", engines)
+    bases_ok = bool(bases) and bool(floor) and all(int(b) == int(floor.group(1)) for b in bases)
+    record(
+        "docker-base-consistency (Dockerfile FROM node:N == engines.node floor)",
+        bases_ok,
+        f"bases={bases} engines_floor={floor.group(1) if floor else '?'}",
+    )
+
+
+def check_health_payload_version(base: str) -> None:
+    """V27-25: /health used to report a stale hardcoded 0.6.0 — wait_health only
+    probed reachability. Assert the payload echoes the single-source VERSION."""
+    version_ts = (ROOT / "services/control-plane/src/version.ts").read_text(encoding="utf-8")
+    ver_match = re.search(r"VERSION = '([^']+)'", version_ts)
+    want = ver_match.group(1) if ver_match else ""
+    try:
+        body = http_json("GET", f"{base}/health", timeout=5)
+        got = body.get("version", "")
+        record("/health payload version == version.ts constant", got == want and bool(want),
+               f"health={got!r} version.ts={want!r}")
+    except Exception as exc:  # noqa: BLE001 — gate never crashes on a check
+        record("/health payload version == version.ts constant", False, str(exc)[:200])
 
 
 def check_dashboard(base: str, repo_id: str, lang_label: str, expect_config: bool = True) -> None:
@@ -1863,6 +1889,7 @@ def main() -> int:
     )
     try:
         wait_health(base)
+        check_health_payload_version(base)
         py_repo = import_repo(base, "demo-polyglot", polyglot)
         check_dashboard(base, py_repo["id"], "java+ts polyglot")
         check_module_scope(base, py_repo["id"])

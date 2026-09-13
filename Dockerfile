@@ -2,8 +2,9 @@
 # CodeCompass — single-process full-stack image.
 # Multi-stage: builds the SPA + the control-plane bundle, then keeps only the
 # runtime pieces (prod node_modules pruned, dist, web dist).
+# Node major must match the root package.json engines floor (V27-25 gate check).
 
-FROM node:20-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 # better-sqlite3 is a native module; give npm the toolchain in case a prebuilt
 # binary is not available for this platform.
@@ -17,14 +18,18 @@ RUN cd apps/repoqa-web && npm ci
 COPY apps/repoqa-web/ apps/repoqa-web/
 RUN cd apps/repoqa-web && npm run build
 
-# Backend (contracts/bridge-adapters are imported from source and bundled in)
+# Backend (contracts/bridge-adapters are imported from source and bundled in —
+# harness-manager.ts reaches ../../../packages/*, so the workspace packages must
+# exist in the build context or esbuild fails to resolve them; V27-24. Their src
+# only uses `import type` + node: builtins, so sources alone suffice — no deps.)
 COPY services/control-plane/package.json services/control-plane/package-lock.json services/control-plane/
 RUN cd services/control-plane && npm ci
+COPY packages/ packages/
 COPY services/control-plane/ services/control-plane/
 RUN cd services/control-plane && npm run build \
   && npm prune --omit=dev
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 

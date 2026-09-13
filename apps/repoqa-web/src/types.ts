@@ -1,4 +1,9 @@
-// Frontend domain types — mirror packages/contracts/src/repoqa.ts semantics.
+// Frontend domain types. Two mirror targets, deliberately distinct:
+//  - the contract-shared subset mirrors packages/contracts (src/repoqa.ts +
+//    v1.ts) — name-set pinned by contract-mirror.test.ts (V27-26);
+//  - types like Repo/RepoStatus mirror the control-plane HTTP payloads
+//    (services/control-plane/src/repoqa-repos.ts et al.), not contracts.
+// Single-source surgery (import instead of mirror) is ticket V27-29.
 
 export type RepoStatus = 'idle' | 'indexing' | 'cloning' | 'parsing' | 'ready' | 'error';
 

@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import { WebSocketServer, WebSocket } from 'ws';
 import type express from 'express';
 import { loadConfig, isLoopbackListenAddress, type Config } from './config';
+import { VERSION } from './version';
 import { ServerLogger } from './log-sink';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { Repos } from './repos';
@@ -137,7 +138,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     repoqa,
     worker,
     eventBus,
-    version: '0.6.0',
+    // V27-25: was a stale hardcoded '0.6.0' — /health now echoes the real
+    // product version; the e2e gate pins payload == version.ts constant.
+    version: VERSION,
     dataDir: config.dataDir,
     port: config.port,
     // R4：/health 回显实际绑定面（boundHost）。
