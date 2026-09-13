@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.27.0] - 2026-09-14
+
+### Highlights
+
+- **生产就绪度批（v0.27-B R1–R7，`.scratch/v027-production-readiness/`）**：五维评估（容错/日志/配置/监控/错误处理）差距逐项收口。R1 全局 error 中间件+asyncHandler 13 处（async rejection 不再悬挂、500 一律 JSON 且堆栈不出网）；R2 传输层韧性（fetch 首字节预算分层 + WS 指数退避自动重连）；R3 错误码契约五面 28 稳定码入 CONTEXT 权威表 + chat 人类化；R4 **控制面默认绑 127.0.0.1**（见 Breaking）；R5 服务端最小日志 sink（dataDir/logs jsonl，级别+轮转+retention+fail-soft）；R6 /health 深检（DB/dataDir 探针+TTL）+ /api/runtime 进程指标（仅回环）；R7 UI 冒烟进 Release 门（真 chromium 四链路 + stub LLM 零 token，销 V27-13）。
+- **UI 对话补课批（v0.27-UI 三票）**：ChatView Tailwind 对话界面落地（骨架 CSS 从未存在的补课）+ AskDock 全局常驻对话条（「问现状」心智落到物理位置）+ **chatGuardSend 把 repoId 当 sessionId 的 P0 修复**（真实前端 chat 自 v0.25 批3 全坏，computer-use 走查抓包；330 单测全绿零拦——该事故直接催生 R7 冒烟进门）。
+- **全模块验证收口批（本批 A1–A4，2026-09-14 逐模块独立+集成验证的产物）**：Docker 镜像恢复可构建并进门禁、版本单一源、契约镜像守卫哨、web flaky 根治。
+
+### Breaking
+
+- **控制面默认绑定 127.0.0.1**（R4，销 V27-1）：零鉴权服务不再默认全网卡可达；LAN 展示场景须显式 `MHW_CP_HOST=0.0.0.0`（启动日志告警），Docker 镜像内部预设逃生。`--network host` 无 -p 把门，慎用。
+- **Docker 基座 node:20 → node:24**（A1/V27-24）：与 `engines>=24` 契约对齐；`/health` version 字段自 `0.6.0`（v0.6 时代硬编码残留）起回显真实产品版本（A2/V27-25）。
+
+### Added
+
+- **A1（V27-24）**：Dockerfile 补 `COPY packages/ packages/`——镜像自 monorepo 化后从未构建成功（esbuild `Could not resolve ../../../packages/bridge-adapters/src`），CI/Release 亦从未构建故无人知；`ci.yml` 新增 `docker-build` job（构建 + 容器内 /health 冒烟），monorepo 引用漂移自此有门。
+- **A2（V27-25）**：`services/control-plane/src/version.ts` 版本单一源（cli/server 共引，e2e 检查射程从 cli.ts 挪至此处）；e2e `check_versions` 扩射——新增 Dockerfile `FROM node:N` == engines 下限断言、`/health` payload version == 常量断言（60→62 项）。
+- **A3（V27-26）**：`contract-mirror.test.ts` 镜像守卫哨——web `types.ts` 与 `packages/contracts`（src/repoqa.ts + v1.ts）共享类型名集合钉死为 16 项关注清单，任何一侧新增/删除镜像类型而未显式登记即红（字段级等值留 V27-29 单一源手术）。
+- **R5/R6 面**：`ServerLogger` 日志 sink、`/health` `checks` 三态（ok/error/skipped+TTL）、`/api/runtime`（llm mode 掩码 + uptime/rss/indexingJobs，非回环 403）。
+
+### Changed
+
+- `/health` version 改由 `version.ts` 单一源驱动（旧值 `0.6.0` 为 server.ts 硬编码残留，e2e 版本一致性检查历史上不覆盖该端点——盲区已随 A2 封堵）。
+- `types.ts` 头注改准：历史上它自称 mirror `contracts/src/repoqa.ts`，实际 `Repo`/`RepoStatus` 族镜像的是 control-plane HTTP 载荷（`repoqa-repos.ts`），contracts 只覆盖 delta/radar/evolve 等 16 型——注释误导一并修正。
+- web `MermaidDiagram.test.tsx` BROKEN 用例断言包 `waitFor`（A4/V27-27）：文件内唯一裸正向注入断言，对 `[svgHtml, traceSteps]` 两段链式 effect 的提交时机敏感，全量并跑偶发红（首轮验证亲踩），对齐姊妹用例模式根治。
+
+### 质量门（v0.27.0 基线）
+
+- 控制面单测 **588→630**、web **320→351**（R 系列 + UI 批 + 本批哨 2 例）、e2e **60→62**、UI 冒烟真 chromium 全链路绿、docker 实构建+容器 /health 冒烟绿、`tsc --noEmit` 四包净；bridge-adapters 独立 0.6.0 版本线维持未被牵连。
+- 收口依据：2026-09-14 全模块独立验证（四包 typecheck/build/单测/启动全绿）→ 集成验证（e2e 60/60、UI 冒烟 PASS、MCP stdio 实连、npm CLI doctor）→ 破损清单四张入册（V27-24..27，`.scratch/v027-production-readiness/issues/08-11`）。
+
+### 契约稳定性
+
+- MCP 17 工具面零变化；REST/SSE 端点形状不变（`/health` 仅 version 值修正 + R6 checks/runtime additive；R4 改默认绑定面属部署契约，载荷形状无变化）。
+- 台账：V27-24..27 随本批关闭；V27-28..30（bridge 单测、web→contracts 单一源、control-plane 结构轴手术）入 v0.28 候选池。
+
 ## [0.26.0] - 2026-09-12
 
 ### Highlights
