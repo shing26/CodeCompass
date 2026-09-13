@@ -6,10 +6,12 @@
   "types": "./src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.7"
   }
 }

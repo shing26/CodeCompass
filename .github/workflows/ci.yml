@@ -37,6 +37,8 @@ jobs:
         run: npm test
       - name: Web unit tests
         run: npm run test:web
+      - name: Bridge adapters unit tests (V27-28)
+        run: npm run test:bridge
       - name: Build all packages
         run: npm run build
 
