@@ -197,6 +197,29 @@ async function main() {
     });
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     page.on('pageerror', (e) => fails.push('PAGEERROR :: ' + String(e).slice(0, 200)));
+    // V27-31 诊断网：renderer 崩溃与主框导航都要留痕——CI 首轮 __wsLog
+    // 自 mark 起全空，三种世界（未连接/页被换/上下文死）必须先可区分。
+    page.on('crash', () => fails.push('PAGE CRASHED'));
+    page.on('framenavigated', (f) => {
+      if (f === page.mainFrame()) console.log('  · nav → ' + f.url().slice(0, 120));
+    });
+    // CDP 级 WS 跟踪：不经页面 JS，reload/崩溃/探针被覆盖都骗不了它。
+    // wsEvents 按时间收集，第 4 段用它与页内 __wsLog 交叉裁决。
+    const wsEvents = [];
+    page.on('websocket', (ws) => {
+      if (!ws.url().includes('/ws')) return;
+      wsEvents.push({ ev: 'connect', url: ws.url(), t: Date.now() });
+      ws.on('close', () => wsEvents.push({ ev: 'close', url: ws.url(), t: Date.now() }));
+      ws.on('framereceived', (frame) => {
+        let type = '';
+        try {
+          type = JSON.parse(String(frame.payload))?.type || '';
+        } catch {
+          /* ignore */
+        }
+        wsEvents.push({ ev: 'frame', type, t: Date.now() });
+      });
+    });
     // V27-31: WS 探针（socket 层黑盒证据）。CI 首轮 Release 中本冒烟的「R2 锁」
     // 红而无诊断：断言依赖 status-progress DOM 的出现时机，重连时机、索引帧
     // 密度、React 提交三者赛跑，本地快机幸存、runner 上翻车。探针记录每个 /ws
@@ -309,18 +332,21 @@ async function main() {
 
     console.log('--- 4. 韧性：重启后端 → 不刷新页面，WS 重连收进度帧 ---');
     const pageIdBefore = await page.evaluate(() => window.__pageId);
-    const mark = await page.evaluate(() => {
-      // DOM 证据降级为附加信息（进度条渲染时机是三方赛跑，见 V27-23）；
-      // 主判定走 __wsLog 探针：重连=open、进度到达=repoqa.index.progress 帧。
+    await page.evaluate(() => {
+      // DOM 证据降级为附加信息（进度条渲染时机是三方赛跑，见 V27-23）。
       window.__smokeSeenProgress = false;
       new MutationObserver(() => {
         if (document.querySelector('[data-testid="status-progress"]')) {
           window.__smokeSeenProgress = true;
         }
       }).observe(document.body, { subtree: true, childList: true });
-      return (window.__wsLog || []).length;
     });
     srv.child.kill();
+    // 时间戳判据（V27-31 第二轮）：数组下标 slice(mark) 在页内探针被 reload
+    // 清零时会静默越界返回 []（CI 首跑的「全空」与此完全相容）。改为
+    // 「t >= killTs 的事件」——reload 后新页面新事件同样落窗可判；pageId
+    // 另立「页面未刷新」证据，与重连/帧到达三事各自可辨。
+    const killTs = Date.now();
     step('后端确实下线', await waitHealthDown(base));
     srv = startServer(port, dataDir, stub.url);
     {
@@ -328,14 +354,14 @@ async function main() {
       if (!up) dumpStderr(); // P2-3：重启失败也要有诊断
       step('后端重启 healthy', up);
     }
-    // ① 重连证据：kill 之后出现新的 socket open（旧 socket 的 open 在 mark 之前）。
+    // ① 重连证据：kill 后出现新的 /ws 连接——页内探针或 CDP 任一源可证。
     const reconnected = await page
-      .waitForFunction((m) => (window.__wsLog || []).slice(m).some((e) => e.ev === 'open'), mark, {
+      .waitForFunction((ts) => (window.__wsLog || []).some((e) => e.ev === 'open' && e.t >= ts), killTs, {
         timeout: 30000,
         polling: 500
       })
       .then(() => true)
-      .catch(() => false);
+      .catch(() => wsEvents.some((e) => e.ev === 'connect' && e.t >= killTs));
     // ② 进度帧证据：确认重连后才触发 reindex（消灭旧脚本「202 早于重连即丢帧」
     // 的赛跑）；多轮触发防御索引快于观测窗的极端调度。
     let reindexStatus = 0;
@@ -345,26 +371,27 @@ async function main() {
       if (round === 0) reindexStatus = re.status;
       progressFrame = await page
         .waitForFunction(
-          (m) => (window.__wsLog || []).slice(m).some((e) => e.ev === 'message' && e.type === 'repoqa.index.progress'),
-          mark,
+          (ts) => (window.__wsLog || []).some((e) => e.ev === 'message' && e.type === 'repoqa.index.progress' && e.t >= ts),
+          killTs,
           { timeout: 4000, polling: 300 }
         )
         .then(() => true)
-        .catch(() => false);
+        .catch(() => wsEvents.some((e) => e.ev === 'frame' && e.type === 'repoqa.index.progress' && e.t >= killTs));
     }
     step('reindex 受理 202', reindexStatus === 202, `status=${reindexStatus}`);
-    const noReload = reconnected && (await page.evaluate((id) => window.__pageId === id, pageIdBefore));
-    const domLatch = await page.evaluate(() => window.__smokeSeenProgress === true);
+    const noReload = await page.evaluate((id) => window.__pageId === id, pageIdBefore).catch(() => false);
+    const domLatch = await page.evaluate(() => window.__smokeSeenProgress === true).catch(() => false);
     step(
       '页面未刷新而 WS 重连收到索引进度（R2 锁）',
       reconnected && progressFrame && noReload,
       `reconnect=${reconnected} progressFrame=${progressFrame} noReload=${noReload} domBar=${domLatch ? '亦见' : '未渲染(仅 socket 证据，V27-23 面)'}`
     );
-    if (!(reconnected && progressFrame)) {
-      const tail = await page
-        .evaluate((m) => JSON.stringify((window.__wsLog || []).slice(m, m + 40)), mark)
-        .catch(() => '[]');
-      console.log('  · __wsLog[mark:+40]：', tail);
+    if (!(reconnected && progressFrame && noReload)) {
+      const diag = await page
+        .evaluate(() => ({ len: (window.__wsLog || []).length, tail: (window.__wsLog || []).slice(-20) }))
+        .catch((e) => ({ probeThrew: String(e).slice(0, 120) }));
+      console.log('  · 诊断 __wsLog：', JSON.stringify(diag));
+      console.log('  · 诊断 CDP wsEvents：', JSON.stringify(wsEvents.slice(-20)));
     }
     // 落定信号走服务端状态（status-progress 在索引完成后不清空——已登 V27-23，
     // 属进度条残留缺陷而非冒烟逻辑）；页侧再给 1 轮 catalog 轮询的时间。
