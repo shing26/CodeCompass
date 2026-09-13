@@ -1,0 +1,7 @@
+feat(v0.27-B R6): /health 深检 + /api/runtime 进程指标（仅回环）
+
+- /health：SELECT 1 真探 + dataDir 固定名写探针（rm 失败不降级：写成功即可写；TTL 1.5s 缓存防热轮询打爆同步 syscall；db 句柄缺席='skipped' 不报口头 ok）；任一 down→503 degraded
+- /api/runtime：process{uptimeSec,rssKb,indexingJobs} 仅回环 peer 下发（LAN 逃生侧信道治理，与 maskHostname 同克制）
+- P1-3 语义诚实：worker.running 只登记 indexRepo——字段实名 indexingJobs，注释钉死「非全任务集」
+- 测试 +6（http-health：healthy/skip/db-down/dataDir-down/runtime/无残留）+repoqa-http 两例分面钉
+- Reviewer-Security P1×3+P2×4 全处置；门禁：cp 630/630、tsc、build、e2e 60/60、UI smoke PASS

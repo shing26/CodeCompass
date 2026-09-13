@@ -363,6 +363,12 @@ export function findFuzzyStartSymbol(
 
 export class RepoQAWorker {
   private running = new Map<string, AbortController>();
+
+  /** v0.27-B R6: in-flight indexRepo jobs. R6 review P1-3 语义钉：running map
+   * 只登记索引任务——query/evolve 流不走这里，勿当作「全部在途任务」。 */
+  activeOpCount(): number {
+    return this.running.size;
+  }
   private readonly symbolCache = new Map<string, { symbols: RepoSymbol[]; index: SymbolIndex }>();
   private readonly progressEmitAt = new Map<string, number>();
 

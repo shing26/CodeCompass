@@ -1,4 +1,5 @@
 import type { Response } from 'express';
+import type Database from 'better-sqlite3';
 import type { Repos } from '../repos';
 import type { Orchestrator, TaskAction } from '../orchestrator';
 import type { HarnessManager } from '../harness-manager';
@@ -33,6 +34,9 @@ export interface HttpDeps {
   chat?: ChatRuntime;
   /** v0.27-B R5：服务端日志 sink；present → 请求行进 jsonl + 错误行落文件。 */
   logger?: ServerLogger;
+  /** v0.27-B R6：/health 深检的依赖探针句柄（SELECT 1）。可选——装配外测试
+   * 不传时深检跳过（保持既有口头 ok 语义，additive）。 */
+  db?: Database.Database;
 }
 
 /**

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import { asyncHandler } from '../http-error';
 import type { HttpDeps } from './deps';
@@ -9,25 +11,76 @@ import { maskEventPayload } from '../repoqa-masking';
 
 /** Issue 14/16/19/30 + runtime：harness 编排面（tasks/harnesses/workspaces）
  * 与运行时状态。v0.25.0 自 http.ts 按域拆出，注册顺序保持原样。 */
+type HealthChecks = { db: 'ok' | 'down' | 'skipped'; dataDir: 'ok' | 'down' };
+
 export function registerWorkbenchRoutes(app: express.Express, deps: HttpDeps): void {
+  // v0.27-B R6 — /health 深检：DB 真读 + dataDir 真写探针，失败 503 degraded。
+  // 探针纪律（R6 review P1-1/P2-5）：固定文件名（崩溃/rm 失败至多留一个文件，
+  // 下次覆盖）；rm 失败不降级（写成功即证明可写，Windows AV 暂扣句柄不是故障）；
+  // 结果 TTL 1.5s 缓存（热轮询不打爆同步 syscall）。deps.db 缺席时报
+  // 'skipped' 不报口头 ok（P1-2：诚实披露未探）。
+  let probeCache: { atMs: number; checks: HealthChecks } | null = null;
   app.get('/health', (_req, res) => {
-    res.json({
-      status: 'ok',
+    const now = Date.now();
+    if (!probeCache || now - probeCache.atMs > 1_500) {
+      const checks: HealthChecks = { db: 'skipped', dataDir: 'ok' };
+      if (deps.db) {
+        try {
+          deps.db.prepare('SELECT 1').get();
+          checks.db = 'ok';
+        } catch {
+          checks.db = 'down';
+        }
+      }
+      try {
+        const probe = path.join(deps.dataDir, '.health-probe');
+        fs.writeFileSync(probe, 'x');
+        try {
+          fs.rmSync(probe, { force: true });
+        } catch {
+          /* AV 暂扣句柄：写已成功，可写性结论不变 */
+        }
+      } catch {
+        checks.dataDir = 'down'; // 只有「写不进去」才是真 down
+      }
+      probeCache = { atMs: now, checks };
+    }
+    const { checks } = probeCache;
+    const ok = checks.db !== 'down' && checks.dataDir !== 'down';
+    res.status(ok ? 200 : 503).json({
+      status: ok ? 'ok' : 'degraded',
       version: deps.version,
       port: deps.port,
       // R4 (V27-1)：绑定面回显——排障时一眼看出是否被逃生开关放到 LAN。
       ...(deps.host ? { boundHost: deps.host } : {}),
-      dataDir: deps.dataDir
+      dataDir: deps.dataDir,
+      checks
     });
   });
 
-  app.get('/api/runtime', (_req, res) => {
+  app.get('/api/runtime', (req, res) => {
     const runtime = llmRuntimeInfo(process.env);
+    // R6 review P2-4：进程指标只回环可见——LAN 逃生（零鉴权）时 uptime/rss/
+    // indexingJobs 组合是重启时刻与负载的侧信道，与 maskHostname 同一克制。
+    const peer = req.socket.remoteAddress ?? '';
+    const loopback = peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
     res.json({
       llm: {
         mode: runtime.mode,
         host: runtime.host ? maskHostname(runtime.host) : undefined
-      }
+      },
+      // R6 — 进程基线指标（本机排障用；无采集器不上外路面）。
+      // P1-3：worker.running 只登记 indexRepo——字段叫 indexingJobs，不冒充
+      // 「在途任务全集」（query/evolve 流不占该 map）。
+      ...(loopback
+        ? {
+            process: {
+              uptimeSec: Math.round(process.uptime()),
+              rssKb: Math.round(process.memoryUsage().rss / 1024),
+              indexingJobs: deps.worker.activeOpCount()
+            }
+          }
+        : {})
     });
   });
 

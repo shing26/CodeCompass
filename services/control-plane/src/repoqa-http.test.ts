@@ -814,7 +814,14 @@ describe('RepoPulse runtime and API 404 plane', () => {
     try {
       const response = await fetch(`${ctx.baseUrl}/api/runtime`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ llm: { mode: 'none' } });
+      // R6 additive：llm 面精确不变，process 指标另钉。
+      const runtime = (await response.json()) as { llm: unknown; process: Record<string, unknown> };
+      expect(runtime.llm).toEqual({ mode: 'none' });
+      expect(runtime.process).toMatchObject({
+        uptimeSec: expect.any(Number),
+        rssKb: expect.any(Number),
+        indexingJobs: expect.any(Number)
+      });
     } finally {
       await ctx.close();
     }
@@ -826,11 +833,17 @@ describe('RepoPulse runtime and API 404 plane', () => {
     try {
       process.env.REPOQA_LLM_URL = 'http://127.0.0.1:11434/v1/chat/completions';
       const local = await fetch(`${ctx.baseUrl}/api/runtime`);
-      expect(await local.json()).toEqual({ llm: { mode: 'local', host: '127.0.0.1' } });
+      expect(((await local.json()) as { llm: unknown }).llm).toEqual({
+        mode: 'local',
+        host: '127.0.0.1'
+      });
 
       process.env.REPOQA_LLM_URL = 'https://api.openai.com/v1/chat/completions';
       const remote = await fetch(`${ctx.baseUrl}/api/runtime`);
-      expect(await remote.json()).toEqual({ llm: { mode: 'remote', host: 'api.***.com' } });
+      expect(((await remote.json()) as { llm: unknown }).llm).toEqual({
+        mode: 'remote',
+        host: 'api.***.com'
+      });
     } finally {
       if (oldUrl === undefined) delete process.env.REPOQA_LLM_URL;
       else process.env.REPOQA_LLM_URL = oldUrl;

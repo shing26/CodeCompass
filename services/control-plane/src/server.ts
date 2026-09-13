@@ -145,7 +145,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     exportDir: path.join(config.dataDir, 'exports'),
     staticDir: config.staticDir,
     chat: chatRuntime,
-    logger: serverLog
+    logger: serverLog,
+    // R6：/health 深检的 DB 探针句柄。
+    db
   });
 
   const server = http.createServer(app);
