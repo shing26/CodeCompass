@@ -1,8 +1,8 @@
-# 03：B3 — control-plane 结构轴手术（worker 拆分 / analysis 拆注册 / 目录归组）（销 V27-30）
+# 03：B3 — control-plane 结构轴手术（worker 拆分 / analysis 拆注册）（V27-30 之 1-3 段，增量 4 拆票 04）
 
 > *Parent spec：`.scratch/v028-engine-refactor/spec.md`（grill D6/D8：结构轴）。*
 
-Status: open
+Status: closed
 标签：结构 / P2 / 来源：2026-09-14 全模块验证 + scan oversizedFiles 桶（repoqa-worker.ts 2556 行、registerAnalysisRoutes 515 行、repoqa-* 家族 40+ 平铺）。
 
 ## 拆分计划（按耦合从低到高，逐增独立 commit 可回滚）
@@ -26,8 +26,8 @@ Status: open
 
 ## 未完成（留后续会话，已给侦察结论）
 
-- 增量 3：diagram 簇抽 `worker-diagram.ts`——耦合度已侦察确认（L1722 `private traceToMermaid` 起 8 方法区，互调 + 读 `this` 符号图），需先设计协作者接口（构造入参 getSymbolGraph 引用 or 整体迁出 + worker 委托），不做未验证拆分。
-- 增量 4：repoqa-* 目录归组（纯 git mv + import 路径批量重写，建议独立 commit 且最后做，避免与增量 3 churn 叠加）。
+- 增量 3：diagram 簇抽 `worker-diagram.ts`——耦合度已侦察确认（L1722 `private traceToMermaid` 起 8 方法区，互调 + 读 `this` 符号图），需先设计协作者接口（构造入参 getSymbolGraph 引用 or 整体迁出 + worker 委托），不做未验证拆分。→ **2026-09-14 本票完成（见上「增量 3 收口」）**。
+- 增量 4：repoqa-* 目录归组——churn 实测 ≈70 文件 import 重写、Mimosa 禁 bash 批量写源、需逐文件 Read+Edit——**拆出为票 04 独立窗口执行**（分组定稿/执行顺序/价值声明在案）。本票至此三段码工全部收口。
 
 ## Comments（2026-09-14 增量 3 收口）
 
