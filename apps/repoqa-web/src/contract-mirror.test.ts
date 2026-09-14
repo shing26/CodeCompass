@@ -1,17 +1,13 @@
 /**
- * V27-26 (A3) — contract mirror sentinel.
+ * V27-26 → V27-29 (B2) — contract mirror guard, single-source edition.
  *
- * apps/repoqa-web/src/types.ts hand-mirrors a subset of packages/contracts
- * (src/repoqa.ts + v1.ts) with no compile-time link between them — the class
- * of drift that made this repo's Dockerfile rot silently (V27-24). This guard
- * pins the mirror scope: the set of exported type NAMES that both sides
- * declare must equal the declared watchlist below. Adding/removing a mirrored
- * type on either side goes red until the mirror decision is made explicit.
- *
- * Name-level scope only: field-level equality is deliberately deferred to the
- * single-source surgery (V27-29) — contracts is currently the `+nullable`
- * superset direction (e.g. optional filePath vs required web view), so a
- * field-set equality assertion would be red on arrival and teach nothing.
+ * The 16 shared types this test once name-pinned are no longer mirrored:
+ * src/types.ts re-exports them from packages/contracts, and tsc is now the
+ * compile-time guard. What remains here is the ratchet that keeps it that
+ * way — a hand-written `export interface X` / `export type X {…}` in web
+ * code whose NAME reappears from contracts is exactly how the Dockerfile rot
+ * (V27-24) and five drift fields (V27-29 archaeology) were born. Any
+ * re-mirrored name goes red until it becomes a re-export.
  *
  * Method follows copy-guard.test.ts (readFileSync of adjacent sources +
  * regex parse; runs in vitest node-land, hence the tsconfig exclude entry).
@@ -26,69 +22,53 @@ const CONTRACT_FILES = [
   join(SRC, '../../../packages/contracts/src/repoqa.ts'),
   join(SRC, '../../../packages/contracts/v1.ts'),
 ];
-const WEB_TYPES = join(SRC, 'types.ts');
-
-/** Types the web layer deliberately mirrors from contracts. Anything here
- * must exist on BOTH sides; anything in the two-sided intersection that is
- * not here means an undeclared mirror appeared — register it or unlink it. */
-const WATCHLIST = [
-  'ArchitectureDeltaReport',
-  'ConventionAnchor',
-  'ConventionConflictDetail',
-  'DomainRadarAnchor',
-  'DomainRadarResult',
-  'EvolutionIntentEcho',
-  'EvolutionPlacement',
-  'EvolutionPlacementFile',
-  'EvolutionRisk',
-  'EvolutionStageId',
-  'IndexingPhase',
-  'ModuleEvolutionResult',
-  'RepoQaEvolveDone',
-  'RepoQaEvolveError',
-  'RepoQaEvolveStage',
-  'TokenUsage',
+const WEB_FILES = [
+  join(SRC, 'types.ts'),
+  join(SRC, 'client/RepoQAClient.ts'),
+  join(SRC, 'hooks/useChat.ts'),
+  join(SRC, 'hooks/useEvolutionSession.ts'),
 ];
 
-function exportedTypeNames(...files: string[]): Set<string> {
+/** Names web is ALLOWED to spell on its own even though contracts shares
+ * the concept — documented alias bridges, not mirrors. Adding to this list
+ * is adding technical debt; prefer `export type { X } from '…contracts…'`. */
+const ALLOWED_ALIASES: string[] = [
+  'TokenUsage', // = contracts RepoQaTokenUsage (contracts.TokenUsage is a different concept)
+];
+
+function definedNames(file: string): string[] {
+  const text = readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+  // Definitions only: `export interface X` / `export type X =` / `export type X {`.
+  // Re-exports (`export type { X } from`) are deliberately NOT matched — that's
+  // the single-source form this guard endorses.
+  return [...text.matchAll(/^export\s+(?:interface|type)\s+([A-Za-z0-9_]+)/gm)].map((m) => m[1]!);
+}
+
+function contractExports(): Set<string> {
   const names = new Set<string>();
-  for (const file of files) {
-    const text = readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
-    for (const m of text.matchAll(/^export\s+(?:interface|type)\s+([A-Za-z0-9_]+)/gm)) {
-      names.add(m[1]);
-    }
-  }
+  for (const f of CONTRACT_FILES) for (const n of definedNames(f)) names.add(n);
   return names;
 }
 
-function diff(a: Set<string>, b: Set<string>): string[] {
-  return [...a].filter((x) => !b.has(x)).sort();
-}
+describe('contract mirror guard (V27-26/V27-29, single-source edition)', () => {
+  const contracts = contractExports();
 
-function intersect(a: Set<string>, b: Set<string>): Set<string> {
-  return new Set([...a].filter((x) => b.has(x)));
-}
-
-describe('contract mirror guard (v0.27-B A3, V27-26)', () => {
-  const contracts = exportedTypeNames(...CONTRACT_FILES);
-  const web = exportedTypeNames(WEB_TYPES);
-
-  it('every watchlisted type is declared on both sides', () => {
-    const missingContracts = WATCHLIST.filter((n) => !contracts.has(n));
-    const missingWeb = WATCHLIST.filter((n) => !web.has(n));
-    expect(
-      { missingContracts, missingWeb },
-      `mirror drift: dropped on contracts side=[${missingContracts}] web side=[${missingWeb}]`,
-    ).toEqual({ missingContracts: [], missingWeb: [] });
+  it('contracts exports are reachable and non-empty (guard not silently dead)', () => {
+    expect(contracts.size).toBeGreaterThan(10);
+    for (const must of ['ModuleEvolutionResult', 'ArchitectureDeltaReport', 'RepoQaTokenUsage']) {
+      expect(contracts.has(must), `contracts lost shared export ${must}`).toBe(true);
+    }
   });
 
-  it('the mirrored name-set equals the watchlist (no undeclared mirrors)', () => {
-    const overlap = intersect(web, contracts);
-    const undeclared = diff(overlap, new Set(WATCHLIST));
-    const registeredButGone = diff(new Set(WATCHLIST), overlap);
-    expect(
-      { undeclared, registeredButGone },
-      `mirror scope drift: new shared names=[${undeclared}] watchlist entries no longer shared=[${registeredButGone}]`,
-    ).toEqual({ undeclared: [], registeredButGone: [] });
-  });
+  for (const file of WEB_FILES) {
+    it(`${file.slice(SRC.length + 1)} defines no contract-named types by hand`, () => {
+      const offenders = definedNames(file).filter(
+        (n) => contracts.has(n) && !ALLOWED_ALIASES.includes(n)
+      );
+      expect(
+        offenders,
+        `manual re-mirror of contracts type(s) [${offenders}] — re-export from '../../../packages/contracts/src/index' instead`
+      ).toEqual([]);
+    });
+  }
 });

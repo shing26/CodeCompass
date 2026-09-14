@@ -130,7 +130,6 @@ function PlacementCard({
       {placement.injection.style !== 'unsupported' && (
         <p className="mt-2 text-[11px] text-muted">
           注入:{placement.injection.style}
-          {placement.injection.signature ? ` · ${placement.injection.signature}` : ''}
         </p>
       )}
       {placement.handlerSignature && (

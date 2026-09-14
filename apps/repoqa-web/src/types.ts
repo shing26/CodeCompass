@@ -1,9 +1,58 @@
-// Frontend domain types. Two mirror targets, deliberately distinct:
-//  - the contract-shared subset mirrors packages/contracts (src/repoqa.ts +
-//    v1.ts) — name-set pinned by contract-mirror.test.ts (V27-26);
-//  - types like Repo/RepoStatus mirror the control-plane HTTP payloads
-//    (services/control-plane/src/repoqa-repos.ts et al.), not contracts.
-// Single-source surgery (import instead of mirror) is ticket V27-29.
+// Frontend domain types. V27-29 (B2) single-source surgery:
+//  - contract-shared types are no longer hand-mirrored — they are re-exported
+//    from packages/contracts (src/repoqa.ts + v1.ts via its index). `import type`
+//    is erased at build time and contracts is a pure-types package, so the web
+//    bundle gains zero bytes while tsc now catches every drift at compile time
+//    (contract-mirror.test.ts guards the remaining hand-written block).
+//  - web-only types below still mirror control-plane HTTP/SSE payloads
+//    (services/control-plane/src/repoqa-repos.ts et al.) — not contracts.
+// Two documented aliases keep consumer imports stable:
+//  ArchitectureDeltaSymbol/Edge = contracts ExtractedSymbol/CallEdge (same
+//  fields, delta-flavored names kept for view readability); TokenUsage =
+//  contracts RepoQaTokenUsage — contracts' own `TokenUsage` is the harness
+//  'token.usage' WS event ({taskId,input,output}), a different concept.
+import type {
+  ArchitectureDeltaReport,
+  CallEdge,
+  ConventionAnchor,
+  ConventionConflictDetail,
+  DomainRadarAnchor,
+  DomainRadarResult,
+  EvolutionIntentEcho,
+  EvolutionPlacement,
+  EvolutionPlacementFile,
+  EvolutionRisk,
+  EvolutionStageId,
+  ExtractedSymbol,
+  IndexingPhase,
+  ModuleEvolutionResult,
+  RepoQaEvolveDone,
+  RepoQaEvolveError,
+  RepoQaEvolveStage,
+  RepoQaTokenUsage
+} from '../../../packages/contracts/src/index';
+
+export type {
+  ArchitectureDeltaReport,
+  ConventionAnchor,
+  ConventionConflictDetail,
+  DomainRadarAnchor,
+  DomainRadarResult,
+  EvolutionIntentEcho,
+  EvolutionPlacement,
+  EvolutionPlacementFile,
+  EvolutionRisk,
+  EvolutionStageId,
+  IndexingPhase,
+  ModuleEvolutionResult,
+  RepoQaEvolveDone,
+  RepoQaEvolveError,
+  RepoQaEvolveStage
+};
+export type { ExtractedSymbol as ArchitectureDeltaSymbol, CallEdge as ArchitectureDeltaEdge };
+/** Derived so the element shape can never drift from the report it feeds. */
+export type ArchitectureDeltaImpactedApi = ArchitectureDeltaReport['impactedApis'][number];
+export type TokenUsage = RepoQaTokenUsage;
 
 export type RepoStatus = 'idle' | 'indexing' | 'cloning' | 'parsing' | 'ready' | 'error';
 
@@ -78,13 +127,7 @@ export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'inciden
 /** Top-level workbench tabs rendered by the TopBar segmented control. */
 export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident' | 'evolve' | 'chat';
 
-/** v0.6.0 — staged indexing pipeline phases broadcast over WebSocket. */
-export type IndexingPhase =
-  | 'DISCOVERY'
-  | 'AST_EXTRACTION'
-  | 'CROSS_LANG_BRIDGE'
-  | 'FINALIZING';
-
+// IndexingPhase is re-exported from contracts above (V27-29 single source).
 export interface IndexingProgress {
   repoId: string;
   phase: IndexingPhase;
@@ -95,40 +138,11 @@ export interface IndexingProgress {
   percent?: number;
 }
 
-/** v0.6.0 — Architecture Delta payload returned by the HTTP endpoint. */
-export interface ArchitectureDeltaSymbol {
-  name: string;
-  file: string;
-  lineStart: number;
-  lineEnd: number;
-  kind: string;
-  parentType?: string;
-  displayPath?: string;
-}
-
-export interface ArchitectureDeltaEdge {
-  from: { file: string; method: string; line: number };
-  to: { file: string; method: string; line: number };
-}
-
-export interface ArchitectureDeltaImpactedApi {
-  routeSymbol: ArchitectureDeltaSymbol;
-  affectedBySymbols: string[];
-  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
-}
-
-export interface ArchitectureDeltaReport {
-  schemaVersion: number;
-  base: string;
-  head: string;
-  baseSha?: string;
-  headSha?: string;
-  addedRoutes: ArchitectureDeltaSymbol[];
-  removedRoutes: ArchitectureDeltaSymbol[];
-  brokenEdges: ArchitectureDeltaEdge[];
-  impactedApis: ArchitectureDeltaImpactedApi[];
-  mermaid?: string;
-}
+/* ------------------------------------------------------------------ */
+/* Issue 23 / v0.6 — Architecture Delta types are re-exported from     */
+/* contracts above (V27-29); ArchitectureDeltaSymbol/Edge/ImpactedApi  */
+/* keep their historical names via alias/derivation.                   */
+/* ------------------------------------------------------------------ */
 
 /**
  * Explicit trace start (Top API click): the clicked symbol's exact name
@@ -204,13 +218,7 @@ export interface ReverseDepsResult {
   fallback: boolean;
 }
 
-export interface TokenUsage {
-  input: number;
-  output: number;
-  total: number;
-  source: 'provider' | 'estimate';
-}
-
+// TokenUsage is re-exported from contracts as RepoQaTokenUsage (see top).
 export type LlmRuntimeMode = 'none' | 'local' | 'remote';
 
 export interface RuntimeInfo {
@@ -419,178 +427,15 @@ export interface SubgraphContextResult {
 }
 
 /* ------------------------------------------------------------------ */
-/* v0.11: Cmd+K domain-radar symbols                                   */
+/* v0.11: Cmd+K domain-radar types are re-exported from contracts      */
+/* above (V27-29 single source).                                       */
 /* ------------------------------------------------------------------ */
 
-export interface DomainRadarAnchor {
-  symbol: string;
-  type: 'CONTROLLER' | 'SERVICE' | 'ENTITY';
-  /** 0..100 deterministic score. */
-  relevanceScore: number;
-  filePath: string;
-  line: number;
-  /** v0.18 — provenance: identifier fuzzy hit or doc-chunk bridge. */
-  matchedBy: 'identifier' | 'doc-chunk';
-  /** Incoming call count from the static symbol graph. */
-  inDegree: number;
-  /** Outgoing call count from the static symbol graph. */
-  outDegree: number;
-}
-
-export interface DomainRadarResult {
-  schemaVersion: number;
-  repoId: string;
-  matchedAnchors: DomainRadarAnchor[];
-  hubNodes: Array<{
-    symbol: string;
-    inDegree: number;
-    outDegree: number;
-    pagerank: number;
-    role: string;
-  }>;
-  topApis: string[];
-  persistenceEntities: string[];
-}
-
 /* ------------------------------------------------------------------ */
-/* Issue 24 / Ticket 04 — Evolution workbench (POST /evolve SSE)        */
+/* Issue 24 / Ticket 04 — Evolution workbench types (stage/echo/       */
+/* placement/risk/conflict/result/evolve frames) are re-exported from  */
+/* contracts above (V27-29 single source).                             */
 /* ------------------------------------------------------------------ */
-
-/** One pipeline stage of the evolve stream, reported on repoqa.evolve.stage. */
-export type EvolutionStageId =
-  | 'intent_parse'
-  | 'target_resolve'
-  | 'convention_scan'
-  | 'pipeline'
-  | 'diagram';
-
-/** Result of the single NLU call (LLM) or its deterministic fallback. */
-export interface EvolutionIntentEcho {
-  intentType: 'DEPRECATE' | 'EXTEND';
-  /** Target phrase extracted from the free-text intent (e.g. 订单). */
-  rawKeyword: string;
-  /** Free-text extension goal carried through to the pipeline (EXTEND). */
-  extensionGoal?: string;
-  /** Symbol the domain radar anchored the keyword to. */
-  resolvedTarget?: string;
-  /** Radar alternatives the user can switch to (Correction Pill). */
-  alternatives: Array<{ symbol: string; score: number }>;
-  /** llm for the NLU call, fallback for the deterministic parser. */
-  parsedBy: 'llm' | 'fallback';
-}
-
-/** SSE payload of repoqa.evolve.stage. */
-export interface RepoQaEvolveStage {
-  stage: EvolutionStageId;
-  label: string;
-  status: 'running' | 'done';
-  intentEcho?: EvolutionIntentEcho;
-}
-
-/** Convention anchor disclosed verbatim (ADR-0014). */
-export interface ConventionAnchor {
-  file: string;
-  line: number;
-  symbol: string;
-}
-
-/** Issue 24.3 — structured detail behind a STRICT-axis or bean-cycle conflict. */
-export interface ConventionConflictDetail {
-  axis: string;
-  verdict: string;
-  coverage?: { match: number; total: number };
-  anchors: ConventionAnchor[];
-  suggestion: string;
-}
-
-/** A non-blocking finding on the evolution plan (ADR-0014 tolerance). */
-export interface EvolutionRisk {
-  kind: 'transaction-warning' | 'convention-split';
-  message: string;
-  suggestion?: string;
-  axis?: string;
-  divergentSamples?: ConventionAnchor[];
-}
-
-/** One landing file of a convention-driven placement plan. */
-export interface EvolutionPlacementFile {
-  filePath: string;
-  role: 'interface' | 'impl' | 'single';
-}
-
-/** Issue 24.3 — convention-driven placement for the DIRECT_INJECTION shape. */
-export interface EvolutionPlacement {
-  packagePath: string;
-  files: EvolutionPlacementFile[];
-  injection: {
-    style: 'constructor' | 'field' | 'unsupported';
-    signature?: string;
-    note?: string;
-  };
-  /** Handler method signature shaped by the return_wrapping convention. */
-  handlerSignature?: string;
-  basedOn: Array<{ axis: string; verdict: string }>;
-}
-
-/** Module evolution engine result — the four artifact-card sections. */
-export interface ModuleEvolutionResult {
-  schemaVersion: number;
-  repoId: string;
-  intentType: 'DEPRECATE' | 'EXTEND';
-  target: string;
-  riskLevel: 'HIGH' | 'MEDIUM' | 'LOW';
-  blastRadius: {
-    impactedCallersCount: number;
-    impactedRoutes: string[];
-    impactedComponents: string[];
-    orphanedSymbols: Array<{ name: string; filePath: string; line: number }>;
-  };
-  checklists: Array<{
-    category: 'FRONTEND' | 'CONTROLLER' | 'SERVICE' | 'PERSISTENCE' | 'CONFIG';
-    action: 'DELETE' | 'MODIFY' | 'CREATE';
-    filePath: string;
-    description: string;
-  }>;
-  conventions?: {
-    repoId: string;
-    neighborPackage?: string;
-    axes: Array<{
-      axis: string;
-      supported: boolean;
-      verdict?: string;
-      primary?: string;
-      coverage?: { match: number; total: number };
-      anchors?: ConventionAnchor[];
-      dissidents?: ConventionAnchor[];
-    }>;
-    sampledAt: string;
-  };
-  placement?: EvolutionPlacement;
-  risks?: EvolutionRisk[];
-  cockpitDeepLink: string;
-}
-
-/** SSE payload of repoqa.evolve.done. */
-export interface RepoQaEvolveDone {
-  intentEcho: EvolutionIntentEcho;
-  result: ModuleEvolutionResult;
-  /** Engine-rendered physical-edge diagram (ADR-0013) — never model-painted. */
-  mermaid?: string;
-  /** Physical commit the artifacts were minted against (ADR-0012). */
-  commit?: string;
-  /** Issue 25 / Ticket 03 — persisted card id/seq (hydrate replay contract). */
-  cardId?: string;
-  cardSeq?: number;
-}
-
-/** SSE payload of repoqa.evolve.error. */
-export interface RepoQaEvolveError {
-  error: string;
-  conventionConflict?: ConventionConflictDetail;
-  /** Issue 25 / Ticket 03 — persisted error-card id/seq. */
-  cardId?: string;
-  cardSeq?: number;
-}
 
 /** Client-side mirror of one parsed evolve SSE frame. */
 export type EvolveEvent =

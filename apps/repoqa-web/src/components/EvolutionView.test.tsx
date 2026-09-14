@@ -69,7 +69,13 @@ const extendResult: ModuleEvolutionResult = {
   placement: {
     packagePath: 'com.demo.order',
     files: [{ filePath: 'src/main/java/com/demo/order/OrderExportService.java', role: 'single' }],
-    injection: { style: 'constructor', signature: 'private final OrderRepository orderRepository' },
+    injection: {
+      style: 'constructor',
+      // V27-29 single source: contracts declares codeSnippet (the server's
+      // actual emission, engine:456-465) — the old `signature` field was a
+      // web-mirror invention the server never sent (dead UI branch removed).
+      codeSnippet: 'private final OrderRepository orderRepository'
+    },
     handlerSignature: 'public ApiResult<String> export(Order order)',
     basedOn: [{ axis: 'return_wrapping', verdict: 'ApiResult<T>' }]
   },
@@ -80,6 +86,8 @@ const extendResult: ModuleEvolutionResult = {
       suggestion: '发布 SPRING_EVENT_ASYNC 事件,事务提交后处理'
     }
   ],
+  // contracts-required (engine always emits it, [] when none detected).
+  transactionBoundaries: [],
   cockpitDeepLink: '/?repo=repo-1'
 };
 

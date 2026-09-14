@@ -12,19 +12,22 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
+# Workspace contracts/bridge-adapters are consumed FROM SOURCE by both the
+# web tsc pass (V27-29 single-source re-exports in types.ts) and the
+# control-plane esbuild bundle (harness-manager relative imports, V27-24) —
+# they must exist in the build context before either build. Their src only
+# uses `import type` + node: builtins, so sources alone suffice — no deps.
+COPY packages/ packages/
+
 # Frontend
 COPY apps/repoqa-web/package.json apps/repoqa-web/package-lock.json apps/repoqa-web/
 RUN cd apps/repoqa-web && npm ci
 COPY apps/repoqa-web/ apps/repoqa-web/
 RUN cd apps/repoqa-web && npm run build
 
-# Backend (contracts/bridge-adapters are imported from source and bundled in —
-# harness-manager.ts reaches ../../../packages/*, so the workspace packages must
-# exist in the build context or esbuild fails to resolve them; V27-24. Their src
-# only uses `import type` + node: builtins, so sources alone suffice — no deps.)
+# Backend
 COPY services/control-plane/package.json services/control-plane/package-lock.json services/control-plane/
 RUN cd services/control-plane && npm ci
-COPY packages/ packages/
 COPY services/control-plane/ services/control-plane/
 RUN cd services/control-plane && npm run build \
   && npm prune --omit=dev

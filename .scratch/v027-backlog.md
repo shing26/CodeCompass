@@ -33,7 +33,7 @@
 | V27-26 | ~~web↔contracts 镜像零检查~~ **已随 v0.27.0 A3 关闭（2026-09-14）**：`contract-mirror.test.ts` 类型名集合哨（16 型关注清单，交集==清单双向钉）；字段级等值随 V27-29 单一源手术；见 issues/10 | 2026-09-14 全模块验证 | 契约 |
 | V27-27 | ~~web flaky~~ **已随 v0.27.0 A4 关闭（2026-09-14）**：BROKEN 用例断言包 waitFor，实施后全量两跑零红；见 issues/11 | 2026-09-14 全模块验证首轮 | 质量 |
 | V27-28 | bridge-adapters 零测试面（仅 typecheck；消费方 harness-manager 有 control-plane 侧间接覆盖）——包内 vitest + 4 适配器纯逻辑单测 + CI 接线（B 批附属） | 2026-09-14 全模块验证 | 质量 |
-| V27-29 | web→contracts 单一源手术（B 批附属）：types.ts 重复类型改直接 import，字段考古（defaultBranch/suggestedSubdirs 归属裁决），拆 V27-26 守卫哨，Dockerfile web 段连带 COPY packages | 2026-09-14 grill D4/D7 | 契约 |
+| V27-29 | ~~web→contracts 单一源手术~~ **已关闭（2026-09-14 B2/v0.28）**：types.ts 16 型改 re-export（TokenUsage 别名桥=RepoQaTokenUsage、delta 族异名、ImpactedApi 派生）；考古 8 项裁决入票面（死分支 signature 删、transactionBoundaries 补、axis 收窄零改动）；V27-26 哨升级为「禁手工重镜像」棘轮；Dockerfile COPY packages 前置 web 段。tsc 一次过、354/354、UI 冒烟/docker 重建绿；见 v028 issues/02 | 2026-09-14 grill D4/D7 | 契约 |
 | V27-30 | control-plane 结构轴手术（B 批主线）：repoqa-worker.ts 2556 行拆分（头部工具外迁 + RepoQAWorker 按 ingest/persist/progress/graph 抽协作者）、registerAnalysisRoutes 515 行拆注册、repoqa-* 家族目录归组——零行为变更，全门禁护航 | 2026-09-14 grill D6/D8 + scan oversizedFiles 桶 | 结构 |
 | V27-31 | ~~UI 冒烟「R2 锁」断言在 CI headless-shell 上两轮 retry 皆红~~ **已关闭（2026-09-14，三轮递进破案）**：升级 socket 级双证据（页内 __wsLog 探针 + CDP websocket 跟踪，killTs 时间戳判据）后 dump 坐实**产品级真 bug**——SIGTERM 优雅关闭中 `wss.close()`/`closeAllConnections()` 不销毁已升级 WS 连接（ws@8+Node24 探针实测），`server.close()` 永挂→半死进程攥着 socket→浏览器永不重连（Windows 强杀掩盖，Linux CI/docker stop 才是真实路径）。修复：`server.close()` 前 `wss.clients.terminate()`；回归钉 server-shutdown.test.ts 三例+变异检验（634/634）；见 issues/12 | v0.27.0 Release CI 首跑 | 质量+产品 |
 
