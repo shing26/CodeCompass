@@ -309,6 +309,17 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     for (const watcher of watchers.values()) await watcher.flush();
     for (const watcher of watchers.values()) watcher.close();
     watchers.clear();
+    // V27-31: terminate live WebSocket clients BEFORE server.close().
+    // Neither wss.close() nor server.closeAllConnections() destroys an
+    // upgraded WS connection (verified by probe on Node 24 + ws@8), so
+    // `await server.close()` below would hang forever while a browser tab
+    // held /ws open — SIGTERM's graceful shutdown never reached exit,
+    // leaving a process that stopped listening but kept the client's socket
+    // half-open. On Windows `child.kill()` TerminateProcess masks this;
+    // Linux CI exercises the graceful path, so the UI smoke (v0.27.0 Release
+    // first run) caught it: the page never saw 'close', never reconnected,
+    // and the R2 lock legitimately went red.
+    for (const client of wss.clients) client.terminate();
     wss.close();
     server.closeAllConnections?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));

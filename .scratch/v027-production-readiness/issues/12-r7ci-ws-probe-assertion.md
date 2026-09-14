@@ -1,4 +1,4 @@
-# 12：R7-CI — UI 冒烟「R2 锁」断言升级 socket 级证据链（立 V27-31）
+# 12：R7-CI — 「R2 锁」CI 红引出优雅关闭真 bug（立 V27-31）
 
 > *Parent spec：`.scratch/v027-production-readiness/spec.md`。R7 门的 CI 首跑实战。*
 
@@ -20,3 +20,11 @@ Status: closed
 - tag 首跑（34789966823）仍红，但探针带回关键事实：`__wsLog[mark:+40]=[]`——kill 后连 `close` 都没有。本地 chrome/headless-shell 双双复跑全绿（同 v1243 build），证明非浏览器形态；且全仓 grep 无任何 reload 路径。三种世界（页 reload 使 slice 下标越界 / kill 未真正断链的半开 socket / 效应未挂载）必须机械区分，下轮不许再猜。
 - 重建：①判据从数组下标 `slice(mark)` 改 **t>=killTs 时间戳窗口**（reload 清零不再致越界假阴性）；②新增 **CDP 级 `page.on('websocket')`** 事件收集为第二证据源（不经页面 JS），页内探针与 CDP 任一证 open、任一证 index.progress 帧即成立；③`noReload`（`__pageId` 相等）独立裁决不参与短路；④失败 dump `__wsLog` len+tail 与 `wsEvents` tail 双时间线；⑤crash/framenavigated 监听器留痕。
 - 本地复验全绿（四旗 true + nav 留痕正常：同文档 replaceState 不清 window，与页不刷新的语义相容）。CI 若再红，双源 dump 直接指认真凶：len=0→app 从未连（环境/产品深挖）；len 冻结在 pre-kill 值且 CDP 无 connect→半开 socket（kill 检测面）；CDP 有 connect 而探针无→页面被换（reload 世界）。
+
+## Comments（2026-09-14 第三轮——真凶落网：产品级优雅关闭挂死）
+
+- 第二轮 CI（34790801138）仍红，但双源 dump 给出决定性事实：`__wsLog` len=3 冻结在 kill 前（create/open/welcome 齐全——页活着、首连正常、noReload=true），kill 后**连 close 都没有**、CDP 亦零新 connect。唯一相容世界=旧进程 SIGTERM 后**没死**：监听的 socket 半开 → 浏览器永不重连（R2 机制无机会表演）。
+- **根因（探针实证，ws@8+Node24）**：`wss.close()` 与 `server.closeAllConnections()` 都不销毁已升级的 WebSocket 连接 → `server.close()` 回调永不触发 → `RunningServer.close()` 卡死于 await → cli.ts 的 SIGTERM `shutdown()` 永不到达 `process.exit(0)`。Windows 本机 `child.kill()`=TerminateProcess 强杀完全掩盖此路径；Linux CI/`docker stop`（10s 后 SIGKILL）才是真实世界。旧脚本 DOM 赌时代表象、socket 证据亦红——**门是对的，产品是坏的**；R2 前端机制经此检验无恙。
+- 修复（server.ts close()）：`server.close()` 前显式 `for (const client of wss.clients) client.terminate()`——修复前后各跑 30s 探针对照（closeCbFired false→true、clientSawClose false→true）。
+- 回归钉：新 `server-shutdown.test.ts` 三例（活 WS 下 close() 限时完成/客户端可观察 close/关闭后拒新连）。**变异检验**：临时拆 terminate → 2/3 红且消息点名「close() hung」→ 复原 634/634 全绿。
+- 冒烟断言重建（双源+时间戳+诊断 dump）保留——它现在既不再赌 DOM 时机，也是这次破案的仪器；V27-23 面（DOM 进度条残留）与本票解耦。

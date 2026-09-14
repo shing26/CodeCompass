@@ -25,11 +25,12 @@
 - `/health` version 改由 `version.ts` 单一源驱动（旧值 `0.6.0` 为 server.ts 硬编码残留，e2e 版本一致性检查历史上不覆盖该端点——盲区已随 A2 封堵）。
 - `types.ts` 头注改准：历史上它自称 mirror `contracts/src/repoqa.ts`，实际 `Repo`/`RepoStatus` 族镜像的是 control-plane HTTP 载荷（`repoqa-repos.ts`），contracts 只覆盖 delta/radar/evolve 等 16 型——注释误导一并修正。
 - web `MermaidDiagram.test.tsx` BROKEN 用例断言包 `waitFor`（A4/V27-27）：文件内唯一裸正向注入断言，对 `[svgHtml, traceSteps]` 两段链式 effect 的提交时机敏感，全量并跑偶发红（首轮验证亲踩），对齐姊妹用例模式根治。
-- **R7 冒烟「R2 锁」断言升级（V27-31，v0.27.0 Release CI 首跑实战）**：旧判定赌 `status-progress` DOM 出现时机（重连/广播帧/React 提交三方赛跑），ubuntu headless-shell 上两轮皆红而同期服务端 reindex 落定绿、且失败无诊断。`ui_smoke.mjs` 重建为双证据源时间戳判据——页内 `__wsLog` 探针（`addInitScript` 记录 /ws 的 open/close/message + `__pageId` 反证未刷新）+ Playwright CDP 级 `page.on('websocket')` 跟踪（不经页面 JS，reload/崩溃骗不了），按 killTs 窗口合并裁决；确认重连（新 open）后才 POST reindex（消灭「202 早于重连即丢帧」），`repoqa.index.progress` 帧到达为主证据，DOM 进度条降级附加信息（渲染时机属 V27-23 面），失败必 dump 双源时间线。断言语义（未刷新+重连+收到进度）不变，R2 真坏依旧红。
+- **R7 冒烟「R2 锁」断言升级 + 由此坐实的产品级优雅关闭挂死修复（V27-31，v0.27.0 Release CI 首跑实战）**：旧判定赌 `status-progress` DOM 出现时机（重连/广播帧/React 提交三方赛跑），ubuntu headless-shell 上两轮皆红而同期服务端 reindex 落定绿、且失败无诊断。`ui_smoke.mjs` 重建为双证据源时间戳判据——页内 `__wsLog` 探针（`addInitScript` 记录 /ws 的 open/close/message + `__pageId` 反证未刷新）+ Playwright CDP 级 `page.on('websocket')` 跟踪（不经页面 JS，reload/崩溃骗不了），按 killTs 窗口合并裁决；确认重连（新 open）后才 POST reindex（消灭「202 早于重连即丢帧」），`repoqa.index.progress` 帧到达为主证据，DOM 进度条降级附加信息（渲染时机属 V27-23 面），失败必 dump 双源时间线。断言语义（未刷新+重连+收到进度）不变。
+  - **真 bug（双源诊断把「flaky」证成缺陷）**：SIGTERM 优雅关闭里 `RunningServer.close()` 的 `wss.close()`+`server.closeAllConnections()` 均**不销毁已升级的 WebSocket 连接**（ws@8+Node24 探针实测：close 回调不触发、客户端无 close 事件），故 `await server.close()` 永挂、进程到不了 `process.exit`——半死进程攥着 `/ws` socket，浏览器既收不到 `close` 也永不重连，R2 无机会表演。Windows `child.kill()`=TerminateProcess 强杀完全掩盖；Linux CI/`docker stop` 走优雅路径才暴露。**修复**：`server.close()` 前 `for (const c of wss.clients) c.terminate()`（探针：修复后 close 回调即 resolve、客户端可观察 close）。**回归钉** `server-shutdown.test.ts` 三例 + 变异检验（拆 terminate→2/3 红报「close() hung」、复原→634/634 绿）。
 
 ### 质量门（v0.27.0 基线）
 
-- 控制面单测 **588→630**、web **320→351**（R 系列 + UI 批 + 本批哨 2 例）、e2e **60→62**、UI 冒烟真 chromium 全链路绿、docker 实构建+容器 /health 冒烟绿、`tsc --noEmit` 四包净；bridge-adapters 独立 0.6.0 版本线维持未被牵连。
+- 控制面单测 **588→634**（R 系列 + UI 批 + open-browser P1 1 + server-shutdown V27-31 3）、web **320→351**（+本批镜像哨 2 + flaky 复钉）、bridge-adapters **0→26**（V27-28 首建单测）、e2e **60→62**（版本/health/基座三扩）、UI 冒烟真 chromium 全链路绿、docker 实构建+容器 /health 冒烟绿、`tsc --noEmit` 四包净；bridge-adapters 独立 0.6.0 版本线维持未被牵连。
 - 收口依据：2026-09-14 全模块独立验证（四包 typecheck/build/单测/启动全绿）→ 集成验证（e2e 60/60、UI 冒烟 PASS、MCP stdio 实连、npm CLI doctor）→ 破损清单四张入册（V27-24..27，`.scratch/v027-production-readiness/issues/08-11`）。
 
 ### 契约稳定性
