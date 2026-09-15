@@ -109,6 +109,54 @@ export interface CloneGitRepoInput {
   targetDir: string;
   /** Upper bound for the whole `git clone` subprocess (ms). */
   timeoutMs?: number;
+  /** V27-18: backoff schedule (ms) between transient-failure retries.
+   * Default CLONE_TRANSIENT_RETRY_BACKOFF_MS; tests pass [0]. */
+  retryBackoffMs?: number[];
+  /** V27-18: fired before each retry wait (progress stays auditable in
+   * the server log — the clone endpoint is pre-202, there is no stream
+   * to push to yet; see the import-202 ledger ticket for that half). */
+  onRetry?: (info: { attempt: number; backoffMs: number; reason: string }) => void;
+}
+
+/**
+ * V27-18: transient vs permanent git clone failures.
+ *
+ * Only fast network blips retry (they fail within seconds and a second
+ * attempt commonly succeeds). Timeouts are deliberately NOT transient: the
+ * subprocess already burned the full 60s budget, and retrying blindly would
+ * stretch this synchronous endpoint to 3x60s — worse than letting the user
+ * see the error and decide. Auth/404-style failures are deterministic and
+ * retried never.
+ */
+const TRANSIENT_PATTERNS: RegExp[] = [
+  /could not read from remote repository/i,
+  /connection (?:reset|aborted|refused|closed)/i,
+  /failed to connect/i,
+  /unable to access/i,
+  /could not resolve host|name resolution|temporary failure in name resolution|\bdns\b/i,
+  /early eof|rpc failed/i,
+  /the requested url returned error: 5\d\d/i,
+  /the requested url returned error: 429/i,
+  /transaction (?:is|was) aborted/i
+];
+const PERMANENT_PATTERNS: RegExp[] = [
+  /authentication failed/i,
+  /permission denied \(i18n\)|invalid credentials/i,
+  /\b403\b/,
+  /repository.*not found|not found$|does not appear to be a git repository/i,
+  /timed out/i
+];
+
+export function isTransientGitFailure(message: string): boolean {
+  if (PERMANENT_PATTERNS.some((re) => re.test(message))) return false;
+  return TRANSIENT_PATTERNS.some((re) => re.test(message));
+}
+
+/** Two retries: 1s then 2s (V27-18 "2 次指数退避"). */
+export const CLONE_TRANSIENT_RETRY_BACKOFF_MS = [1_000, 2_000];
+
+function sleep(ms: number): Promise<void> {
+  return ms <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export interface CloneGitRepoResult {
@@ -143,11 +191,24 @@ export async function cloneGitRepo(
   args.push(validated.url.toString(), input.targetDir);
 
   const timeoutMs = input.timeoutMs ?? GIT_CLONE_TIMEOUT_MS;
-  try {
-    await runGit(args, timeoutMs);
-  } catch (err) {
-    await fs.rm(input.targetDir, { recursive: true, force: true }).catch(() => {});
-    throw err;
+  const backoff = input.retryBackoffMs ?? CLONE_TRANSIENT_RETRY_BACKOFF_MS;
+  const maxAttempts = 1 + backoff.length;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await runGit(args, timeoutMs);
+      break;
+    } catch (err) {
+      // Every failure removes the partial checkout (V27-18: retried attempts
+      // get a clean directory too — fs.rm force tolerates a missing path).
+      await fs.rm(input.targetDir, { recursive: true, force: true }).catch(() => {});
+      const message = err instanceof Error ? err.message : String(err);
+      const transient = isTransientGitFailure(message);
+      if (!transient || attempt >= maxAttempts - 1) {
+        throw err;
+      }
+      input.onRetry?.({ attempt: attempt + 2, backoffMs: backoff[attempt]!, reason: message });
+      await sleep(backoff[attempt]!);
+    }
   }
 
   const stat = await fs.stat(input.targetDir).catch(() => null);

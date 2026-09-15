@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import {
   cloneGitRepo,
   deriveCloneName,
+  isTransientGitFailure,
   validateGitBranch,
   validateGitUrl
 } from './git-importer';
@@ -173,5 +174,95 @@ describe('cloneGitRepo', () => {
     await expect(
       cloneGitRepo({ url: 'https://example.com/slow.git', targetDir: path.join(os.tmpdir(), 'slow'), timeoutMs: 60_000 })
     ).rejects.toThrow(/timed out after 60000ms/);
+    // V27-18: a timeout burns the full budget — deliberately NOT retried.
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  // V27-18 (v029/02): transient network blips retry twice (1s/2s), permanent
+  // failures fail fast. retryBackoffMs=[0] keeps these instant.
+  function mockTransientThenSuccess(): void {
+    execFileMock.mockImplementationOnce((_file, _args, _opts, callback) => {
+      const cb = callback as (err: Error, stdout: string, stderr: string) => void;
+      cb(
+        Object.assign(new Error('git failed'), { code: 128 }),
+        '',
+        'fatal: could not read from remote repository'
+      );
+      return undefined as never;
+    });
+    mockExecSuccess();
+  }
+
+  it('retries a transient clone failure once and succeeds', async () => {
+    mockTransientThenSuccess();
+    const targetDir = path.join(os.tmpdir(), 'issue19-retry-ok');
+    const retries: number[] = [];
+    const result = await cloneGitRepo({
+      url: 'https://github.com/octocat/Hello-World.git',
+      targetDir,
+      retryBackoffMs: [0],
+      onRetry: ({ attempt }) => retries.push(attempt)
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    expect(retries).toEqual([2]);
+    expect(result.targetDir).toBe(targetDir);
+  });
+
+  it('does NOT retry permanent failures (auth/not-found fail fast)', async () => {
+    mockExecError(Object.assign(new Error('git failed'), { code: 128 }));
+    const targetDir = path.join(os.tmpdir(), 'issue19-permanent');
+    await expect(
+      cloneGitRepo({
+        url: 'https://example.com/missing.git',
+        targetDir,
+        retryBackoffMs: [0, 0],
+        onRetry: () => {
+          throw new Error('must not retry a permanent failure');
+        }
+      })
+    ).rejects.toThrow(/git clone failed/);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the backoff budget and reports the LAST failure', async () => {
+    execFileMock.mockImplementation((_file, _args, _opts, callback) => {
+      const cb = callback as (err: Error, stdout: string, stderr: string) => void;
+      cb(
+        Object.assign(new Error('git failed'), { code: 128 }),
+        '',
+        'fatal: connection reset by peer'
+      );
+      return undefined as never;
+    });
+    const targetDir = path.join(os.tmpdir(), 'issue19-exhaust');
+    const onRetry = vi.fn();
+    await expect(
+      cloneGitRepo({
+        url: 'https://github.com/octocat/Hello-World.git',
+        targetDir,
+        retryBackoffMs: [0, 0],
+        onRetry
+      })
+    ).rejects.toThrow(/connection reset/);
+    expect(execFileMock).toHaveBeenCalledTimes(3); // 1 + 2 retries
+    expect(onRetry).toHaveBeenCalledTimes(2);
+    expect(onRetry.mock.calls.map((c) => c[0].attempt)).toEqual([2, 3]);
+  });
+});
+
+describe('isTransientGitFailure (V27-18 classifier)', () => {
+  it('transient: network blips and DNS', () => {
+    expect(isTransientGitFailure('git clone failed: fatal: could not read from remote repository')).toBe(true);
+    expect(isTransientGitFailure('git clone failed: error: Could not resolve host: github.com')).toBe(true);
+    expect(isTransientGitFailure('git clone failed: RPC failed; curl 56 OpenSSL read: Connection reset by peer')).toBe(true);
+    expect(isTransientGitFailure('git clone failed: The requested URL returned error: 502')).toBe(true);
+  });
+
+  it('permanent: auth, not-found, and burned-timeout stay single-shot', () => {
+    expect(isTransientGitFailure('git clone failed: fatal: authentication failed')).toBe(false);
+    expect(isTransientGitFailure('git clone failed: fatal: repository not found')).toBe(false);
+    expect(isTransientGitFailure('git clone timed out after 60000ms: fatal: early EOF')).toBe(false);
+    // Auth-bearing messages win over transient substrings: never retry those.
+    expect(isTransientGitFailure('unable to access: Authentication failed')).toBe(false);
   });
 });

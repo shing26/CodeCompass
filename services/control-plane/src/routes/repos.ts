@@ -192,7 +192,21 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         'clones',
         `${name}-${Date.now()}`
       );
-      await cloneGitRepo({ url, branch, targetDir });
+      await cloneGitRepo({
+        url,
+        branch,
+        targetDir,
+        // V27-18: transient blips retry (1s/2s); the clone endpoint answers
+        // 202 only after the checkout lands, so retries are logged rather
+        // than streamed (import-202 ledger ticket owns the visible-progress
+        // half of this UX).
+        onRetry: ({ attempt, backoffMs, reason }) => {
+          deps.logger?.info(
+            'clone',
+            `transient failure before attempt ${attempt} (retry in ${backoffMs}ms): ${reason.slice(0, 200)}`
+          );
+        }
+      });
 
       const upsert = deps.repoqa.upsertByLocalPath({
         name,
