@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createMcpServer, type McpDeps } from '../repoqa-mcp.js';
+import { createMcpServer, type McpDeps } from '../mcp/repoqa-mcp.js';
 import type { ToolSummary, ToolCallOutcome } from './types.js';
 import type { SessionLogger } from './log.js';
 

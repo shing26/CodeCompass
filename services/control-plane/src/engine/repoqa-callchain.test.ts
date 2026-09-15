@@ -2,9 +2,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { RepoSymbol } from './repoqa-repos';
-import { applyModuleScopes } from './repoqa-repos';
-import { parseJavaFile } from './repoqa-parser';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { applyModuleScopes } from '../ingest/repoqa-repos';
+import { parseJavaFile } from '../ingest/repoqa-parser';
 import {
   buildCallIndex,
   CallResolver,

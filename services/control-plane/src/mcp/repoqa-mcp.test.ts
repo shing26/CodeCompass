@@ -4,11 +4,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { openDb, ensureDefaultWorkspace } from './db';
-import { EventBus } from './events';
-import { RepoQARepos, type Repo } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
-import { git } from './repoqa-diff';
+import { openDb, ensureDefaultWorkspace } from '../db';
+import { EventBus } from '../events';
+import { RepoQARepos, type Repo } from '../ingest/repoqa-repos';
+import { RepoQAWorker } from '../ingest/repoqa-worker';
+import { git } from '../engine/repoqa-diff';
 import {
   createMcpServer,
   resolveMcpRepo,
@@ -16,7 +16,7 @@ import {
   runMcpServer,
   type McpDeps
 } from './repoqa-mcp';
-import { parseArgs, runCli } from './cli';
+import { parseArgs, runCli } from '../cli';
 
 const cleanups: Array<() => Promise<void>> = [];
 

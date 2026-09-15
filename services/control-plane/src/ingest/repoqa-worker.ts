@@ -3,14 +3,14 @@ import path from 'node:path';
 import type { RepoQARepos, Repo, RepoSymbol, RepoChunk } from './repoqa-repos';
 import { deriveLocalRepoName } from './repoqa-repos';
 import { applyModuleScopes } from './repoqa-repos';
-import type { EventBus } from './events';
+import type { EventBus } from '../events';
 import type {
   RepoQaAnchor,
   RepoQaTraceHop,
   ServerEvent,
   IndexingPhase,
   DiagnoseResult
-} from '../../../packages/contracts/src/index';
+} from '../../../../packages/contracts/src/index';
 import {
   MAX_FILES,
   MAX_LINES,
@@ -22,7 +22,7 @@ import {
 import { adapterFor } from './repoqa-parser';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { extractMapperSymbols } from './repoqa-mapper';
-import { parseLargeFileTier3 } from './large-file';
+import { parseLargeFileTier3 } from '../large-file';
 import {
   buildCallIndex,
   CallResolver,
@@ -30,24 +30,24 @@ import {
   type ReverseCaller,
   type SymbolIndex,
   applyImplicitInterfaces
-} from './repoqa-callchain';
-import { maskEventPayload, maskSensitiveText } from './repoqa-masking';
-import { runDiagnose, isTestPath } from './diagnose-engine';
-import { runBlastRadius } from './blast-radius';
-import { runDomainRadar } from './domain-radar-engine';
+} from '../engine/repoqa-callchain';
+import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
+import { runDiagnose, isTestPath } from '../diagnose-engine';
+import { runBlastRadius } from '../blast-radius';
+import { runDomainRadar } from '../domain-radar-engine';
 import {
   runModuleEvolution,
   ConventionConflictError,
   AttachPointNotFoundError
-} from './module-evolution-engine';
+} from '../module-evolution-engine';
 import {
   runConventionScan as runConventionScanEngine,
   type ConventionAnchor,
   type ConventionProfile
-} from './repoqa-conventions';
+} from '../engine/repoqa-conventions';
 import type {
   RefactorPlanResult
-} from '../../../packages/contracts/src/index';
+} from '../../../../packages/contracts/src/index';
 import {
   capPrompt,
   runReActAgent,
@@ -60,19 +60,19 @@ import {
   unionIncidentAnchors,
   type AgentTool,
   type ReActLLMResult
-} from './repoqa-llm';
+} from '../engine/repoqa-llm';
 import type {
   ModuleEvolutionResult,
   EvolutionIntentEcho,
   EvolutionStageId
-} from '../../../packages/contracts/src/index';
+} from '../../../../packages/contracts/src/index';
 import {
   parseStackTrace,
   resolveFramesToSymbols,
   stackTraceSummary,
   type ParsedStackFrame,
   type StackResolution
-} from './repoqa-stacktrace';
+} from '../engine/repoqa-stacktrace';
 
 /**
  * V27-30 (B3 increment 1) — the pure module-level helpers that used to head

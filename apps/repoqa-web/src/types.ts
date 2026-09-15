@@ -5,7 +5,7 @@
 //    bundle gains zero bytes while tsc now catches every drift at compile time
 //    (contract-mirror.test.ts guards the remaining hand-written block).
 //  - web-only types below still mirror control-plane HTTP/SSE payloads
-//    (services/control-plane/src/repoqa-repos.ts et al.) — not contracts.
+//    (services/control-plane/src/ingest/repoqa-repos.ts et al.) — not contracts.
 // Two documented aliases keep consumer imports stable:
 //  ArchitectureDeltaSymbol/Edge = contracts ExtractedSymbol/CallEdge (same
 //  fields, delta-flavored names kept for view readability); TokenUsage =

@@ -3,9 +3,9 @@ import { asyncHandler } from '../http-error';
 import path from 'node:path';
 import express from 'express';
 import { requireRepo, type HttpDeps } from './deps';
-import { resolveDefaultBranchSync } from '../repoqa-repos';
-import type { Repo } from '../repoqa-repos';
-import { maskSensitiveText } from '../repoqa-masking';
+import { resolveDefaultBranchSync } from '../ingest/repoqa-repos';
+import type { Repo } from '../ingest/repoqa-repos';
+import { maskSensitiveText } from '../engine/repoqa-masking';
 import {
   cloneGitRepo,
   deriveCloneName,
@@ -13,7 +13,7 @@ import {
   validateGitUrl
 } from '../git-importer';
 import { pickFolderDialog } from '../dialog';
-import { previewRepo } from '../repoqa-scan';
+import { previewRepo } from '../ingest/repoqa-scan';
 
 /** v0.25.0 批次 2：仓库目录读取域——GET /api/repos 与 /api/repos/:id。
  * 注册顺序保持原样（catalog 在 analysis 域之前）。 */

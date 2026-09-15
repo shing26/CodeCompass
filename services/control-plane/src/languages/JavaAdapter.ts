@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SyntaxNode } from '@lezer/common';
 import { parser } from '@lezer/java';
-import type { RepoSymbol, RepoSymbolCall } from '../repoqa-repos';
+import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import type { LanguageAdapter } from './LanguageAdapter';
 
 export function lineAt(source: string, offset: number): number {

@@ -3,8 +3,8 @@ import { watch, readdirSync, type FSWatcher } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { Repo } from './repoqa-repos';
 import type { RepoQAWorker } from './repoqa-worker';
-import type { EventBus } from './events';
-import type { ServerEvent } from '../../../packages/contracts/src/index';
+import type { EventBus } from '../events';
+import type { ServerEvent } from '../../../../packages/contracts/src/index';
 import { isIgnoredDir } from './repoqa-scan';
 
 export interface RepoWatcherOptions {

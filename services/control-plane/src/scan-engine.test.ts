@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { RepoSymbol } from './repoqa-repos';
-import { buildCallIndex, type SymbolIndex } from './repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
+import { buildCallIndex, type SymbolIndex } from './engine/repoqa-callchain';
 import { runScan, SCAN_TOP_LIMIT, OVERSIZED_METHOD_LINES } from './scan-engine';
 
 const JAVA_FILE = 'src/main/java/com/demo/OrdersController.java';

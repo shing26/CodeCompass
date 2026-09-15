@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { RepoSymbol } from './repoqa-repos';
-import { JavaAdapter } from './languages/JavaAdapter';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { JavaAdapter } from '../languages/JavaAdapter';
 import {
   isStrictAxis,
   runConventionScan,

@@ -3,12 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { describe, expect, it } from 'vitest';
-import { openDb } from './db';
-import { EventBus } from './events';
+import { openDb } from '../db';
+import { EventBus } from '../events';
 import { RepoQARepos } from './repoqa-repos';
 import { RepoQAWorker } from './repoqa-worker';
 import { RepoWatcher } from './repoqa-watcher';
-import { startServer } from './server';
+import { startServer } from '../server';
 
 async function until(check: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

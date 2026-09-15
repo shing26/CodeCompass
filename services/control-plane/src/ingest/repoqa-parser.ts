@@ -1,10 +1,10 @@
 import type { RepoSymbol } from './repoqa-repos';
-import type { LanguageAdapter } from './languages/LanguageAdapter';
-import { JavaAdapter } from './languages/JavaAdapter';
-import { TypeScriptAdapter } from './languages/TypeScriptAdapter';
-import { GoAdapter } from './languages/GoAdapter';
-import { PythonAdapter } from './languages/PythonAdapter';
-import { PrismaAdapter } from './languages/PrismaAdapter';
+import type { LanguageAdapter } from '../languages/LanguageAdapter';
+import { JavaAdapter } from '../languages/JavaAdapter';
+import { TypeScriptAdapter } from '../languages/TypeScriptAdapter';
+import { GoAdapter } from '../languages/GoAdapter';
+import { PythonAdapter } from '../languages/PythonAdapter';
+import { PrismaAdapter } from '../languages/PrismaAdapter';
 
 /**
  * Language adapter dispatcher. The Java implementation moved to
@@ -12,7 +12,7 @@ import { PrismaAdapter } from './languages/PrismaAdapter';
  * API for callers that predate the adapter layer and routes new files through
  * the owning adapter.
  */
-export * from './languages/JavaAdapter';
+export * from '../languages/JavaAdapter';
 
 const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter, PythonAdapter, PrismaAdapter];
 

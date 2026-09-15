@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GoAdapter, parseGoSource } from './GoAdapter';
-import { buildCallIndex, resolveCallChain } from '../repoqa-callchain';
+import { buildCallIndex, resolveCallChain } from '../engine/repoqa-callchain';
 
 describe('GoAdapter — symbol extraction (Issue 26)', () => {
   it('recognizes .go files and extracts struct/interface/func/const/var symbols', () => {

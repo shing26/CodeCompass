@@ -1,12 +1,12 @@
 import express from 'express';
 import { requireRepo, type HttpDeps } from './deps';
-import { buildTours } from '../repoqa-tours';
-import { buildDashboard } from '../repoqa-dashboard';
-import { buildOnboardingMarkdown, onboardingExportFileName } from '../repoqa-export';
+import { buildTours } from '../engine/repoqa-tours';
+import { buildDashboard } from '../engine/repoqa-dashboard';
+import { buildOnboardingMarkdown, onboardingExportFileName } from '../engine/repoqa-export';
 import { runDomainRadar } from '../domain-radar-engine';
-import { extractSubgraphContext } from '../repoqa-graphrag';
+import { extractSubgraphContext } from '../engine/repoqa-graphrag';
 import { asyncHandler } from '../http-error';
-import { maskEventPayload, maskSensitiveText } from '../repoqa-masking';
+import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
 
 /**
  * V27-30 (B3 increment 2) — 图谱读侧域（symbols/reverse-deps/tours/dashboard/

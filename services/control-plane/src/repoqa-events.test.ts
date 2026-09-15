@@ -10,8 +10,8 @@ import { EventBus } from './events';
 import { HarnessManager } from './harness-manager';
 import { createHttpApp } from './http';
 import { Orchestrator } from './orchestrator';
-import { RepoQARepos } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
+import { RepoQARepos } from './ingest/repoqa-repos';
+import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
 
 interface ServerContext {

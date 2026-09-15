@@ -21,8 +21,8 @@ import { EventBus } from './events';
 import { HarnessManager } from './harness-manager';
 import { createHttpApp } from './http';
 import { Orchestrator } from './orchestrator';
-import { RepoQARepos, type GateRunRow } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
+import { RepoQARepos, type GateRunRow } from './ingest/repoqa-repos';
+import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
 
 /* ---------------- store unit suites ---------------- */

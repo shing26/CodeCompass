@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from './db';
 import { Repos, cleanLocalPath } from './repos';
-import { RepoQARepos } from './repoqa-repos';
-import type { RepoSymbol } from './repoqa-repos';
+import { RepoQARepos } from './ingest/repoqa-repos';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 
 describe('cleanLocalPath', () => {
   it('trims surrounding whitespace', () => {

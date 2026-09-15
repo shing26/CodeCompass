@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MCP_TOOLS } from './repoqa-mcp';
+import { MCP_TOOLS } from './mcp/repoqa-mcp';
 
 /**
  * v0.8.0 — Zero-config MCP installer. Writes the CodeCompass stdio MCP server

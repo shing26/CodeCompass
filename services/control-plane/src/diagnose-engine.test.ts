@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildCallIndex } from './repoqa-callchain';
-import type { RepoSymbol } from './repoqa-repos';
+import { buildCallIndex } from './engine/repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 import { runDiagnose, frontendCallersForRoute, isTestPath } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 

@@ -8,13 +8,13 @@ import type {
   EvolutionScaffoldTemplate,
   ModuleEvolutionResult
 } from '../../../packages/contracts/src/index';
-import { buildFullCallersIndex, resolveCallEdge, symbolIdentity, type SymbolIndex } from './repoqa-callchain';
-import type { RepoSymbol } from './repoqa-repos';
+import { buildFullCallersIndex, resolveCallEdge, symbolIdentity, type SymbolIndex } from './engine/repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 import {
   isStrictAxis,
   packageOfPath,
   runConventionScan
-} from './repoqa-conventions';
+} from './engine/repoqa-conventions';
 import {
   cockpitLink,
   frontendCallersForRoute,

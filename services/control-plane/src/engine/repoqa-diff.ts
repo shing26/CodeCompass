@@ -1,16 +1,16 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { RepoSymbol } from './repoqa-repos';
-import { adapterFor } from './repoqa-parser';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { adapterFor } from '../ingest/repoqa-parser';
 import { CallResolver, symbolIdentity } from './repoqa-callchain';
-import { scanPom, scanProperties, scanYaml, type ScannedKey } from './repoqa-config';
-import { SOURCE_EXTENSIONS } from './repoqa-scan';
+import { scanPom, scanProperties, scanYaml, type ScannedKey } from '../ingest/repoqa-config';
+import { SOURCE_EXTENSIONS } from '../ingest/repoqa-scan';
 import type {
   ArchitectureDeltaReport,
   CallEdge,
   ExtractedSymbol
-} from '../../../packages/contracts/src/index';
+} from '../../../../packages/contracts/src/index';
 
 /**
  * Issue 22 — PR 架构影响面透视（`codecompass diff <base> <head> [repoPath]`）。

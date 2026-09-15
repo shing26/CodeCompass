@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildCallIndex } from './repoqa-callchain';
-import type { RepoSymbol } from './repoqa-repos';
+import { buildCallIndex } from './engine/repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 import {
   AttachPointNotFoundError,
   ConventionConflictError,

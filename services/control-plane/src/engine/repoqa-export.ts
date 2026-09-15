@@ -1,4 +1,4 @@
-import type { RepoSymbol } from './repoqa-repos';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
 import { buildDashboard, type RepoDashboard } from './repoqa-dashboard';
 import { buildTours, type RepoQaTour } from './repoqa-tours';
 

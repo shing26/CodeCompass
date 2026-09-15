@@ -3,11 +3,11 @@ import type {
   ScanCandidate,
   ScanResult
 } from '../../../packages/contracts/src/index';
-import type { RepoSymbol } from './repoqa-repos';
-import type { SymbolIndex } from './repoqa-callchain';
-import { symbolIdentity } from './repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
+import type { SymbolIndex } from './engine/repoqa-callchain';
+import { symbolIdentity } from './engine/repoqa-callchain';
 import { buildRadarGraph, computePageRank } from './domain-radar-engine';
-import { pickTopApis } from './repoqa-dashboard';
+import { pickTopApis } from './engine/repoqa-dashboard';
 import { cockpitLink, isTestPath } from './diagnose-engine';
 
 /**

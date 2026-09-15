@@ -1,13 +1,13 @@
 import express from 'express';
 import { asyncHandler } from '../http-error';
 import { requireRepo, type HttpDeps } from './deps';
-import { analyzeDiff, evaluateDiffPolicy, summarizeGitError } from '../repoqa-diff';
+import { analyzeDiff, evaluateDiffPolicy, summarizeGitError } from '../engine/repoqa-diff';
 import {
   resolveRepoCommitSync,
   type GateRunPolicyOptions,
   type GateRunRouteRow
-} from '../repoqa-repos';
-import { maskEventPayload, maskSensitiveText } from '../repoqa-masking';
+} from '../ingest/repoqa-repos';
+import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
 
 /**
  * V27-30 (B3 increment 2) — Delta/门禁域（architecture-delta、gate/run、

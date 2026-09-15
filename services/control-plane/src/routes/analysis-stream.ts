@@ -1,7 +1,7 @@
 import express from 'express';
 import { asyncHandler } from '../http-error';
 import { requireRepo, type HttpDeps } from './deps';
-import { maskEventPayload } from '../repoqa-masking';
+import { maskEventPayload } from '../engine/repoqa-masking';
 
 /**
  * V27-30 (B3 increment 2) — SSE 流域（query GET/POST + evolve POST）。

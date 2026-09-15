@@ -1,4 +1,4 @@
-import type { RepoSymbol } from '../repoqa-repos';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
 
 /**
  * Issue 25 — one parser per language family. Each adapter owns a set of file

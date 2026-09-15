@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
-import type { Repos } from './repos';
+import type { Repos } from '../repos';
 
 export interface Repo {
   id: string;

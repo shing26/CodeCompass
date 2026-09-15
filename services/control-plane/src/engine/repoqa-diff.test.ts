@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseArgs, runCli } from './cli';
+import { parseArgs, runCli } from '../cli';
 import {
   analyzeDiff,
   buildArchitectureDelta,
@@ -21,8 +21,8 @@ import {
   type DiffReport,
   type FileChangedLines
 } from './repoqa-diff';
-import { parseJavaSource } from './repoqa-parser';
-import type { RepoSymbol } from './repoqa-repos';
+import { parseJavaSource } from '../ingest/repoqa-parser';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */

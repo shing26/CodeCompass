@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PrismaAdapter, PRISMA_OPERATIONS } from './PrismaAdapter';
 import { TypeScriptAdapter } from './TypeScriptAdapter';
-import { buildCallIndex, resolveCallChain } from '../repoqa-callchain';
-import type { RepoSymbol } from '../repoqa-repos';
+import { buildCallIndex, resolveCallChain } from '../engine/repoqa-callchain';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
 
 /**
  * v0.15 — Prisma schema adapter + deterministic client bridge. A TS project

@@ -3,8 +3,8 @@ import type {
   RepoQaTraceHop,
   EvolutionIntentEcho,
   IndexingPhase
-} from '../../../packages/contracts/src/index';
-import { frontendCallersForRoute } from './diagnose-engine';
+} from '../../../../packages/contracts/src/index';
+import { frontendCallersForRoute } from '../diagnose-engine';
 
 /**
  * V27-30 (B3 increment 1) — the pure module-level helpers that used to head

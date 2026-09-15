@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import type { RepoSymbol } from './repoqa-repos';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
 import {
   buildCallIndex,
   CallResolver,

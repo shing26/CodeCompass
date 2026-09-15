@@ -3,7 +3,7 @@ import { ReActAgent } from './agent.js';
 import { InProcessMcpClient } from './client.js';
 import type { LlmManager } from './llm.js';
 import type { SessionLogger } from './log.js';
-import type { McpDeps } from '../repoqa-mcp.js';
+import type { McpDeps } from '../mcp/repoqa-mcp.js';
 
 const HELP = `commands:
   /tools        list the 17-tool surface

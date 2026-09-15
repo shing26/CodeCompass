@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { maskSensitiveText } from './repoqa-masking';
+import { maskSensitiveText } from './engine/repoqa-masking';
 
 /**
  * v0.27-B R5 — 服务端最小日志 sink。

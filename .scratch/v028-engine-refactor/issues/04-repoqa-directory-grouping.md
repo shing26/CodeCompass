@@ -2,7 +2,7 @@
 
 > *Parent spec：`.scratch/v028-engine-refactor/spec.md`。自票 03 拆出：2026-09-14 实测 churn 后判定需专注窗口执行。*
 
-Status: open
+Status: closed
 标签：结构 / P3（纯导航性，零缺陷风险消减）/ 来源：V27-30 增量 4。
 
 ## 为什么要拆出来（churn 实测，2026-09-14）
@@ -21,6 +21,18 @@ Status: open
 
 顺序（每组独立 commit + 全门禁绿再下一组，从小到大练流程）：**eval → mcp → ingest → engine**？错——按风险递增应 **eval → mcp → engine → ingest**（repos 72 引最重，最后动）。每步：`git mv`（bash 合法）→ 逐文件 Read+Edit 重写 import → tsc 全清单驱动补漏 → 638+/e2e 62/build → commit。
 测试文件跟随 subjects；根级集成测试（http/cli/events/static/gate-runs/evolve/commit-anchor/workbench-cards/multimodule/crosslang）**留根不迁**（主体是 server/routes 面）。
+
+## 执行进行时（2026-09-14，搬家已落地、重写规则唯一事实源）
+
+43 条 git mv 已由用户本机执行（42 文件+1 重复行计数口径差），根遗留=8 个集成测试（cli/http/events/evolve/gate-runs/commit-anchor/static/workbench-cards）**有意留根**。tsc 基线：**397 errors / 78 files / TS6059=0**。
+
+**重写映射（改完即删本节之前，先以此为准）：**
+- 组归属：eval={repoqa-eval}；mcp={repoqa-mcp}；engine={callchain,diff,conventions,dashboard,export,graphrag,masking,stacktrace,tours,llm}（前缀 repoqa-）；ingest={scan,parser,config,mapper,repos,worker,watcher,worker-helpers,worker-diagram}（前四个带 repoqa- 前缀，后二不带）。
+- 规则①被迁文件头（现于 src/<组>/）：同组兄弟 `./M` 不动；跨组 `./M`→`../<g>/M`；根留物 `./X`→`../X`；子目录既有 `./routes/Y`→`../routes/Y`、`./languages/Y`→`../languages/Y`、`./chat/Y`→`../chat/Y`；contracts/bridge 深路径 `../../../packages/…`→`../../../../packages/…`（**仅被迁文件**；harness-manager 在根不动=TS6059 恒零之故）。
+- 规则②根留文件：`./M`→`./<g>/M`；二级目录（routes/ chat/ languages/）`../M`→`../<g>/M`。
+- 易混淆名：`config`(根)/`repoqa-config`(ingest)、`repos`(根 legacy)/`repoqa-repos`(ingest)、`export-artifact`(根)/`repoqa-export`(engine)、`scan-engine`(根)/`repoqa-scan`(ingest)——只按 21 个精确基名表匹配。
+- 非 tsc 面：`services/control-plane/package.json` eval 脚本、`scripts/e2e/closeout_gate.py:~1805` eval_ts 路径、`scripts/profile-index.ts` 两个 import、票 03 中 worker 行数注记（2556→…路径改后不动历史注记）。
+
 
 ## 价值声明（诚实注记）
 

@@ -1,6 +1,6 @@
 import type express from 'express';
 import { asyncHandler } from '../http-error';
-import { maskSensitiveText } from '../repoqa-masking';
+import { maskSensitiveText } from '../engine/repoqa-masking';
 import { randomUUID } from 'node:crypto';
 import { ReActAgent } from './agent.js';
 import type { ChatStore } from './store.js';

@@ -2,11 +2,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { RepoSymbol } from './repoqa-repos';
-import { parseJavaFile } from './repoqa-parser';
-import { parsePythonSource } from './languages/PythonAdapter';
-import { parseTypeScriptSource } from './languages/TypeScriptAdapter';
-import { extractConfigSymbols } from './repoqa-config';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { parseJavaFile } from '../ingest/repoqa-parser';
+import { parsePythonSource } from '../languages/PythonAdapter';
+import { parseTypeScriptSource } from '../languages/TypeScriptAdapter';
+import { extractConfigSymbols } from '../ingest/repoqa-config';
 import {
   buildDashboard,
   classifyConfigKey,

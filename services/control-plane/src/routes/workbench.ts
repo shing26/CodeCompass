@@ -6,8 +6,8 @@ import type { HttpDeps } from './deps';
 import { ACTIONS, requireRepo } from './deps';
 import type { TaskAction } from '../orchestrator';
 import { exportWorkspace, importWorkspace } from '../workspace-export';
-import { llmRuntimeInfo, maskHostname } from '../repoqa-llm';
-import { maskEventPayload } from '../repoqa-masking';
+import { llmRuntimeInfo, maskHostname } from '../engine/repoqa-llm';
+import { maskEventPayload } from '../engine/repoqa-masking';
 
 /** Issue 14/16/19/30 + runtime：harness 编排面（tasks/harnesses/workspaces）
  * 与运行时状态。v0.25.0 自 http.ts 按域拆出，注册顺序保持原样。 */

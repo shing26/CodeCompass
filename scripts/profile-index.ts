@@ -5,8 +5,8 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { openDb } from '../services/control-plane/src/db';
 import { EventBus } from '../services/control-plane/src/events';
-import { RepoQARepos } from '../services/control-plane/src/repoqa-repos';
-import { RepoQAWorker } from '../services/control-plane/src/repoqa-worker';
+import { RepoQARepos } from '../services/control-plane/src/ingest/repoqa-repos';
+import { RepoQAWorker } from '../services/control-plane/src/ingest/repoqa-worker';
 
 const execFile = promisify(execFileCallback);
 

@@ -1,5 +1,5 @@
-import type { RepoSymbol } from './repoqa-repos';
-import type { RepoQaTraceHop } from '../../../packages/contracts/src/index';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
 import { resolveCallChain } from './repoqa-callchain';
 
 /**

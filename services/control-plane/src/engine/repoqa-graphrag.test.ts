@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { extractSubgraphContext } from './repoqa-graphrag';
 import { buildCallIndex } from './repoqa-callchain';
-import { parseJavaSource } from './repoqa-parser';
-import { parseTypeScriptSource } from './languages/TypeScriptAdapter';
-import { parseGoSource } from './languages/GoAdapter';
-import type { RepoSymbol } from './repoqa-repos';
+import { parseJavaSource } from '../ingest/repoqa-parser';
+import { parseTypeScriptSource } from '../languages/TypeScriptAdapter';
+import { parseGoSource } from '../languages/GoAdapter';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
 
 const sourceMap = new Map<string, string>();
 const readFixture = (filePath: string) => Promise.resolve(sourceMap.get(filePath) ?? '');

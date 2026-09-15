@@ -4,31 +4,31 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadConfig } from './config';
-import { openDb, ensureDefaultWorkspace, backupDb } from './db';
-import { maskSensitiveText } from './repoqa-masking';
-import { EventBus } from './events';
-import type { Repo } from './repoqa-repos';
-import { RepoQARepos, deriveLocalRepoName, type RepoSymbol } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
-import { resolveCallChain } from './repoqa-callchain';
-import { buildDashboard } from './repoqa-dashboard';
-import { buildTours } from './repoqa-tours';
-import { matchConfigSymbols } from './repoqa-config';
-import { analyzeDiff } from './repoqa-diff';
-import { extractSubgraphContext, type SubgraphContextResult } from './repoqa-graphrag';
-import { runDiagnose } from './diagnose-engine';
-import { runBlastRadius } from './blast-radius';
-import { runDomainRadar } from './domain-radar-engine';
-import { runModuleEvolution, ConventionConflictError } from './module-evolution-engine';
-import { runScan } from './scan-engine';
-import { runConventionScan } from './repoqa-conventions';
+import { loadConfig } from '../config';
+import { openDb, ensureDefaultWorkspace, backupDb } from '../db';
+import { maskSensitiveText } from '../engine/repoqa-masking';
+import { EventBus } from '../events';
+import type { Repo } from '../ingest/repoqa-repos';
+import { RepoQARepos, deriveLocalRepoName, type RepoSymbol } from '../ingest/repoqa-repos';
+import { RepoQAWorker } from '../ingest/repoqa-worker';
+import { resolveCallChain } from '../engine/repoqa-callchain';
+import { buildDashboard } from '../engine/repoqa-dashboard';
+import { buildTours } from '../engine/repoqa-tours';
+import { matchConfigSymbols } from '../ingest/repoqa-config';
+import { analyzeDiff } from '../engine/repoqa-diff';
+import { extractSubgraphContext, type SubgraphContextResult } from '../engine/repoqa-graphrag';
+import { runDiagnose } from '../diagnose-engine';
+import { runBlastRadius } from '../blast-radius';
+import { runDomainRadar } from '../domain-radar-engine';
+import { runModuleEvolution, ConventionConflictError } from '../module-evolution-engine';
+import { runScan } from '../scan-engine';
+import { runConventionScan } from '../engine/repoqa-conventions';
 import {
   cloneGitRepo,
   deriveCloneName,
   validateGitBranch,
   validateGitUrl
-} from './git-importer';
+} from '../git-importer';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.

@@ -3,9 +3,9 @@ import type {
   DomainRadarHub,
   DomainRadarResult
 } from '../../../packages/contracts/src/index';
-import { symbolIdentity, buildFullCallersIndex, type SymbolIndex } from './repoqa-callchain';
-import type { RepoSymbol } from './repoqa-repos';
-import { fuzzyMatchScore } from './repoqa-worker';
+import { symbolIdentity, buildFullCallersIndex, type SymbolIndex } from './engine/repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
+import { fuzzyMatchScore } from './ingest/worker-helpers';
 import { layerOf, isTestPath } from './diagnose-engine';
 
 /**

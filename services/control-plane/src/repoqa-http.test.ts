@@ -8,17 +8,17 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from './db';
-import { MAX_FILES } from './repoqa-scan';
+import { MAX_FILES } from './ingest/repoqa-scan';
 import { EventBus } from './events';
 import { HarnessManager } from './harness-manager';
 import { createHttpApp } from './http';
 import { Orchestrator } from './orchestrator';
-import { RepoQARepos } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
+import { RepoQARepos } from './ingest/repoqa-repos';
+import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
-import { maskSensitiveText } from './repoqa-masking';
-import { runGoldenEval } from './repoqa-eval';
-import { capPrompt, completeReAct } from './repoqa-llm';
+import { maskSensitiveText } from './engine/repoqa-masking';
+import { runGoldenEval } from './eval/repoqa-eval';
+import { capPrompt, completeReAct } from './engine/repoqa-llm';
 
 // The file-limit test previously wrote MAX_FILES + 1 = 12,001 files
 // sequentially, which on Windows can exceed the 15s timeout under full-suite
@@ -26,8 +26,8 @@ import { capPrompt, completeReAct } from './repoqa-llm';
 // file's module graph only — vi.mock is scoped per test file, so other files
 // keep the real default. The test below imports MAX_FILES symbolically and
 // stays in sync automatically.
-vi.mock('./repoqa-scan', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./repoqa-scan')>();
+vi.mock('./ingest/repoqa-scan', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ingest/repoqa-scan')>();
   return { ...actual, MAX_FILES: 60 };
 });
 

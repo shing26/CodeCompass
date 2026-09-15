@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseJavaSource } from './repoqa-parser';
-import { parseTypeScriptSource } from './languages/TypeScriptAdapter';
+import { parseJavaSource } from '../ingest/repoqa-parser';
+import { parseTypeScriptSource } from '../languages/TypeScriptAdapter';
 import { buildCallIndex, CallResolver, resolveCallChain } from './repoqa-callchain';
 
 describe('cross-language HTTP call chain bridging (Issue 25)', () => {

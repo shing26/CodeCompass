@@ -4,8 +4,8 @@ import type { Repos } from '../repos';
 import type { Orchestrator, TaskAction } from '../orchestrator';
 import type { HarnessManager } from '../harness-manager';
 import type { EventBus } from '../events';
-import type { RepoQARepos, Repo } from '../repoqa-repos';
-import type { RepoQAWorker } from '../repoqa-worker';
+import type { RepoQARepos, Repo } from '../ingest/repoqa-repos';
+import type { RepoQAWorker } from '../ingest/repoqa-worker';
 import type { ChatRuntime } from '../chat/routes';
 import type { ServerLogger } from '../log-sink';
 

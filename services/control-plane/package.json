@@ -10,7 +10,7 @@
     "start:cli": "node dist/cli.js",
     "test": "vitest run --pool=forks --minWorkers=1 --maxWorkers=2",
     "typecheck": "tsc --noEmit",
-    "eval": "tsx src/repoqa-eval.ts"
+    "eval": "tsx src/eval/repoqa-eval.ts"
   },
   "dependencies": {
     "@lezer/common": "^1.5.2",

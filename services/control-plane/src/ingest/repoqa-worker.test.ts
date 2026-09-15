@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { openDb } from './db';
-import { EventBus } from './events';
+import { openDb } from '../db';
+import { EventBus } from '../events';
 import type { RepoSymbol } from './repoqa-repos';
 import { RepoQARepos } from './repoqa-repos';
 import {

@@ -1,9 +1,9 @@
 import type { RepoSymbol } from './repoqa-repos';
-import type { RepoQaTraceHop } from '../../../packages/contracts/src/index';
-import type { LayerInstruction } from './repoqa-llm';
-import { resolveCallChain, type SymbolIndex } from './repoqa-callchain';
-import { buildTours } from './repoqa-tours';
-import { classifyConfigKey, isSensitiveConfigKey } from './repoqa-dashboard';
+import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
+import type { LayerInstruction } from '../engine/repoqa-llm';
+import { resolveCallChain, type SymbolIndex } from '../engine/repoqa-callchain';
+import { buildTours } from '../engine/repoqa-tours';
+import { classifyConfigKey, isSensitiveConfigKey } from '../engine/repoqa-dashboard';
 import type { DiagramSession, SessionGraphEdge } from './worker-helpers';
 
 /**

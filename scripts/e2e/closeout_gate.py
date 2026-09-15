@@ -1802,7 +1802,7 @@ def check_chat_merge(node: str, base: str, repo_id: str) -> None:
 def check_eval_smoke(node: str, cwd: Path) -> None:
     """v0.13: the golden eval must run end-to-end and pass every threshold."""
     tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
-    eval_ts = ROOT / "services/control-plane/src/repoqa-eval.ts"
+    eval_ts = ROOT / "services/control-plane/src/eval/repoqa-eval.ts"
     run = subprocess.run(
         [node, str(tsx), str(eval_ts)],
         cwd=ROOT, capture_output=True, text=True, timeout=600,

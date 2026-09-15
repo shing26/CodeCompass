@@ -5,17 +5,17 @@ import { startServer, type RunningServer } from './server';
 import {
   runMcpServer,
   type McpTransportFactory
-} from './repoqa-mcp';
-import { analyzeDiff, evaluateDiffPolicy, renderMarkdown } from './repoqa-diff';
+} from './mcp/repoqa-mcp';
+import { analyzeDiff, evaluateDiffPolicy, renderMarkdown } from './engine/repoqa-diff';
 import { loadConfig, displayHost } from './config';
 import { openDb, ensureDefaultWorkspace, backupDb } from './db';
 import { SessionLogger as ChatSessionLogger } from './chat/log';
 import { LlmManager as ChatLlmManager } from './chat/llm';
 import { startChatRepl } from './chat/repl';
 import { EventBus } from './events';
-import { RepoQARepos } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
-import { extractSubgraphContext } from './repoqa-graphrag';
+import { RepoQARepos } from './ingest/repoqa-repos';
+import { RepoQAWorker } from './ingest/repoqa-worker';
+import { extractSubgraphContext } from './engine/repoqa-graphrag';
 import { runDoctor, renderDoctorText, defaultDataDir } from './doctor';
 import { INSTALL_IDES, installIdeConfig, type IdeId } from './installer';
 import { runDiagnose } from './diagnose-engine';

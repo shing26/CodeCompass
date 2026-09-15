@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { openDb } from './db';
-import { RepoQARepos } from './repoqa-repos';
+import { openDb } from '../db';
+import { RepoQARepos } from '../ingest/repoqa-repos';
 import {
   commitFixture,
   EVAL_PASS_THRESHOLDS,

@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openDb } from './db';
-import { EventBus } from './events';
+import { openDb } from '../db';
+import { EventBus } from '../events';
 import type { RepoSymbol } from './repoqa-repos';
 import { RepoQARepos } from './repoqa-repos';
 import { parseJavaFile, parsePomModules } from './repoqa-parser';
@@ -12,8 +12,8 @@ import { extractConfigSymbols } from './repoqa-config';
 import {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   resolveCallChain
-} from './repoqa-callchain';
-import { buildDashboard } from './repoqa-dashboard';
+} from '../engine/repoqa-callchain';
+import { buildDashboard } from '../engine/repoqa-dashboard';
 import { RepoQAWorker } from './repoqa-worker';
 
 /**

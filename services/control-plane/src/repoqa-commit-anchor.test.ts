@@ -9,8 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDb } from './db';
 import { EventBus } from './events';
 import { createHttpApp } from './http';
-import { RepoQARepos, resolveRepoCommitSync } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
+import { RepoQARepos, resolveRepoCommitSync } from './ingest/repoqa-repos';
+import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
 
 const tempDirs: string[] = [];

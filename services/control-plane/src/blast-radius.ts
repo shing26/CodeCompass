@@ -1,6 +1,6 @@
 import type { RefactorPlanParams, RefactorPlanResult } from '../../../packages/contracts/src/index';
-import { symbolIdentity, buildFullCallersIndex, type SymbolIndex } from './repoqa-callchain';
-import type { RepoSymbol } from './repoqa-repos';
+import { symbolIdentity, buildFullCallersIndex, type SymbolIndex } from './engine/repoqa-callchain';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 import {
   cockpitLink,
   frontendCallersForRoute,

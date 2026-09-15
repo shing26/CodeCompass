@@ -1,12 +1,12 @@
-import type { RepoSymbol } from './repoqa-repos';
-import { isTestPath } from './diagnose-engine';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { isTestPath } from '../diagnose-engine';
 import type {
   ConventionAnchor,
   ConventionAxis,
   ConventionAxisId,
   ConventionCoverage,
   ConventionProfile
-} from '../../../packages/contracts/src/index';
+} from '../../../../packages/contracts/src/index';
 
 // Issue 24.3 — the convention contract moved into @codecompass/contracts so
 // ModuleEvolutionResult can embed a profile without contracts depending on

@@ -1,4 +1,4 @@
-import type { RepoSymbol } from './repoqa-repos';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 
 /**
  * v0.6.0 (D-BE-1) — Tier 3 extractor for LARGE_GENERATED_FILE sources.

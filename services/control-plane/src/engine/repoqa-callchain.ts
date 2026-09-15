@@ -1,5 +1,5 @@
-import type { RepoSymbol, RepoSymbolCall } from './repoqa-repos';
-import type { RepoQaTraceHop } from '../../../packages/contracts/src/index';
+import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
+import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
 
 /**
  * Issue 05 — Deterministic call-chain query.

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { maskSensitiveText } from './repoqa-masking';
+import { maskSensitiveText } from './engine/repoqa-masking';
 import type { ServerLogger } from './log-sink';
 
 /**

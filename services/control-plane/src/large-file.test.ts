@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseLargeFileTier3 } from './large-file';
-import { scanRepo } from './repoqa-scan';
+import { scanRepo } from './ingest/repoqa-scan';
 
 describe('parseLargeFileTier3 (v0.6.0)', () => {
   it('extracts top-level Java classes and route signatures from a generated file', () => {

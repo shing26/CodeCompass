@@ -12,9 +12,9 @@ import {
   symbolIdentity,
   isTestPath,
   type SymbolIndex
-} from './repoqa-callchain';
-import { maskSensitiveText } from './repoqa-masking';
-import type { RepoSymbol } from './repoqa-repos';
+} from './engine/repoqa-callchain';
+import { maskSensitiveText } from './engine/repoqa-masking';
+import type { RepoSymbol } from './ingest/repoqa-repos';
 
 /**
  * v0.8.0 — Composite diagnose engine (deterministic, zero-LLM).

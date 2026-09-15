@@ -1,7 +1,7 @@
 import type { ToolSummary, ToolCallOutcome } from './types.js';
 import type { ChatMessage, LlmManager, ToolSpec } from './llm.js';
 import { maskSecrets } from './llm.js';
-import { maskSensitiveText } from '../repoqa-masking';
+import { maskSensitiveText } from '../engine/repoqa-masking';
 import type { SessionLogger } from './log.js';
 
 /** Proven parameters from CodeCompass repoqa-llm.ts (chat-merge: 抄答案不抄代码). */

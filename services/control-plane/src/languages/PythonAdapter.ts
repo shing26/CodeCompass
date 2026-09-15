@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SyntaxNode } from '@lezer/common';
 import { parser } from '@lezer/python';
-import type { RepoSymbol, RepoSymbolCall } from '../repoqa-repos';
+import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import { joinRoutePath } from './JavaAdapter';
 import type { LanguageAdapter } from './LanguageAdapter';
 

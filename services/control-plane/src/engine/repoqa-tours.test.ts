@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { RepoSymbol } from './repoqa-repos';
-import { parseJavaFile } from './repoqa-parser';
+import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { parseJavaFile } from '../ingest/repoqa-parser';
 import { buildTours, chainMermaid, type RepoQaTourStep } from './repoqa-tours';
 
 async function parseTree(files: Record<string, string>): Promise<RepoSymbol[]> {

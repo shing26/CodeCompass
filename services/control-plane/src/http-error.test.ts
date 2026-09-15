@@ -16,8 +16,8 @@ import { EventBus } from './events';
 import { HarnessManager } from './harness-manager';
 import { Orchestrator } from './orchestrator';
 import { Repos } from './repos';
-import { RepoQARepos } from './repoqa-repos';
-import { RepoQAWorker } from './repoqa-worker';
+import { RepoQARepos } from './ingest/repoqa-repos';
+import { RepoQAWorker } from './ingest/repoqa-worker';
 
 function buildApp() {
   const app = express();

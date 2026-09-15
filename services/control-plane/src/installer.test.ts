@@ -10,7 +10,7 @@ import {
   resolveIdeSpecs,
   type IdeId
 } from './installer';
-import { MCP_TOOLS } from './repoqa-mcp';
+import { MCP_TOOLS } from './mcp/repoqa-mcp';
 
 /**
  * v0.8.0 — Zero-config installer. Pins the per-IDE config shapes, the
