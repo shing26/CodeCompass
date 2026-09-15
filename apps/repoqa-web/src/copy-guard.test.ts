@@ -78,3 +78,112 @@ describe('copy guard (v0.26-A ticket 04)', () => {
     expect(evolve).toContain('引擎只读，改动由你执行');
   });
 });
+
+/**
+ * v0.30 票 01（grill D8②，销 V27-10 前瞻项）——英文退役词层：
+ * 原 Evolution 封条只锚侧栏 2 个 testid 位点（上方 Q8），位点外的未来英文
+ * 用户文案会漏网；本层把判据升为「全 src 非测试源码的 JSX 文本节点 +
+ * 字符串字面量」扫描。
+ *
+ * 标识符免疫原理：区域收集只认字符串/JSX 文本，\bEvolution\b 不会命中
+ * EvolutionView/EvolutionRisk 这类复合标识符（词尾无边界）；注释不产区域
+ * （先剥注释再收集），历史叙述在注释里不误红。
+ * 已知限制（票 01 Comments 登记）：正则字面量内的引号可能被剥离器误判为
+ * 字符串开合——真触发误报时对该文件具名豁免并留活例，不放空机制。
+ */
+
+/** String-aware comment stripper: drops line and block comments, keeps string bodies intact. */
+function stripComments(src: string): string {
+  let out = '';
+  let i = 0;
+  let str: string | null = null; // active quote char: ' " `
+  while (i < src.length) {
+    const ch = src[i];
+    const next = src[i + 1];
+    if (str) {
+      out += ch;
+      if (ch === '\\') { out += next ?? ''; i += 2; continue; }
+      if (ch === str) str = null;
+      i += 1;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') { str = ch; out += ch; i += 1; continue; }
+    if (ch === '/' && next === '/') { while (i < src.length && src[i] !== '\n') i += 1; continue; }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i += 1;
+      i += 2;
+      out += ' ';
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/** User-visible copy regions: JSX text nodes + quoted string literals (comment-free source only). */
+function userTextRegions(src: string): string[] {
+  const clean = stripComments(src);
+  const regions: string[] = [];
+  for (const m of clean.matchAll(/>([^<>{}]+)</g)) regions.push(m[1]);
+  for (const m of clean.matchAll(/(["'`])(?:\\.|(?!\1)[\s\S])*?\1/g)) regions.push(m[0]);
+  return regions;
+}
+
+/** Scan one source file's user-visible regions for retired English terms; returns offender lines. */
+function scanEnglishRetired(relPath: string, src: string, terms: RegExp[]): string[] {
+  const offenders: string[] = [];
+  for (const region of userTextRegions(src)) {
+    for (const term of terms) {
+      if (term.test(region)) {
+        offenders.push(`${relPath} 用户文案区域命中 ${term}: ${region.trim().slice(0, 80)}`);
+      }
+    }
+  }
+  return offenders;
+}
+
+// G3 起向此表填入退役英文 chrome 词（表 D 第二层）。G1 立机制、词表留空，
+// 灵敏度由下方注入测试证明——防空转。
+const ENGLISH_RETIRED: RegExp[] = [];
+
+describe('English retired-word layer (v0.30 ticket 01, D8②)', () => {
+  it('no bare English `Evolution` (and G3+ retired chrome words) in any user-visible copy region', () => {
+    const terms: RegExp[] = [/\bEvolution\b/, ...ENGLISH_RETIRED];
+    const offenders: string[] = [];
+    for (const file of sourceFiles(SRC)) {
+      const rel = relative(SRC, file);
+      if (rel === 'copy-guard.test.ts') continue; // 哨自身豁免
+      if (/\.test\.tsx?$/.test(rel)) continue; // 测试标题不是用户文案
+      if (!/\.tsx?$/.test(rel)) continue;
+      offenders.push(...scanEnglishRetired(rel, readFileSync(file, 'utf8'), terms));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('identifier noise and comments are immune (false-positive guard)', () => {
+    const immune = [
+      "import { EvolutionRisk } from 'x';",
+      'function openEvolutionView() { /* the Evolution workbench in prose */ }',
+      'const v: EvolutionStageId;',
+      '// Ticket 04: open the Evolution workbench view.'
+    ].join('\n');
+    expect(scanEnglishRetired('synthetic.tsx', immune, [/\bEvolution\b/])).toEqual([]);
+  });
+
+  it('user copy in strings and JSX text is caught (sensitivity proof)', () => {
+    const red = [
+      '<h2>Evolution</h2>',
+      'title="Evolution console"',
+      "label: 'Evolution'"
+    ].join('\n');
+    expect(scanEnglishRetired('synthetic.tsx', red, [/\bEvolution\b/])).toHaveLength(3);
+  });
+
+  it('the G3+ English retirement list hook is wired (empty at G1 by design)', () => {
+    // 机制就位证明：临时词注入即红、且 ENGLISH_RETIRED 参与全 src 扫描。
+    expect(scanEnglishRetired('synthetic.tsx', 'title="Watch: Ready"', [/\bWatch/])).toHaveLength(1);
+    expect(Array.isArray(ENGLISH_RETIRED)).toBe(true);
+  });
+});

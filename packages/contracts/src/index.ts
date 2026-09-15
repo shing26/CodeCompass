@@ -1,5 +1,6 @@
 export * from '../v1';
 export * from './repoqa';
+export * from './copy-blacklist';
 export type {
   RepoQaIndexError,
   RepoQaIndexProgress,
