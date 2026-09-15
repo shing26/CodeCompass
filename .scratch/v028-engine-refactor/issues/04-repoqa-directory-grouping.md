@@ -44,3 +44,10 @@ Status: closed
 - **修正分工**（与 Mimosa 拦 push→出 .cmd 交用户本机同构惯例）：纯改名（零内容变更、无待扫描对象）交用户执行 `D:\zcode-tmp\b34-move.cmd`（43 条 git mv：eval 2/mcp 3/engine 21/ingest 16+multimodule/crosslang 归位；已全量校验源存在；root 集成测试 cli/http/events/static/gate-runs/evolve/commit-anchor/workbench-cards 不迁）；**一切真实内容改写（import 路径重写）由智能体走 Write/Edit 受扫描**，tsc 全清单驱动补漏。
 - 收编粒度调整：用户一次跑完全部四组搬家，智能体一次改完全部 import——**归组成为单个原子 commit**（放弃逐组四 commit），以全门禁（tsc+638+/e2e 62+build+UI 冒烟+docker）护航、可整体 revert。票上「逐组绿」是 churn 预算的保守假设，原子单 commit 同样满足「每 commit 可验绿可回滚」铁律。
 - 附：门曾拦截会话内的探测文件清理（mv-probe-a.ts 进敏感名单删不动），.cmd 里含 `del` 一行由用户侧顺带清除（智能体自造探针，非源码）。
+
+## Comments（2026-09-14 实施收口）
+
+- 用户本机执行 .cmd（42 git mv 全落地，工作树核验 0 遗留）；重写按票上映射规则 grind：78 文件逐 Read+Edit（replace_all 指定符级），漏网自查靠 tsc 清单驱动收敛 **397→160→49→1→0**——唯一 TS2307 顽固项系 `vi.mock('./repoqa-scan')` 字符串路径（import 之外第二条模块解析通道，教训入档）。
+- 非 tsc 面三处按单修：control-plane package.json `eval` 脚本 → src/eval/、closeout_gate.py eval_ts 路径、scripts/profile-index.ts 双 import；web types.ts 注释路径顺手改准。
+- 全门禁实跑：cp **638/638**（首轮 555+2 unhandled 系 rebuild 与测试并行的端口/资源争用，干净复跑零缺）、tsc 净、esbuild 成功、**e2e 62/62**（golden eval 经 tsx 走 eval/ 新路径实跑）、docker 重建绿（全层缓存失效下的全新构建）+ 容器 /health+SPA 200、**UI 冒烟全链 PASS**（R2 锁四旗）、web 354/354。
+- 提交：单原子 commit 327a35b（42 rename + 36 改写，git 相似度 97-100%），push master；V27-30 四段至此**全闭**。
