@@ -179,7 +179,7 @@ describe('Canvas live trace strip (v0.11 Stage 4)', () => {
 
     await user.click(screen.getByTestId('trace-step-next'));
     expect(screen.getByTestId('trace-step-label')).toHaveTextContent('步骤 3/3');
-    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('BROKEN');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('断链');
     expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/Mapper.java', 30, undefined, 'findAll');
 
     // The Next button is disabled at the final step.

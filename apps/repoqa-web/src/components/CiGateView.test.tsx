@@ -118,8 +118,8 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     // 新行置顶（echo 落库行）；历史仍是一屏两行
     await waitFor(() => expect(screen.getAllByTestId('gate-run-row')).toHaveLength(2));
     const firstRow = screen.getAllByTestId('gate-run-row')[0];
-    expect(firstRow).toHaveTextContent('PASS');
-    // 「路 5」是 echo 独有（h1 是 路 3）——只断言 PASS/refs 两行都满足，append
+    expect(firstRow).toHaveTextContent('通过');
+    // 「路 5」是 echo 独有（h1 是 路 3）——只断言 通过/refs 两行都满足，append
     // 实现也能通过（review g：断言必须有鉴别力）
     expect(firstRow).toHaveTextContent('路 5');
     expect(client.listGateRuns).toHaveBeenCalledTimes(1); // 成功走 echo 置顶，不整表重拉
@@ -142,9 +142,9 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     await waitFor(() => expect(screen.getAllByTestId('gate-run-row')).toHaveLength(3));
 
     expect(screen.getByTestId('gate-run-dirty')).toBeInTheDocument();
-    // PASS/FAIL 徽章都在
-    expect(screen.getAllByText('PASS').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('FAIL').length).toBeGreaterThanOrEqual(1);
+    // 通过/未通过 徽章都在（v0.30 票 04：表 C 展示映射）
+    expect(screen.getAllByText('通过').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('未通过').length).toBeGreaterThanOrEqual(1);
     // 趋势条 = 每个非 dirty 行一条 div 条；dirty 行从趋势条过滤（Q12）
     const bars = screen.getAllByTestId('gate-trend-bar');
     expect(bars).toHaveLength(2);
@@ -409,10 +409,10 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     expect(screen.getAllByTestId('gate-impact-node')[0]).toHaveTextContent('A.java');
     expect(screen.getAllByTestId('gate-impact-leaf').map((el) => el.textContent)).toEqual(['x.y', 'p.q']);
     const badges = screen.getAllByTestId('gate-risk-badge');
-    expect(badges[0]).toHaveTextContent('HIGH');
+    expect(badges[0]).toHaveTextContent('高风险');
     expect(badges[0].className).toContain('text-danger');
-    expect(badges[1].className).toContain('text-warning'); // MEDIUM → 橙
-    expect(badges[2].className).toContain('text-muted');   // LOW → 灰
+    expect(badges[1].className).toContain('text-warning'); // 中风险 → 橙
+    expect(badges[2].className).toContain('text-muted');   // 低风险 → 灰
   });
 
   it('clicking a route node navigates to the symbol anchor via onNavigate', async () => {

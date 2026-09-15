@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RepoSymbol, RepoTour, SymbolKind } from '../types';
 import { buildSymbolTree, filterByKind } from '../hooks/useSymbols';
 import { QuickTours } from './QuickTours';
+import { Badge } from './ui/Badge';
 
 /**
  * v0.7 Module Scope — names that occur more than once in the catalog get
@@ -268,9 +269,7 @@ export function Sidebar({
                 title={`${r.displayPath ?? r.name} · ${r.filePath}:${r.lineStart ?? 1}`}
                 className="flex w-full items-center gap-2 rounded px-1 text-left font-mono text-xs text-muted hover:bg-accent/10 hover:text-accent"
               >
-                <span className="shrink-0 rounded bg-accent/10 px-1 text-micro font-semibold text-accent">
-                  {httpMethodFor(r)}
-                </span>
+                <Badge tone="accent">{httpMethodFor(r)}</Badge>
                 <span className="min-w-0 flex-1 truncate">{r.displayPath ?? r.name}</span>
                 <span className="shrink-0 font-mono text-micro text-muted">
                   {lineRangeFor(r)}
@@ -329,9 +328,7 @@ export function Sidebar({
                   className="flex w-full items-center gap-2 rounded px-1 text-left text-xs font-medium text-ink hover:bg-accent/10 hover:text-accent"
                   title={fileNode.file}
                 >
-                  <span className="shrink-0 rounded bg-subtle px-1 text-micro font-semibold text-muted">
-                    {languageBadgeFor(fileNode.file)}
-                  </span>
+                  <Badge>{languageBadgeFor(fileNode.file)}</Badge>
                   <span className="min-w-0 flex-1 truncate">{fileNode.file}</span>
                   <span className="shrink-0 font-mono text-micro text-muted">L1</span>
                 </button>
@@ -349,9 +346,7 @@ export function Sidebar({
                         title={`${typeNode.symbol.filePath}:${typeNode.symbol.lineStart ?? 1}`}
                       >
                         {typeNode.symbol.displayPath && (
-                          <span className="shrink-0 rounded bg-callee/10 px-1 text-micro font-semibold text-callee">
-                            {httpMethodFor(typeNode.symbol)}
-                          </span>
+                          <Badge tone="callee">{httpMethodFor(typeNode.symbol)}</Badge>
                         )}
                         <span className="min-w-0 flex-1 truncate">
                           <span className="text-muted">{KIND_FILTER_OPTIONS.find((o) => o.value === typeNode.symbol.kind)?.label ?? typeNode.symbol.kind}</span>{' '}
@@ -376,9 +371,7 @@ export function Sidebar({
                                 title={`${m.filePath}:${m.lineStart ?? 1}`}
                               >
                                 {m.displayPath && (
-                                  <span className="shrink-0 rounded bg-callee/10 px-1 text-micro font-semibold text-callee">
-                                    {httpMethodFor(m)}
-                                  </span>
+                                  <Badge tone="callee">{httpMethodFor(m)}</Badge>
                                 )}
                                 <span className="min-w-0 flex-1 truncate">
                                   {displayLabel(m, duplicateNames)}

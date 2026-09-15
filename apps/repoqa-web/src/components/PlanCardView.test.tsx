@@ -21,7 +21,7 @@ describe('PlanCardView (v0.26-A ticket 02, Q3 方案摘要)', () => {
     render(<PlanCardView cards={cards} sessionId="s-t1" />);
     const head = document.querySelector('.plan-card-head');
     expect(head).toHaveTextContent('方案摘要');
-    expect(head).toHaveTextContent('DEPRECATE');
+    expect(head).toHaveTextContent('安全下线');
     expect(head).toHaveTextContent('LegacyOrderService');
     // 旧卡名退场（Q3/黑名单；分写=copy-guard 封条自豁免）
     expect(document.querySelector('.plan-card')?.textContent).not.toContain('拆除' + '计划');

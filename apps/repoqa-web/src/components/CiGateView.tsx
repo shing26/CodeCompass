@@ -8,6 +8,8 @@ import type {
   RepoDashboard
 } from '../types';
 import { ScenarioGuide } from './ScenarioGuide';
+import { Badge, type BadgeTone } from './ui/Badge';
+import { statusLabel } from '../client/statusLabel';
 
 interface CiGateViewProps {
   repo: Repo | null;
@@ -39,11 +41,11 @@ function commitLabel(commit: string): string {
   return hash.slice(0, 7);
 }
 
-/** B03 票面色族：HIGH 红 / MEDIUM 橙 / LOW 灰。 */
-function riskBadgeClass(level: ArchitectureDeltaImpactedApi['riskLevel']): string {
-  if (level === 'HIGH') return 'bg-danger/10 text-danger';
-  if (level === 'MEDIUM') return 'bg-warning/15 text-warning';
-  return 'bg-subtle text-muted';
+// v0.30 票 04：B03 色族语义不变（HIGH 红 / MEDIUM 橙 / LOW 灰），形态收进 Badge。
+function riskTone(level: ArchitectureDeltaImpactedApi['riskLevel']): BadgeTone {
+  if (level === 'HIGH') return 'danger';
+  if (level === 'MEDIUM') return 'warning';
+  return 'subtle';
 }
 
 function isImpactedApi(value: unknown): value is ArchitectureDeltaImpactedApi {
@@ -457,23 +459,16 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                       data-testid="gate-run-row"
                       className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs"
                     >
-                      <span
+                      <Badge
                         data-testid="gate-run-status"
-                        className={`shrink-0 rounded px-1.5 py-0.5 font-semibold ${
-                          run.status === 'PASS'
-                            ? 'bg-success/10 text-success'
-                            : 'bg-danger/10 text-danger'
-                        }`}
+                        tone={run.status === 'PASS' ? 'success' : 'danger'}
                       >
-                        {run.status}
-                      </span>
+                        {statusLabel(run.status)}
+                      </Badge>
                       {dirty && (
-                        <span
-                          data-testid="gate-run-dirty"
-                          className="shrink-0 rounded bg-warning/15 px-1.5 py-0.5 font-medium text-warning"
-                        >
-                          dirty
-                        </span>
+                        <Badge data-testid="gate-run-dirty" tone="warning">
+                          未提交改动
+                        </Badge>
                       )}
                       <span className="shrink-0 font-mono text-xs text-muted">
                         {commitLabel(run.commit)}
@@ -527,12 +522,12 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                               data-testid="gate-impact-branch"
                             >
                               <div className="flex items-center gap-2">
-                                <span
+                                <Badge
                                   data-testid="gate-risk-badge"
-                                  className={`shrink-0 rounded px-1.5 py-0.5 text-micro font-semibold ${riskBadgeClass(api.riskLevel)}`}
+                                  tone={riskTone(api.riskLevel)}
                                 >
-                                  {api.riskLevel}
-                                </span>
+                                  {statusLabel(api.riskLevel)}
+                                </Badge>
                                 {/* 第一层带 file/lineStart → 可导航；第二层是纯名字文本 */}
                                 <button
                                   type="button"

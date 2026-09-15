@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ChatPlanCard } from '../client/RepoQAClient';
+import { statusLabel } from '../client/statusLabel';
 
 /** CM-04 卡片化 v2 的结构卡（载荷协议冻结），v0.26-A Q3 重塑为「方案摘要」
  * （Plan Digest）：卡名正名、底线声明升为头部常驻行、新增 CTA 跳规范演进——
@@ -52,9 +53,9 @@ export function PlanCardView(props: {
         return (
           <div className="plan-card" key={ci}>
             <div className="plan-card-head">
-              📋 {card.intentType} 方案摘要 · {card.target}
+              📋 {statusLabel(card.intentType)} 方案摘要 · {card.target}
               <span className={`plan-risk risk-${(card.riskLevel ?? 'LOW').toLowerCase()}`}>
-                {card.riskLevel ?? 'LOW'}
+                {statusLabel(card.riskLevel ?? 'LOW')}
               </span>
               <span className="plan-progress">
                 {doneCount}/{card.items.length}
@@ -74,7 +75,7 @@ export function PlanCardView(props: {
                   return (
                     <label className={`plan-item${isChecked ? ' done' : ''}`} key={key}>
                       <input type="checkbox" checked={isChecked} onChange={() => toggle(key)} />
-                      <span className={`plan-action action-${item.action.toLowerCase()}`}>{item.action}</span>
+                      <span className={`plan-action action-${item.action.toLowerCase()}`}>{statusLabel(item.action)}</span>
                       <span className="plan-body">
                         <code className="plan-file">{item.filePath}</code>
                         <span className="plan-desc">{item.description}</span>

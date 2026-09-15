@@ -1,5 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Anchor, Repo, RepoSymbol, TraceStep } from '../types';
+import { Badge } from './ui/Badge';
+import { CountPill } from './ui/CountPill';
+import { statusLabel } from '../client/statusLabel';
 
 interface CanvasProps {
   repo: Repo | null;
@@ -147,26 +150,17 @@ export function Canvas({
               >
                 {selectedNode}
               </span>
-              <span
-                data-testid="affected-count"
-                className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-micro font-medium text-accent"
-              >
+              <CountPill data-testid="affected-count">
                 {affectedCount} 波及
-              </span>
+              </CountPill>
             </div>
             <div className="mb-3 flex items-center gap-2 text-micro font-medium text-muted">
-              <span
-                data-testid="api-count"
-                className="rounded-full border border-line bg-surface px-2 py-0.5"
-              >
+              <CountPill data-testid="api-count" variant="outline">
                 ↑ API {apiCount}
-              </span>
-              <span
-                data-testid="sql-count"
-                className="rounded-full border border-line bg-surface px-2 py-0.5"
-              >
+              </CountPill>
+              <CountPill data-testid="sql-count" variant="outline">
                 ↓ SQL {sqlCount}
-              </span>
+              </CountPill>
             </div>
             {onBackToDashboard && (
               <div className="sticky top-0 z-10 -mx-4 -mt-4 border-b border-line bg-subtle px-3 py-1.5">
@@ -238,7 +232,7 @@ export function Canvas({
                     <span className="ml-2 text-muted">
                       {visibleTraceStep.symbol}
                       {visibleTraceStep.status === 'BROKEN' && (
-                        <span className="ml-1.5 text-danger">BROKEN</span>
+                        <span className="ml-1.5 text-danger">{statusLabel('BROKEN')}</span>
                       )}
                       {visibleTraceStep.httpMethod && (
                         <span
@@ -381,9 +375,7 @@ function FlowCards({
                 >
                   {ROLE_COPY[role] ?? role}
                 </span>
-                <span className="rounded bg-subtle px-1 text-micro font-medium text-muted">
-                  {languageBadge(anchor.file)}
-                </span>
+                <Badge>{languageBadge(anchor.file)}</Badge>
               </div>
               <div className="mt-1 truncate font-mono text-xs text-ink">{anchor.symbol}</div>
               <div className="mt-0.5 truncate text-micro text-muted">

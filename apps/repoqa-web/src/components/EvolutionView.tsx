@@ -3,6 +3,8 @@ import type { RepoQAClient } from '../client/RepoQAClient';
 import type { EvolutionCard, UseEvolutionSessionResult } from '../hooks/useEvolutionSession';
 import { MermaidDiagram } from './MermaidDiagram';
 import { ScenarioGuide } from './ScenarioGuide';
+import { Badge } from './ui/Badge';
+import { statusLabel } from '../client/statusLabel';
 import type { ModuleEvolutionResult, Repo } from '../types';
 
 interface EvolutionViewProps {
@@ -71,16 +73,16 @@ function ConventionCard({
         {axes.map((axis) => (
           <li key={axis.axis}>
             <div className="flex flex-wrap items-baseline gap-2">
-              <span
+              <Badge
                 data-testid={`evolve-axis-${axis.axis}`}
-                className={`rounded px-1.5 py-0.5 text-micro font-semibold ${
+                tone={
                   axis.coverage && axis.coverage.total > 0 && axis.coverage.match / axis.coverage.total >= 0.85
-                    ? 'bg-success/10 text-success'
-                    : 'bg-warning/10 text-warning'
-                }`}
+                    ? 'success'
+                    : 'warning'
+                }
               >
-                {axis.axis}
-              </span>
+                {statusLabel(axis.axis)}
+              </Badge>
               <span className="text-ink">{axis.verdict}</span>
               {axis.coverage && axis.coverage.total > 0 && (
                 <span className="text-muted">
@@ -120,9 +122,7 @@ function PlacementCard({
       <ul className="space-y-1 text-xs text-ink">
         {placement.files.map((file) => (
           <li key={file.filePath}>
-            <span className="mr-2 rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
-              {file.role}
-            </span>
+            <Badge tone="accent" className="mr-2">{statusLabel(file.role)}</Badge>
             <FileLink file={file.filePath} line={1} onNavigate={onNavigate} />
           </li>
         ))}
@@ -241,8 +241,8 @@ function StreamCard({
           {card.echo && (
             <section data-testid="evolve-echo" className="text-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
-                  {card.echo.intentType}
+                <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
+                  {statusLabel(card.echo.intentType)}
                 </span>
                 <span data-testid="evolve-echo-parsedby" className="text-muted">
                   {card.echo.parsedBy === 'llm' ? 'LLM 解析' : '确定性解析'}
@@ -310,7 +310,7 @@ function StreamCard({
           {card.conflict && (
             <section data-testid="evolve-conflict" className="rounded-md border border-warning/40 bg-warning/5 p-3">
               <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-warning">
-                惯例冲突 · {card.conflict.axis}
+                惯例冲突 · {statusLabel(card.conflict.axis)}
               </h3>
               <p className="text-xs text-ink">{card.conflict.verdict}</p>
               {card.conflict.coverage && (
@@ -364,7 +364,7 @@ function StreamCard({
                     {card.result.checklists.map((item, index) => (
                       <li key={index} className="flex flex-wrap items-baseline gap-2">
                         <span className="rounded bg-muted/10 px-1.5 py-0.5 text-micro font-semibold text-muted">
-                          {item.action} · {item.category}
+                          {statusLabel(item.action)} · {item.category}
                         </span>
                         <span className="text-ink">{item.description}</span>
                         <FileLink file={`${item.filePath}`} line={1} onNavigate={onNavigate} />

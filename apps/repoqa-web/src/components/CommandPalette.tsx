@@ -9,6 +9,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import type { DomainRadarAnchor } from '../types';
+import { Badge } from './ui/Badge';
+import { CountPill } from './ui/CountPill';
+import { statusLabel } from '../client/statusLabel';
 
 export interface PaletteCommand {
   id: string;
@@ -223,9 +226,7 @@ export function CommandPalette({
                   </>
                 ) : (
                   <>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/10 text-micro font-medium text-accent">
-                      {item.result.rank}
-                    </span>
+                    <CountPill>{item.result.rank}</CountPill>
                     <div className="min-w-0 flex-1">
                       <span
                         data-testid="palette-symbol-name"
@@ -244,17 +245,17 @@ export function CommandPalette({
                         </span>
                       </span>
                     </div>
-                    <span
-                      className={`shrink-0 rounded px-1 py-0.5 text-micro font-medium ${
+                    <Badge
+                      tone={
                         item.result.anchor.type === 'CONTROLLER'
-                          ? 'bg-accent/10 text-accent'
+                          ? 'accent'
                           : item.result.anchor.type === 'ENTITY'
-                            ? 'bg-success/10 text-success'
-                            : 'bg-warning/10 text-warning'
-                      }`}
+                            ? 'success'
+                            : 'warning'
+                      }
                     >
-                      {item.result.anchor.type}
-                    </span>
+                      {statusLabel(item.result.anchor.type)}
+                    </Badge>
                   </>
                 )}
               </button>

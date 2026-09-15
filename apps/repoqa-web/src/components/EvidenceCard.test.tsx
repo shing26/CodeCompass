@@ -82,9 +82,9 @@ describe('EvidenceCard (Issue 23)', () => {
     render(<EvidenceCard evidence={evidence} />);
 
     const statuses = screen.getAllByTestId(/^evidence-status-/).map((el) => el.textContent);
-    expect(statuses).toContain('VERIFIED');
-    expect(statuses).toContain('BREAK');
-    expect(statuses).toContain('SUSPECT');
+    expect(statuses).toContain('已验证');
+    expect(statuses).toContain('断链');
+    expect(statuses).toContain('存疑');
     expect(screen.getByText('DemoService.java:4')).toBeInTheDocument();
     expect(screen.getByText('Missing.java:99')).toBeInTheDocument();
     expect(screen.getByText('a1b2c3d')).toBeInTheDocument(); // commit short hash

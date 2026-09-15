@@ -1,4 +1,5 @@
 import type { RepoDashboard, ConfigTopologyItem, TopApiEntry } from '../types';
+import { Badge } from './ui/Badge';
 
 interface DashboardViewProps {
   repoName: string | null;
@@ -91,13 +92,15 @@ export function DashboardView({
             {dashboard.techStack.highlights.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5" data-testid="highlights">
                 {dashboard.techStack.highlights.map((h) => (
-                  <span
-                    key={h}
-                    data-testid="highlight-badge"
-                    className="rounded-full border border-accent/30 bg-accent-soft/50 px-2 py-0.5 text-xs font-medium text-accent"
-                  >
-                    {h}
-                  </span>
+                    <Badge
+                      key={h}
+                      data-testid="highlight-badge"
+                      tone="accent"
+                      outline
+                      className="rounded-full px-2 py-0.5 text-xs font-medium"
+                    >
+                      {h}
+                    </Badge>
                 ))}
               </div>
             )}
@@ -127,7 +130,7 @@ export function DashboardView({
                 <div key={group.category} data-testid="tech-category">
                   <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted">
                     <span>{group.label}</span>
-                    <span className="rounded bg-subtle px-1.5 text-muted">{group.count}</span>
+                    <Badge>{group.count}</Badge>
                   </div>
                   {group.items.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
@@ -177,9 +180,7 @@ export function DashboardView({
               配置拓扑
             </h3>
             {dashboard.config.maskedValues && (
-              <span className="rounded bg-warning/10 px-1.5 py-0.5 text-micro text-warning">
-                值已脱敏
-              </span>
+              <Badge tone="warning">值已脱敏</Badge>
             )}
           </div>
           {dashboard.config.topology.length === 0 ? (
@@ -195,14 +196,10 @@ export function DashboardView({
                     className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-ink hover:bg-subtle"
                     title={item.filePath}
                   >
-                    <span className="rounded bg-subtle px-1.5 font-mono text-micro text-muted">
-                      {item.group}
-                    </span>
+                    <Badge mono>{item.group}</Badge>
                     <span className="truncate font-mono">{item.key}</span>
                     {item.sensitive && (
-                      <span className="ml-auto shrink-0 rounded bg-danger/10 px-1.5 text-micro text-danger">
-                        敏感
-                      </span>
+                      <Badge tone="danger" className="ml-auto">敏感</Badge>
                     )}
                   </button>
                 </li>
@@ -232,12 +229,8 @@ export function DashboardView({
                       <span className="truncate font-mono text-sm font-medium text-ink">
                         {api.name}
                       </span>
-                      <span className="shrink-0 rounded bg-subtle px-1.5 text-micro text-muted">
-                        {api.controller}
-                      </span>
-                      <span className="ml-auto shrink-0 rounded bg-accent-soft px-1.5 text-micro font-medium text-accent">
-                        深度 {api.depth}
-                      </span>
+                      <Badge>{api.controller}</Badge>
+                      <Badge tone="accent" className="ml-auto">深度 {api.depth}</Badge>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted">
                       {api.hops.join(' → ')}

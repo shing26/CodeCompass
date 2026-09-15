@@ -422,7 +422,7 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     await user.click(screen.getByTestId('evolve-run'));
 
     const conflict = await waitFor(() => screen.getByTestId('evolve-conflict'));
-    expect(conflict).toHaveTextContent('return_wrapping');
+    expect(conflict).toHaveTextContent('返回值包装');
     expect(conflict).toHaveTextContent('5/5');
     expect(conflict).toHaveTextContent('Return ApiResult<T> from the new handler.');
     expect(screen.queryByTestId('evolve-placement')).not.toBeInTheDocument();

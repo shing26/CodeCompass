@@ -8,6 +8,8 @@ import type { UseSubgraphContextResult } from '../hooks/useSubgraphContext';
 import { EMPTY_SYMBOL_RESOURCE, isSymbolResolutionError } from '../hooks/useSymbolResource';
 import { SubgraphPanel } from './SubgraphPanel';
 import { useTheme } from '../hooks/useTheme';
+import { Badge } from './ui/Badge';
+import { CountPill } from './ui/CountPill';
 import type { Anchor, TokenUsage } from '../types';
 
 export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
@@ -397,15 +399,15 @@ export function Inspector({
                   idx === 0 ? '↑ 调用方' : idx === slices.length - 1 ? '↓ 被调方' : '目标';
                 const name = slice.file.split(/[\\/]/).pop() ?? slice.file;
                 return (
-                  <span
+                  <Badge
                     key={`${slice.file}-${slice.line}-${idx}`}
                     data-testid="slice-chip"
-                    className={`rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-micro ${
-                      idx === slices.length - 1 ? 'text-callee' : 'text-accent'
-                    }`}
+                    mono
+                    outline
+                    tone={idx === slices.length - 1 ? 'callee' : 'accent'}
                   >
                     {role} {name} L{slice.line}
-                  </span>
+                  </Badge>
                 );
               })}
             </div>
@@ -457,12 +459,7 @@ export function ReverseDepsPanel({
           反向依赖 · {symbolName}
         </span>
         {state.result && (
-          <span
-            data-testid="reverse-deps-count"
-            className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 font-mono text-micro font-medium text-accent"
-          >
-            {state.result.count}
-          </span>
+          <CountPill data-testid="reverse-deps-count">{state.result.count}</CountPill>
         )}
       </div>
       {state.loading && (

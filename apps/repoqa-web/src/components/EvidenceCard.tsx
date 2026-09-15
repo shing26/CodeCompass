@@ -1,4 +1,6 @@
 import type { EvidenceItem, EvidenceStatus } from '../types';
+import { statusLabel } from '../client/statusLabel';
+import { Badge, type BadgeTone } from './ui/Badge';
 
 interface EvidenceCardProps {
   evidence: EvidenceItem[];
@@ -6,19 +8,11 @@ interface EvidenceCardProps {
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
 }
 
-const STATUS_BADGE: Record<EvidenceStatus, { label: string; className: string }> = {
-  VERIFIED: {
-    label: 'VERIFIED',
-    className: 'border-success/40 bg-success/10 text-success'
-  },
-  BREAK: {
-    label: 'BREAK',
-    className: 'border-danger/40 bg-danger/10 text-danger'
-  },
-  SUSPECT: {
-    label: 'SUSPECT',
-    className: 'border-warning/40 bg-warning/10 text-warning'
-  }
+// v0.30 票 04：徽章形态收进 Badge，契约值（EvidenceStatus）不动、展示过 statusLabel。
+const STATUS_TONE: Record<EvidenceStatus, BadgeTone> = {
+  VERIFIED: 'success',
+  BREAK: 'danger',
+  SUSPECT: 'warning'
 };
 
 /** A file:line row is navigable only when it is physically resolvable. */
@@ -45,16 +39,16 @@ export function EvidenceCard({ evidence, onNavigate }: EvidenceCardProps) {
       </div>
       <ul className="flex flex-col gap-1">
         {evidence.map((row, index) => {
-          const badge = STATUS_BADGE[row.status];
           const navigable = isNavigable(row);
           const body = (
             <>
-              <span
+              <Badge
                 data-testid={`evidence-status-${index}`}
-                className={`shrink-0 rounded border px-1 py-0.5 text-micro font-bold leading-none ${badge.className}`}
+                tone={STATUS_TONE[row.status]}
+                outline
               >
-                {badge.label}
-              </span>
+                {statusLabel(row.status)}
+              </Badge>
               <span className="min-w-0 flex-1 truncate text-xs text-ink" title={row.label}>
                 {row.label}
               </span>
