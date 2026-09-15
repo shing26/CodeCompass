@@ -4,8 +4,11 @@
 //    is erased at build time and contracts is a pure-types package, so the web
 //    bundle gains zero bytes while tsc now catches every drift at compile time
 //    (contract-mirror.test.ts guards the remaining hand-written block).
-//  - web-only types below still mirror control-plane HTTP/SSE payloads
-//    (services/control-plane/src/ingest/repoqa-repos.ts et al.) — not contracts.
+//  - web-only types below still mirror control-plane HTTP payloads
+//    (services/control-plane/src/ingest/repoqa-repos.ts et al.) — not contracts;
+//    the two former alias-pair exceptions (Anchor/IndexingProgress) were
+//    closed in V27-30: Anchor re-exports RepoQaAnchor, and the stepper model
+//    is an honest narrowed view named StepperProgress.
 // Two documented aliases keep consumer imports stable:
 //  ArchitectureDeltaSymbol/Edge = contracts ExtractedSymbol/CallEdge (same
 //  fields, delta-flavored names kept for view readability); TokenUsage =
@@ -26,9 +29,11 @@ import type {
   ExtractedSymbol,
   IndexingPhase,
   ModuleEvolutionResult,
+  RepoQaAnchor,
   RepoQaEvolveDone,
   RepoQaEvolveError,
   RepoQaEvolveStage,
+  RepoQaIndexProgress,
   RepoQaTokenUsage
 } from '../../../packages/contracts/src/index';
 
@@ -49,6 +54,11 @@ export type {
   RepoQaEvolveError,
   RepoQaEvolveStage
 };
+// V27-30 (v029/05) alias-pair closure: Anchor was field-identical to the
+// contract; the wire progress type is re-exported under its contract name.
+// Local alias (not `export type { … }`) so the file's own QueryEvent can name it.
+export type Anchor = RepoQaAnchor;
+export type { RepoQaIndexProgress };
 export type { ExtractedSymbol as ArchitectureDeltaSymbol, CallEdge as ArchitectureDeltaEdge };
 /** Derived so the element shape can never drift from the report it feeds. */
 export type ArchitectureDeltaImpactedApi = ArchitectureDeltaReport['impactedApis'][number];
@@ -127,8 +137,15 @@ export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'inciden
 /** Top-level workbench tabs rendered by the TopBar segmented control. */
 export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident' | 'evolve' | 'chat';
 
-// IndexingPhase is re-exported from contracts above (V27-29 single source).
-export interface IndexingProgress {
+/**
+ * V27-30 (v029/05): the stepper's narrowed display model. The wire type is
+ * contracts' RepoQaIndexProgress (phase includes the legacy 'cloning'/'parsing'/
+ * 'ready'/'error' channel states); this view deliberately projects only the
+ * four staged pipeline phases (StatusStepper's steps) + the display fields.
+ * Renamed from `IndexingProgress` so it no longer masquerades as the wire
+ * shape — a narrower subtype, not a mirror of a differently-named contract.
+ */
+export interface StepperProgress {
   repoId: string;
   phase: IndexingPhase;
   phaseLabel?: string;
@@ -155,15 +172,11 @@ export interface QueryStart {
   file: string;
 }
 
-export interface Anchor {
-  file: string;
-  line: number;
-  symbol: string;
-  /** Issue 23 / ADR-0010 — physical commit the anchor is pinned to. */
-  commit?: string;
-  /** Issue 23 — lineEnd for a range anchor (physical anchor quad). */
-  lineEnd?: number;
-}
+/* ------------------------------------------------------------------ */
+/* Issue 23 — physical anchor: V27-30 (v029/05) single-sourced — the   */
+/* web mirror was field-identical to contracts' RepoQaAnchor; the      */
+/* historical name survives via alias re-export.                       */
+/* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
 /* Issue 23 — Architecture & Incident Copilot evidence plane           */

@@ -7,7 +7,7 @@ import { useDashboard } from '../hooks/useDashboard';
 import { downloadTextFile } from '../utils/download';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import type {
-  IndexingProgress,
+  StepperProgress,
   Repo,
   RepoTour,
   WorkbenchTab
@@ -66,7 +66,7 @@ interface RepoContextValue {
   goTopology: () => void;
   goEvolution: () => void;
   handleSelectView: (tab: WorkbenchTab) => void;
-  indexingProgress: IndexingProgress | null;
+  indexingProgress: StepperProgress | null;
   sidebarOpen: boolean;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
   handleSelectRepo: (id: string) => void;
@@ -134,7 +134,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
   // consistent until a repo exists (see App.tsx noRepo).
   const [view, setView] = useState<MainView>(() => viewFromMode(deepLink.mode));
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
-  const [indexingProgress, setIndexingProgress] = useState<IndexingProgress | null>(null);
+  const [indexingProgress, setIndexingProgress] = useState<StepperProgress | null>(null);
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -176,10 +176,10 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
         try {
           const message = JSON.parse(String(event.data)) as {
             type?: string;
-            payload?: { repoId?: string; phase?: IndexingProgress['phase']; percent?: number };
+            payload?: { repoId?: string; phase?: StepperProgress['phase']; percent?: number };
           };
           if (message.type === 'repoqa.index.progress') {
-            const payload = message.payload as IndexingProgress | undefined;
+            const payload = message.payload as StepperProgress | undefined;
             if (payload && payload.repoId === repoId) {
               setIndexingProgress(payload);
               if (payload.phase === 'FINALIZING' && payload.percent === 100) {

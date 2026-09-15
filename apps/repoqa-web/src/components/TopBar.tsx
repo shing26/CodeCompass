@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
-  IndexingProgress,
+  StepperProgress,
   LlmRuntimeMode,
   Repo,
   RepoPreview,
@@ -46,7 +46,7 @@ interface TopBarProps {
   onCopyAgentContext: () => void | Promise<void>;
   canCopyAgentContext: boolean;
   /** v0.6.0 — live staged indexing progress from the WebSocket stream. */
-  indexingProgress?: IndexingProgress | null;
+  indexingProgress?: StepperProgress | null;
 }
 
 const TABS: Array<{ id: WorkbenchTab; label: string; title: string }> = [

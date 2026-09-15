@@ -1,4 +1,4 @@
-import type { IndexingPhase, IndexingProgress } from '../types';
+import type { IndexingPhase, StepperProgress } from '../types';
 
 const PHASES: Array<{ id: IndexingPhase; label: string }> = [
   { id: 'DISCOVERY', label: '发现文件' },
@@ -16,7 +16,7 @@ function phaseState(phase: IndexingPhase, current: IndexingPhase): 'done' | 'act
 }
 
 /** v0.6.0 — compact four-stage indexing stepper shown while a repo is indexing. */
-export function StatusStepper({ progress }: { progress: IndexingProgress | null }) {
+export function StatusStepper({ progress }: { progress: StepperProgress | null }) {
   if (!progress) return null;
   const percent = Math.max(0, Math.min(100, progress.percent ?? 0));
   return (
