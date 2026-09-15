@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.28.0] - 2026-09-15
+
+### Highlights
+
+- **全模块验证驱动的结构治理批（B 批四票，v0.28，`.scratch/v028-engine-refactor/`）**：承 2026-09-14 全模块独立+集成验证与 grill 定案（结构轴、零行为变更、全门禁护航）。(1) **B1/V27-28** bridge-adapters 从「仅 typecheck」到 26 例单测进 CI matrix（4 适配器生命周期/事件序列/取消短路/shell 真实子进程，零 token 零外网；`StubAdapter.type='shell'` 按现状钉死注明）。(2) **B2/V27-29** web→contracts 类型单一源手术：types.ts 16 个手工镜像型改 re-export（TokenUsage=RepoQaTokenUsage 别名桥、delta 族异名别名、ImpactedApi 派生自 Report），先考古后动刀 tsc 一次收敛。(3) **B3/V27-30 前三段**：worker-helpers.ts 外迁头部 280 行纯函数+re-export 桥（95a2860）；registerAnalysisRoutes 515 行巨注册拆 graph/gate/stream 三域+23 行组成根（720e85f）；diagram 簇 232 行抽 `WorkerDiagram` 协作者（DiagramContext 双缝注入 symbolIndexFor/findStartSymbol，b23ba54，新增 4 契约钉）。(4) **B4/V27-30 第四段** repoqa-* 目录归组：42 文件 `git mv` 入 `ingest/ engine/ mcp/ eval/` 四子域 + 78 文件 import 重写（vi.mock 字符串路径=import 之外的第二解析通道，教训入票 04），根级集成测试有意留根。
+
+### Added
+
+- `packages/bridge-adapters/src/adapters.test.ts`（26 例）+ vitest devDep + 根 `test:bridge` 脚本 + ci.yml matrix 步骤。
+- `services/control-plane/src/ingest/{worker-helpers,worker-diagram,worker-diagram.test}.ts`、`engine/`、`mcp/`、`eval/` 四子域结构。
+- `contract-mirror.test.ts` 棘轮升级：web 手写定义 ∩ contracts 导出名 = ∅（白名单仅 TokenUsage），手工重镜像回潮即红。
+
+### Changed
+
+- web `types.ts`：16 型 re-export contracts（`import type` 构建期擦除，bundle 零增量）；EvolutionView `injection.signature` 死分支删（服务端恒发 codeSnippet）；EvolutionView.test fixture 补 `transactionBoundaries: []`。
+- `repoqa-worker.ts` 2556→2087 行（工具外迁+diagram 委托）；`routes/analysis.ts` 515→23 行组成根；src/ 平铺文件 −42。
+- `package.json` eval 脚本、`closeout_gate.py` eval_ts、`profile-index.ts` import 随目录同步；ci.yml e2e-gate job 名「33→62 checks」修正。
+- 分工留档：Mimosa 拦 bash 层 git mv/mv/rm -f——纯改名移交用户本机 .cmd，内容重写全走 Write/Edit 受扫描通道。
+
+### 质量门（v0.28.0 基线）
+
+- 控制面 **634→638**（diagram 契约钉 +4）、web **351→354**（哨升级 2→5）、bridge **0→26**（新建）、e2e **62** 维持、UI 冒烟全链绿、docker 全层重建+容器 /health+SPA 200、`tsc --noEmit` 四包净；bridge-adapters 独立 0.6.0 版本线维持不牵连。
+- 搬家大提交 CI 三平台矩阵+docker-build+e2e 远端全绿（327a35b）；票面账 `.scratch/v028-engine-refactor/issues/01-04` 全 closed，总账 V27-24..31 全线划销。
+
+### 契约稳定性
+
+- MCP 17 工具面零变化；REST/SSE 端点形状零变化（目录重组全在 import 层，`repoqa-worker.ts` re-export 桥守住全部既有导入路径；vi.mock/动态路径同步清）。
+- 结构手术零行为变更验收方式固化：tsc 清单驱动收敛 + 638/e2e 62/UI 冒烟/docker 实跑护航，每段独立 commit 可回滚。
+
 ## [0.27.0] - 2026-09-14
 
 ### Highlights
