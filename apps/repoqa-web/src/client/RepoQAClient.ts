@@ -468,7 +468,7 @@ export class RepoQAClient {
    * EvolveEvents;  fires after the stream closes (done or error).
    */
   evolveStream(repoId: string, intent: string, target?: string): EvolveStreamLike {
-    return new EvolveStream(this.baseUrl, repoId, intent, target);
+    return new EvolveStream(this.fetcher, this.baseUrl, repoId, intent, target);
   }
 
   queryRepo(
@@ -718,6 +718,11 @@ export class EvolveStream implements EvolveStreamLike {
   private finished = false;
 
   constructor(
+    // V27-20: the evolve SSE goes through the SAME injected TimedFetch as
+    // every other client call (R2 first-byte budget; fetchWithTimeout's
+    // AbortSignal merge keeps the connect-time abort working). Previously it
+    // used the global fetch and bypassed the R2 budget surface entirely.
+    private readonly timedFetch: TimedFetch,
     private readonly baseUrl: string,
     private readonly repoId: string,
     private readonly intent: string,
@@ -773,7 +778,7 @@ export class EvolveStream implements EvolveStreamLike {
   }
 
   private fetcher(): Promise<Response> {
-    return fetch(`${this.baseUrl}/api/repos/${encodeURIComponent(this.repoId)}/evolve`, {
+    return this.timedFetch(`${this.baseUrl}/api/repos/${encodeURIComponent(this.repoId)}/evolve`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

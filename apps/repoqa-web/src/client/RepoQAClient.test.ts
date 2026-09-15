@@ -578,6 +578,38 @@ describe('v0.27-B R2: endpoint→budget map (review P2-7b lock)', () => {
     expect(settled).toBe('rejected');
   });
 
+  // V27-20 (v029/06): the evolve SSE used to call the global fetch directly —
+  // a wedged socket meant "connecting forever" with no budget at all. Now it
+  // rides the client's injected TimedFetch, so the 15s first-byte default
+  // applies and an unreachable backend surfaces as an error event.
+  it('evolveStream connects through the timed fetch and surfaces the 15s budget as an error', async () => {
+    vi.useFakeTimers();
+    const client = new RepoQAClient('http://api', hang);
+    const stream = client.evolveStream('repo-1', '给订单加导出');
+    let errorSeen: unknown = null;
+    stream.onError((err) => {
+      errorSeen = err;
+    });
+    void stream.connect();
+    await vi.advanceTimersByTimeAsync(15_001);
+    expect(errorSeen).toBeInstanceOf(Error);
+    expect((errorSeen as Error).message).toMatch(/timed out/);
+  });
+
+  it('evolveStream POSTs the intent through the injected fetcher', async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({ start(c) { c.close(); } })
+    });
+    const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
+    client.evolveStream('r 1', '下线订单模块').connect();
+    await new Promise((resolve) => setTimeout(resolve, 0)); // flush connect's await chain
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://api/api/repos/r%201/evolve',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   it('pickFolder uses the human-paced dialog budget (120s)', async () => {
     vi.useFakeTimers();
     const client = new RepoQAClient('http://api', hang);
