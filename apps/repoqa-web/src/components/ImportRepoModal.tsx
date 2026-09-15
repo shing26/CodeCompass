@@ -398,7 +398,7 @@ export function ImportRepoModal({
                       data-testid="import-suggested-subdir"
                       onClick={() => applySuggestion(dir)}
                       disabled={localBusy}
-                      className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[11px] text-accent hover:border-accent/50 disabled:opacity-50"
+                      className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-xs text-accent hover:border-accent/50 disabled:opacity-50"
                     >
                       {dir}/
                     </button>

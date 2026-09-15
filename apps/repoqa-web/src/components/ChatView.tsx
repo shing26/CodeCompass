@@ -95,14 +95,14 @@ function MessageBody(props: {
   };
 
   return (
-    <div className="msg-body min-w-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-subtle [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[11px] [&_a]:text-accent [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-line [&_pre]:bg-code [&_pre]:p-2 [&_strong]:text-ink [&_table]:my-1 [&_table]:text-[11px] [&_td]:border [&_td]:border-line [&_td]:px-1.5 [&_th]:border [&_th]:border-line [&_th]:px-1.5 [&_ul]:list-disc [&_ul]:pl-5">
+    <div className="msg-body min-w-0 [&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-subtle [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-xs [&_a]:text-accent [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_pre]:my-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-line [&_pre]:bg-code [&_pre]:p-2 [&_strong]:text-ink [&_table]:my-1 [&_table]:text-xs [&_td]:border [&_td]:border-line [&_td]:px-1.5 [&_th]:border [&_th]:border-line [&_th]:px-1.5 [&_ul]:list-disc [&_ul]:pl-5">
       {segments.map((segment, i) => (
         <Fragment key={i}>
           {segment.kind === 'text' ? (
             markdownOf(segment.value)
           ) : (
             <button
-              className={`chat-cite mx-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full align-super text-[10px] font-semibold ${
+              className={`chat-cite mx-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full align-super text-micro font-semibold ${
                 activeCite === Number(segment.value)
                   ? 'chat-cite-active bg-accent text-white'
                   : 'bg-accent/15 text-accent hover:bg-accent/30'
@@ -116,7 +116,7 @@ function MessageBody(props: {
         </Fragment>
       ))}
       {active && (
-        <div className="chat-cite-detail mt-2 rounded-md border border-line bg-subtle px-2 py-1.5 font-mono text-[11px] text-muted" data-testid="chat-cite-detail">
+        <div className="chat-cite-detail mt-2 rounded-md border border-line bg-subtle px-2 py-1.5 font-mono text-xs text-muted" data-testid="chat-cite-detail">
           [{active.n}] <code>{active.tool}</code>({JSON.stringify(active.args).slice(0, 140)}) — {active.ms}ms
           {symbolOf(active) && (
             <button className="chat-cite-jump ml-2 text-accent hover:underline" onClick={() => onNavigate(symbolOf(active))}>
@@ -158,7 +158,7 @@ function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
           </option>
         ))}
       </select>
-      <div className="chat-hint text-[11px] text-muted">{error ?? (model?.configured ? '热切换即时生效' : 'LLM 未配置')}</div>
+      <div className="chat-hint text-xs text-muted">{error ?? (model?.configured ? '热切换即时生效' : 'LLM 未配置')}</div>
     </>
   );
 }
@@ -395,7 +395,7 @@ export function ChatView(props: {
               {s.title}
             </button>
           ))}
-          {sessions.length === 0 && <div className="chat-hint text-[11px] text-muted">暂无本仓库会话</div>}
+          {sessions.length === 0 && <div className="chat-hint text-xs text-muted">暂无本仓库会话</div>}
         </div>
         {/* CM-05 前置：模型配置是高级项——默认折叠，等第二 profile 配好后可展开 */}
         <details className="chat-model text-xs">
@@ -461,7 +461,7 @@ export function ChatView(props: {
               {entry.role === 'assistant' ? (
                 <>
                   {entry.regenerating && entry.streaming && (
-                    <div className="chat-regen mb-1 rounded-md bg-warning/15 px-2 py-1 text-[11px] text-warning" data-testid="chat-regen-banner">
+                    <div className="chat-regen mb-1 rounded-md bg-warning/15 px-2 py-1 text-xs text-warning" data-testid="chat-regen-banner">
                       回答格式无效，正在重新生成…
                     </div>
                   )}

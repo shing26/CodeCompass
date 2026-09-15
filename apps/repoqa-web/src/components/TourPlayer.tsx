@@ -117,7 +117,7 @@ export function TourPlayer({ tour, onNavigate, onBack }: TourPlayerProps) {
                     }`}
                   >
                     <span
-                      className={`mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-medium ${
+                      className={`mr-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-micro font-medium ${
                         isActive ? 'bg-accent text-white' : 'bg-subtle text-muted'
                       }`}
                     >

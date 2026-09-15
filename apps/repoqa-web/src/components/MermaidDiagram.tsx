@@ -486,7 +486,7 @@ export function MermaidDiagram({
       {svgHtml !== null && (
         <div
           data-testid="mermaid-toolbar"
-          className="mb-1 flex items-center gap-1.5 rounded-md border border-line bg-subtle px-2 py-1 text-[11px] text-muted"
+          className="mb-1 flex items-center gap-1.5 rounded-md border border-line bg-subtle px-2 py-1 text-xs text-muted"
         >
           <button
             type="button"
@@ -526,7 +526,7 @@ export function MermaidDiagram({
             }}
             placeholder="搜索节点…"
             aria-label="搜索图内节点"
-            className="h-6 min-w-0 flex-1 rounded border border-line bg-surface px-1.5 text-[11px] text-ink outline-none focus:border-accent"
+            className="h-6 min-w-0 flex-1 rounded border border-line bg-surface px-1.5 text-xs text-ink outline-none focus:border-accent"
           />
           {query.trim() !== '' && (
             <span data-testid="mermaid-hit-count" className="shrink-0 font-mono">
@@ -540,7 +540,7 @@ export function MermaidDiagram({
         </div>
       )}
       {trimmed.stats.hiddenNodes > 0 && (
-        <p data-testid="mermaid-notice" className="mb-1 text-[10px] text-muted">
+        <p data-testid="mermaid-notice" className="mb-1 text-micro text-muted">
           已聚合 {trimmed.stats.hiddenNodes} 个深层节点、{trimmed.stats.collapsedEdges} 条边
           （提高 maxNodes 可展开）。
         </p>

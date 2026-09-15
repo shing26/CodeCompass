@@ -267,11 +267,11 @@ export function Sidebar({
                 title={`${r.displayPath ?? r.name} · ${r.filePath}:${r.lineStart ?? 1}`}
                 className="flex w-full items-center gap-2 rounded px-1 text-left font-mono text-xs text-muted hover:bg-accent/10 hover:text-accent"
               >
-                <span className="shrink-0 rounded bg-accent/10 px-1 text-[9px] font-semibold text-accent">
+                <span className="shrink-0 rounded bg-accent/10 px-1 text-micro font-semibold text-accent">
                   {httpMethodFor(r)}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{r.displayPath ?? r.name}</span>
-                <span className="shrink-0 font-mono text-[10px] text-muted">
+                <span className="shrink-0 font-mono text-micro text-muted">
                   {lineRangeFor(r)}
                 </span>
               </button>
@@ -292,7 +292,7 @@ export function Sidebar({
               aria-label="按符号类型过滤"
               value={kindFilter}
               onChange={(e) => setKindFilter(e.target.value as SymbolKind | 'all')}
-              className="h-6 rounded-md border border-line bg-surface px-1 text-[11px] text-muted outline-none focus:border-accent"
+              className="h-6 rounded-md border border-line bg-surface px-1 text-xs text-muted outline-none focus:border-accent"
             >
               {KIND_FILTER_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -328,11 +328,11 @@ export function Sidebar({
                   className="flex w-full items-center gap-2 rounded px-1 text-left text-xs font-medium text-ink hover:bg-accent/10 hover:text-accent"
                   title={fileNode.file}
                 >
-                  <span className="shrink-0 rounded bg-subtle px-1 text-[9px] font-semibold text-muted">
+                  <span className="shrink-0 rounded bg-subtle px-1 text-micro font-semibold text-muted">
                     {languageBadgeFor(fileNode.file)}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{fileNode.file}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-muted">L1</span>
+                  <span className="shrink-0 font-mono text-micro text-muted">L1</span>
                 </button>
                 <ul className="ml-2 space-y-0.5 border-l border-line pl-2">
                   {fileNode.types.slice(0, 8).map((typeNode) => (
@@ -348,7 +348,7 @@ export function Sidebar({
                         title={`${typeNode.symbol.filePath}:${typeNode.symbol.lineStart ?? 1}`}
                       >
                         {typeNode.symbol.displayPath && (
-                          <span className="shrink-0 rounded bg-callee/10 px-1 text-[9px] font-semibold text-callee">
+                          <span className="shrink-0 rounded bg-callee/10 px-1 text-micro font-semibold text-callee">
                             {httpMethodFor(typeNode.symbol)}
                           </span>
                         )}
@@ -356,7 +356,7 @@ export function Sidebar({
                           <span className="text-muted">{typeNode.symbol.kind}</span>{' '}
                           {displayLabel(typeNode.symbol, duplicateNames)}
                         </span>
-                        <span className="shrink-0 font-mono text-[10px] text-muted">
+                        <span className="shrink-0 font-mono text-micro text-muted">
                           {lineRangeFor(typeNode.symbol)}
                         </span>
                       </button>
@@ -375,14 +375,14 @@ export function Sidebar({
                                 title={`${m.filePath}:${m.lineStart ?? 1}`}
                               >
                                 {m.displayPath && (
-                                  <span className="shrink-0 rounded bg-callee/10 px-1 text-[9px] font-semibold text-callee">
+                                  <span className="shrink-0 rounded bg-callee/10 px-1 text-micro font-semibold text-callee">
                                     {httpMethodFor(m)}
                                   </span>
                                 )}
                                 <span className="min-w-0 flex-1 truncate">
                                   {displayLabel(m, duplicateNames)}
                                 </span>
-                                <span className="shrink-0 font-mono text-[10px] text-muted">
+                                <span className="shrink-0 font-mono text-micro text-muted">
                                   {lineRangeFor(m)}
                                 </span>
                               </button>

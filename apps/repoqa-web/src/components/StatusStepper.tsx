@@ -31,7 +31,7 @@ export function StatusStepper({ progress }: { progress: StepperProgress | null }
             <div
               key={phase.id}
               data-testid={`status-step-${phase.id}`}
-              className={`flex min-w-0 items-center gap-1.5 text-[11px] font-medium ${
+              className={`flex min-w-0 items-center gap-1.5 text-xs font-medium ${
                 state === 'active'
                   ? 'text-accent'
                   : state === 'done'
@@ -40,7 +40,7 @@ export function StatusStepper({ progress }: { progress: StepperProgress | null }
               }`}
             >
               <span
-                className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[9px] ${
+                className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border text-micro ${
                   state === 'active'
                     ? 'border-accent bg-accent/10'
                     : state === 'done'
@@ -69,11 +69,11 @@ export function StatusStepper({ progress }: { progress: StepperProgress | null }
           style={{ width: `${percent}%` }}
         />
       </div>
-      <span className="shrink-0 font-mono text-[10px] text-muted">{percent}%</span>
+      <span className="shrink-0 font-mono text-micro text-muted">{percent}%</span>
       {progress.currentFile && (
         <span
           data-testid="status-current-file"
-          className="hidden max-w-[220px] truncate font-mono text-[10px] text-muted xl:inline"
+          className="hidden max-w-[220px] truncate font-mono text-micro text-muted xl:inline"
         >
           {progress.currentFile}
         </span>

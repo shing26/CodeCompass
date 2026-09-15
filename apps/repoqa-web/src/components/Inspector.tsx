@@ -243,7 +243,7 @@ export function Inspector({
               data-testid="copy-agent-context"
               onClick={handleCopyAgentContext}
               disabled={copying}
-              className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
+              className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
             >
               {copying ? '复制中…' : '复制 Agent 上下文'}
             </button>
@@ -261,7 +261,7 @@ export function Inspector({
         {file && (
           <div
             data-testid="inspector-breadcrumb"
-            className="flex min-w-0 items-center gap-1.5 border-t border-line px-3 py-1 text-[10px] text-muted"
+            className="flex min-w-0 items-center gap-1.5 border-t border-line px-3 py-1 text-micro text-muted"
           >
             {repoName && (
               <>
@@ -311,7 +311,7 @@ export function Inspector({
           <div className="flex items-center gap-2 border-t border-line px-3 py-1.5">
             <span
               data-testid="inspector-line"
-              className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-accent"
+              className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-micro font-medium text-accent"
             >
               {lineLabel || '—'}
             </span>
@@ -332,7 +332,7 @@ export function Inspector({
                   style={{ width: `${usagePercent}%` }}
                 />
               </div>
-              <span className="shrink-0 font-mono text-[10px] text-muted">
+              <span className="shrink-0 font-mono text-micro text-muted">
                 {formatNumber(usage.total)} / {formatNumber(TOKEN_BUDGET)} Tokens
               </span>
             </div>
@@ -385,10 +385,10 @@ export function Inspector({
           className="border-t border-line bg-subtle px-3 py-2"
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+            <span className="text-micro font-semibold uppercase tracking-wide text-muted">
               2-Hop 关联切片
             </span>
-            <span className="shrink-0 font-mono text-[10px] text-accent">{lineLabel}</span>
+            <span className="shrink-0 font-mono text-micro text-accent">{lineLabel}</span>
           </div>
           {slices.length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -400,7 +400,7 @@ export function Inspector({
                   <span
                     key={`${slice.file}-${slice.line}-${idx}`}
                     data-testid="slice-chip"
-                    className={`rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] ${
+                    className={`rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-micro ${
                       role.includes('Callee') ? 'text-callee' : 'text-accent'
                     }`}
                   >
@@ -410,7 +410,7 @@ export function Inspector({
               })}
             </div>
           ) : (
-            <p className="mt-1 max-h-8 overflow-hidden font-mono text-[10px] text-muted">
+            <p className="mt-1 max-h-8 overflow-hidden font-mono text-micro text-muted">
               {file} · {language}
             </p>
           )}
@@ -453,25 +453,25 @@ export function ReverseDepsPanel({
       className="border-t border-line bg-surface px-3 py-2"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <span className="text-micro font-semibold uppercase tracking-wide text-muted">
           反向依赖 · {symbolName}
         </span>
         {state.result && (
           <span
             data-testid="reverse-deps-count"
-            className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-medium text-accent"
+            className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 font-mono text-micro font-medium text-accent"
           >
             {state.result.count}
           </span>
         )}
       </div>
       {state.loading && (
-        <p data-testid="reverse-deps-loading" className="mt-1 text-[11px] text-muted">
+        <p data-testid="reverse-deps-loading" className="mt-1 text-xs text-muted">
           解析调用方…
         </p>
       )}
       {!state.loading && state.error && (
-        <p data-testid="reverse-deps-error" className="mt-1 text-[11px] text-muted">
+        <p data-testid="reverse-deps-error" className="mt-1 text-xs text-muted">
           {isSymbolResolutionError(state.error)
             ? '未定位到可解析符号，反向依赖不可用。'
             : '反向依赖暂不可用，请稍后重试。'}
@@ -480,12 +480,12 @@ export function ReverseDepsPanel({
       {!state.loading && !state.error && state.result && (
         <>
           {state.result.fallback && (
-            <p className="mt-1 text-[10px] text-warning">
+            <p className="mt-1 text-micro text-warning">
               精确符号未命中，以下为默认入口推导结果。
             </p>
           )}
           {state.result.callers.length === 0 ? (
-            <p data-testid="reverse-deps-empty" className="mt-1 text-[11px] text-muted">
+            <p data-testid="reverse-deps-empty" className="mt-1 text-xs text-muted">
               没有静态调用方（entry point 或未被引用）。
             </p>
           ) : (
@@ -499,7 +499,7 @@ export function ReverseDepsPanel({
                     onOpenCaller?.(caller.file, caller.callLine ?? caller.line, undefined, caller.method)
                   }
                   title={`${caller.method} · ${caller.file}:${caller.callLine ?? caller.line}`}
-                  className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] text-accent hover:border-accent/50"
+                  className="rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-micro text-accent hover:border-accent/50"
                 >
                   {caller.method} · {caller.file.split(/[\\/]/).pop()} L
                   {caller.callLine ?? caller.line}

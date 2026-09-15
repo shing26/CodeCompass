@@ -73,7 +73,7 @@ function ConventionCard({
             <div className="flex flex-wrap items-baseline gap-2">
               <span
                 data-testid={`evolve-axis-${axis.axis}`}
-                className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+                className={`rounded px-1.5 py-0.5 text-micro font-semibold ${
                   axis.coverage && axis.coverage.total > 0 && axis.coverage.match / axis.coverage.total >= 0.85
                     ? 'bg-success/10 text-success'
                     : 'bg-warning/10 text-warning'
@@ -89,7 +89,7 @@ function ConventionCard({
               )}
             </div>
             {(axis.dissidents?.length ?? 0) > 0 && (
-              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted">
+              <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted">
                 <span>偏离样本:</span>
                 {axis.dissidents!.map((anchor) => (
                   <FileLink key={`${anchor.file}:${anchor.line}`} file={`${anchor.file}:${anchor.line}`} line={anchor.line} onNavigate={onNavigate} />
@@ -116,11 +116,11 @@ function PlacementCard({
   return (
     <section data-testid="evolve-placement" className="rounded-md border border-line bg-surface p-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">落位表</h3>
-      <p className="mb-1 font-mono text-[11px] text-ink">{placement.packagePath}</p>
+      <p className="mb-1 font-mono text-xs text-ink">{placement.packagePath}</p>
       <ul className="space-y-1 text-xs text-ink">
         {placement.files.map((file) => (
           <li key={file.filePath}>
-            <span className="mr-2 rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold text-accent">
+            <span className="mr-2 rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
               {file.role}
             </span>
             <FileLink file={file.filePath} line={1} onNavigate={onNavigate} />
@@ -128,12 +128,12 @@ function PlacementCard({
         ))}
       </ul>
       {placement.injection.style !== 'unsupported' && (
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-xs text-muted">
           注入:{placement.injection.style}
         </p>
       )}
       {placement.handlerSignature && (
-        <p className="mt-1 font-mono text-[11px] text-muted">{placement.handlerSignature}</p>
+        <p className="mt-1 font-mono text-xs text-muted">{placement.handlerSignature}</p>
       )}
     </section>
   );
@@ -180,14 +180,14 @@ function RiskCard({ result }: { result: ModuleEvolutionResult }) {
         {risks.map((risk, index) => (
           <li key={index}>
             <span
-              className={`mr-2 rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+              className={`mr-2 rounded px-1.5 py-0.5 text-micro font-semibold ${
                 risk.kind === 'transaction-warning' ? 'bg-warning/10 text-warning' : 'bg-accent/10 text-accent'
               }`}
             >
               {risk.kind === 'transaction-warning' ? '事务解耦' : '惯例分歧'}
             </span>
             <span className="text-ink">{risk.message}</span>
-            {risk.suggestion && <p className="mt-0.5 pl-1 text-[11px] text-muted">建议:{risk.suggestion}</p>}
+            {risk.suggestion && <p className="mt-0.5 pl-1 text-xs text-muted">建议:{risk.suggestion}</p>}
           </li>
         ))}
       </ul>
@@ -228,11 +228,11 @@ function StreamCard({
         <CardStatusMark card={card} />
         <span className="min-w-0 flex-1 truncate text-xs text-ink">{card.intent}</span>
         {card.echo?.resolvedTarget && (
-          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold text-accent">
+          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
             🎯 {card.echo.resolvedTarget}
           </span>
         )}
-        <span className="shrink-0 text-[10px] text-muted">{expanded ? '收起 ▲' : '展开 ▼'}</span>
+        <span className="shrink-0 text-micro text-muted">{expanded ? '收起 ▲' : '展开 ▼'}</span>
       </button>
 
       {expanded && (
@@ -241,7 +241,7 @@ function StreamCard({
           {card.echo && (
             <section data-testid="evolve-echo" className="text-xs">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold text-accent">
+                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
                   {card.echo.intentType}
                 </span>
                 <span data-testid="evolve-echo-parsedby" className="text-muted">
@@ -262,9 +262,9 @@ function StreamCard({
                   </span>
                 )}
               </div>
-              {card.echo.extensionGoal && <p className="mt-1 text-[11px] text-muted">扩展目标:{card.echo.extensionGoal}</p>}
+              {card.echo.extensionGoal && <p className="mt-1 text-xs text-muted">扩展目标:{card.echo.extensionGoal}</p>}
               {(card.echo.alternatives.length > 1 || (card.echo.resolvedTarget && card.echo.alternatives.length > 0)) && (
-                <div data-testid="evolve-alternatives" className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                <div data-testid="evolve-alternatives" className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                   <span className="text-muted">切换备选(追加新卡):</span>
                   {card.echo.alternatives
                     .filter((alt) => alt.symbol !== card.echo?.resolvedTarget)
@@ -287,7 +287,7 @@ function StreamCard({
 
           {/* Stage pipeline header */}
           {Object.keys(card.stages).length > 0 && (
-            <section data-testid="evolve-stages" className="flex flex-wrap gap-2 text-[11px]">
+            <section data-testid="evolve-stages" className="flex flex-wrap gap-2 text-xs">
               {STAGE_ORDER.map((stage, index) => {
                 const state = card.stages[stage];
                 const cls =
@@ -314,13 +314,13 @@ function StreamCard({
               </h3>
               <p className="text-xs text-ink">{card.conflict.verdict}</p>
               {card.conflict.coverage && (
-                <p className="mt-0.5 text-[11px] text-muted">
+                <p className="mt-0.5 text-xs text-muted">
                   覆盖率 {card.conflict.coverage.match}/{card.conflict.coverage.total}
                 </p>
               )}
               {card.conflict.suggestion && <p className="mt-1 text-xs text-ink">建议:{card.conflict.suggestion}</p>}
               {(card.conflict.anchors?.length ?? 0) > 0 && (
-                <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+                <div className="mt-1 flex flex-wrap gap-2 text-xs">
                   {card.conflict.anchors.map((anchor) => (
                     <FileLink
                       key={`${anchor.file}:${anchor.line}`}
@@ -363,7 +363,7 @@ function StreamCard({
                   <ul className="space-y-1 text-xs">
                     {card.result.checklists.map((item, index) => (
                       <li key={index} className="flex flex-wrap items-baseline gap-2">
-                        <span className="rounded bg-muted/10 px-1.5 py-0.5 text-[9px] font-semibold text-muted">
+                        <span className="rounded bg-muted/10 px-1.5 py-0.5 text-micro font-semibold text-muted">
                           {item.action} · {item.category}
                         </span>
                         <span className="text-ink">{item.description}</span>

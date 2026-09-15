@@ -94,7 +94,7 @@ export function SubgraphPanel({
       className="border-t border-line bg-surface px-3 py-2"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <span className="text-micro font-semibold uppercase tracking-wide text-muted">
           子图透视
         </span>
         <div
@@ -110,7 +110,7 @@ export function SubgraphPanel({
               data-testid={`subgraph-view-${option.value}`}
               aria-pressed={filter === option.value}
               onClick={() => setFilter(option.value)}
-              className={`h-5 rounded px-1.5 text-[10px] font-medium ${
+              className={`h-5 rounded px-1.5 text-micro font-medium ${
                 filter === option.value
                   ? 'bg-surface text-ink shadow-sm'
                   : 'text-muted hover:text-ink'
@@ -121,7 +121,7 @@ export function SubgraphPanel({
           ))}
         </div>
       </div>
-      <div className="mt-1 flex items-center gap-3 text-[10px] text-muted">
+      <div className="mt-1 flex items-center gap-3 text-micro text-muted">
         <span className="flex items-center gap-1">
           <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-ink" />
           Start {counts.start}
@@ -136,12 +136,12 @@ export function SubgraphPanel({
         </span>
       </div>
       {state.loading && (
-        <p data-testid="subgraph-loading" className="mt-1 text-[11px] text-muted">
+        <p data-testid="subgraph-loading" className="mt-1 text-xs text-muted">
           构建子图…
         </p>
       )}
       {!state.loading && state.error && (
-        <p data-testid="subgraph-error" className="mt-1 text-[11px] text-muted">
+        <p data-testid="subgraph-error" className="mt-1 text-xs text-muted">
           {isSymbolResolutionError(state.error)
             ? '子图不可用：未定位到可解析符号。'
             : '子图暂不可用，请稍后重试。'}
@@ -150,7 +150,7 @@ export function SubgraphPanel({
       {!state.loading && !state.error && mermaid && (
         <>
           {filter !== 'all' && counts[filter] === 0 && (
-            <p data-testid="subgraph-side-empty" className="mt-1 text-[11px] text-muted">
+            <p data-testid="subgraph-side-empty" className="mt-1 text-xs text-muted">
               该方向没有静态邻接节点（start 始终保留）。
             </p>
           )}

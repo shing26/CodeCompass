@@ -209,7 +209,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
             </button>
           </div>
           {repoNotReady && (
-            <p data-testid="delta-not-ready-hint" className="mt-2 text-[11px] text-warning">
+            <p data-testid="delta-not-ready-hint" className="mt-2 text-xs text-warning">
               {notReadyHint}
             </p>
           )}
@@ -221,7 +221,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                   <summary className="cursor-pointer select-none text-muted">
                     原始 git 输出
                   </summary>
-                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-code px-2 py-1 font-mono text-[11px] text-muted">
+                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-code px-2 py-1 font-mono text-xs text-muted">
                     {error.detail}
                   </pre>
                 </details>
@@ -288,7 +288,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-success">
                   新增路由
                 </h3>
-                <ul className="space-y-1 font-mono text-[11px] text-ink">
+                <ul className="space-y-1 font-mono text-xs text-ink">
                   {delta.addedRoutes.map((route) => (
                     <li key={`${route.file}:${route.lineStart}:${route.name}`}>
                       <span className="mr-2 text-success">+</span>
@@ -304,7 +304,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-danger">
                   删除路由
                 </h3>
-                <ul className="space-y-1 font-mono text-[11px] text-ink">
+                <ul className="space-y-1 font-mono text-xs text-ink">
                   {delta.removedRoutes.map((route) => (
                     <li key={`${route.file}:${route.lineStart}:${route.name}`}>
                       <span className="mr-2 text-danger">-</span>
@@ -320,7 +320,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-warning">
                   断边
                 </h3>
-                <ul className="space-y-1 font-mono text-[11px] text-ink">
+                <ul className="space-y-1 font-mono text-xs text-ink">
                   {delta.brokenEdges.map((edge, index) => (
                     <li key={index}>
                       <span className="mr-2 text-warning">~</span>
@@ -337,11 +337,11 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
                   受影响 API
                 </h3>
-                <ul className="space-y-1 font-mono text-[11px] text-ink">
+                <ul className="space-y-1 font-mono text-xs text-ink">
                   {delta.impactedApis.map((api) => (
                     <li key={`${api.routeSymbol.file}:${api.routeSymbol.lineStart}:${api.routeSymbol.name}`}>
                       <span
-                        className={`mr-2 rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+                        className={`mr-2 rounded px-1.5 py-0.5 text-micro font-semibold ${
                           api.riskLevel === 'HIGH'
                             ? 'bg-warning/15 text-warning'
                             : api.riskLevel === 'MEDIUM'
@@ -367,7 +367,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
               </h3>
               <pre
                 data-testid="delta-markdown"
-                className="custom-scroll max-h-64 overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-[11px] leading-relaxed text-ink"
+                className="custom-scroll max-h-64 overflow-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-xs leading-relaxed text-ink"
               >
                 {markdown}
               </pre>

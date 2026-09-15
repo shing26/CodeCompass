@@ -84,7 +84,7 @@ export function StackTraceInput({ streaming, onSubmit }: StackTraceInputProps) {
           className="w-full resize-y rounded-md border border-line bg-surface p-2 font-mono text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
         />
       )}
-      <p className="text-[10px] text-muted">
+      <p className="text-micro text-muted">
         排查结论仅基于本仓库索引的物理锚点（file:line + commit）；堆栈中无法定位的帧会明确标注 BREAK，不作猜测。
       </p>
     </form>

@@ -164,7 +164,7 @@ export function DashboardView({
                 className="rounded-md border border-line bg-subtle px-2 py-1.5 text-center"
               >
                 <div className="text-lg font-semibold text-ink">{dashboard.scale[key]}</div>
-                <div className="text-[11px] text-muted">{label}</div>
+                <div className="text-xs text-muted">{label}</div>
               </div>
             ))}
           </div>
@@ -177,7 +177,7 @@ export function DashboardView({
               Config Topology
             </h3>
             {dashboard.config.maskedValues && (
-              <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">
+              <span className="rounded bg-warning/10 px-1.5 py-0.5 text-micro text-warning">
                 值已脱敏
               </span>
             )}
@@ -195,12 +195,12 @@ export function DashboardView({
                     className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs text-ink hover:bg-subtle"
                     title={item.filePath}
                   >
-                    <span className="rounded bg-subtle px-1.5 font-mono text-[10px] text-muted">
+                    <span className="rounded bg-subtle px-1.5 font-mono text-micro text-muted">
                       {item.group}
                     </span>
                     <span className="truncate font-mono">{item.key}</span>
                     {item.sensitive && (
-                      <span className="ml-auto shrink-0 rounded bg-danger/10 px-1.5 text-[10px] text-danger">
+                      <span className="ml-auto shrink-0 rounded bg-danger/10 px-1.5 text-micro text-danger">
                         sensitive
                       </span>
                     )}
@@ -232,14 +232,14 @@ export function DashboardView({
                       <span className="truncate font-mono text-sm font-medium text-ink">
                         {api.name}
                       </span>
-                      <span className="shrink-0 rounded bg-subtle px-1.5 text-[10px] text-muted">
+                      <span className="shrink-0 rounded bg-subtle px-1.5 text-micro text-muted">
                         {api.controller}
                       </span>
-                      <span className="ml-auto shrink-0 rounded bg-accent-soft px-1.5 text-[10px] font-medium text-accent">
+                      <span className="ml-auto shrink-0 rounded bg-accent-soft px-1.5 text-micro font-medium text-accent">
                         depth {api.depth}
                       </span>
                     </div>
-                    <div className="mt-0.5 truncate text-[11px] text-muted">
+                    <div className="mt-0.5 truncate text-xs text-muted">
                       {api.hops.join(' → ')}
                     </div>
                   </button>

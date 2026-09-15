@@ -140,7 +140,7 @@ export function Canvas({
         <>
           <div className="workbench-grid custom-scroll flex-1 overflow-y-auto p-4">
             <div className="pointer-events-none sticky top-2 z-10 mb-3 flex items-center gap-2 rounded-md border border-line bg-surface/90 px-3 py-1.5 shadow-neon backdrop-blur">
-              <span className="text-[10px] uppercase tracking-wide text-muted">焦点</span>
+              <span className="text-micro uppercase tracking-wide text-muted">焦点</span>
               <span
                 data-testid="selected-node"
                 className="min-w-0 flex-1 truncate font-mono text-xs text-ink"
@@ -149,12 +149,12 @@ export function Canvas({
               </span>
               <span
                 data-testid="affected-count"
-                className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"
+                className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-micro font-medium text-accent"
               >
                 {affectedCount} 波及
               </span>
             </div>
-            <div className="mb-3 flex items-center gap-2 text-[10px] font-medium text-muted">
+            <div className="mb-3 flex items-center gap-2 text-micro font-medium text-muted">
               <span
                 data-testid="api-count"
                 className="rounded-full border border-line bg-surface px-2 py-0.5"
@@ -373,18 +373,18 @@ function FlowCards({
             >
               <div className="flex items-center gap-1.5">
                 <span
-                  className={`text-[9px] font-bold uppercase ${
+                  className={`text-micro font-bold uppercase ${
                     role === 'Callee' ? 'text-callee' : 'text-accent'
                   }`}
                 >
                   {role}
                 </span>
-                <span className="rounded bg-subtle px-1 text-[9px] font-medium text-muted">
+                <span className="rounded bg-subtle px-1 text-micro font-medium text-muted">
                   {languageBadge(anchor.file)}
                 </span>
               </div>
               <div className="mt-1 truncate font-mono text-xs text-ink">{anchor.symbol}</div>
-              <div className="mt-0.5 truncate text-[10px] text-muted">
+              <div className="mt-0.5 truncate text-micro text-muted">
                 {basename(anchor.file)} L{anchor.line}
               </div>
             </button>

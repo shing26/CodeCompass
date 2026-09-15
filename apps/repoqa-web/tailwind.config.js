@@ -27,6 +27,12 @@ export default {
       },
       boxShadow: {
         neon: 'var(--shadow-neon)'
+      },
+      // v0.30 票 02（D5 两档语义化）：全仓任意值字号收编——11px→text-xs(12px)、
+      // 9/10px→text-micro。micro 行高按 1.35 紧凑（元数据行不撑高）；显式
+      // leading-* 类仍覆盖此默认。禁止再引入 text-[Npx] 任意值（G8 终扫）。
+      fontSize: {
+        micro: ['10px', { lineHeight: '1.35' }]
       }
     }
   },

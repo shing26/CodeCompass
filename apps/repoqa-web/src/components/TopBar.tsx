@@ -178,7 +178,7 @@ export function TopBar({
           data-testid="brand-logo"
           className="flex h-8 shrink-0 items-center gap-2 rounded-md border border-line bg-subtle px-2 max-sm:hidden"
         >
-          <span className="grid h-4 w-4 place-items-center rounded-sm bg-accent text-[10px] font-bold text-white">
+          <span className="grid h-4 w-4 place-items-center rounded-sm bg-accent text-micro font-bold text-white">
             CC
           </span>
           <span className="hidden text-xs font-semibold text-ink lg:inline">CodeCompass</span>
@@ -200,7 +200,7 @@ export function TopBar({
         </select>
         <span
           data-testid="watcher-status"
-          className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2 py-1 text-[11px] font-medium text-muted xl:inline-flex"
+          className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2 py-1 text-xs font-medium text-muted xl:inline-flex"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${watcher.dotClass}`} />
           Watcher: {watcher.label}
@@ -295,7 +295,7 @@ export function TopBar({
         )}
         <span
           data-testid="masked-badge"
-          className="hidden shrink-0 rounded-full border border-line bg-subtle px-2 py-1 text-[10px] font-medium text-muted xl:inline-flex"
+          className="hidden shrink-0 rounded-full border border-line bg-subtle px-2 py-1 text-micro font-medium text-muted xl:inline-flex"
         >
           13-Rules Masked
         </span>

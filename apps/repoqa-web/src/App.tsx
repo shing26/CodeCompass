@@ -339,7 +339,7 @@ function WorkbenchShell() {
       <CopyMaskingToast trigger={maskingToastAt} />
       <footer
         data-testid="footer-status"
-        className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-line bg-surface px-3 text-[10px] text-muted"
+        className="flex h-6 shrink-0 items-center justify-between gap-3 border-t border-line bg-surface px-3 text-micro text-muted"
       >
         <span className="min-w-0 truncate">{currentRepo?.localPath ?? '未连接仓库'}</span>
         <span className="flex shrink-0 items-center gap-3">

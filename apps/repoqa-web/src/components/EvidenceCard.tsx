@@ -40,7 +40,7 @@ export function EvidenceCard({ evidence, onNavigate }: EvidenceCardProps) {
       data-testid="evidence-card"
       className="mt-2 rounded-md border border-line bg-subtle p-2"
     >
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+      <div className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted">
         证据 · 零幻觉锚定
       </div>
       <ul className="flex flex-col gap-1">
@@ -51,18 +51,18 @@ export function EvidenceCard({ evidence, onNavigate }: EvidenceCardProps) {
             <>
               <span
                 data-testid={`evidence-status-${index}`}
-                className={`shrink-0 rounded border px-1 py-0.5 text-[9px] font-bold leading-none ${badge.className}`}
+                className={`shrink-0 rounded border px-1 py-0.5 text-micro font-bold leading-none ${badge.className}`}
               >
                 {badge.label}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs text-ink" title={row.label}>
                 {row.label}
               </span>
-              <span className="shrink-0 font-mono text-[10px] text-muted">{row.location}</span>
+              <span className="shrink-0 font-mono text-micro text-muted">{row.location}</span>
               {row.commit && (
                 <span
                   data-testid={`evidence-commit-${index}`}
-                  className="shrink-0 rounded bg-surface px-1 py-0.5 font-mono text-[9px] text-muted"
+                  className="shrink-0 rounded bg-surface px-1 py-0.5 font-mono text-micro text-muted"
                   title={`commit ${row.commit}`}
                 >
                   {row.commit.slice(0, 7)}

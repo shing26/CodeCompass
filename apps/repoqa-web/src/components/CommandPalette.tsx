@@ -193,7 +193,7 @@ export function CommandPalette({
             className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-muted/50"
           />
           {loading && (
-            <span className="text-[10px] text-muted animate-pulse">搜索中…</span>
+            <span className="text-micro text-muted animate-pulse">搜索中…</span>
           )}
         </div>
         {items.length > 0 && (
@@ -216,14 +216,14 @@ export function CommandPalette({
               >
                 {item.kind === 'command' ? (
                   <>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-line text-[10px] text-muted">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-line text-micro text-muted">
                       {item.command.shortcut ?? '⌘'}
                     </span>
                     <span className="flex-1">{item.command.label}</span>
                   </>
                 ) : (
                   <>
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/10 text-[9px] font-medium text-accent">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/10 text-micro font-medium text-accent">
                       {item.result.rank}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -235,7 +235,7 @@ export function CommandPalette({
                       </span>
                       <span
                         data-testid="palette-symbol-path"
-                        className="block truncate text-[9px] text-muted"
+                        className="block truncate text-micro text-muted"
                       >
                         {item.result.anchor.filePath} · L{item.result.anchor.line}
                         <span className="ml-1.5">
@@ -245,7 +245,7 @@ export function CommandPalette({
                       </span>
                     </div>
                     <span
-                      className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-medium ${
+                      className={`shrink-0 rounded px-1 py-0.5 text-micro font-medium ${
                         item.result.anchor.type === 'CONTROLLER'
                           ? 'bg-accent/10 text-accent'
                           : item.result.anchor.type === 'ENTITY'
@@ -269,7 +269,7 @@ export function CommandPalette({
             未找到匹配的符号
           </div>
         )}
-        <div className="border-t border-line px-3 py-1 text-[10px] text-muted/60">
+        <div className="border-t border-line px-3 py-1 text-micro text-muted/60">
           ↑↓ 导航 · Enter 确认 · Esc 关闭
         </div>
       </div>

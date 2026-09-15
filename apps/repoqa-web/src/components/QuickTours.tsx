@@ -31,7 +31,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
           type="button"
           data-testid="tours-retry"
           onClick={onRetry}
-          className="rounded border border-danger/40 bg-surface px-1.5 py-0.5 text-[11px] text-danger hover:bg-danger/10"
+          className="rounded border border-danger/40 bg-surface px-1.5 py-0.5 text-xs text-danger hover:bg-danger/10"
         >
           重试
         </button>
@@ -57,7 +57,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
         <span aria-hidden className="text-accent">→</span>
       </button>
       {recommended.description && (
-        <p className="mb-1 px-1 text-[11px] leading-snug text-muted">
+        <p className="mb-1 px-1 text-xs leading-snug text-muted">
           {recommended.description}
         </p>
       )}

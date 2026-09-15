@@ -382,7 +382,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">命令</h3>
           <pre
             data-testid="ci-command"
-            className="overflow-x-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-[11px] leading-relaxed text-ink"
+            className="overflow-x-auto rounded-md border border-line bg-code px-3 py-2 font-mono text-xs leading-relaxed text-ink"
           >
             {command}
           </pre>
@@ -395,7 +395,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
                   运行并记录
                 </h3>
-                <p className="mt-1 text-[11px] text-muted">
+                <p className="mt-1 text-xs text-muted">
                   按上方策略在工作台内跑一次门禁，结果落库进「门禁运行史」。
                 </p>
               </div>
@@ -411,7 +411,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
               </button>
             </div>
             {repoNotReady && (
-              <p data-testid="gate-not-ready-hint" className="mt-2 text-[11px] text-warning">
+              <p data-testid="gate-not-ready-hint" className="mt-2 text-xs text-warning">
                 {notReadyHint}
               </p>
             )}
@@ -475,10 +475,10 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                           dirty
                         </span>
                       )}
-                      <span className="shrink-0 font-mono text-[11px] text-muted">
+                      <span className="shrink-0 font-mono text-xs text-muted">
                         {commitLabel(run.commit)}
                       </span>
-                      <span data-testid="gate-run-refs" className="min-w-0 truncate font-mono text-[11px] text-ink">
+                      <span data-testid="gate-run-refs" className="min-w-0 truncate font-mono text-xs text-ink">
                         {run.base} → {run.head}
                       </span>
                       <span className="shrink-0 text-muted">
@@ -496,7 +496,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                           data-testid="gate-tree-toggle"
                           aria-expanded={expanded}
                           onClick={() => toggleExpand(run.id)}
-                          className="shrink-0 rounded-md border border-line bg-subtle px-2 py-0.5 text-[11px] text-muted hover:border-accent hover:text-accent"
+                          className="shrink-0 rounded-md border border-line bg-subtle px-2 py-0.5 text-xs text-muted hover:border-accent hover:text-accent"
                         >
                           {expanded ? '收起受波及树' : '展开受波及树'}
                         </button>
@@ -529,7 +529,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                               <div className="flex items-center gap-2">
                                 <span
                                   data-testid="gate-risk-badge"
-                                  className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold ${riskBadgeClass(api.riskLevel)}`}
+                                  className={`shrink-0 rounded px-1.5 py-0.5 text-micro font-semibold ${riskBadgeClass(api.riskLevel)}`}
                                 >
                                   {api.riskLevel}
                                 </span>
@@ -538,7 +538,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                                   type="button"
                                   data-testid="gate-impact-node"
                                   onClick={() => onNavigate?.(api.routeSymbol.file, api.routeSymbol.lineStart)}
-                                  className="min-w-0 truncate text-left font-mono text-[11px] text-ink hover:text-accent"
+                                  className="min-w-0 truncate text-left font-mono text-xs text-ink hover:text-accent"
                                 >
                                   {symbolLabel(api.routeSymbol)}
                                 </button>
@@ -551,7 +551,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                                     <li
                                       key={symbol}
                                       data-testid="gate-impact-leaf"
-                                      className="truncate font-mono text-[10px] text-muted"
+                                      className="truncate font-mono text-micro text-muted"
                                       title={symbol}
                                     >
                                       {symbol}
@@ -571,7 +571,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                               <summary className="cursor-pointer select-none text-muted">
                                 原始输出
                               </summary>
-                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-code px-2 py-1 font-mono text-[11px] text-muted">
+                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-code px-2 py-1 font-mono text-xs text-muted">
                                 {run.detail}
                               </pre>
                             </details>
