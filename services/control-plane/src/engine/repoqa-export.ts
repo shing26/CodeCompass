@@ -5,7 +5,7 @@ import { buildTours, type RepoQaTour } from './repoqa-tours';
 /**
  * Issue 14 — 一键导出 ONBOARDING 架构交接手册（`ONBOARDING.md`）。
  *
- * 纯确定性聚合：复用 Issue 12 的 `buildDashboard`（技术栈/架构指标/脱敏配置/
+ * 纯确定性聚合：复用 Issue 12 的 `buildDashboard`（技术栈/结构规模/脱敏配置/
  * Top API）与 Issue 11 的 `buildTours`（3 条 Onboarding 路线），输出标准
  * Markdown 文本。配置值从不落盘（Issue 06），因此导出内容天然无敏感值；
  * HTTP 层还会再过一次 `maskSensitiveText` 作为防御性脱敏。
@@ -38,16 +38,16 @@ export function onboardingExportFileName(repoName?: string): string {
 }
 
 const SCALE_LABELS: Array<[keyof RepoDashboard['scale'], string]> = [
-  ['routes', 'Routes'],
-  ['services', 'Services'],
-  ['repositories', 'Repositories'],
-  ['advices', 'Advices'],
-  ['plainClasses', 'Plain Classes'],
-  ['interfaces', 'Interfaces'],
-  ['methods', 'Methods'],
-  ['fields', 'Fields'],
-  ['configKeys', 'Config keys'],
-  ['files', 'Files']
+  ['routes', '接口'],
+  ['services', '服务'],
+  ['repositories', '仓储'],
+  ['advices', '切面'],
+  ['plainClasses', '普通类'],
+  ['interfaces', '接口定义'],
+  ['methods', '方法'],
+  ['fields', '字段'],
+  ['configKeys', '配置键'],
+  ['files', '文件']
 ];
 
 /* ------------------------------------------------------------------ */
@@ -55,7 +55,7 @@ const SCALE_LABELS: Array<[keyof RepoDashboard['scale'], string]> = [
 /* ------------------------------------------------------------------ */
 
 function techStackSection(dashboard: RepoDashboard): string {
-  const lines: string[] = ['## 技术栈（Tech Stack）', ''];
+  const lines: string[] = ['## 技术栈', ''];
   if (dashboard.techStack.highlights.length > 0) {
     lines.push(`高亮：${dashboard.techStack.highlights.join('、')}`, '');
   }
@@ -75,7 +75,7 @@ function techStackSection(dashboard: RepoDashboard): string {
 }
 
 function scaleSection(dashboard: RepoDashboard): string {
-  const lines: string[] = ['## 架构指标（Architecture Scale）', ''];
+  const lines: string[] = ['## 结构规模', ''];
   lines.push('| 指标 | 数量 |', '| --- | --- |');
   for (const [key, label] of SCALE_LABELS) {
     lines.push(`| ${label} | ${dashboard.scale[key]} |`);
@@ -85,7 +85,7 @@ function scaleSection(dashboard: RepoDashboard): string {
 }
 
 function configSection(dashboard: RepoDashboard): string {
-  const lines: string[] = ['## 脱敏配置（Config Topology）', ''];
+  const lines: string[] = ['## 脱敏配置', ''];
   lines.push('> 值已脱敏：配置仅索引 key，value 从不存储与导出（Issue 06）。', '');
   if (dashboard.config.topology.length === 0) {
     lines.push('无配置键。', '');

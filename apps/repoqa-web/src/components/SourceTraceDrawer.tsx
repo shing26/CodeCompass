@@ -15,7 +15,7 @@ export function SourceTraceDrawer({ anchors, onNavigate }: SourceTraceDrawerProp
   return (
     <section data-testid="source-trace-drawer" className="mt-3 border-t border-line pt-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-        Source trace
+        源码溯源
       </h3>
       <ul className="space-y-2">
         {anchors.map((anchor, idx) => (

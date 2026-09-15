@@ -282,7 +282,7 @@ describe('App scaffold and repo connect', () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
-    expect(screen.getByTestId('watcher-status')).toHaveTextContent('Watcher: Ready');
+    expect(screen.getByTestId('watcher-status')).toHaveTextContent('文件监视：就绪');
   });
 
   it('shows a Watcher Offline capsule when the selected repo failed to index', async () => {
@@ -293,7 +293,7 @@ describe('App scaffold and repo connect', () => {
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
     await waitFor(() =>
-      expect(screen.getByTestId('watcher-status')).toHaveTextContent('Watcher: Offline')
+      expect(screen.getByTestId('watcher-status')).toHaveTextContent('文件监视：离线')
     );
   });
 
@@ -570,7 +570,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
 
     await user.click(screen.getByTestId('tour-auth-chain'));
     await waitFor(() => expect(screen.getByTestId('tour-player')).toBeInTheDocument());
-    expect(screen.getByTestId('tour-progress')).toHaveTextContent('Step 1 / 1');
+    expect(screen.getByTestId('tour-progress')).toHaveTextContent('步骤 1 / 1');
     // First step auto-opens in the Inspector.
     await waitFor(() => expect(client.getFileRaw).toHaveBeenCalledWith('repo-1', 'src/AuthFilter.java'));
 
@@ -1091,7 +1091,7 @@ describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () 
     // inspector holding no slice of the previous repo, drawer closed.
     expect(screen.getByTestId('repo-select')).toHaveValue('');
     await waitFor(() => expect(screen.getByTestId('empty-state')).toBeInTheDocument());
-    expect(screen.getByTestId('inspector-file')).toHaveTextContent('No file open');
+    expect(screen.getByTestId('inspector-file')).toHaveTextContent('未打开文件');
     expect(screen.queryByTestId('inspector-mask')).not.toBeInTheDocument();
 
     // Ticket 13 acceptance: forward re-loads the repo and restores the tab.
@@ -1101,7 +1101,7 @@ describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () 
     await waitFor(() => expect(screen.getByTestId('architecture-delta')).toBeInTheDocument());
     expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'true');
     // The restored repo still shows no stale inspector content.
-    expect(screen.getByTestId('inspector-file')).toHaveTextContent('No file open');
+    expect(screen.getByTestId('inspector-file')).toHaveTextContent('未打开文件');
   });
 
   it('repo-less ?mode=diff deep link: topo stays highlighted while the guide renders, mode is kept, and selecting a repo applies it', async () => {

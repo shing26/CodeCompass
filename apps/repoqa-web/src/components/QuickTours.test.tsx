@@ -32,7 +32,7 @@ describe('QuickTours (issue 13 backend tours)', () => {
     expect(screen.getByTestId('tour-auth-chain')).toBeInTheDocument();
     expect(screen.getByTestId('tour-auth-chain')).toHaveTextContent('Trace the auth filter chain');
     expect(screen.queryByTestId('tour-main-flow')).not.toBeInTheDocument();
-    expect(screen.getByTestId('more-tours-toggle')).toHaveTextContent('More Tours (2)');
+    expect(screen.getByTestId('more-tours-toggle')).toHaveTextContent('更多导览（2）');
   });
 
   it('expands hidden tours without showing a three-card row', async () => {
@@ -64,20 +64,20 @@ describe('QuickTours (issue 13 backend tours)', () => {
 
   it('shows a loading state while tours are fetched', () => {
     render(<QuickTours tours={[]} loading error={null} onRetry={() => {}} onPlay={() => {}} />);
-    expect(screen.getByText(/Loading tours/)).toBeInTheDocument();
+    expect(screen.getByText(/导览加载中/)).toBeInTheDocument();
   });
 
   it('shows an error with a retry action when loading fails', async () => {
     const onRetry = vi.fn();
     const user = userEvent.setup();
     render(<QuickTours tours={[]} loading={false} error="boom" onRetry={onRetry} onPlay={() => {}} />);
-    expect(screen.getByText(/Tours 加载失败/)).toBeInTheDocument();
+    expect(screen.getByText(/导览加载失败/)).toBeInTheDocument();
     await user.click(screen.getByTestId('tours-retry'));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it('renders an empty note when the repo has no tours', () => {
     render(<QuickTours tours={[]} loading={false} error={null} onRetry={() => {}} onPlay={() => {}} />);
-    expect(screen.getByText('No tours available.')).toBeInTheDocument();
+    expect(screen.getByText('暂无导览')).toBeInTheDocument();
   });
 });

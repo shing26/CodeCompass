@@ -42,7 +42,7 @@ describe('CiGateView (Issue 31)', () => {
     render(<CiGateView repo={repo} dashboard={dashboard} />);
 
     expect(screen.getByTestId('ci-gate')).toBeInTheDocument();
-    expect(screen.getByTestId('ci-baseline')).toHaveTextContent('3 Routes');
+    expect(screen.getByTestId('ci-baseline')).toHaveTextContent('3 接口');
     expect(screen.getByTestId('ci-command')).toHaveTextContent(
       'npx codecompass pr-summary origin/main HEAD "C:/projects/spring-petclinic" --max-affected-routes 10 --fail-on-break'
     );

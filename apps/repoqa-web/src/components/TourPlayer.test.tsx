@@ -36,7 +36,7 @@ describe('TourPlayer (issue 13)', () => {
     const onNavigate = vi.fn();
     render(<TourPlayer tour={tour} onNavigate={onNavigate} onBack={() => {}} />);
     expect(onNavigate).toHaveBeenCalledWith('src/main/java/OrderController.java', 24);
-    expect(screen.getByTestId('tour-progress')).toHaveTextContent('Step 1 / 2');
+    expect(screen.getByTestId('tour-progress')).toHaveTextContent('步骤 1 / 2');
     expect(screen.getByTestId('tour-player')).toHaveTextContent('Follow the core business flow');
     expect(screen.getByTestId('tour-prev')).toBeDisabled();
     await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
@@ -48,7 +48,7 @@ describe('TourPlayer (issue 13)', () => {
     render(<TourPlayer tour={tour} onNavigate={onNavigate} onBack={() => {}} />);
     await user.click(screen.getAllByTestId('tour-step')[1]);
     expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/OrderService.java', 40);
-    expect(screen.getByTestId('tour-progress')).toHaveTextContent('Step 2 / 2');
+    expect(screen.getByTestId('tour-progress')).toHaveTextContent('步骤 2 / 2');
   });
 
   it('steps forward and backward with the footer buttons', async () => {
@@ -56,10 +56,10 @@ describe('TourPlayer (issue 13)', () => {
     const user = userEvent.setup();
     render(<TourPlayer tour={tour} onNavigate={onNavigate} onBack={() => {}} />);
     await user.click(screen.getByTestId('tour-next'));
-    expect(screen.getByTestId('tour-progress')).toHaveTextContent('Step 2 / 2');
+    expect(screen.getByTestId('tour-progress')).toHaveTextContent('步骤 2 / 2');
     expect(screen.getByTestId('tour-done')).toBeInTheDocument();
     await user.click(screen.getByTestId('tour-prev'));
-    expect(screen.getByTestId('tour-progress')).toHaveTextContent('Step 1 / 2');
+    expect(screen.getByTestId('tour-progress')).toHaveTextContent('步骤 1 / 2');
     expect(screen.getByTestId('tour-next')).toBeInTheDocument();
   });
 

@@ -154,7 +154,7 @@ describe('Sidebar source browsing (Issue 18)', () => {
 
     // Back to 'all' restores the unfiltered tree (collapsed again).
     await user.selectOptions(screen.getByTestId('symbol-kind-filter'), 'all');
-    expect(screen.getByText(/files — expand to browse/)).toBeInTheDocument();
+    expect(screen.getByText(/个文件，点「展开」浏览/)).toBeInTheDocument();
   });
 
   it('is a no-op without onNavigate', async () => {
@@ -221,7 +221,7 @@ describe('Sidebar instant search (Issue 24)', () => {
     expect(screen.getByText('无匹配符号')).toBeInTheDocument();
 
     await user.clear(screen.getByTestId('sidebar-search'));
-    expect(screen.getByText('2 files — expand to browse')).toBeInTheDocument();
+    expect(screen.getByText('2 个文件，点「展开」浏览')).toBeInTheDocument();
   });
 });
 

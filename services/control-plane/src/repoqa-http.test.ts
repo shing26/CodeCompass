@@ -1650,9 +1650,9 @@ describe('RepoPulse onboarding export HTTP API', () => {
       // Standard handover scaffolding.
       for (const section of [
         'ONBOARDING 架构交接手册',
-        '## 技术栈（Tech Stack）',
-        '## 架构指标（Architecture Scale）',
-        '## 脱敏配置（Config Topology）',
+        '## 技术栈',
+        '## 结构规模',
+        '## 脱敏配置',
         '## Top 核心 API（时序图）',
         '## Onboarding 路线（3 条）'
       ]) {

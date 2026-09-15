@@ -218,8 +218,8 @@ describe('TopBar import dialog', () => {
 describe('TopBar workbench header (Issue 31)', () => {
   it('shows the watcher state capsule for a ready repo', () => {
     render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
-    expect(screen.getByTestId('watcher-status')).toHaveTextContent('Watcher: Ready');
-    expect(screen.getByTestId('masked-badge')).toHaveTextContent('13-Rules Masked');
+    expect(screen.getByTestId('watcher-status')).toHaveTextContent('文件监视：就绪');
+    expect(screen.getByTestId('masked-badge')).toHaveTextContent('13 条规则已脱敏');
   });
 
   it('switches the active segmented tab', async () => {
@@ -284,15 +284,15 @@ describe('TopBar theme toggle', () => {
     render(<TopBar {...baseProps()} />);
     const button = screen.getByTestId('theme-toggle');
     expect(document.documentElement.dataset.theme).toBe('clean');
-    expect(button).toHaveTextContent('Cyber');
+    expect(button).toHaveTextContent('赛博');
 
     await user.click(button);
     expect(document.documentElement.dataset.theme).toBe('cyber');
-    expect(button).toHaveTextContent('Clean');
+    expect(button).toHaveTextContent('清爽');
 
     await user.click(button);
     expect(document.documentElement.dataset.theme).toBe('clean');
-    expect(button).toHaveTextContent('Cyber');
+    expect(button).toHaveTextContent('赛博');
   });
 });
 

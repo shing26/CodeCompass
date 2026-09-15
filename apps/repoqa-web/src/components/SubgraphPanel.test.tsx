@@ -51,8 +51,8 @@ describe('SubgraphPanel (v0.6 closeout)', () => {
 
     rerender(<SubgraphPanel state={{ result, loading: false, error: null }} />);
     await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
-    expect(screen.getByTestId('inspector-subgraph')).toHaveTextContent('Caller 1');
-    expect(screen.getByTestId('inspector-subgraph')).toHaveTextContent('Callee 2');
+    expect(screen.getByTestId('inspector-subgraph')).toHaveTextContent('调用方 1');
+    expect(screen.getByTestId('inspector-subgraph')).toHaveTextContent('被调方 2');
   });
 
   it('filters spokes by direction via the view toggle', async () => {

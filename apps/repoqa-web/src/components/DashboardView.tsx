@@ -15,16 +15,16 @@ interface DashboardViewProps {
 }
 
 const SCALE_ORDER: Array<{ key: keyof RepoDashboard['scale']; label: string }> = [
-  { key: 'routes', label: 'Routes' },
-  { key: 'services', label: 'Services' },
-  { key: 'repositories', label: 'Repositories' },
-  { key: 'advices', label: 'Advices' },
-  { key: 'plainClasses', label: 'Plain Classes' },
-  { key: 'interfaces', label: 'Interfaces' },
-  { key: 'methods', label: 'Methods' },
-  { key: 'fields', label: 'Fields' },
-  { key: 'configKeys', label: 'Config keys' },
-  { key: 'files', label: 'Files' }
+  { key: 'routes', label: '接口' },
+  { key: 'services', label: '服务' },
+  { key: 'repositories', label: '仓储' },
+  { key: 'advices', label: '切面' },
+  { key: 'plainClasses', label: '普通类' },
+  { key: 'interfaces', label: '接口定义' },
+  { key: 'methods', label: '方法' },
+  { key: 'fields', label: '字段' },
+  { key: 'configKeys', label: '配置键' },
+  { key: 'files', label: '文件' }
 ];
 
 /**
@@ -46,7 +46,7 @@ export function DashboardView({
   if (loading && !dashboard) {
     return (
       <div data-testid="dashboard-loading" className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-muted">Loading dashboard…</p>
+        <p className="text-sm text-muted">仪表盘加载中…</p>
       </div>
     );
   }
@@ -115,7 +115,7 @@ export function DashboardView({
         {/* ——— Tech stack ——— */}
         <section className="rounded-md border border-line bg-surface p-3">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            Tech Stack
+            技术栈
           </h3>
           <div data-testid="tech-stack" className="space-y-3">
             {dashboard.techStack.summary.length === 0 ? (
@@ -154,7 +154,7 @@ export function DashboardView({
         {/* ——— Architecture scale ——— */}
         <section className="rounded-md border border-line bg-surface p-3">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            Architecture Scale
+            结构规模
           </h3>
           <div data-testid="scale" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {SCALE_ORDER.map(({ key, label }) => (
@@ -174,7 +174,7 @@ export function DashboardView({
         <section className="rounded-md border border-line bg-surface p-3">
           <div className="mb-1 flex items-center gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-              Config Topology
+              配置拓扑
             </h3>
             {dashboard.config.maskedValues && (
               <span className="rounded bg-warning/10 px-1.5 py-0.5 text-micro text-warning">
@@ -201,7 +201,7 @@ export function DashboardView({
                     <span className="truncate font-mono">{item.key}</span>
                     {item.sensitive && (
                       <span className="ml-auto shrink-0 rounded bg-danger/10 px-1.5 text-micro text-danger">
-                        sensitive
+                        敏感
                       </span>
                     )}
                   </button>
@@ -214,7 +214,7 @@ export function DashboardView({
         {/* ——— Top core APIs ——— */}
         <section className="rounded-md border border-line bg-surface p-3">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            Top Core API 入口 · 点击追踪调用链
+            Top 核心 API 入口 · 点击追踪调用链
           </h3>
           {dashboard.topApis.length === 0 ? (
             <p className="text-xs text-muted">—</p>
@@ -236,7 +236,7 @@ export function DashboardView({
                         {api.controller}
                       </span>
                       <span className="ml-auto shrink-0 rounded bg-accent-soft px-1.5 text-micro font-medium text-accent">
-                        depth {api.depth}
+                        深度 {api.depth}
                       </span>
                     </div>
                     <div className="mt-0.5 truncate text-xs text-muted">

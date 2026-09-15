@@ -175,7 +175,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
         <section className="rounded-md border border-line bg-surface p-3">
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
             <label className="flex flex-col gap-1 text-xs text-muted">
-              Base ref
+              基线引用
               <input
                 data-testid="delta-base"
                 value={base}
@@ -189,7 +189,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-muted">
-              Head ref
+              待审引用
               <input
                 data-testid="delta-head"
                 value={head}
@@ -240,7 +240,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <span className="block text-lg font-semibold text-success">
                   {delta.addedRoutes.length}
                 </span>
-                Added Routes
+                新增接口
               </span>
               <span
                 data-testid="delta-removed"
@@ -249,7 +249,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <span className="block text-lg font-semibold text-danger">
                   {delta.removedRoutes.length}
                 </span>
-                Removed Routes
+                移除接口
               </span>
               <span
                 data-testid="delta-broken"
@@ -258,7 +258,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <span className="block text-lg font-semibold text-warning">
                   {delta.brokenEdges.length}
                 </span>
-                Broken Edges
+                断裂边
               </span>
               <span
                 data-testid="delta-impact"
@@ -267,7 +267,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <span className="block text-lg font-semibold text-accent">
                   {delta.impactedApis.length}
                 </span>
-                Impacted APIs
+                受影响 API
               </span>
             </section>
 

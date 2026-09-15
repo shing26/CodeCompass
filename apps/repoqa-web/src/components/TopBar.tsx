@@ -63,15 +63,15 @@ const TABS: Array<{ id: WorkbenchTab; label: string; title: string }> = [
 function watcherState(status: Repo['status'] | undefined) {
   switch (status) {
     case 'ready':
-      return { label: 'Ready', dotClass: 'bg-success' };
+      return { label: '就绪', dotClass: 'bg-success' };
     case 'indexing':
     case 'cloning':
     case 'parsing':
-      return { label: 'Indexing', dotClass: 'bg-warning animate-pulse' };
+      return { label: '索引中', dotClass: 'bg-warning animate-pulse' };
     case 'error':
-      return { label: 'Offline', dotClass: 'bg-danger' };
+      return { label: '离线', dotClass: 'bg-danger' };
     default:
-      return { label: 'Standby', dotClass: 'bg-muted' };
+      return { label: '待机', dotClass: 'bg-muted' };
   }
 }
 
@@ -168,7 +168,7 @@ export function TopBar({
           type="button"
           data-testid="sidebar-toggle"
           onClick={onToggleSidebar}
-          aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          aria-label={sidebarOpen ? '收起侧栏' : '展开侧栏'}
           aria-expanded={sidebarOpen}
           className="shrink-0 rounded-md border border-line px-2 py-1 text-sm text-muted hover:border-accent hover:text-accent md:hidden"
         >
@@ -190,7 +190,7 @@ export function TopBar({
           onChange={(e) => onSelectRepo(e.target.value)}
         >
           <option value="" disabled>
-            {loading ? 'Loading repos…' : 'Select a repo'}
+            {loading ? '仓库加载中…' : '选择仓库'}
           </option>
           {repos.map((r) => (
             <option key={r.id} value={r.id}>
@@ -203,21 +203,16 @@ export function TopBar({
           className="hidden shrink-0 items-center gap-1.5 rounded-full border border-line bg-subtle px-2 py-1 text-xs font-medium text-muted xl:inline-flex"
         >
           <span className={`h-1.5 w-1.5 rounded-full ${watcher.dotClass}`} />
-          Watcher: {watcher.label}
+          文件监视：{watcher.label}
         </span>
         <button
           type="button"
           data-testid="open-import"
           onClick={() => setShowImport(true)}
-          aria-label="Import repo"
+          aria-label="导入仓库"
           className="h-8 shrink-0 rounded-md bg-accent px-2 text-sm font-medium text-white hover:bg-accent/90 sm:px-3"
         >
-          <span className="sm:hidden" aria-hidden>
-            +
-          </span>
-          <span className="hidden sm:inline">
-            Import<span className="hidden md:inline"> repo</span>
-          </span>
+          导入仓库
         </button>
       </div>
 
@@ -297,21 +292,21 @@ export function TopBar({
           data-testid="masked-badge"
           className="hidden shrink-0 rounded-full border border-line bg-subtle px-2 py-1 text-micro font-medium text-muted xl:inline-flex"
         >
-          13-Rules Masked
+          13 条规则已脱敏
         </span>
         <PrivacyPill mode={llmMode} host={llmHost} />
         <button
           type="button"
           data-testid="theme-toggle"
           onClick={toggleTheme}
-          aria-label={theme === 'cyber' ? 'Switch to clean theme' : 'Switch to cyber theme'}
-          title={theme === 'cyber' ? '切换到 Clean 主题' : '切换到 Cyber 主题'}
+          aria-label={theme === 'cyber' ? '切换到清爽主题' : '切换到赛博主题'}
+          title={theme === 'cyber' ? '切换到清爽主题' : '切换到赛博主题'}
           className="h-8 shrink-0 rounded-md border border-line px-2 text-xs font-medium text-muted hover:border-accent hover:text-accent"
         >
           <span aria-hidden className="sm:hidden">
             {theme === 'cyber' ? '🌙' : '☀️'}
           </span>
-          <span className="hidden sm:inline">{theme === 'cyber' ? 'Clean' : 'Cyber'}</span>
+          <span className="hidden sm:inline">{theme === 'cyber' ? '清爽' : '赛博'}</span>
         </button>
         <button
           type="button"
@@ -340,7 +335,7 @@ export function TopBar({
           middle slot of the single 48px row at ≥1280px. */}
       <nav
         data-testid="workbench-tabs"
-        aria-label="Workbench views"
+        aria-label="工作台视图"
         className="order-3 flex w-full flex-wrap items-center gap-0.5 rounded-md border border-line bg-subtle p-0.5 xl:order-2 xl:w-auto xl:shrink-0"
       >
         {TABS.map((tab) => (

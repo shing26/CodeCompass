@@ -171,9 +171,9 @@ describe('buildOnboardingMarkdown — full-featured Spring repo', () => {
     expect(markdown).toContain('# shop — ONBOARDING 架构交接手册');
     expect(markdown).toContain('repoId: `repo-1`');
     expect(markdown).toContain('生成时间：2026-08-21T00:00:00.000Z');
-    expect(markdown).toContain('## 技术栈（Tech Stack）');
-    expect(markdown).toContain('## 架构指标（Architecture Scale）');
-    expect(markdown).toContain('## 脱敏配置（Config Topology）');
+    expect(markdown).toContain('## 技术栈');
+    expect(markdown).toContain('## 结构规模');
+    expect(markdown).toContain('## 脱敏配置');
     expect(markdown).toContain('## Top 核心 API（时序图）');
     expect(markdown).toContain('## Onboarding 路线（3 条）');
   });
@@ -191,11 +191,11 @@ describe('buildOnboardingMarkdown — full-featured Spring repo', () => {
   });
 
   it('renders the architecture-scale table with the fixture numbers', () => {
-    expect(markdown).toContain('| Routes | 1 |');
-    expect(markdown).toContain('| Services | 1 |');
-    expect(markdown).toContain('| Repositories | 1 |');
-    expect(markdown).toContain('| Advices | 1 |');
-    expect(markdown).toContain('| Config keys | ');
+    expect(markdown).toContain('| 接口 | 1 |');
+    expect(markdown).toContain('| 服务 | 1 |');
+    expect(markdown).toContain('| 仓储 | 1 |');
+    expect(markdown).toContain('| 切面 | 1 |');
+    expect(markdown).toContain('| 配置键 | ');
   });
 
   it('masks config: only keys, values never appear', () => {

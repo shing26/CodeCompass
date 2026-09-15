@@ -8,8 +8,8 @@ type ViewFilter = 'all' | Exclude<SubgraphDirection, 'start'>;
 
 const VIEW_OPTIONS: Array<{ value: ViewFilter; label: string }> = [
   { value: 'all', label: '全部' },
-  { value: 'caller', label: 'Caller' },
-  { value: 'callee', label: 'Callee' }
+  { value: 'caller', label: '调用方' },
+  { value: 'callee', label: '被调方' }
 ];
 
 function mermaidId(name: string): string {
@@ -124,15 +124,15 @@ export function SubgraphPanel({
       <div className="mt-1 flex items-center gap-3 text-micro text-muted">
         <span className="flex items-center gap-1">
           <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-ink" />
-          Start {counts.start}
+          起点 {counts.start}
         </span>
         <span className="flex items-center gap-1">
           <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
-          Caller {counts.caller}
+          调用方 {counts.caller}
         </span>
         <span className="flex items-center gap-1">
           <span aria-hidden="true" className="inline-block h-1.5 w-1.5 rounded-full bg-callee" />
-          Callee {counts.callee}
+          被调方 {counts.callee}
         </span>
       </div>
       {state.loading && (

@@ -82,7 +82,7 @@ export function TourPlayer({ tour, onNavigate, onBack }: TourPlayerProps) {
             </div>
           </div>
           <span data-testid="tour-progress" className="shrink-0 text-xs text-muted">
-            Step {active + 1} / {stepCount}
+            步骤 {active + 1} / {stepCount}
           </span>
         </div>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-subtle">

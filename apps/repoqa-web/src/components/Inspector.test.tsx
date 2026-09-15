@@ -112,14 +112,14 @@ describe('Inspector (ticket 05)', () => {
 
   it('shows guidance while no file is open', () => {
     render(<Inspector {...baseProps()} />);
-    expect(screen.getByTestId('inspector-file')).toHaveTextContent('No file open');
-    expect(screen.getByText(/Click a diagram node or source card/)).toBeInTheDocument();
+    expect(screen.getByTestId('inspector-file')).toHaveTextContent('未打开文件');
+    expect(screen.getByText(/点击图上节点或源码卡片/)).toBeInTheDocument();
     expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
   });
 
   it('shows a loading indicator while a file is loading', () => {
     render(<Inspector {...baseProps({ loading: true, file: 'A.java' })} />);
-    expect(screen.getByText(/Loading file/)).toBeInTheDocument();
+    expect(screen.getByText(/文件加载中/)).toBeInTheDocument();
     expect(screen.queryByTestId('monaco-editor')).not.toBeInTheDocument();
   });
 

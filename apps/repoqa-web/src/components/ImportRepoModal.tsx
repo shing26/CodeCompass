@@ -222,7 +222,7 @@ export function ImportRepoModal({
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40"
       role="dialog"
       aria-modal="true"
-      aria-label="Import or clone repo"
+      aria-label="导入或克隆仓库"
       onClick={() => {
         if (!localBusy && !remoteBusy) {
           reset();
@@ -235,11 +235,11 @@ export function ImportRepoModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="mb-3 text-sm font-semibold text-ink">
-          Import or clone repo
+          导入或克隆仓库
         </h2>
         <div
           role="tablist"
-          aria-label="Import source"
+          aria-label="导入源"
           className="mb-3 grid grid-cols-2 gap-1 rounded-md border border-line bg-subtle p-1"
         >
           <button
@@ -436,7 +436,7 @@ export function ImportRepoModal({
                 }}
                 className="h-8 rounded-md px-3 text-sm text-muted hover:bg-subtle"
               >
-                Cancel
+                取消
               </button>
               <button
                 type="submit"
@@ -444,14 +444,14 @@ export function ImportRepoModal({
                 disabled={localBusy || !name.trim() || !localPath.trim()}
                 className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
               >
-                {localBusy ? 'Importing…' : 'Import'}
+                {localBusy ? '导入中…' : '导入'}
               </button>
             </div>
           </form>
         ) : (
           <form onSubmit={submitRemote}>
             <label className="mb-2 block text-xs font-medium text-muted">
-              Git URL
+              Git 地址
               <input
                 data-testid="import-url"
                 value={url}
@@ -503,7 +503,7 @@ export function ImportRepoModal({
                 }}
                 className="h-8 rounded-md px-3 text-sm text-muted hover:bg-subtle"
               >
-                Cancel
+                取消
               </button>
               <button
                 type="submit"
@@ -512,10 +512,10 @@ export function ImportRepoModal({
                 className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
               >
                 {remotePhase === 'cloning'
-                  ? 'Cloning…'
+                  ? '克隆中…'
                   : remotePhase === 'indexing'
-                    ? 'Indexing…'
-                    : 'Clone & import'}
+                    ? '索引中…'
+                    : '克隆并导入'}
               </button>
             </div>
           </form>

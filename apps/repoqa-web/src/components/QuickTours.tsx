@@ -20,13 +20,13 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
   const [expanded, setExpanded] = useState(false);
 
   if (loading && tours.length === 0) {
-    return <p className="text-xs text-muted">Loading tours…</p>;
+    return <p className="text-xs text-muted">导览加载中…</p>;
   }
 
   if (error && tours.length === 0) {
     return (
       <div className="flex items-center gap-2">
-        <span className="text-xs text-danger">Tours 加载失败</span>
+        <span className="text-xs text-danger">导览加载失败</span>
         <button
           type="button"
           data-testid="tours-retry"
@@ -40,7 +40,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
   }
 
   if (tours.length === 0) {
-    return <p className="text-xs text-muted">No tours available.</p>;
+    return <p className="text-xs text-muted">暂无导览</p>;
   }
 
   const [recommended, ...rest] = tours;
@@ -70,7 +70,7 @@ export function QuickTours({ tours, loading, error, onRetry, onPlay }: QuickTour
             onClick={() => setExpanded((v) => !v)}
             className="w-full px-2.5 py-1 text-left text-xs text-muted hover:text-ink"
           >
-            {expanded ? 'Hide More Tours' : `More Tours (${rest.length})`}
+            {expanded ? '收起更多导览' : `更多导览（${rest.length}）`}
           </button>
           {expanded && (
             <ul className="mt-1 space-y-1">

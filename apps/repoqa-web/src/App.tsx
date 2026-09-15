@@ -220,7 +220,7 @@ function WorkbenchShell() {
               >
                 ← 返回工作台
               </button>
-              <span className="truncate text-xs text-muted">Tour · {activeTour?.title ?? ''}</span>
+              <span className="truncate text-xs text-muted">导览 · {activeTour?.title ?? ''}</span>
             </div>
           )}
           {noRepo || view === 'topo' ? (
@@ -343,8 +343,8 @@ function WorkbenchShell() {
       >
         <span className="min-w-0 truncate">{currentRepo?.localPath ?? '未连接仓库'}</span>
         <span className="flex shrink-0 items-center gap-3">
-          <span>{currentRepo ? `${currentRepo.fileCount} files` : ''}</span>
-          <span>{currentRepo ? `${currentRepo.symbolCount} symbols` : ''}</span>
+          <span>{currentRepo ? `${currentRepo.fileCount} 个文件` : ''}</span>
+          <span>{currentRepo ? `${currentRepo.symbolCount} 个符号` : ''}</span>
           <span className="font-medium text-accent">Local-First</span>
         </span>
       </footer>

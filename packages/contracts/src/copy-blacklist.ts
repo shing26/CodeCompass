@@ -30,5 +30,46 @@ export const USER_COPY_BLACKLIST: readonly string[] = [
  * 同形标识符免疫由区域收集保证。web copy-guard 与 cp 服务端哨共读本表，
  * 杜绝英文层复刻中文层曾治过的「双表分叉」病。
  * 词面 G3 起随退役填入（整词直写：本包在扫描根外）。
+ * 不收录清单：「Agent 上下文」markdown 导出（ArchitectureDeltaView/CiGateView
+ * 复制给 IDE agent 的机器面，英文属契约）与内部枚举/标识符（role 值
+ * 'Caller' 等，展示层已映中文）。
  */
-export const USER_COPY_ENGLISH_RETIRED: readonly string[] = [];
+export const USER_COPY_ENGLISH_RETIRED: readonly string[] = [
+  'Watcher',
+  'Import repo',
+  'Import or clone repo',
+  'Import source',
+  'Select a repo',
+  'Choose a repo',
+  'Loading repos',
+  'Loading file',
+  'Loading tours',
+  'Loading dashboard',
+  'Loading',
+  'No tours available',
+  'Quick Tours',
+  'More Tours',
+  'Hide More Tours',
+  'No file open',
+  'Click a diagram node',
+  'Tech Stack',
+  'Architecture Scale',
+  'Config Topology',
+  'Symbols',
+  'Collapse',
+  'Expand',
+  'Source trace',
+  'Base ref',
+  'Head ref',
+  'Git URL',
+  'Cancel',
+  'Cloning',
+  'Importing',
+  'Clone & import',
+  'Indexing',
+  'Workbench views',
+  'Rules Masked',
+  'Clean',
+  'Cyber',
+  'Step'
+];

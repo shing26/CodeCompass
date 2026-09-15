@@ -215,7 +215,7 @@ export function Inspector({
               onClick={onBack}
               disabled={!canGoBack}
               className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
-              aria-label="Back"
+              aria-label="后退"
             >
               ←
             </button>
@@ -225,7 +225,7 @@ export function Inspector({
               onClick={onForward}
               disabled={!canGoForward}
               className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle disabled:opacity-30"
-              aria-label="Forward"
+              aria-label="前进"
             >
               →
             </button>
@@ -235,7 +235,7 @@ export function Inspector({
             className="min-w-0 truncate font-mono text-xs text-muted"
             title={file ?? undefined}
           >
-            {file ?? 'No file open'}
+            {file ?? '未打开文件'}
           </span>
           {file && onCopyAgentContext && (
             <button
@@ -252,7 +252,7 @@ export function Inspector({
             type="button"
             data-testid="inspector-close"
             onClick={onClose}
-            aria-label="Close inspector"
+            aria-label="收起检视器"
             className="rounded px-1.5 py-0.5 text-sm text-muted hover:bg-subtle md:hidden"
           >
             ✕
@@ -343,7 +343,7 @@ export function Inspector({
       <div className="min-h-0 flex-1">
         {loading && (
           <div className="flex h-full items-center justify-center text-sm text-muted">
-            Loading file…
+            文件加载中…
           </div>
         )}
         {!loading && error && (
@@ -356,7 +356,7 @@ export function Inspector({
         {!loading && !error && !file && (
           <div className="flex h-full items-center justify-center p-6">
             <p className="text-center text-sm text-muted">
-              Click a diagram node or source card to open the file here.
+              点击图上节点或源码卡片，在此打开文件
             </p>
           </div>
         )}
@@ -394,14 +394,14 @@ export function Inspector({
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {slices.map((slice, idx) => {
                 const role =
-                  idx === 0 ? '↑ Caller' : idx === slices.length - 1 ? '↓ Callee' : 'Target';
+                  idx === 0 ? '↑ 调用方' : idx === slices.length - 1 ? '↓ 被调方' : '目标';
                 const name = slice.file.split(/[\\/]/).pop() ?? slice.file;
                 return (
                   <span
                     key={`${slice.file}-${slice.line}-${idx}`}
                     data-testid="slice-chip"
                     className={`rounded border border-line bg-surface px-1.5 py-0.5 font-mono text-micro ${
-                      role.includes('Callee') ? 'text-callee' : 'text-accent'
+                      idx === slices.length - 1 ? 'text-callee' : 'text-accent'
                     }`}
                   >
                     {role} {name} L{slice.line}

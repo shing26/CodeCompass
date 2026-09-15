@@ -38,8 +38,9 @@ const SERVER_COPY_FILES = [
  * 由战役后段票面清零。销词必须走「文案改动与移除挂账同 commit」（D8④）；
  * 活性判定只看字符串区域（P1-1），注释提及时挂账照常失效变红——僵尸豁免
  * 无处藏身。拆分构造与 web 哨同一词面工艺。
+ * G3 已销「架构指标」（导出模板标题中文化，随票 03 摘除挂账）。
  */
-const PENDING_RETIREMENT: readonly string[] = ['拆除' + '计划', '架构' + '指标'];
+const PENDING_RETIREMENT: readonly string[] = ['拆除' + '计划'];
 
 const EFFECTIVE = USER_COPY_BLACKLIST.filter((w) => !PENDING_RETIREMENT.includes(w));
 const ENGLISH_TERMS: RegExp[] = USER_COPY_ENGLISH_RETIRED.map((word) => new RegExp(`\\b${word}\\b`));

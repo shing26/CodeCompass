@@ -58,7 +58,7 @@ export function StatusStepper({ progress }: { progress: StepperProgress | null }
       <div
         data-testid="status-progress"
         role="progressbar"
-        aria-label="Indexing progress"
+        aria-label="索引进度"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}

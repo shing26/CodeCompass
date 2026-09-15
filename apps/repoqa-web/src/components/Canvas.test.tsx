@@ -53,12 +53,12 @@ describe('Canvas offline UX (Issue 18)', () => {
 });
 
 describe('Canvas onboarding copy (ticket 15, QA-06)', () => {
-  it('names only current controls: Import repo/+ forms and the six real tab labels', () => {
+  it('names only current controls: 导入仓库 form and the six real tab labels', () => {
     renderCanvas({ repo: null });
     const guide = screen.getByTestId('empty-state');
-    // 导入入口：桌面/窄屏两形态均有交代
-    expect(guide).toHaveTextContent('Import repo');
-    expect(guide).toHaveTextContent('窄屏为「+」');
+    // 导入入口：v0.30 G3 中文化后桌面/窄屏同文案（原「+」窄屏形态随英文 chrome 退役）
+    expect(guide).toHaveTextContent('导入仓库');
+    expect(guide).not.toHaveTextContent('Import repo');
     // 视图名 = 现行六枚 tab 名
     expect(guide).toHaveTextContent('架构仪表盘');
     expect(guide).toHaveTextContent('架构问答');
@@ -101,8 +101,8 @@ describe('Canvas topology flow cards (Issue 31)', () => {
     expect(screen.getByTestId('selected-node')).toHaveTextContent('listOrders');
     expect(screen.getByTestId('affected-count')).toHaveTextContent('3 波及');
     expect(screen.getAllByTestId('flow-arrow')).toHaveLength(2);
-    expect(screen.getByText('Caller')).toBeInTheDocument();
-    expect(screen.getByText('Callee')).toBeInTheDocument();
+    expect(screen.getByText('调用方')).toBeInTheDocument();
+    expect(screen.getByText('被调方')).toBeInTheDocument();
   });
 
   it('falls back to the repo name and the skeleton before a trace resolves', () => {
@@ -170,15 +170,15 @@ describe('Canvas live trace strip (v0.11 Stage 4)', () => {
     const strip = screen.getByTestId('trace-strip');
     expect(strip).toBeInTheDocument();
     // Starts at step 1 of 3.
-    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 1/3');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('步骤 1/3');
 
     await user.click(screen.getByTestId('trace-step-next'));
-    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 2/3');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('步骤 2/3');
     expect(screen.getByTestId('trace-step-label')).toHaveTextContent('GET');
     expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/Service.java', 20, undefined, 'findOrders');
 
     await user.click(screen.getByTestId('trace-step-next'));
-    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 3/3');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('步骤 3/3');
     expect(screen.getByTestId('trace-step-label')).toHaveTextContent('BROKEN');
     expect(onNavigate).toHaveBeenLastCalledWith('src/main/java/Mapper.java', 30, undefined, 'findAll');
 
@@ -186,6 +186,6 @@ describe('Canvas live trace strip (v0.11 Stage 4)', () => {
     expect(screen.getByTestId('trace-step-next')).toBeDisabled();
 
     await user.click(screen.getByTestId('trace-step-prev'));
-    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('Step 2/3');
+    expect(screen.getByTestId('trace-step-label')).toHaveTextContent('步骤 2/3');
   });
 });

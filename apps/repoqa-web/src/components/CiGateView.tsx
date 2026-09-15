@@ -342,7 +342,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
             </label>
             <div className="flex items-center gap-2">
               <label className="flex flex-1 flex-col gap-1 text-xs text-muted">
-                Base
+                基线
                 <input
                   data-testid="ci-base"
                   value={base}
@@ -351,7 +351,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                 />
               </label>
               <label className="flex flex-1 flex-col gap-1 text-xs text-muted">
-                Head
+                待审
                 <input
                   data-testid="ci-head"
                   value={head}
@@ -367,13 +367,13 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">基线</h3>
           <div data-testid="ci-baseline" className="flex flex-wrap gap-2">
             <span className="rounded-md border border-line bg-subtle px-2 py-1 text-xs text-muted">
-              {dashboard ? `${formatNumber(dashboard.scale.routes)} Routes` : '—'}
+              {dashboard ? `${formatNumber(dashboard.scale.routes)} 接口` : '—'}
             </span>
             <span className="rounded-md border border-line bg-subtle px-2 py-1 text-xs text-muted">
               {dashboard ? `${formatNumber(dashboard.topApis.length)} Top APIs` : '—'}
             </span>
             <span className="rounded-md border border-line bg-subtle px-2 py-1 text-xs text-muted">
-              {dashboard ? `${formatNumber(dashboard.scale.files)} Files` : '—'}
+              {dashboard ? `${formatNumber(dashboard.scale.files)} 文件` : '—'}
             </span>
           </div>
         </section>

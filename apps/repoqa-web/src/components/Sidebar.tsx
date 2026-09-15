@@ -27,18 +27,18 @@ function displayLabel(symbol: RepoSymbol, duplicates: Set<string>): string {
 /** v0.6 closeout: symbol-type filter options (client-side, AND with search). */
 const KIND_FILTER_OPTIONS: Array<{ value: SymbolKind | 'all'; label: string }> = [
   { value: 'all', label: '全部类型' },
-  { value: 'route', label: 'route' },
-  { value: 'class', label: 'class' },
-  { value: 'interface', label: 'interface' },
-  { value: 'method', label: 'method' },
-  { value: 'service', label: 'service' },
-  { value: 'repository', label: 'repository' },
-  { value: 'mapper', label: 'mapper' },
-  { value: 'advice', label: 'advice' },
-  { value: 'field', label: 'field' },
-  { value: 'sql', label: 'sql' },
-  { value: 'config', label: 'config' },
-  { value: 'dependency', label: 'dependency' }
+  { value: 'route', label: 'HTTP 接口' },
+  { value: 'class', label: '类' },
+  { value: 'interface', label: '接口定义' },
+  { value: 'method', label: '方法' },
+  { value: 'service', label: '服务' },
+  { value: 'repository', label: '仓储' },
+  { value: 'mapper', label: 'Mapper' },
+  { value: 'advice', label: '切面' },
+  { value: 'field', label: '字段' },
+  { value: 'sql', label: 'SQL' },
+  { value: 'config', label: '配置' },
+  { value: 'dependency', label: '依赖' }
 ];
 
 function matchesSymbol(symbol: RepoSymbol, query: string): boolean {
@@ -216,7 +216,7 @@ export function Sidebar({
 
       <section className="border-b border-line p-3">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          Quick Tours
+          快速导览
         </h2>
         {repoName && (
           <QuickTours
@@ -229,7 +229,7 @@ export function Sidebar({
         )}
         {!repoName && (
           <p data-testid="sidebar-placeholder" className="text-xs text-muted">
-            Choose a repo to see recommended tours.
+            选择仓库后可见推荐导览
           </p>
         )}
       </section>
@@ -251,9 +251,10 @@ export function Sidebar({
 
       <section className="border-b border-line p-3">
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          Routes ({routes.length})
+          {/* V27-14 空态降噪：零数量不印「（0）」噪音，标题只留名。 */}
+          接口{routes.length > 0 && `（${routes.length}）`}
         </h2>
-        {loading && <p className="text-xs text-muted">Loading…</p>}
+        {loading && <p className="text-xs text-muted">加载中…</p>}
         {!loading && routeItems.length === 0 && (
           <p className="text-xs text-muted">—</p>
         )}
@@ -278,14 +279,14 @@ export function Sidebar({
             </li>
           ))}
           {routes.length > 20 && !normalizedQuery && (
-            <li className="text-xs text-muted">+{routes.length - 20} more</li>
+            <li className="text-xs text-muted">+{routes.length - 20} 更多</li>
           )}
         </ul>
       </section>
 
       <section className="p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Symbols</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">符号</h2>
           <div className="flex shrink-0 items-center gap-2">
             <select
               data-testid="symbol-kind-filter"
@@ -306,13 +307,13 @@ export function Sidebar({
               onClick={() => setSymbolsExpanded((v) => !v)}
               className="text-xs text-accent hover:underline"
             >
-              {symbolsVisible ? 'Collapse' : 'Expand'}
+              {symbolsVisible ? '收起' : '展开'}
             </button>
           </div>
         </div>
-        {loading && <p className="text-xs text-muted">Loading…</p>}
+        {loading && <p className="text-xs text-muted">加载中…</p>}
         {!loading && !symbolsVisible && (
-          <p className="text-xs text-muted">{tree.length} files — expand to browse</p>
+          <p className="text-xs text-muted">{tree.length} 个文件，点「展开」浏览</p>
         )}
         {!loading && symbolsVisible && symbolItems.length === 0 && (
           <p className="text-xs text-muted">无匹配符号</p>
@@ -353,7 +354,7 @@ export function Sidebar({
                           </span>
                         )}
                         <span className="min-w-0 flex-1 truncate">
-                          <span className="text-muted">{typeNode.symbol.kind}</span>{' '}
+                          <span className="text-muted">{KIND_FILTER_OPTIONS.find((o) => o.value === typeNode.symbol.kind)?.label ?? typeNode.symbol.kind}</span>{' '}
                           {displayLabel(typeNode.symbol, duplicateNames)}
                         </span>
                         <span className="shrink-0 font-mono text-micro text-muted">

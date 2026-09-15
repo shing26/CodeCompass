@@ -95,7 +95,7 @@ describe('DashboardView (issue 13)', () => {
     expect(screen.getAllByTestId('config-item')[0]).toBeInTheDocument();
     expect(screen.getByTestId('top-apis')).toHaveTextContent('listOrders');
     expect(screen.getByText('spring.datasource.password')).toBeInTheDocument();
-    expect(screen.getByText('sensitive')).toBeInTheDocument();
+    expect(screen.getByText('敏感')).toBeInTheDocument();
     expect(screen.getByText('值已脱敏')).toBeInTheDocument();
   });
 
@@ -197,7 +197,7 @@ describe('DashboardView (issue 13)', () => {
         onOpenChat={noop}
       />
     );
-    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('Loading dashboard…');
+    expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('仪表盘加载中…');
   });
 
   it('shows an error with a retry action when the fetch fails', async () => {

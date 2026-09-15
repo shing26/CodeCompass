@@ -227,13 +227,13 @@ export function Canvas({
                   disabled={traceStepIdx === 0}
                   className="rounded border border-line bg-subtle px-2 py-0.5 text-muted hover:border-accent/40 disabled:opacity-30"
                 >
-                  ← Prev
+                  ← 上一跳
                 </button>
                 <span
                   data-testid="trace-step-label"
                   className="min-w-0 flex-1 truncate font-mono"
                 >
-                  Step {traceStepIdx + 1}/{traceSteps.length}
+                  步骤 {traceStepIdx + 1}/{traceSteps.length}
                   {visibleTraceStep && (
                     <span className="ml-2 text-muted">
                       {visibleTraceStep.symbol}
@@ -261,7 +261,7 @@ export function Canvas({
                   disabled={traceStepIdx >= traceSteps.length - 1}
                   className="rounded border border-line bg-subtle px-2 py-0.5 text-muted hover:border-accent/40 disabled:opacity-30"
                 >
-                  Next →
+                  下一跳 →
                 </button>
               </div>
             </div>
@@ -274,7 +274,7 @@ export function Canvas({
             <div className="mt-4 space-y-3 text-left text-sm text-muted">
               <p>
                 <strong className="text-ink">① 导入仓库</strong> —
-                顶部「Import repo」按钮（窄屏为「+」），填本机仓库的完整路径
+                顶部「导入仓库」按钮，填本机仓库的完整路径
                 （如 C:\projects\petclinic），支持 Java / TS / Python / Go，索引完成后自动就绪。
               </p>
               <p>
@@ -325,6 +325,8 @@ function basename(file: string): string {
 }
 
 /** Caller -> Target -> Callee topology cards with animated dashed connectors. */
+// 内部 role 值驱动配色逻辑不动（D4），展示层出中文（v0.30 表 A）。
+const ROLE_COPY: Record<string, string> = { Caller: '调用方', Callee: '被调方', Target: '目标' };
 function FlowCards({
   anchors,
   onNavigate,
@@ -377,7 +379,7 @@ function FlowCards({
                     role === 'Callee' ? 'text-callee' : 'text-accent'
                   }`}
                 >
-                  {role}
+                  {ROLE_COPY[role] ?? role}
                 </span>
                 <span className="rounded bg-subtle px-1 text-micro font-medium text-muted">
                   {languageBadge(anchor.file)}
