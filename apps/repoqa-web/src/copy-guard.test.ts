@@ -13,6 +13,7 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { COPY_BLACKLIST } from './client/copyBlacklist';
+import { USER_COPY_ENGLISH_RETIRED } from '../../../packages/contracts/src/index';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 
@@ -88,8 +89,9 @@ describe('copy guard (v0.26-A ticket 04)', () => {
  * 标识符免疫原理：区域收集只认字符串/JSX 文本，\bEvolution\b 不会命中
  * EvolutionView/EvolutionRisk 这类复合标识符（词尾无边界）；注释不产区域
  * （先剥注释再收集），历史叙述在注释里不误红。
- * 已知限制（票 01 Comments 登记）：正则字面量内的引号可能被剥离器误判为
- * 字符串开合——真触发误报时对该文件具名豁免并留活例，不放空机制。
+ * 已知限制（票 01 Comments 登记）：未配对引号（正则字面量含引号等）会扰动
+ * 状态机——缓解：' 与 " 不跨行闭合（JS 语义，行内撇号不再连坐），残留
+ * 面只余未闭合反引号；真触发误报时对该文件具名豁免并留活例，不放空机制。
  */
 
 /** String-aware comment stripper: drops line and block comments, keeps string bodies intact. */
@@ -104,6 +106,9 @@ function stripComments(src: string): string {
       out += ch;
       if (ch === '\\') { out += next ?? ''; i += 2; continue; }
       if (ch === str) str = null;
+      // JS 语义：单双引号串不跨行——未配对撇号（如 JSX 文本 Don't）就此收口，
+      // 不会把后续注释吞进假字符串区（review P2-3 连坐面修复）。
+      else if (ch === '\n' && str !== '`') str = null;
       i += 1;
       continue;
     }
@@ -127,7 +132,8 @@ function userTextRegions(src: string): string[] {
   const clean = stripComments(src);
   const regions: string[] = [];
   for (const m of clean.matchAll(/>([^<>{}]+)</g)) regions.push(m[1]);
-  for (const m of clean.matchAll(/(["'`])(?:\\.|(?!\1)[\s\S])*?\1/g)) regions.push(m[0]);
+  // ' " 串体不跨行、反引号模板可跨行——与 stripComments 的行界语义一致。
+  for (const m of clean.matchAll(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*?`/g)) regions.push(m[0]);
   return regions;
 }
 
@@ -144,12 +150,18 @@ function scanEnglishRetired(relPath: string, src: string, terms: RegExp[]): stri
   return offenders;
 }
 
-// G3 起向此表填入退役英文 chrome 词（表 D 第二层）。G1 立机制、词表留空，
+// 词表权威在 contracts（review P2-4：跨包共表，G3 起填词）——web 局部表=第二
+// 事实源，本票立意正是根治此病，英文层不得自犯。G1 词表留空，
 // 灵敏度由下方注入测试证明——防空转。
-const ENGLISH_RETIRED: RegExp[] = [];
+const ENGLISH_RETIRED: RegExp[] = USER_COPY_ENGLISH_RETIRED.map((word) => new RegExp(`\\b${word}\\b`));
 
 describe('English retired-word layer (v0.30 ticket 01, D8②)', () => {
   it('no bare English `Evolution` (and G3+ retired chrome words) in any user-visible copy region', () => {
+    // 收集器活性种子（review P2-2）：已知合法中文文案必须被看见——收集器或
+    // 文件遍历坏掉时本断言先红，主测试绝不静默空转。
+    const seed = userTextRegions(readFileSync(join(SRC, 'components', 'Sidebar.tsx'), 'utf8')).join('\n');
+    expect(seed).toContain('规范演进');
+
     const terms: RegExp[] = [/\bEvolution\b/, ...ENGLISH_RETIRED];
     const offenders: string[] = [];
     for (const file of sourceFiles(SRC)) {
@@ -162,12 +174,14 @@ describe('English retired-word layer (v0.30 ticket 01, D8②)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('identifier noise and comments are immune (false-positive guard)', () => {
+  it('identifier noise, comments and stray apostrophes are immune (false-positive guard)', () => {
     const immune = [
       "import { EvolutionRisk } from 'x';",
       'function openEvolutionView() { /* the Evolution workbench in prose */ }',
       'const v: EvolutionStageId;',
-      '// Ticket 04: open the Evolution workbench view.'
+      '// Ticket 04: open the Evolution workbench view.',
+      "<p>Don't panic</p>",
+      '// the Evolution word here sits in a comment after an unpaired quote'
     ].join('\n');
     expect(scanEnglishRetired('synthetic.tsx', immune, [/\bEvolution\b/])).toEqual([]);
   });

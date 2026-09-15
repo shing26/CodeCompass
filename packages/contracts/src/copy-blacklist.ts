@@ -9,6 +9,10 @@
  * services/control-plane/src）之外，无自燃通道。
  * 增词纪律（v030 spec 表 D）：词进入本表的同一 commit，其最后一处用户可见
  * 直出必须已被移除——改文案与改哨同 commit。
+ *
+ * 本表只装中文退役词（全文扫、含注释）。英文 chrome 词禁入——Watcher/
+ * Evolution 之类与代码标识符同形，全文扫=全仓自燃；英文词走下方
+ * USER_COPY_ENGLISH_RETIRED（区域扫），两表不同物勿合并（G8 终核）。
  */
 export const USER_COPY_BLACKLIST: readonly string[] = [
   '推演卡',
@@ -19,3 +23,12 @@ export const USER_COPY_BLACKLIST: readonly string[] = [
   '读侧',
   '写侧'
 ];
+
+/**
+ * v0.30 票 01 增补（review P2-4）——英文 chrome 退役词表（D8 第二层）。
+ * 判据是「用户文案区域」（字符串字面量 / JSX 文本节点），非全文：
+ * 同形标识符免疫由区域收集保证。web copy-guard 与 cp 服务端哨共读本表，
+ * 杜绝英文层复刻中文层曾治过的「双表分叉」病。
+ * 词面 G3 起随退役填入（整词直写：本包在扫描根外）。
+ */
+export const USER_COPY_ENGLISH_RETIRED: readonly string[] = [];
