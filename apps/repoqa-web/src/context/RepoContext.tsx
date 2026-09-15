@@ -227,6 +227,18 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     setIndexingProgress(null);
   }, [repoId]);
 
+  // V27-23 (v029/04): the stepper used to persist forever after a completed
+  // index — the WS handler only SETS indexingProgress (FINALIZING/100 closes
+  // the stream with no clearing frame), and the only reset was the repo-switch
+  // effect. Now the catalog poll is the authority for "done": once the current
+  // repo leaves the active statuses (cloning/parsing/indexing → ready/error),
+  // the progress overlay is cleared. Active-state list mirrors useRepoCatalog.
+  useEffect(() => {
+    if (!indexingProgress || !currentRepo) return;
+    const active = ['cloning', 'parsing', 'indexing'].includes(currentRepo.status);
+    if (!active) setIndexingProgress(null);
+  }, [currentRepo, indexingProgress]);
+
   const goTopology = () => {
     setActiveTour(null);
     setView('topo');
