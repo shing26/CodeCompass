@@ -1342,7 +1342,9 @@ def check_cli_composite(node: str, cli: Path, repo_path: Path, data_dir: Path, t
             and "HTTP_ROUTER" in layers
             and "SERVICE" in layers
             and result["verifiedChain"][0]["status"] in ("VERIFIED", "SUSPECT")
-            and result["cockpitDeepLink"].startswith("http://localhost:")
+            # V27-22 成对改：深链宿主不再是硬编码 localhost，而是跟着绑定面
+            # 走（cockpitBaseUrl/displayHost）。默认回环下 = 127.0.0.1。
+            and re.match(r"^http://(localhost|127\.0\.0\.1):\d+", result["cockpitDeepLink"])
         )
         detail = f"layers={layers} traceId={result.get('traceId')}"
     except Exception as exc:  # noqa: BLE001

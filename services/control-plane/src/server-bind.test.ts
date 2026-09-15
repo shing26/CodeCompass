@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startServer, type RunningServer } from './server';
-import { displayHost, isLoopbackListenAddress, loadConfig } from './config';
+import { displayHost, isLoopbackListenAddress, loadConfig, cockpitBaseUrl } from './config';
 import type { AddressInfo } from 'node:net';
 
 /**
@@ -92,5 +92,18 @@ describe('v0.27-B R4: loopback-first binding (V27-1)', () => {
     expect(isLoopbackListenAddress('0.0.0.0', 'IPv4')).toBe(false);
     expect(isLoopbackListenAddress('192.168.1.5', 'IPv4')).toBe(false);
     expect(isLoopbackListenAddress(undefined, undefined)).toBe(false);
+  });
+
+  it('cockpitBaseUrl = display host + port, the one deep-link authority (V27-22)', () => {
+    // Default loopback bind → 127.0.0.1 literal (NOT the old hardcoded
+    // "http://localhost" the MCP deep links carried before V27-22).
+    expect(cockpitBaseUrl({})).toBe('http://127.0.0.1:43110');
+    // LAN escape: unreachable bind host degrades to localhost for display…
+    expect(cockpitBaseUrl({ MHW_CP_HOST: '0.0.0.0' })).toBe('http://localhost:43110');
+    // …while a concrete interface stays reachable verbatim — deep links now
+    // actually open instead of pointing at a localhost nobody bound.
+    expect(cockpitBaseUrl({ MHW_CP_HOST: '192.168.1.7', MHW_CP_PORT: '5555' })).toBe(
+      'http://192.168.1.7:5555'
+    );
   });
 });

@@ -4,7 +4,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadConfig } from '../config';
+import { loadConfig, cockpitBaseUrl } from '../config';
 import { openDb, ensureDefaultWorkspace, backupDb } from '../db';
 import { maskSensitiveText } from '../engine/repoqa-masking';
 import { EventBus } from '../events';
@@ -669,7 +669,10 @@ export function mcpModuleEvolution(deps: McpDeps, args: McpToolHandlerArgs): Rec
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
   const intentType = String(args.intentType ?? 'DEPRECATE') as 'DEPRECATE' | 'EXTEND';
-  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  // V27-22: cockpit base via the shared rule (display host follows bind
+  // host) — the old hardcoded `http://localhost` dead-linked whenever the
+  // server was escaped to a LAN interface via MHW_CP_HOST.
+  const baseUrl = cockpitBaseUrl();
   try {
     return runModuleEvolution({
       repoId: repo.id,
@@ -699,7 +702,10 @@ export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<str
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
   // Deep links must honor the actually-bound control-plane port, not a guess.
-  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  // V27-22: cockpit base via the shared rule (display host follows bind
+  // host) — the old hardcoded `http://localhost` dead-linked whenever the
+  // server was escaped to a LAN interface via MHW_CP_HOST.
+  const baseUrl = cockpitBaseUrl();
   return runDiagnose({
     repoId: repo.id,
     entrySymbol: String(args.entrySymbol ?? ''),
@@ -717,7 +723,10 @@ export function mcpDiagnose(deps: McpDeps, args: McpToolHandlerArgs): Record<str
 export function mcpRefactorPlan(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
-  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  // V27-22: cockpit base via the shared rule (display host follows bind
+  // host) — the old hardcoded `http://localhost` dead-linked whenever the
+  // server was escaped to a LAN interface via MHW_CP_HOST.
+  const baseUrl = cockpitBaseUrl();
   return runBlastRadius({
     repoId: repo.id,
     targetSymbol: String(args.targetSymbol ?? ''),
@@ -776,7 +785,10 @@ export function mcpPlanEvolution(deps: McpDeps, args: McpToolHandlerArgs): Recor
   if (intentType !== 'EXTEND' && intentType !== 'DEPRECATE') {
     throw new Error('intentType must be EXTEND or DEPRECATE');
   }
-  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  // V27-22: cockpit base via the shared rule (display host follows bind
+  // host) — the old hardcoded `http://localhost` dead-linked whenever the
+  // server was escaped to a LAN interface via MHW_CP_HOST.
+  const baseUrl = cockpitBaseUrl();
   try {
     return runModuleEvolution({
       repoId: repo.id,
@@ -920,7 +932,10 @@ export function mcpRemoveRepo(deps: McpDeps, args: McpToolHandlerArgs): Record<s
 export function mcpScan(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const graph = deps.worker.getSymbolGraph(repo.id);
-  const baseUrl = `http://localhost:${loadConfig(process.env).port}`;
+  // V27-22: cockpit base via the shared rule (display host follows bind
+  // host) — the old hardcoded `http://localhost` dead-linked whenever the
+  // server was escaped to a LAN interface via MHW_CP_HOST.
+  const baseUrl = cockpitBaseUrl();
   return runScan({
     repoId: repo.id,
     repoName: repo.name,

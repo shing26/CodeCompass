@@ -52,7 +52,7 @@
 | Composite Tool（复合工具） | 由多个确定性图谱查询组合成的 MCP 工具（`codecompass_diagnose`、`codecompass_refactor_plan`）；零 LLM、可单测可重放，叙述与补丁由 LLM 编排层生成（ADR-0005/0006）。 |
 | Diagnose Chain（穿透链路） | 从入口符号（方法名或 "METHOD /route/path"）出发的分层链：FRONTEND_COMPONENT → HTTP_ROUTER → SERVICE → DATA_MAPPER；每层标 VERIFIED / BROKEN / SUSPECT，层级按语言可降级，缺层不硬凑。 |
 | Blast Radius（爆炸半径） | 以目标符号为根的反向递归调用方聚合，含直接/间接计数、受波及对外路由、桥接受波及的前端组件与 HIGH/MEDIUM/LOW 风险评级。 |
-| Deep-Link（驾驶舱深链） | 带 `?repo=&focus=&traceId=&mode=diff` 的工作台 URL，用于现场还原一条链路或差异视图；深链落在卡片流上（ADR-0007）。 |
+| Deep-Link（驾驶舱深链） | 带 `?repo=&focus=&traceId=&mode=diff` 的工作台 URL，用于现场还原一条链路或差异视图；深链落在卡片流上（ADR-0007）；宿主由 `cockpitBaseUrl` 单一权威生成——展示面跟实际绑定面走，LAN 逃生（MHW_CP_HOST）时深链仍可达（v0.29/V27-22，取代旧硬编码 localhost）。 |
 | HTML Artifact（诊断工件） | `codecompass export` 输出的单文件自包含 HTML：内联 mermaid 运行时、链路步骤与代码切片，断网可渲染、可随 PR 归档。 |
 | Module Evolution（模块演进） | DEPRECATE（安全下线：模块聚类 + 固定点级联孤立死代码 + 清理 Checklist）与 EXTEND（功能扩展：挂载点 + 事务边界证据 + 解耦模式脚手架）两条确定性推演管线；脚手架是推荐写法而非补丁（ADR-0006）。 |
 | Domain Radar（领域雷达） | 符号图的全景聚合：出入度 + 确定性 PageRank（阻尼 0.85、悬挂节点权重重分配、桥接边计入入度）+ 三栏输出；意图锚点 = 模糊匹配链 + doc-chunk 证据 + 图排名增益，零 embedding。 |

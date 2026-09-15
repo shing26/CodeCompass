@@ -42,6 +42,15 @@ export function displayHost(bound: string): string {
   return bound === '0.0.0.0' || bound === '::' || bound === '' ? 'localhost' : bound;
 }
 
+/** V27-22：驾驶舱 base URL 的单一权威——展示面跟实际绑定面走（复用 R4 的
+ * displayHost 规则），MCP 深链/CLI 打印共用一把尺。MCP stdio 进程与 HTTP
+ * 服务进程各读各的 env（同机部署下 loadConfig 同源），不再硬编码 localhost
+ * ——`MHW_CP_HOST=192.168.x` 逃生时深链仍可达。 */
+export function cockpitBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const config = loadConfig(env);
+  return `http://${displayHost(config.host)}:${config.port}`;
+}
+
 /** R4 review P2-3(a)：回环判定基于解析后的实际监听地址而非配置字符串——
  * `127.0.0.2` 仍属回环（消除误报告警），而 hosts 把 `localhost` 重定向到
  * 路由网卡时也会如实告警（堵住理论漏报口）。 */
