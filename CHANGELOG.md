@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.29.0] - 2026-09-16
+
+### Highlights
+
+- **安全+韧性收口批（v0.29 票池，`.scratch/v029-resilience-hardening/`）**：承 2026-09-12 生产就绪度评估与 v0.27 台账 V27-18..23，七票全落；两处授权假设（V27-20 拆票、V27-21 强尺统一）经用户批准执行。(1) **T1/V27-21 掩码强尺统一（P0）**：14-pattern `maskSensitiveText` 升为唯一「出库权威」——chat 摘要换尺、scan 超限分支改 parse masked（raw 旁路关死）、native tool loop 成功路径补上侦察新逮的第四把「零尺」裸面、3-pattern 弱尺 `maskSecrets` 整函数废除；CONTEXT.md 新增「出库掩码不变式」词条。(2) **T2/V27-18 clone 网络瞬断重试**：`isTransientGitFailure` 永久优先分类器（authentication/403/not found/timed out 不重试）+ `cloneGitRepo` 内聚 1s/2s 双指数退避 + onRetry 落日志。(3) **T4/V27-22 深链展示面对齐**：`config.ts::cockpitBaseUrl` 单一权威（displayHost+port 与 R4 绑卡规则同源），MCP 五处硬编码 localhost 统一改引；closeout gate 深链断言同 commit 成对改判据。(4) **T3/V27-20 前半**：EvolveStream 改走注入 `TimedFetch`（15s 首字节预算生效 + hang→onError 回归钉）；后半 import 202+WS 化拆新账 **V29-1** 挂账不排期。(5) **T5/V27-23**：StatusStepper 进度条常驻不清——RepoContext 补目录轮询复位 effect（当前仓离开 active 三态即清）。(6) **T6 异名对收口**：`Anchor` re-export 等值消亡手工镜像；web 名不符实的 `IndexingProgress` 改名立实 `StepperProgress`（步进条诚实窄化投影，wire 真身 `RepoQaIndexProgress` 原名直出——计划中的 re-export+兜底路线会引入 phase 全集运行时问题，偏离经票面记录裁决）。(7) **T7/V27-19 企业套件裁决销项**：/metrics、外置告警、fail-fast+.env.example 三项按 Local-First 身份全不做，重评触发条件登记在票面。
+
+### Fixed
+
+- LLM 出库面凭据泄漏残余通道（chat 摘要/scan 超限摘要/native 工具结果三面统一过 14-pattern 强尺）。
+- clone 网络瞬断一次即败：瞬断类 2 次指数退避重试，永久类错误（鉴权/404/超时）直抛不重试。
+- SIGTERM 优雅关闭回归钉（V27-31 遗产）在 CI 两平台的 flaky：shutdown/bind 用例预算相撞类修复（测试级 timeout 15s、观察窗 8s，真挂死仍 8s 内报 hung）；runner segfault 类以重跑裁决，两类纪律入 spec。
+
+### Changed
+
+- MCP 深链宿主跟随控制面实际绑定面（默认 127.0.0.1），不再恒印 localhost。
+- web 类型面：`IndexingProgress` 语义收窄为 `StepperProgress` 本地投影，wire 真身单一源化。
+
+### Tests
+
+- 基线：control-plane 644、web 356、bridge 26、e2e 62 checks；golden eval 97 题随 T1 重跑零翻车；UI 冒烟四链路绿。
+
 ## [0.28.0] - 2026-09-15
 
 ### Highlights
