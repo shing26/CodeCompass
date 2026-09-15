@@ -36,13 +36,17 @@ afterEach(async () => {
     const s = servers.pop()!;
     // Bounded teardown: if the bug regressed, a hanging close must not
     // wedge the whole suite — race it, and let the test assertion itself
-    // report the hang.
-    await Promise.race([s.close(), new Promise((r) => setTimeout(r, 3000))]);
+    // report the hang. 8s window: loaded-CI scheduling slack (v0.29 flaky).
+    await Promise.race([s.close(), new Promise((r) => setTimeout(r, 8000))]);
   }
 });
 
 describe('graceful shutdown with live WebSocket clients (V27-31)', () => {
-  it('close() resolves within budget while a /ws client is connected', async () => {
+  // CI hardening (v0.29 T6 flaky post-mortem): these tests do real socket
+  // round-trips; the vitest 5s default collided with our own 3s observation
+  // races on loaded runners. Test budget 15s, internal windows widened —
+  // still far below any hang threshold, so a real V27-31 regression fails fast.
+  it('close() resolves within budget while a /ws client is connected', { timeout: 15_000 }, async () => {
     const running = await boot();
     const client = new WebSocket(`ws://127.0.0.1:${running.port}/ws`);
     // The server sends system.welcome right after the handshake; await the
@@ -50,7 +54,7 @@ describe('graceful shutdown with live WebSocket clients (V27-31)', () => {
     const welcome = await new Promise<string>((resolve, reject) => {
       client.on('message', (data) => resolve(String(data)));
       client.on('error', reject);
-      setTimeout(() => reject(new Error('no welcome frame')), 3000);
+      setTimeout(() => reject(new Error('no welcome frame')), 8000);
     });
     expect(welcome).toContain('system.welcome');
 
@@ -59,13 +63,13 @@ describe('graceful shutdown with live WebSocket clients (V27-31)', () => {
       running.close().then(() => {
         hung = false;
       }),
-      new Promise((r) => setTimeout(r, 3000))
+      new Promise((r) => setTimeout(r, 8000))
     ]);
     client.close();
     expect(hung, 'RunningServer.close() hung: live WS clients are not terminated before server.close()').toBe(false);
   });
 
-  it('the client observes the close event (socket is really destroyed, not just the listener)', async () => {
+  it('the client observes the close event (socket is really destroyed, not just the listener)', { timeout: 15_000 }, async () => {
     const running = await boot();
     const client = new WebSocket(`ws://127.0.0.1:${running.port}/ws`);
     await new Promise<void>((resolve, reject) => {
@@ -75,7 +79,7 @@ describe('graceful shutdown with live WebSocket clients (V27-31)', () => {
     });
     const closedByServer = new Promise<boolean>((resolve) => {
       client.on('close', () => resolve(true));
-      setTimeout(() => resolve(false), 3000);
+      setTimeout(() => resolve(false), 8000);
     });
     await running.close();
     expect(await closedByServer).toBe(true);

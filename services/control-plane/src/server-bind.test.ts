@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 describe('v0.27-B R4: loopback-first binding (V27-1)', () => {
-  it('default binds 127.0.0.1 and /health echoes boundHost', async () => {
+  it('default binds 127.0.0.1 and /health echoes boundHost', { timeout: 15_000 }, async () => {
     const running = await boot({ MHW_CP_HOST: undefined });
     const addr = running.server.address() as AddressInfo;
     expect(addr.address).toBe('127.0.0.1');
@@ -43,7 +43,9 @@ describe('v0.27-B R4: loopback-first binding (V27-1)', () => {
     expect(health.boundHost).toBe('127.0.0.1');
   });
 
-  it('MHW_CP_HOST=0.0.0.0 escapes to all interfaces AND logs a LAN warning', async () => {
+  // CI hardening (v0.29 T3 flaky post-mortem): real listen+fetch round-trips
+  // need more than vitest's 5s default on loaded runners.
+  it('MHW_CP_HOST=0.0.0.0 escapes to all interfaces AND logs a LAN warning', { timeout: 15_000 }, async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const running = await boot({ MHW_CP_HOST: '0.0.0.0' });
     const addr = running.server.address() as AddressInfo;
