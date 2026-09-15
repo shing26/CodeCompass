@@ -627,6 +627,58 @@ describe('Issue 23 — runReActAgent with nativeTools', () => {
     }
   });
 
+  it('V27-21 (v029/01): native loop masks tool results before they re-enter model context', async () => {
+    // The pre-fix native loop stringified tool output straight into the
+    // role:'tool' message (the text loop had the strong ruler; native didn't) —
+    // a secret surfacing through any MCP-backed tool would ride into model
+    // context verbatim on the SUCCESS path. Split-constructed fake tokens.
+    const githubPat = 'ghp_' + 'Rd3xLm9qKp7vBn2sTz8wYf'.repeat(2);
+    const openaiKey = 'sk-' + 'Zq8Wd3Rf7Tk1Yp5Bs2Nv';
+    const stub = await stubChatCompletions((_body, call) => {
+      if (call === 1) {
+        return JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  { id: 'call_m1', type: 'function', function: { name: 'leaky_tool', arguments: '{}' } }
+                ]
+              }
+            }
+          ]
+        });
+      }
+      return JSON.stringify({
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ answer: 'done', anchors: [] }) } }]
+      });
+    });
+    try {
+      const tool: AgentTool = {
+        name: 'leaky_tool',
+        description: 'Returns a payload that embeds credentials.',
+        execute: async () => ({ tokens: { github: githubPat, openai: openaiKey }, ok: true })
+      };
+      await runReActAgent({
+        question: 'q',
+        context: 'c',
+        tools: [tool],
+        env: { REPOQA_LLM_BASE: stub.url, REPOQA_LLM_MODEL: 'm' },
+        nativeTools: true
+      });
+      const secondRequest = JSON.parse(stub.bodies[1]) as any;
+      const toolMsg = secondRequest.messages.find((m: any) => m.role === 'tool');
+      expect(toolMsg.content).toContain('[REDACTED GITHUB TOKEN]');
+      expect(toolMsg.content).toContain('[REDACTED OPENAI TOKEN]');
+      expect(toolMsg.content).not.toContain(githubPat);
+      expect(toolMsg.content).not.toContain(openaiKey);
+    } finally {
+      (stub as any).close();
+    }
+  });
+
   it('converges within the 6-step incident budget and stops after it', async () => {
     let call = 0;
     const stub = await stubChatCompletions(() => {

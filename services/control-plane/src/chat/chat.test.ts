@@ -6,7 +6,7 @@ import {
   type AgentDeps,
   type McpLike,
 } from './agent';
-import { LlmManager, loadDotEnv, maskSecrets } from './llm';
+import { LlmManager, loadDotEnv } from './llm';
 import { ChatStore } from './store';
 import { deriveAutoApprove } from './approve';
 
@@ -98,13 +98,10 @@ describe('LlmManager (chat keys)', () => {
     expect(() => llm.switchTo('nope')).toThrow(/unknown profile/);
   });
 
-  it('maskSecrets redacts the obvious trio', () => {
-    const fakeAkid = 'AKIA' + 'IOSFODNN7EXAMPLE';
-    const masked = maskSecrets(`key ${fakeAkid} and sk-${'a'.repeat(24)} and Bearer ${'x'.repeat(30)}`);
-    expect(masked).toContain('[REDACTED-AKID]');
-    expect(masked).toContain('[REDACTED-KEY]');
-    expect(masked).not.toContain(fakeAkid);
-  });
+  // V27-21: maskSecrets (3-pattern trio ruler) deleted — the 14-pattern
+  // maskSensitiveText is the single outbound authority; its coverage lives in
+  // engine/repoqa-masking.test.ts, and the outbound call-site wiring is pinned
+  // by chat.agent / repoqa-llm native-loop tests added in ticket v029/01.
 
   it('loadDotEnv returns 0 for a missing file', () => {
     const env: Record<string, string | undefined> = { EXISTING: 'keep' };
@@ -301,6 +298,69 @@ describe('ReActAgent tool loop (LLM configured)', () => {
     expect(content).toMatch(/Hub0.*— PageRank 0\.00; in 170/); // P3-7: detail 随行
     expect(content.length).toBeLessThanOrEqual(4_000);
     expect(turn.answer).toContain('五桶齐了');
+  });
+
+  it('V27-21 (v029/01): oversized scan summary carries no plaintext secrets (raw bypass closed)', async () => {
+    // Pre-fix: the scan branch parsed the RAW payload and echoed fields into
+    // the summary — any credential inside detail strings bypassed every ruler.
+    // Now the branch parses the masked payload; plaintext must not appear in
+    // what reaches the model. Split-constructed fake tokens (copy-guard style).
+    const fakeGhp = 'ghp_' + 'Kd9Fn2Xp7Lm4Qw8Zr1Ty';
+    const fakeAkid = 'AKIA' + 'IOSFODNN7EXAMPLE';
+    const bodies: Array<Record<string, unknown>> = [];
+    const mcp = makeMcp();
+    const items = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        symbol: `Hub${i}`,
+        kind: 'method',
+        filePath: `a/Hub${i}.java`,
+        line: i + 1,
+        detail:
+          i === 0
+            ? `PageRank 0.9; leaked ${fakeGhp} and key ${fakeAkid} in config`
+            : `PageRank 0.0${i % 9}`
+      }));
+    (mcp as unknown as { callTool: unknown }).callTool = vi.fn(async () => ({
+      payload: {},
+      raw: JSON.stringify({
+        repoName: 'petclinic',
+        buckets: [{ id: 'hubs', title: 'hubs', total: 170, items: items(170) }]
+      }),
+      ms: 1
+    }));
+    let calls = 0;
+    const fetchImpl = (async (_url: unknown, init?: { body?: string }) => {
+      if (init?.body) bodies.push(JSON.parse(init.body) as Record<string, unknown>);
+      calls += 1;
+      return calls === 1
+        ? sseResponse([
+            {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: 'call_1', function: { name: 'codecompass_scan', arguments: '{"repoId":"repo-1"}' } }
+                    ]
+                  }
+                }
+              ]
+            },
+          ])
+        : sseResponse([{ choices: [{ delta: { content: '桶收齐 [cite: 1]' } }] }]);
+    }) as unknown as typeof fetch;
+
+    const agent = new ReActAgent({ mcp, llm: makeLlm(llmEnv), log: noopLog, onDelta: () => {}, fetchImpl });
+    await agent.run('scan');
+
+    const lastBody = bodies[bodies.length - 1];
+    const toolMsgs = ((lastBody.messages as Array<{ role: string; content?: string }>) ?? []).filter(
+      (m) => m.role === 'tool'
+    );
+    const content = toolMsgs[0]!.content!;
+    expect(content).toContain('## hubs'); // 结构压缩仍在位
+    expect(content).toContain('[REDACTED');
+    expect(content).not.toContain(fakeGhp);
+    expect(content).not.toContain(fakeAkid);
   });
 
   it('forces a synthesis round when the step cap exhausts on tool rounds (M3-01)', async () => {

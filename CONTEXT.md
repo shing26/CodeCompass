@@ -64,6 +64,7 @@
 | Candidate Scan（自荐扫描） | 第 15 个 MCP 工具：对已索引仓库输出五桶"该动哪里"候选清单——orphanedPublic（零静态调用者，声明反射误报边界）、hubs（PageRank 波及热点）、oversized（≥150 行方法）、deepChains（最深入口链）、oversizedFiles（索引符号覆盖跨度 ≥600 行的文件级债务热点，v0.21.0 新增）。每桶 top-N + 总量 + 确定性 nextAction 引导后续工具；纯查询同步契约。定位红线：scan 只报确定性事实（零调用者是事实，不是"可安全删除"的判断），语义判断属于 agent。 |
 | Architecture & Incident Copilot（排障副驾驶） | Web 端改造新增的排障对话模式：以文字描述 + 粘贴堆栈/日志为入口，独立 6 步 ReAct 预算（普通问答保持 3 步），产出穿透链 + 爆炸半径 + 配置证据的锚定式回答。v1 纯静态边界：不接 APM/日志流。 |
 | Zero-Hallucination Contract（零幻觉合约） | 回答中每条调用链断言必须逐字来自本次会话工具返回的 Call Edge；每个 file:line 引用必须过 raw-file 物理校验；静态不可达边界强制标 BREAK/SUSPECT，禁止叙述性补全。叙述性总结与逻辑串联不要求逐句锚定。验收 = golden eval incident bucket 幻觉率 0%，进发布 gate。 |
+| Outbound Masking Invariant（出库掩码不变式） | 任何字符串在离开本机或进入模型上下文之前必须过 `maskSensitiveText`（14-pattern 唯一权威尺）；覆盖 SSE/HTTP 响应、持久化文本列、MCP stdio 事件与 **LLM 请求侧**（ReAct 工具结果入 messages 前、copilot 工具摘要含 scan 压缩路径）。单一尺、无分级豁免——错误面与成功面对称适用（v0.29/V27-21：废除 3-pattern 弱尺、关死 scan raw 旁路、补齐 native tool loop 裸面）。 |
 | Physical Anchor（物理锚点） | `repoId + commit + file:line-range + symbolId` 四元组，raw-file 校验通过才可展示；工作区有未提交修改时记为 `commit+dirty`。钉 commit 换取时空可回放性，防止文件改动后行号切片错位成幽灵锚点。 |
 | Stack Trace Parsing（堆栈解析） | 确定性正则解析器：从粘贴的堆栈/日志提取 `Class.method(File.java:123)`，反查符号表后串联 diagnose 穿透与波及面分析；零 LLM 参与。 |
 | Intent→Artifact（意图工件模型） | ADR-0012 定义的交互模型：用户给一个意图，智能体单次产出高密度工件卡（定位节点 + 拓扑图谱 + 落位清单 + 风险 Checklist），不逐步反问；历史是工件流，按 (repoId, commit) 隔离；对工件卡的追问 = 新意图输入。 |

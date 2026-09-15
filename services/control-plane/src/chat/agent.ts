@@ -1,6 +1,5 @@
 import type { ToolSummary, ToolCallOutcome } from './types.js';
 import type { ChatMessage, LlmManager, ToolSpec } from './llm.js';
-import { maskSecrets } from './llm.js';
 import { maskSensitiveText } from '../engine/repoqa-masking';
 import type { SessionLogger } from './log.js';
 
@@ -277,14 +276,21 @@ export class ReActAgent {
    * compression instead: five buckets become compact per-bucket summaries
    * (top symbols + totals + nextAction), easily within budget. Non-scan tools
    * keep the proven mask+cap path.
+   *
+   * V27-21: the 14-pattern strong ruler is the ONLY outbound authority here —
+   * the old 3-pattern maskSecrets trio let JWT/ghp_/DSN ride success-path tool
+   * results into model context. The scan branch now parses the MASKED payload
+   * (masking replaces text inside JSON string values only, so structure stays
+   * parseable) — previously it parsed raw and every field it echoed into the
+   * summary bypassed any ruler at all.
    */
   private summarizeIfLarge(toolName: string, raw: string): string {
-    const masked = maskSecrets(raw);
+    const masked = maskSensitiveText(raw);
     if (toolName !== 'codecompass_scan' || masked.length <= TOOL_RESULT_CHAR_CAP) {
       return masked.slice(0, TOOL_RESULT_CHAR_CAP);
     }
     try {
-      const parsed = JSON.parse(raw) as {
+      const parsed = JSON.parse(masked) as {
         repoName?: string;
         buckets?: Array<{
           id?: string;

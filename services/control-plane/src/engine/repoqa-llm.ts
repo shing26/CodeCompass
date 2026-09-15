@@ -814,7 +814,10 @@ async function runNativeToolsLoop(
       toolResults.push({
         role: 'tool',
         tool_call_id: call.id,
-        content: capPrompt(JSON.stringify(executed ?? null), TOOL_RESULT_CHAR_CAP)
+        // V27-21: native loop had NO masking on tool results entering model
+        // context (the text-loop path passes maskSensitiveText at :750 — same
+        // ruler, same invariant: nothing leaves the machine unmasked).
+        content: capPrompt(maskSensitiveText(JSON.stringify(executed ?? null)), TOOL_RESULT_CHAR_CAP)
       });
     }
     messages.push({

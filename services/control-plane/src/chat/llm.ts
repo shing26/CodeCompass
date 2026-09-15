@@ -210,15 +210,6 @@ async function parseSseStream(
   return result;
 }
 
-/** Minimal secret masking before tool results leave the machine (grill Q2:
- * full 13-pattern set stays in CodeCompass; copilot covers the obvious trio). */
-export function maskSecrets(text: string): string {
-  return text
-    .replace(/(AKIA|ASIA)[A-Z0-9]{16}/g, '[REDACTED-AKID]')
-    .replace(/\bsk-[A-Za-z0-9_-]{20,}/g, '[REDACTED-KEY]')
-    .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/g, 'Bearer [REDACTED]');
-}
-
 /** Minimal dotenv: KEY=VALUE lines, existing env wins (CodeCompass convention). */
 export function loadDotEnv(file: string, env: NodeJS.ProcessEnv = process.env): number {
   let text: string;

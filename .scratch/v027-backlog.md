@@ -24,7 +24,7 @@
 | V27-18 | clone/reindex 网络瞬断无策略重试（一次成败，用户手动重按）——2 次指数退避 + 进度流可感知 | 生产就绪度评估 1-缺口3 | 容错 |
 | V27-19 | 企业级套件裁决票：/metrics 指标暴露、外置告警、配置 fail-fast+.env.example——按 Local-First 产品身份多数建议不做，留 grill 显式销项 | 生产就绪度评估 低优先 | 边界 |
 | V27-20 | import/evolve 韧性补全：POST /api/repos 迁 202+WS 进度（消灭 600s 假失败面与超时后重复导入诱因）；EvolveStream 改走注入的 TimedFetch（现在全局 fetch 绕 R2 预算，也测不了） | R2 review P2-1/P2-5 | 容错 |
-| V27-21 | 掩码尺子不统一：chat 成功路径工具结果过 `maskSecrets`（llm.ts 弱三件套 AKIA/sk-/Bearer），与 routes/入库面新用的 `maskSensitiveText`（13-pattern 全套）不同尺——JWT/ghp_/DSN 可随成功结果进模型上下文再回声；scan 分支 summary 从 raw 构造更绕开一切。需专票统一+评测冻结集回归（golden eval 65/97 题按旧行为钉，静默换尺可能翻车） | R3 review P1-2（tool error 侧门已修，成功路径残余） | 安全 |
+| V27-21 | ~~掩码尺子不统一~~ **已关闭（2026-09-15 v0.29 T1）**：强尺 maskSensitiveText（14-pattern）成唯一出库权威——chat summarizeIfLarge 换尺、scan 分支改 parse masked（raw 旁路关死）、native tool loop 裸面补齐（台账未记的第四把「零尺」）、弱尺 maskSecrets 整函数废除；CONTEXT 新增「出库掩码不变式」词条；639 测+golden eval 零翻车+UI 冒烟绿；见 v029 issues/01 | R3 review P1-2（tool error 侧门已修，成功路径残余） | 安全 |
 | V27-22 | MCP 深链仍硬编码 `http://localhost:${port}`×5（repoqa-mcp.ts:672/702/720/779/923）：R4 确立「展示面跟实际绑定面」后，`MHW_CP_HOST=192.168.x` 具体网卡逃生时深链连空——MCP stdio 进程与 HTTP 服务进程 env 可能分叉，host 传递通道需专票设计（e2e closeout_gate.py:1319 的 `startswith("http://localhost:")` 断言必须成对改） | R4 review P2-2 | 一致性 |
 | V27-23 | 索引完成后顶栏步骤条（StatusStepper）常驻不清——`indexingProgress` 仅在切库 effect 清空（RepoContext.tsx:227），FINALIZING 100% 帧后无人复位（刷新页面才消失）。修法：目录轮询观测到 status=ready 时清 progress。R7 冒烟实施中发现（韧性段落定信号被迫改走服务端状态） | R7 实施（2026-09-12） | UX |
 
