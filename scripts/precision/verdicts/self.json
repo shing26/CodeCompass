@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "sample": "self@2fb15ac (CodeCompass), top-10 of orphanedPublic",
+    "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md",
+    "measured": "2026-09-16"
+  },
+  "apps/repoqa-web/src/App.tsx:22": { "verdict": "false-positive", "class": "type-declaration", "reason": "AppProps is an interface used inside App.tsx — a type has no callers by construction, so a zero-caller report says nothing" },
+  "apps/repoqa-web/src/App.tsx:34": { "verdict": "false-positive", "class": "module-level-usage", "reason": "App is rendered by main.tsx at module level (<App />) and exercised by 58 files — module-level JSX has no enclosing symbol to carry the edge" },
+  "apps/repoqa-web/src/App.tsx:129": { "verdict": "false-positive", "class": "value-reference", "reason": "onKeyDown is passed as a prop/attribute value ({onKeyDown}) — an identifier reference, not a call expression" },
+  "apps/repoqa-web/src/brand-marks.ts:9": { "verdict": "false-positive", "class": "type-declaration", "reason": "BrandId is a type alias/interface; no callers can exist" },
+  "apps/repoqa-web/src/brand-marks.ts:23": { "verdict": "false-positive", "class": "type-declaration", "reason": "BrandInput is an interface used by brand-marks.ts itself" },
+  "apps/repoqa-web/src/brand-marks.ts:182": { "verdict": "false-positive", "class": "in-file-usage", "reason": "referenced by brand-marks.test.ts and its own module; not dead" },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:40": { "verdict": "false-positive", "class": "type-declaration", "reason": "class symbol referenced by 31 files; instantiation (new) is not a call edge today" },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:48": { "verdict": "false-positive", "class": "receiver-binding", "reason": "constructor referenced by 30 files; construction is not recorded as an edge" },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:60": { "verdict": "false-positive", "class": "receiver-binding", "reason": "listRepos called on local/field instances (const c = new RepoQAClient(...)); local type tracking added in this batch but factory-returned instances still stay dynamic" },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:73": { "verdict": "false-positive", "class": "receiver-binding", "reason": "getRepo referenced by 15 files, same receiver-binding gap" }
+}

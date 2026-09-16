@@ -9,15 +9,18 @@ import type { LanguageAdapter } from './LanguageAdapter';
 /**
  * Issue 25 — TypeScript/JavaScript adapter.
  *
- * Uses the requested `@lezer/javascript` grammar for class/function/method and
- * call-expression extraction. The JS grammar does not understand TS-only
- * constructs (`interface`, `type` aliases, decorators, type annotations), so
- * those are handled conservatively: decorators are read from the tree where
- * present, and `interface`/`type` declarations are recovered from a
- * comment/string-masked view of the source with the same line numbers.
+ * Uses `@lezer/javascript` for class/function/method and call-expression
+ * extraction. V31-02 turned on the `jsx ts` dialects: the plain JS grammar
+ * rejected annotations and JSX as syntax errors (probe: 9 error nodes in an
+ * 8-token `.tsx` snippet), which truncated symbol extraction on exactly the
+ * files this adapter exists for and hid React usage from the call graph.
+ * `interface`/`type` declarations are still recovered from a
+ * comment/string-masked view of the source — the AST path does not emit those
+ * kinds, so the two never double-count.
  */
 
 const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
+const TYPESCRIPT_PARSER = parser.configure({ dialect: 'jsx ts' });
 const EXPRESS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'all', 'use']);
 const AXIOS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch']);
 const HTTP_VERB_ANNOTATIONS = new Set([
@@ -281,6 +284,28 @@ function receiverTypeOf(
   return undefined;
 }
 
+/**
+ * V31-02 — name of a JSX tag: `<Foo.Bar />` binds on `Bar`, same name-lookup
+ * rule as a bare call. Lowercase tags (`div`, `span`) are `JSXBuiltin` HTML
+ * elements with no repo symbol behind them, so they return undefined.
+ */
+function jsxTagName(node: SyntaxNode, source: string): string | undefined {
+  const startTag = node.firstChild; // JSXStartTag
+  const tagNode = startTag?.nextSibling;
+  if (!tagNode) return undefined;
+  if (tagNode.name === 'JSXIdentifier') return textOf(tagNode, source);
+  if (tagNode.name === 'JSXMemberExpression') {
+    const parts: string[] = [];
+    let child = tagNode.firstChild;
+    while (child) {
+      if (child.name === 'JSXIdentifier') parts.push(textOf(child, source));
+      child = child.nextSibling;
+    }
+    return parts[parts.length - 1];
+  }
+  return undefined;
+}
+
 interface CallShape {
   parts?: string[];
   bareName?: string;
@@ -448,7 +473,7 @@ export function parseTypeScriptSource(
   let pendingClassDecorators: Array<{ name: string; value?: string }> = [];
   let pendingClassDecoratorTexts: string[] = [];
 
-  const tree = parser.parse(source);
+  const tree = TYPESCRIPT_PARSER.parse(source);
   tree.iterate({
     enter(ref) {
       const node = ref.node;
@@ -576,6 +601,19 @@ export function parseTypeScriptSource(
           node.getChild('ArrowFunction') ?? node.getChild('FunctionExpression');
         const def = node.getChildren('VariableDefinition')[0];
         const initCall = node.getChild('CallExpression');
+        // V31-02 — record the local's type so calls through it bind at parse
+        // time. `const client = new RepoQAClient(...)` used to leave the
+        // receiver untyped, so every method call on it stayed dynamic and the
+        // whole class family read as dead code (self-repo orphan top-10).
+        const scope = scopeStack[scopeStack.length - 1];
+        if (def && scope) {
+          const declared = typeAnnotationName(node, source);
+          const newExpr = node.getChild('NewExpression');
+          const newShape = newExpr ? callShape(newExpr, source) : undefined;
+          const constructed = newShape?.bareName ?? newShape?.parts?.[0];
+          const resolved = declared ?? constructed;
+          if (resolved) scope.locals.set(textOf(def, source), resolved);
+        }
         if (def && initCall) {
           const initShape = callShape(initCall, source);
           if (initShape.base === 'axios' && initShape.property === 'create') {
@@ -609,6 +647,23 @@ export function parseTypeScriptSource(
           moduleArrowPushed.push(true);
         } else {
           moduleArrowPushed.push(false);
+        }
+        return;
+      }
+
+      // V31-02 — `<BrandMark />` is how a React component gets *used*; without
+      // this edge every component (and every helper only referenced from JSX)
+      // looked like dead code. Attributed to the enclosing function, exactly
+      // like a call expression.
+      if (node.name === 'JSXOpenTag' || node.name === 'JSXSelfClosingTag') {
+        const tag = jsxTagName(node, source);
+        if (!tag || methodStack.length === 0) return;
+        const current = methodStack[methodStack.length - 1];
+        const line = lineAt(source, node.from);
+        const calls = current.calls ?? [];
+        if (!calls.some((existing) => existing.method === tag && existing.line === line)) {
+          calls.push({ file: relativePath, method: tag, line, dynamic: false });
+          current.calls = calls;
         }
         return;
       }
@@ -678,6 +733,26 @@ export function parseTypeScriptSource(
         }
 
         const parts = shape.parts;
+        // V31-02 — a bare `foo(...)` is a plain function reference. The old
+        // `parts.length < 2` guard dropped every receiver-less call, so a
+        // module-level function used anywhere looked like dead code (the
+        // self-repo orphan sample was 100% false positives, dominated by
+        // exactly this). Mirrors the Python (v0.7) and Go (v0.22) rule:
+        // statically resolvable by same-file-then-global name lookup.
+        if (!parts && shape.bareName && shape.bareName !== 'require') {
+          const call: RepoSymbolCall = {
+            file: relativePath,
+            method: shape.bareName,
+            line,
+            dynamic: false
+          };
+          const calls = current.calls ?? [];
+          if (!calls.some((existing) => existing.method === call.method && existing.line === call.line)) {
+            calls.push(call);
+            current.calls = calls;
+          }
+          return;
+        }
         if (!parts || parts.length < 2) return;
         const receiver =
           parts[0] === 'this' && parts.length >= 3

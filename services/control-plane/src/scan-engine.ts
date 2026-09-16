@@ -38,7 +38,8 @@ const ORPHAN_NOTE =
   'Static zero-caller only: reflective lookups, dynamic proxies and MQ ' +
   'subscriptions are invisible to AST analysis — verify before removing. ' +
   'Externally wired symbols (Spring @Bean/@FeignClient/…, entry points) are ' +
-  'excluded from candidates and counted in wiredExcluded.';
+  'excluded from candidates and counted in wiredExcluded; HTTP handlers ' +
+  '(a route target) and serializer accessors are excluded the same way.';
 
 const HUBS_NOTE =
   'Board only: accessor methods (get/set/is prefix, ≤5-line body) rank high ' +
@@ -65,7 +66,19 @@ const WIRED_ANNOTATIONS: ReadonlyArray<RegExp> = [
   /^@FeignClient\b/,
   /^@EventListener\b/,
   /^@Configuration\b/,
-  /^@SpringBootApplication\b/
+  /^@SpringBootApplication\b/,
+  // V31-02 (precision baseline): the container or its lifecycle own these, so
+  // zero static callers is their healthy shape. spring-petclinic-microservices
+  // put @Component-injected clients and @PostConstruct hooks at the top of the
+  // orphan sample precisely because this list stopped at @Bean/@FeignClient.
+  /^@Component\b/,
+  /^@Service\b/,
+  /^@Repository\b/,
+  /^@Controller\b/,
+  /^@RestController\b/,
+  /^@PostConstruct\b/,
+  /^@PreDestroy\b/,
+  /^@Scheduled\b/
 ];
 
 /** Issue 04 — why a zero-static-caller symbol is not an orphan candidate.
@@ -95,6 +108,20 @@ export function isAccessorLike(symbol: RepoSymbol): boolean {
   if (!/^(get|set|is)[A-Z]/.test(symbol.name)) return false;
   if (symbol.lineStart === undefined || symbol.lineEnd === undefined) return false;
   return symbol.lineEnd - symbol.lineStart <= 5;
+}
+
+/** V31-02 — Java records and bean DTOs expose `owner.id()` rather than
+ * `getId()`, so the get/set/is rule above misses them entirely and every
+ * mapped DTO contributed its components to the orphan total. A short no-arg-ish
+ * method whose name matches a field of its own type is the same accessor case. */
+function isFieldAccessor(
+  symbol: RepoSymbol,
+  fieldNamesByType: ReadonlyMap<string, ReadonlySet<string>>
+): boolean {
+  if (symbol.kind !== 'method' || !symbol.parentType) return false;
+  if (symbol.lineStart === undefined || symbol.lineEnd === undefined) return false;
+  if (symbol.lineEnd - symbol.lineStart > 5) return false;
+  return fieldNamesByType.get(symbol.parentType)?.has(symbol.name) ?? false;
 }
 
 function candidateOf(
@@ -167,9 +194,28 @@ export function runScan(input: ScanInput): ScanResult {
       wiredTypes.add(symbol.name);
     }
   }
+  // V31-02 — field names per owning type: record components and bean fields
+  // emit a 'field' symbol, which is what makes `owner.id()` recognisable as an
+  // accessor next to the get/set/is rule (see isFieldAccessor).
+  const fieldNamesByType = new Map<string, Set<string>>();
+  for (const symbol of symbols) {
+    if (symbol.kind !== 'field' || !symbol.parentType) continue;
+    const names = fieldNamesByType.get(symbol.parentType) ?? new Set<string>();
+    names.add(symbol.name);
+    fieldNamesByType.set(symbol.parentType, names);
+  }
   for (const [id, symbol] of graph.symbolsById) {
     if (symbol.kind === 'route') continue;
     if ((graph.inDegree.get(id) ?? 0) !== 0) continue;
+    // V31-02: an HTTP handler is a route target — the framework dispatches to
+    // it, so zero static callers is its normal shape (Java/FastAPI record the
+    // handler as a method carrying displayPath, unlike the TS/Express route
+    // symbols skipped above). Same rationale as the route skip.
+    if (symbol.kind === 'method' && symbol.displayPath) continue;
+    // V31-02: a DTO accessor is invoked by the serializer/reflection layer; the
+    // rule that keeps accessors off the hubs board (issue 06) applies here too,
+    // otherwise every mapped DTO contributes its getters to the orphan total.
+    if (isAccessorLike(symbol) || isFieldAccessor(symbol, fieldNamesByType)) continue;
     const wired = wiredKindOf(symbol, wiredTypes);
     if (wired !== undefined) {
       wiredExcluded += 1;

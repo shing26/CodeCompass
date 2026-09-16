@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "sample": "lazygit@c07f4d3 (Go, local clone from the v0.21 dogfooding), top-10 of orphanedPublic",
+    "method": "external-reference grep over the clone + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md",
+    "measured": "2026-09-16"
+  },
+  "cmd/integration_test/main.go:29": { "verdict": "false-positive", "class": "type-declaration", "reason": "flagInfo is a class/struct declaration; a type cannot have callers (declaration sits in test scaffolding outside the isTestPath name patterns)" },
+  "pkg/app/app.go:33": { "verdict": "false-positive", "class": "type-declaration", "reason": "App struct declaration — zero callers says nothing about a type" },
+  "pkg/app/app.go:150": { "verdict": "false-positive", "class": "receiver-binding", "reason": "called as self.validateGitVersion() inside app.go; the receiver's type is not resolvable per-file (declaredTypes is built per file)" },
+  "pkg/app/app.go:171": { "verdict": "false-positive", "class": "receiver-binding", "reason": "openRecentRepo is invoked from the same file through a receiver; same cross-file/self-type binding gap" },
+  "pkg/app/app.go:194": { "verdict": "false-positive", "class": "receiver-binding", "reason": "App.setupRepo has 5 external references (pkg/integration, pkg/commands) — not dead" },
+  "pkg/app/app.go:284": { "verdict": "false-positive", "class": "receiver-binding", "reason": "App.Run has 941 occurrences across pkg/commands — the v0.22 hard false positive class, still open for receiver-typed calls" },
+  "pkg/app/app.go:290": { "verdict": "false-positive", "class": "receiver-binding", "reason": "App.Close has 98 occurrences — not dead" },
+  "pkg/app/daemon/daemon.go:105": { "verdict": "false-positive", "class": "type-declaration", "reason": "Instruction interface declaration" },
+  "pkg/app/daemon/daemon.go:106": { "verdict": "false-positive", "class": "type-declaration", "reason": "interface method (Instruction.Kind) — implementation and dispatch live outside AST reach" },
+  "pkg/app/daemon/daemon.go:107": { "verdict": "false-positive", "class": "type-declaration", "reason": "interface method (Instruction.SerializedInstructions)" }
+}

@@ -44,3 +44,6 @@ docs/reports/ui-shots/
 # (v0.25.0 收口: binary evidence stays local; archive reference shots into
 # docs/reports/ui-shots/ instead of dropping them at the root).
 /image*.png
+
+# Precision harness raw dumps (regenerated; verdicts/ are the committed evidence).
+scripts/precision/out/

@@ -1,0 +1,17 @@
+{
+  "_meta": {
+    "sample": "petclinic@3858f9c (spring-petclinic-microservices, Java multi-module), top-10 of orphanedPublic",
+    "method": "external-reference grep over the clone + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md",
+    "measured": "2026-09-16"
+  },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java:25": { "verdict": "false-positive", "class": "type-declaration", "reason": "OwnerDetails is a record declaration referenced by 8 files; the record's own accessors are handled separately" },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java:42": { "verdict": "false-positive", "class": "type-declaration", "reason": "OwnerDetailsBuilder class declaration (builder pattern)" },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java:54": { "verdict": "false-positive", "class": "fluent-chain", "reason": "anOwnerDetails starts a builder chain (OwnerDetails.builder().anOwnerDetails()); chain receiver types are not resolved" },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java:93": { "verdict": "false-positive", "class": "fluent-chain", "reason": "build() terminates the same builder chain" },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/PetType.java:21": { "verdict": "false-positive", "class": "type-declaration", "reason": "DTO record/class" },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/VisitDetails.java:21": { "verdict": "false-positive", "class": "type-declaration", "reason": "DTO class" },
+  "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/Visits.java:25": { "verdict": "false-positive", "class": "type-declaration", "reason": "DTO record/class" },
+  "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:16": { "verdict": "false-positive", "class": "dom-event-wiring", "reason": "toggleChatbox is wired through static HTML/onclick attributes — browser dispatch, not an AST call" },
+  "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:61": { "verdict": "false-positive", "class": "dom-event-wiring", "reason": "handleKeyPress is an addEventListener handler value" },
+  "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:69": { "verdict": "false-positive", "class": "dom-event-wiring", "reason": "saveChatMessages is called from the same script/event flow; also third-party demo script under static/" }
+}
