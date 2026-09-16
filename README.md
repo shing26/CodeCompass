@@ -34,7 +34,7 @@ TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.po
 消费侧同样多语言：dashboard 的技术栈统计与配置证据支持 `package.json`、`pyproject.toml`、`.env`、yaml/properties、`pom.xml`。
 
 ### 4. 零 Prompt 驾驶舱与架构差异
-- **看板**：导入即分析——技术栈分类统计、架构指标（routes / services / repositories / methods / configKeys…）、Top API 列表，一键导出 `ONBOARDING.md`。
+- **看板**：导入即分析——技术栈分类统计、结构规模（接口 / 服务 / 仓储 / 方法 / 配置键…）、Top API 列表，一键导出 `ONBOARDING.md`。
 - **架构差异**：对比 base/head 两个 git ref，输出新增/删除路由、断边、受影响 API（风险分级）与 mermaid 差异图；CLI 侧 `codecompass diff` / `pr-summary` 同源内核，并支持 `--fail-on-auth-impact` 在 CI 中守住"无认证敏感路由被改"的安全红线。
 
 ### 5. Local-First 隐私与脱敏
@@ -59,9 +59,9 @@ TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.po
 - **深链现场还原**：工具结果的 `cockpitDeepLink` 携带 `?focus=<symbol>&traceId=<id>&mode=diff`，打开即闪烁聚焦目标卡片 / 直达架构差异视图。URL 是选库的唯一真理源：后退到无 `repo` 参数的历史条目即取消选库。`mode` 取值：不带 = 代码拓扑，`diff` = 架构差异视图，`incident` = 架构问答；`incident` 为规范值，历史别名 `mode=chat` 仍被接受但 URL 静默归一为 `incident`（既定行为）。
 补丁类生成内容归 LLM 编排层并显式标注（ADR-0006）；链路追踪 100% 确定性（ADR-0005）。
 
-### 9. 模块演进副驾与领域雷达（v0.9）
-- **安全下线推演**：`codecompass evolve --intent deprecate --target <module>` —— 模块聚类 → 全图反向引用 → **固定点级联孤立死代码**（被独占的公共工具一并标出）→ 五类清理 Checklist。
-- **扩展挂载推演**：`codecompass evolve --intent extend --target <symbol> [--goal "..."]` —— 挂载点定位、方法/类/接口三级 `@Transactional` 事务边界证据、解耦模式匹配（Spring Event 异步 / AOP 切面 / 直接注入）+ 确定性代码脚手架（补丁仍归 LLM 层，ADR-0006）。
+### 9. 模块演进与领域雷达（v0.9）
+- **安全下线分析**：`codecompass evolve --intent deprecate --target <module>` —— 模块聚类 → 全图反向引用 → **固定点级联孤立死代码**（被独占的公共工具一并标出）→ 五类清理 Checklist。
+- **扩展挂载分析**：`codecompass evolve --intent extend --target <symbol> [--goal "..."]` —— 挂载点定位、方法/类/接口三级 `@Transactional` 事务边界证据、解耦模式匹配（Spring Event 异步 / AOP 切面 / 直接注入）+ 确定性代码脚手架（补丁仍归 LLM 层，ADR-0006）。
 - **领域雷达**：`codecompass radar [query]` —— Hub 节点（出入度 + 确定性 PageRank，悬挂节点权重不外泄、桥接边计入入度）、Top APIs、持久化底座；中文意图靠 doc-chunk 证据确定性桥接，零 embedding。
 
 ### 10. Zero-Config 安装器（v0.8）
@@ -174,11 +174,11 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 | `codecompass_get_tours` | 返回 Onboarding Tour |
 | `codecompass_reverse_deps` | who-uses 反向调用者查询 |
 | `codecompass_get_pr_impact` | Git PR 架构影响面分析 |
-| `codecompass_get_subgraph_context` | **Graph RAG 子图提取**：1-Hop Caller + 1~3 Hop Callee、骨架折叠、Token 剪枝与凭据脱敏 |
+| `codecompass_get_subgraph_context` | **Graph RAG 子图提取**：上游 1 层调用方 + 下游 1~3 层被调方、骨架折叠、Token 剪枝与凭据脱敏 |
 | `codecompass_diagnose` | **跨栈根因穿透**：前端组件 → 路由 → Service → Mapper 分层链路，逐层 VERIFIED/BROKEN/SUSPECT |
-| `codecompass_refactor_plan` | **重构爆炸半径**：直接/间接调用方、受波及路由与前端组件、风险评级与迁移步骤 |
+| `codecompass_refactor_plan` | **重构爆炸半径**：直接/间接调用方、受影响路由与前端组件、风险评级与迁移步骤 |
 | `codecompass_domain_radar` | **领域全景雷达**：出入度 + 确定性 PageRank 的 Hub 节点、Top APIs、持久化底座与意图锚点（零 embedding） |
-| `codecompass_module_evolution` | **模块演进推演**：DEPRECATE 固定点级联孤立死代码 + 清理 Checklist；EXTEND 事务边界证据 + 解耦模式脚手架 |
+| `codecompass_module_evolution` | **模块演进（已弃用，由 plan_evolution 接替）**：DEPRECATE 固定点级联孤立死代码 + 清理 Checklist；EXTEND 事务边界证据 + 解耦模式脚手架 |
 
 ### Cursor
 

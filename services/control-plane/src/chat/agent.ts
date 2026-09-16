@@ -16,14 +16,14 @@ const SYSTEM_PROMPT = `你是 compass-copilot：以 CodeCompass MCP（17 个确�
 3. 静态不可见的运行时分支（如"Redis 失败降级 MySQL"）只能标 SUSPECT 并给证据，不得断言。
 4. plan_evolution 返回 conventionConflict 或 alternatives 时，原样透出并引导用户带显式 target 重试。
 5. 引擎输出（工具 JSON）原样尊重，不虚构字段；结果为空就说空。
-6. 演进类工具（codecompass_plan_evolution / module_evolution）只在用户明确要求演进或拆除计划时调用。
+6. 演进类工具（codecompass_plan_evolution / module_evolution）只在用户明确要求演进或安全下线方案时调用（"拆除/删除/清理/下线"等同义表达同样触发）。
    被问"能否删除 / 值不值得改"时：用 scan/diagnose/reverse_deps 的证据做分析判断即可，不要执行演进管线。
    孤儿桶候选（零静态调用者）可能是框架入口（main/@Bean/FeignClient/反射可达）——给 SUSPECT 判断并说明静态分析的盲区，不要断言可删。
 7. 你不能真正删除或修改任何代码——引擎是只读的，你也没有写文件的通道。用户要求删除/重构时：
-   给基于证据的拆除计划（哪些符号、为什么、如何验证），并说明执行要由人来完成。
+   给基于证据的下线方案（哪些符号、为什么、如何验证），并说明执行要由人来完成。
    调用演进工具时 targetSymbolOrModule 必须是真实存在的符号或模块名——禁止把桶名（如 orphanedPublic）
    或类别名当 target。批量"删除所有孤儿代码"这类意图：先呈现孤儿桶的 SUSPECT 分析并逐类与用户确认，
-   不要对整个桶一次性执行拆除。
+   不要对整个桶一次性执行下线。
 8. 全程使用与用户相同的语言回答（中文提问就是中文回答，不要中途切换英文）。
    不要建议用 codecompass_remove_repo 解决"删除代码"问题——它只移除索引条目，与源码无关。
    演进工具的 target 禁止 "*" 或桶名这类通配值。回答里每个包含事实主张的段落都要带 [cite: N]。`;
@@ -35,7 +35,7 @@ export interface Citation {
   ms: number;
 }
 
-/** CM-04 卡片化 v2：DEPRECATE 拆除清单的结构化卡片（数据来自
+/** CM-04 卡片化 v2：DEPRECATE 下线清单的结构化卡片（数据来自
  * plan_evolution/module_evolution 的 EvolutionChecklistItem[]，非模型散文）。 */
 export interface PlanChecklistItem {
   category: string;
@@ -166,7 +166,7 @@ export class ReActAgent {
           const outcome = await this.deps.mcp.callTool(tc.function.name, args);
           content = this.summarizeIfLarge(tc.function.name, outcome.raw);
           if (!content) content = '(empty result)';
-          // CM-04: 结构化拆除计划直供——模型散文做解读，卡片用真数据
+          // CM-04: 结构化下线方案直供——模型散文做解读，卡片用真数据
           const card = extractPlanCard(tc.function.name, outcome);
           if (card) planCards.push(card);
         } catch (err) {
@@ -333,7 +333,7 @@ export function toToolSpecs(tools: readonly ToolSummary[]): ToolSpec[] {
   }));
 }
 
-/** CM-04 卡片化 v2：从 plan_evolution/module_evolution 载荷提取结构化拆除计划。
+/** CM-04 卡片化 v2：从 plan_evolution/module_evolution 载荷提取结构化下线方案。
  * EvolutionChecklistItem（contracts/repoqa.ts）= {category, action, filePath, description}。 */
 export function extractPlanCard(toolName: string, outcome: ToolCallOutcome): PlanCard | null {
   if (toolName !== 'codecompass_plan_evolution' && toolName !== 'codecompass_module_evolution') return null;

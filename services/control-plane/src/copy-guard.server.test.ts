@@ -38,9 +38,10 @@ const SERVER_COPY_FILES = [
  * 由战役后段票面清零。销词必须走「文案改动与移除挂账同 commit」（D8④）；
  * 活性判定只看字符串区域（P1-1），注释提及时挂账照常失效变红——僵尸豁免
  * 无处藏身。拆分构造与 web 哨同一词面工艺。
- * G3 已销「架构指标」（导出模板标题中文化，随票 03 摘除挂账）。
+ * G3 已销「架构指标」（导出模板标题中文化）；G7 已销「拆除计划」
+ * （agent.ts 提示词改「下线方案」，挂账清零、本机制留用下次退役）。
  */
-const PENDING_RETIREMENT: readonly string[] = ['拆除' + '计划'];
+const PENDING_RETIREMENT: readonly string[] = [];
 
 const EFFECTIVE = USER_COPY_BLACKLIST.filter((w) => !PENDING_RETIREMENT.includes(w));
 const ENGLISH_TERMS: RegExp[] = USER_COPY_ENGLISH_RETIRED.map((word) => new RegExp(`\\b${word}\\b`));
@@ -133,9 +134,13 @@ describe('server-side outbound copy guard (v0.30 ticket 01)', () => {
     expect(scanAllFiles((t) => scanRegions(t, ENGLISH_TERMS))).toEqual([]);
   });
 
-  it('the sentinel bites: pending words are genuinely live in string regions', () => {
-    // 灵敏度自证——挂账词在真实文案（非注释）里活着；哨若只吃注释即空转。
-    expect(scanAllFiles((t) => scanRegions(t, [...PENDING_RETIREMENT])).length).toBeGreaterThan(0);
+  it('the sentinel bites: detection fires on constructed live copy', () => {
+    // 灵敏度自证（G7 起 PENDING 清空，改内存注入）——合成含词文本必须命中，
+    // 否则哨空转；词面拆分构造防自燃。
+    const probe = '给基于证据的' + '拆除' + '计划（哪些符号、为什么）';
+    expect(scanFullText(probe, ['拆除' + '计划']).length).toBeGreaterThan(0);
+    // 反证：现行真实文案已不含该词。
+    expect(scanAllFiles((t) => scanFullText(t, ['拆除' + '计划']))).toEqual([]);
     // 英文层机制同样有牙：临时词注入即命中。
     expect(scanRegions('title = "Watcher: Ready"', [/\bWatch/])).toHaveLength(1);
   });

@@ -1,7 +1,7 @@
 # CodeCompass — Context
 
 ## Status
-17 ADRs（0001–0017，含 0004 accepted 详见 0.13 CHANGELOG；最近：0016 MCP 长任务立即返回、0017 gate 运行史=服务器端执行史）+ MCP 工具面 17 个。当前版本 0.26.0（**门禁运行史 + 问答/演进口心智分离**——v0.26-B 三票落地 `gate_runs`/`gate_run_routes` 双表 + `POST gate/run`（服务器端跑 analyzeDiff+evaluateDiffPolicy 落库）+ `GET gate-runs` newest-first 回放（ADR-0017 语义=服务器端执行史非 CI 遥测），CiGateView 三段化 + 行内两层受波及树（route 节点跳 Inspector）；v0.26-A 四票确立「问现状/要方案」canonical 对子 + 底线「引擎只读，改动由你执行」常驻 + PlanCardView 重塑为方案摘要（CTA 桥到演进）+ 演进侧命名族归一（惯例/落位表/死代码清单/风险 Checklist）+ copy-guard 文件系统级文案回归哨；实拍接线 styles.css（chat 样式自 446473d 起漏挂从未生效）+ 补齐 8 个 CSS 变量别名；收口 review 加 `^-` git ref 选项注入双层守卫。MCP 契约零变化，REST 新增 gate 两面 additive；e2e 60、控制面 588、web 320、决策 `.scratch/v026-*/spec.md`）。此前 0.25.0 为 P0 工程结构批 + 原生目录选择器（http.ts/App.tsx 拆域、STA FolderBrowserDialog 根治导入手输），0.24.0 为 chat-merge（对话式智能体融入 Workbench；独立 chat_sessions/chat_messages 表），v0.22.0/v0.23.0 scan dogfooding 修复与信号提纯源自 `.scratch/scan-dogfooding-v021/` 与 `.scratch/scan-purify-v023/` 取证。
+17 ADRs（0001–0017，含 0004 accepted 详见 0.13 CHANGELOG；最近：0016 MCP 长任务立即返回、0017 gate 运行史=服务器端执行史）+ MCP 工具面 17 个。当前版本 0.30.0（**去极客化战役**：chrome 全中文化（工程通用语保留）、机器枚举走展示层映射、111 处任意值字号收两档、styles.css 销号、四张权威对照表+双哨同表（见 `.scratch/v030-degeekify/spec.md` 表 A-D），MCP/REST/契约值零变化）。此前 0.29.0 为安全+韧性收口批（出库掩码不变式、clone 瞬断退避、cockpitBaseUrl 深链单一权威、TimedFetch 注入、StatusStepper 复位、企业套件裁决销项——`.scratch/v029-resilience-hardening/`）。0.26.0（**门禁运行史 + 问答/演进口心智分离**——v0.26-B 三票落地 `gate_runs`/`gate_run_routes` 双表 + `POST gate/run`（服务器端跑 analyzeDiff+evaluateDiffPolicy 落库）+ `GET gate-runs` newest-first 回放（ADR-0017 语义=服务器端执行史非 CI 遥测），CiGateView 三段化 + 行内两层受波及树（route 节点跳 Inspector）；v0.26-A 四票确立「问现状/要方案」canonical 对子 + 底线「引擎只读，改动由你执行」常驻 + PlanCardView 重塑为方案摘要（CTA 桥到演进）+ 演进侧命名族归一（惯例/落位表/死代码清单/风险 Checklist）+ copy-guard 文件系统级文案回归哨；实拍接线 styles.css（chat 样式自 446473d 起漏挂从未生效）+ 补齐 8 个 CSS 变量别名；收口 review 加 `^-` git ref 选项注入双层守卫。MCP 契约零变化，REST 新增 gate 两面 additive；e2e 60、控制面 588、web 320、决策 `.scratch/v026-*/spec.md`）。此前 0.25.0 为 P0 工程结构批 + 原生目录选择器（http.ts/App.tsx 拆域、STA FolderBrowserDialog 根治导入手输），0.24.0 为 chat-merge（对话式智能体融入 Workbench；独立 chat_sessions/chat_messages 表），v0.22.0/v0.23.0 scan dogfooding 修复与信号提纯源自 `.scratch/scan-dogfooding-v021/` 与 `.scratch/scan-purify-v023/` 取证。
 
 ## Naming
 
@@ -51,32 +51,33 @@
 | Onboarding Dashboard | 索引后生成的一屏仓库简报；当前是待验证功能，不是 Ready 的同义词。 |
 | Composite Tool（复合工具） | 由多个确定性图谱查询组合成的 MCP 工具（`codecompass_diagnose`、`codecompass_refactor_plan`）；零 LLM、可单测可重放，叙述与补丁由 LLM 编排层生成（ADR-0005/0006）。 |
 | Diagnose Chain（穿透链路） | 从入口符号（方法名或 "METHOD /route/path"）出发的分层链：FRONTEND_COMPONENT → HTTP_ROUTER → SERVICE → DATA_MAPPER；每层标 VERIFIED / BROKEN / SUSPECT，层级按语言可降级，缺层不硬凑。 |
-| Blast Radius（爆炸半径） | 以目标符号为根的反向递归调用方聚合，含直接/间接计数、受波及对外路由、桥接受波及的前端组件与 HIGH/MEDIUM/LOW 风险评级。 |
+| Blast Radius（爆炸半径） | 以目标符号为根的反向递归调用方聚合，含直接/间接计数、受影响对外路由、桥接受影响的前端组件与 HIGH/MEDIUM/LOW 风险评级。 |
 | Deep-Link（驾驶舱深链） | 带 `?repo=&focus=&traceId=&mode=diff` 的工作台 URL，用于现场还原一条链路或差异视图；深链落在卡片流上（ADR-0007）；宿主由 `cockpitBaseUrl` 单一权威生成——展示面跟实际绑定面走，LAN 逃生（MHW_CP_HOST）时深链仍可达（v0.29/V27-22，取代旧硬编码 localhost）。 |
 | HTML Artifact（诊断工件） | `codecompass export` 输出的单文件自包含 HTML：内联 mermaid 运行时、链路步骤与代码切片，断网可渲染、可随 PR 归档。 |
 | Module Evolution（模块演进） | DEPRECATE（安全下线：模块聚类 + 固定点级联孤立死代码 + 清理 Checklist）与 EXTEND（功能扩展：挂载点 + 事务边界证据 + 解耦模式脚手架）两条确定性推演管线；脚手架是推荐写法而非补丁（ADR-0006）。 |
 | Domain Radar（领域雷达） | 符号图的全景聚合：出入度 + 确定性 PageRank（阻尼 0.85、悬挂节点权重重分配、桥接边计入入度）+ 三栏输出；意图锚点 = 模糊匹配链 + doc-chunk 证据 + 图排名增益，零 embedding。 |
 | Story Beats（分步演播） | 工件内把推演步骤转为 Prev/Next 步进卡片并与代码切片联动；仅落在自包含 HTML 工件端，Web 端需协议扩展，推 v1.0（ADR-0009）。 |
-| Live Trace Strip（实时演播带） | v0.11 在 Web 驾驶舱 Canvas 底部新增的实时 trace 步进条（Prev / Step N/M / Next），步进时联动画布居中 + Inspector 切片高亮；区别于离线 Story Beats（ADR-0009 的工件端演播），它是 SSE 问答 `done.payload.trace` 的实时消费（见 Stage 4）。 |
+| Live Trace Strip（实时演播带） | v0.11 在 Web 驾驶舱 Canvas 底部新增的实时 trace 步进条（Prev / 步骤 N/M / Next），步进时联动画布居中 + Inspector 切片高亮；区别于离线 Story Beats（ADR-0009 的工件端演播），它是 SSE 问答 `done.payload.trace` 的实时消费（见 Stage 4）。 |
 | Brand Badge（品牌徽标） | 依依赖/配置关键词确定性贴标的技术栈 SVG 徽标（Spring/Redis/MySQL 等），是证据标注而非装饰。 |
 | Async Tool Call（异步工具调用） | MCP 长操作的契约：同步部分只做校验与前置门禁（失败即抛、不落库），建行后立即返回 `indexing` 状态，实际工作后台执行，客户端经 `list_repos` 轮询至 `ready`/`error`（error 行带根因摘要）。见 ADR-0016。 |
 | MatchedBy（锚点溯源） | Domain Radar 锚点的匹配来源标注：`identifier`（标识符模糊命中）、`doc-chunk`（文档证据桥接）——每个入选锚点必有其一，agent 可据此对措辞敏感的锚点降权。 |
-| Candidate Scan（自荐扫描） | 第 15 个 MCP 工具：对已索引仓库输出五桶"该动哪里"候选清单——orphanedPublic（零静态调用者，声明反射误报边界）、hubs（PageRank 波及热点）、oversized（≥150 行方法）、deepChains（最深入口链）、oversizedFiles（索引符号覆盖跨度 ≥600 行的文件级债务热点，v0.21.0 新增）。每桶 top-N + 总量 + 确定性 nextAction 引导后续工具；纯查询同步契约。定位红线：scan 只报确定性事实（零调用者是事实，不是"可安全删除"的判断），语义判断属于 agent。 |
+| Candidate Scan（自荐扫描） | 第 15 个 MCP 工具：对已索引仓库输出五桶"该动哪里"候选清单——orphanedPublic（零静态调用者，声明反射误报边界）、hubs（PageRank 受影响热点）、oversized（≥150 行方法）、deepChains（最深入口链）、oversizedFiles（索引符号覆盖跨度 ≥600 行的文件级债务热点，v0.21.0 新增）。每桶 top-N + 总量 + 确定性 nextAction 引导后续工具；纯查询同步契约。定位红线：scan 只报确定性事实（零调用者是事实，不是"可安全删除"的判断），语义判断属于 agent。 |
 | Architecture & Incident Copilot（排障副驾驶） | Web 端改造新增的排障对话模式：以文字描述 + 粘贴堆栈/日志为入口，独立 6 步 ReAct 预算（普通问答保持 3 步），产出穿透链 + 爆炸半径 + 配置证据的锚定式回答。v1 纯静态边界：不接 APM/日志流。 |
 | Zero-Hallucination Contract（零幻觉合约） | 回答中每条调用链断言必须逐字来自本次会话工具返回的 Call Edge；每个 file:line 引用必须过 raw-file 物理校验；静态不可达边界强制标 BREAK/SUSPECT，禁止叙述性补全。叙述性总结与逻辑串联不要求逐句锚定。验收 = golden eval incident bucket 幻觉率 0%，进发布 gate。 |
 | Outbound Masking Invariant（出库掩码不变式） | 任何字符串在离开本机或进入模型上下文之前必须过 `maskSensitiveText`（14-pattern 唯一权威尺）；覆盖 SSE/HTTP 响应、持久化文本列、MCP stdio 事件与 **LLM 请求侧**（ReAct 工具结果入 messages 前、copilot 工具摘要含 scan 压缩路径）。单一尺、无分级豁免——错误面与成功面对称适用（v0.29/V27-21：废除 3-pattern 弱尺、关死 scan raw 旁路、补齐 native tool loop 裸面）。 |
-| Physical Anchor（物理锚点） | `repoId + commit + file:line-range + symbolId` 四元组，raw-file 校验通过才可展示；工作区有未提交修改时记为 `commit+dirty`。钉 commit 换取时空可回放性，防止文件改动后行号切片错位成幽灵锚点。 |
+| Physical Anchor（物理锚点） | `repoId + commit + file:line-range + symbolId` 四元组，raw-file 校验通过才可展示；工作区有未提交修改时记为 `commit+dirty`。钉 commit 换取时空可回放性，防止文件改动后行号切片错位成幽灵锚点。用户文案说「精确定位」（v0.30 G5）。 |
 | Stack Trace Parsing（堆栈解析） | 确定性正则解析器：从粘贴的堆栈/日志提取 `Class.method(File.java:123)`，反查符号表后串联 diagnose 穿透与波及面分析；零 LLM 参与。 |
-| Intent→Artifact（意图工件模型） | ADR-0012 定义的交互模型：用户给一个意图，智能体单次产出高密度工件卡（定位节点 + 拓扑图谱 + 落位清单 + 风险 Checklist），不逐步反问；历史是工件流，按 (repoId, commit) 隔离；对工件卡的追问 = 新意图输入。 |
-| 问现状 / 要方案（心智分界） | v0.26 产品语言 canonical 对子：架构问答=问现状（结论皆代码事实），规范演进=要方案（落位建议+风险清单）；共享底线「引擎只读，改动由你执行」，两入口与产出物上常驻声明。「读侧/写侧」仅为内部分析语言，禁入用户可见文案。 |
+| Intent→Artifact（意图工件模型） | ADR-0012 定义的交互模型：用户给一个意图，智能体单次产出高密度工件卡（定位节点 + 拓扑图谱 + 方案清单 + 风险 Checklist），不逐步反问；历史是工件流，按 (repoId, commit) 隔离；对工件卡的追问 = 新意图输入。用户文案说「方案卡 / 方案流」（v0.30 G5）。 |
+| 问现状 / 要方案（心智分界） | v0.26 产品语言 canonical 对子：架构问答=问现状（结论皆代码事实），规范演进=要方案（落地建议+风险清单）；共享底线「引擎只读，改动由你执行」，两入口与产出物上常驻声明。「读侧/写侧」仅为内部分析语言，禁入用户可见文案。 |
 | Plan Digest（方案摘要卡） | 问答答案流内对 done.payload.planCards 的重塑呈现：由「拆除计划+勾选框」更名而来，头部常驻「引擎只读，改动由你执行」，CTA 跳规范演进展开完整工件流；是两视图的桥，非问答自产方案的反例。 |
-| Gate Run（门禁运行） | 服务器端一次门禁策略判定（analyzeDiff + evaluateDiffPolicy）的落库快照，按 (repoId, commit) 成流、策略选项随快照存储（回放不追改）；语义=工作台执行史而非 CI 遥测（ADR-0017）。受波及树=单次运行内 路由→受影响符号 的两层展开，是运行明细的呈现形态，非独立图谱能力。 |
-| Artifact Stream（工件流） | 会话历史的呈现形态：时间序高密度工件卡列表（ADR-0012），每张卡自带物理锚点与溯源元信息，非聊天气泡。 |
-| Pattern Ingestion（惯例嗅探） | 演进建议生成前对目标代码库既有惯例的确定性抽取（ADR-0014：惯例清单带物理锚点 + 覆盖率；近邻优先、全局多数兜底、披露强制；骨架由 LLM 消费惯例清单生成并标注 llm-generated）；契约按 ADR-0005 零 LLM（嗅探轴 v1 清单待 Issue 24）。 |
+| Gate Run（门禁运行） | 服务器端一次门禁策略判定（analyzeDiff + evaluateDiffPolicy）的落库快照，按 (repoId, commit) 成流、策略选项随快照存储（回放不追改）；语义=工作台执行史而非 CI 遥测（ADR-0017）。影响树=单次运行内 路由→受影响符号 的两层展开，是运行明细的呈现形态，非独立图谱能力。 |
+| Artifact Stream（工件流） | 会话历史的呈现形态：时间序高密度工件卡列表（ADR-0012），每张卡自带物理锚点与溯源元信息，非聊天气泡。用户文案说「方案流」（v0.30 G5）。 |
+| Pattern Ingestion（代码惯例扫描） | 演进建议生成前对目标代码库既有惯例的确定性抽取（ADR-0014：惯例清单带物理锚点 + 覆盖率；近邻优先、全局多数兜底、披露强制；骨架由 LLM 消费惯例清单生成并标注 llm-generated）；契约按 ADR-0005 零 LLM（扫描轴 v1 清单待 Issue 24）。曾用名「惯例嗅探/模式嗅探」，v0.30 G5 起用户文案与词条名统一为「代码惯例扫描」；ADR 正文历史记录不改写。 |
 | Engine-rendered Diagram（引擎渲染图） | 图谱几何一律由确定性引擎从 Call Edge 边表渲染（ADR-0013 白名单：traceToMermaid、配置拓扑、Tour 路线）；LLM 仅产出结构化图层指令（图型、focus、折叠层级、节点注释），永不直接产出连线。迁移期缺口与 eval 波及见 ADR-0013。 |
-| Evolution Workbench（演进推演台） | 矩阵三视图中唯一新建视图（ADR-0015）：自由文本意图入口，LLM 单次意图解析 + 引擎意图锚点落地目标，解析回显披露不反问；产出四段工件卡（惯例清单 / 落位表 / 死代码清单 / 风险 Checklist）。 |
+| Evolution Workbench（规范演进） | 矩阵三视图中唯一新建视图（ADR-0015）：自由文本意图入口，LLM 单次需求理解 + 引擎意图锚点落地目标，解析回显披露不反问；产出四段方案卡（惯例清单 / 方案清单 / 死代码清单 / 风险 Checklist）。曾用名「演进推演台」，v0.30 起与 UI tab 名「规范演进」对齐。 |
 | Workbench Cards（工件卡持久流） | workbench_cards 表按 (repoId, commit) 流落地演进/排查终态卡（seq 单调、UNIQUE 幂等、删仓级联清理）；SSE 终态载荷披露服务端 cardId/seq，`GET /api/repos/:id/workbench-cards` 全量回放，前端切桶 hydrate 按 id 去重合并。 |
 | Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。v1 MCP 感知面冻结为现有 8 工具，演进类工具随 Issue 25 补齐。 |
+| 用户文案规范（User-Facing Copy） | v0.30 确立的界面语言承诺：用户可见文案以中文为准，工程通用语（HTTP 动词、语言名、API/Git/URL/Token/LLM/MCP、品牌）保留；机器枚举值（payload/SSE/MCP 契约）不改值、经展示层映射出人话徽章；服务端会渲染进 UI 的中文 label 与前端阶段标签双侧同步。退役旧词入共享黑名单（contracts 权威表），web/cp 双哨同表执法、改文案与改哨同 commit。四张对照表为战役工件（`.scratch/v030-degeekify/spec.md`）。 |
 
 ## Error Code Contract（v0.27-B R3）
 

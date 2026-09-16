@@ -869,7 +869,7 @@ export interface ChatCitation {
   ms: number;
 }
 
-/** CM-04 卡片化 v2：DEPRECATE 拆除清单结构化卡片（引擎载荷直供，非模型散文）。 */
+/** CM-04 卡片化 v2：DEPRECATE 下线清单结构化卡片（引擎载荷直供，非模型散文）。 */
 export interface ChatPlanItem {
   category: string;
   action: string;

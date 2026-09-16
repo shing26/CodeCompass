@@ -287,9 +287,9 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
           </div>
           <ScenarioGuide
             steps={[
-              '① 配置基线：选择基线分支与调用链/诊断/扫描检查项',
-              '② 生成预置命令：复制到 CI/CD 流水线阻断越界影响面',
-              '③ 本地自查：任何改动先在这里验证调用边界，再做合并决策'
+              '① 配置基线：选定待审引用与门禁策略（鉴权影响、断链判定）',
+              '② 本地自查：点击运行，门禁结果落进本机运行史，可逐行回看影响树',
+              '③ 对接流水线：复制预置命令进 CI/CD，越界改动在合并前被拦下'
             ]}
           />
           <button

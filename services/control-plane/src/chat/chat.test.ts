@@ -423,7 +423,7 @@ describe('ReActAgent tool loop (LLM configured)', () => {
 
 // ---------- stream filter ----------
 
-// ---------- CM-04 卡片化 v2：结构化拆除计划直供 ----------
+// ---------- CM-04 卡片化 v2：结构化下线方案直供 ----------
 
 describe('extractPlanCard / planCards 传播', () => {
   const planEvolutionRaw = JSON.stringify({
@@ -476,7 +476,7 @@ describe('extractPlanCard / planCards 传播', () => {
               ],
             },
           ])
-        : sseResponse([{ choices: [{ delta: { content: '拆除计划已生成，详见卡片。' } }] }]);
+        : sseResponse([{ choices: [{ delta: { content: '下线方案已生成，详见卡片。' } }] }]);
     }) as unknown as typeof fetch;
     return {
       deps: { mcp, llm: makeLlm(llmEnv), log: noopLog, onDelta: () => {}, fetchImpl } as AgentDeps,

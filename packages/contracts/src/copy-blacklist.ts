@@ -37,7 +37,9 @@ export const USER_COPY_BLACKLIST: readonly string[] = [
   'AST 提取',
   '解析 AST',
   '2-Hop',
-  '物理锚点'
+  '物理锚点',
+  '拆除清单',
+  '受波及'
 ];
 
 /**

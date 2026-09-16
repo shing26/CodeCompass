@@ -167,7 +167,7 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
         },
       });
       flushDelta();
-      // CM-04: planCards 结构化拆除计划随 citations JSON 列一并持久化（勾选状态在客户端）
+      // CM-04: planCards 结构化下线方案随 citations JSON 列一并持久化（勾选状态在客户端）
       chat.store.addMessage(sessionId, 'assistant', turn.answer, {
         citations: turn.citations,
         planCards: turn.planCards ?? []
