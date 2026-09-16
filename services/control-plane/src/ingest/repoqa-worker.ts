@@ -19,7 +19,7 @@ import {
   detectSuggestedSubdirs,
   mavenSourceRoots
 } from './repoqa-scan';
-import { adapterFor } from './repoqa-parser';
+import { adapterFor, buildParseContext, buildParseContextForFile } from './repoqa-parser';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { extractMapperSymbols } from './repoqa-mapper';
 import { parseLargeFileTier3 } from '../large-file';
@@ -309,7 +309,10 @@ export class RepoQAWorker {
     const adapter = adapterFor(absolute);
     if (adapter) {
       try {
-        symbols.push(...(await adapter.parseFile(absolute, repoId, root)));
+        // V31-02: a Go file's sibling files are its package, so the incremental
+        // refresh gets the same cross-file declarations a full index does.
+        const context = await buildParseContextForFile(root, absolute);
+        symbols.push(...(await adapter.parseFile(absolute, repoId, root, context)));
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         this.repoqa.recordEvent({
@@ -1976,6 +1979,9 @@ export class RepoQAWorker {
     const skipped: Array<{ file: string; error: string }> = [];
     const total = files.length;
     let parsed = 0;
+    // V31-02: repo-level declarations, so a Go call site can be typed by a
+    // declaration in another file of the same package. Built once per run.
+    const context = await buildParseContext(root, files);
     for (const filePath of files) {
       const adapter = adapterFor(filePath);
       if (adapter) {
@@ -1993,7 +1999,7 @@ export class RepoQAWorker {
               })
             });
           } else {
-            symbols.push(...(await adapter.parseFile(filePath, repoId, root)));
+            symbols.push(...(await adapter.parseFile(filePath, repoId, root, context)));
           }
         } catch (error) {
           // Dogfooding (Issue 17): real-world repos routinely contain edge

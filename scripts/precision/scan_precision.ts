@@ -10,6 +10,11 @@ import { RepoQAWorker } from '../../services/control-plane/src/ingest/repoqa-wor
 import { runScan } from '../../services/control-plane/src/scan-engine';
 import { isTestPath } from '../../services/control-plane/src/diagnose-engine';
 import { cockpitBaseUrl } from '../../services/control-plane/src/config';
+import { buildGoPackageTable, parseGoSource } from '../../services/control-plane/src/languages/GoAdapter';
+import {
+  buildCallIndex,
+  resolveCallEdge
+} from '../../services/control-plane/src/engine/repoqa-callchain';
 
 const execFile = promisify(execFileCallback);
 
@@ -239,6 +244,87 @@ async function measure(sample: SampleRef): Promise<void> {
   db.close();
 }
 
+/**
+ * V31-02 — edge-level Go measurement (does not index; parses the clone directly).
+ *
+ * The orphan bucket only shows the edges whose target had no other caller, which
+ * made the per-repo Go package table look like a −18 change when it actually
+ * binds hundreds of edges the call chain depends on. This mode reports that
+ * second, larger effect: the same sources parsed with and without the package
+ * table, counting edges by whether the receiver got a type and whether the edge
+ * resolves. Run: `... scan_precision.ts --edges lazygit`.
+ */
+async function edges(sampleName: string): Promise<void> {
+  const sample = SAMPLES.find((s) => s.name === sampleName);
+  if (!sample) throw new Error(`unknown sample "${sampleName}"`);
+  const root = await resolveSource(sample);
+  const sources: Array<{ relativePath: string; source: string }> = [];
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      if (entry.name === '.git' || entry.name === 'vendor' || entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith('.go')) {
+        sources.push({
+          relativePath: path.relative(root, full).split(path.sep).join('/'),
+          source: await fs.readFile(full, 'utf8')
+        });
+      }
+    }
+  };
+  await walk(root);
+  const context = { goPackages: buildGoPackageTable(sources) };
+  console.log(`# ${sampleName}@${await gitHead(root)} — ${sources.length} .go files\n`);
+  console.log('| 口径 | 无包表 | 有包表 | Δ |');
+  console.log('|---|---|---|---|');
+  const rows: Array<[string, number, number]> = [];
+  const measured: Record<string, number> = {};
+  for (const [label, ctx] of [
+    ['without', undefined],
+    ['with', context]
+  ] as const) {
+    const symbols = sources.flatMap((file) =>
+      parseGoSource(file.source, file.relativePath, 'edges', ctx)
+    );
+    let calls = 0;
+    let typed = 0;
+    let dynamic = 0;
+    for (const symbol of symbols) {
+      for (const call of symbol.calls ?? []) {
+        calls += 1;
+        if (call.receiverType) typed += 1;
+        else if (call.dynamic === true) dynamic += 1;
+      }
+    }
+    const index = buildCallIndex(symbols);
+    let resolved = 0;
+    for (const caller of symbols) {
+      for (const call of caller.calls ?? []) {
+        if ('target' in resolveCallEdge(index, caller, call)) resolved += 1;
+      }
+    }
+    measured[`${label}.calls`] = calls;
+    measured[`${label}.typed`] = typed;
+    measured[`${label}.dynamic`] = dynamic;
+    measured[`${label}.untyped`] = calls - typed - dynamic;
+    measured[`${label}.resolved`] = resolved;
+    measured[`${label}.broken`] = calls - resolved;
+  }
+  for (const [metric, key] of [
+    ['调用边总数', 'calls'],
+    ['带类型的 receiver 边', 'typed'],
+    ['dynamic:true 的边（无 receiver 类型）', 'dynamic'],
+    ['其余（裸调用 / pkg 限定）', 'untyped'],
+    ['可解析边', 'resolved'],
+    ['断点边', 'broken']
+  ]) {
+    const before = measured[`without.${key}`];
+    const after = measured[`with.${key}`];
+    rows.push([metric, before, after]);
+    console.log(`| ${metric} | ${before} | ${after} | ${after - before} |`);
+  }
+}
+
 /** M1 table from the dumps + filled verdicts. Verdicts are keyed by `filePath:line`. */
 async function score(): Promise<void> {
   const files = await fs.readdir(OUT_DIR).catch(() => [] as string[]);
@@ -272,6 +358,10 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.includes('--score')) {
     await score();
+  } else if (args.includes('--edges')) {
+    const name = args[args.indexOf('--edges') + 1];
+    if (!name) throw new Error('--edges needs a sample name');
+    await edges(name);
   } else if (args.includes('--all') || args.length === 0) {
     for (const sample of SAMPLES) await measure(sample);
   } else {
