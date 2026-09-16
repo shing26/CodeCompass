@@ -398,8 +398,8 @@ export function ChatView(props: {
           {sessions.length === 0 && <div className="chat-hint text-xs text-muted">暂无本仓库会话</div>}
         </div>
         {/* CM-05 前置：模型配置是高级项——默认折叠，等第二 profile 配好后可展开 */}
-        <details className="chat-model text-xs">
-          <summary className="chat-hint cursor-pointer text-muted">模型设置</summary>
+        <details className="text-xs">
+          <summary className="chat-hint cursor-pointer pb-1.5 text-muted">模型设置</summary>
           <ModelSelect chatClient={chatClient} />
         </details>
       </aside>
@@ -433,17 +433,17 @@ export function ChatView(props: {
               <div>
                 直接提问即可，回答中的每个结论都来自代码事实，点上标证据角标可跳到拓扑查证。引擎只读，改动由你执行。试试：
               </div>
-              <div className="chat-starters">
+              <div className="grid w-full max-w-xl grid-cols-2 gap-2.5">
                 {STARTER_CARDS.map((card) => (
                   <button
                     key={card.title}
-                    className="chat-starter-card"
+                    className="flex flex-col gap-1 rounded-[10px] border border-line bg-elevated px-3.5 py-3 text-left transition-[border-color,transform] duration-150 hover:border-accent hover:-translate-y-px disabled:cursor-default disabled:opacity-50"
                     data-testid="chat-starter-card"
                     onClick={() => void send(card.prompt)}
                     disabled={busy}
                   >
-                    <span className="chat-starter-title">{card.title}</span>
-                    <span className="chat-starter-sub">{card.subtitle}</span>
+                    <span className="font-semibold text-ink">{card.title}</span>
+                    <span className="text-xs text-muted">{card.subtitle}</span>
                   </button>
                 ))}
               </div>

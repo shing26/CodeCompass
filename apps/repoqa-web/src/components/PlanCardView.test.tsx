@@ -19,12 +19,13 @@ const cards: ChatPlanCard[] = [
 describe('PlanCardView (v0.26-A ticket 02, Q3 方案摘要)', () => {
   it('titles the card 方案摘要 and pins the read-only bottom line in the header', () => {
     render(<PlanCardView cards={cards} sessionId="s-t1" />);
-    const head = document.querySelector('.plan-card-head');
+    // v0.30 票 06：styles.css 清零后，class 选择器迁 data-testid（行为语义不变）
+    const head = screen.getByTestId('plan-card-head');
     expect(head).toHaveTextContent('方案摘要');
     expect(head).toHaveTextContent('安全下线');
     expect(head).toHaveTextContent('LegacyOrderService');
     // 旧卡名退场（Q3/黑名单；分写=copy-guard 封条自豁免）
-    expect(document.querySelector('.plan-card')?.textContent).not.toContain('拆除' + '计划');
+    expect(screen.getByTestId('plan-card').textContent).not.toContain('拆除' + '计划');
     // 底线句常驻头部行：直接可见文本，非 <details> 折叠
     const line = screen.getByTestId('plan-bottomline');
     expect(line).toHaveTextContent('引擎只读，改动由你执行');
@@ -53,9 +54,9 @@ describe('PlanCardView (v0.26-A ticket 02, Q3 方案摘要)', () => {
 
     fireEvent.click(box);
     expect(box).toBeChecked();
-    expect(box.closest('label')).toHaveClass('done');
+    expect(box.closest('label')).toHaveClass('line-through');
     expect(JSON.parse(localStorage.getItem(`chat-plan-checks:s-t3`) ?? '[]')).toEqual([key]);
     // 进度徽标跟进 1/2
-    expect(document.querySelector('.plan-progress')).toHaveTextContent('1/2');
+    expect(screen.getByTestId('plan-progress')).toHaveTextContent('1/2');
   });
 });

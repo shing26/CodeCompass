@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { ChatPlanCard } from '../client/RepoQAClient';
 import { statusLabel } from '../client/statusLabel';
+import { Badge } from './ui/Badge';
 
 /** CM-04 卡片化 v2 的结构卡（载荷协议冻结），v0.26-A Q3 重塑为「方案摘要」
  * （Plan Digest）：卡名正名、底线声明升为头部常驻行、新增 CTA 跳规范演进——
@@ -41,7 +42,7 @@ export function PlanCardView(props: {
   if (!cards.length) return null;
 
   return (
-    <div className="plan-cards" data-testid="plan-cards">
+    <div className="mb-3" data-testid="plan-cards">
       {cards.map((card, ci) => {
         const groups = new Map<string, typeof card.items>();
         for (const item of card.items) {
@@ -51,34 +52,60 @@ export function PlanCardView(props: {
         }
         const doneCount = card.items.filter((i) => checked.has(`${ci}:${i.filePath}:${i.action}`)).length;
         return (
-          <div className="plan-card" key={ci}>
-            <div className="plan-card-head">
+          <div
+            key={ci}
+            data-testid="plan-card"
+            className="mb-2 overflow-hidden rounded-lg border border-line bg-elevated"
+          >
+            <div
+              data-testid="plan-card-head"
+              className="flex items-center gap-2 bg-accent/10 px-3 py-2 text-sm font-semibold"
+            >
               📋 {statusLabel(card.intentType)} 方案摘要 · {card.target}
-              <span className={`plan-risk risk-${(card.riskLevel ?? 'LOW').toLowerCase()}`}>
+              <Badge
+                tone={
+                  (card.riskLevel ?? 'LOW') === 'HIGH'
+                    ? 'danger'
+                    : (card.riskLevel ?? 'LOW') === 'MEDIUM'
+                      ? 'warning'
+                      : 'success'
+                }
+                className="!py-px"
+              >
                 {statusLabel(card.riskLevel ?? 'LOW')}
-              </span>
-              <span className="plan-progress">
+              </Badge>
+              <span data-testid="plan-progress" className="ml-auto text-micro text-muted">
                 {doneCount}/{card.items.length}
               </span>
             </div>
             {/* Q3：两入口共享底线，常驻头部行（非折叠/非角落） */}
-            <div className="plan-card-bottomline" data-testid="plan-bottomline">
+            <div className="px-3 pt-1.5 text-xs font-semibold text-accent" data-testid="plan-bottomline">
               引擎只读，改动由你执行。
             </div>
-            <div className="plan-card-note">勾选仅作本地追踪。</div>
+            <div className="border-b border-line px-3 py-1.5 text-xs text-muted">勾选仅作本地追踪。</div>
             {[...groups.entries()].map(([category, items]) => (
-              <div className="plan-group" key={category}>
-                <div className="plan-group-head">{category}</div>
+              <div key={category}>
+                <div className="px-3 pb-0.5 pt-2 text-micro font-bold tracking-wide text-muted">{category}</div>
                 {items.map((item) => {
                   const key = `${ci}:${item.filePath}:${item.action}`;
                   const isChecked = checked.has(key);
                   return (
-                    <label className={`plan-item${isChecked ? ' done' : ''}`} key={key}>
-                      <input type="checkbox" checked={isChecked} onChange={() => toggle(key)} />
-                      <span className={`plan-action action-${item.action.toLowerCase()}`}>{statusLabel(item.action)}</span>
-                      <span className="plan-body">
-                        <code className="plan-file">{item.filePath}</code>
-                        <span className="plan-desc">{item.description}</span>
+                    <label
+                      className={`flex cursor-pointer items-start gap-2 px-3 py-1.5 text-sm hover:bg-accent/5 ${isChecked ? 'opacity-60 line-through' : ''}`}
+                      key={key}
+                    >
+                      <input type="checkbox" checked={isChecked} onChange={() => toggle(key)} className="mt-0.5 accent-accent" />
+                      <Badge
+                        tone={
+                          item.action === 'DELETE' ? 'danger' : item.action === 'MODIFY' ? 'warning' : 'success'
+                        }
+                        className="!py-px"
+                      >
+                        {statusLabel(item.action)}
+                      </Badge>
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <code className="break-all font-mono text-xs">{item.filePath}</code>
+                        <span className="text-xs text-muted">{item.description}</span>
                       </span>
                     </label>
                   );
@@ -86,8 +113,13 @@ export function PlanCardView(props: {
               </div>
             ))}
             {onOpenEvolution && (
-              <div className="plan-card-cta">
-                <button type="button" data-testid="plan-open-evolution" onClick={onOpenEvolution}>
+              <div className="flex justify-end border-t border-line p-2">
+                <button
+                  type="button"
+                  data-testid="plan-open-evolution"
+                  onClick={onOpenEvolution}
+                  className="cursor-pointer rounded-md border border-accent px-2.5 py-1 text-xs text-accent hover:bg-accent/10"
+                >
                   在规范演进中展开 →
                 </button>
               </div>
