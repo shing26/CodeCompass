@@ -11,7 +11,9 @@
 
 **v0.30.0 去极客化战役全批收口（G0–G8 全闭，门禁全绿）**：双文案哨共表（中文 23 词 + 英文 38 词入 `packages/contracts` 跨包权威）+ 字号两档语义化（111 处任意值 → `text-xs`/`text-micro`）+ chrome 中英混排人话化（~55 短语）+ 枚举展示映射（`statusLabel` 表 C）+ Badge/CountPill 双件（9 徽章族归一）+ 黑话双端清扫 + `styles.css` 销号 + 命名族归一（「拆除计划」→「下线方案」，同义触发词保留、工具灵敏度零回归）。前置批次：v0.29 韧性硬化（出库掩码单尺 `maskSensitiveText`、clone 重试分类器、MCP 深链单一源）、v0.28 结构手术（web→contracts 单一源、control-plane 目录归组 ingest/engine/mcp/eval）、v0.27 生产就绪（Docker 修复、版本单一源、WS 优雅关闭挂死真 bug 修复）。门禁基线：控制面 650、web 363、bridge 26、e2e 63（对照组）。总账在 `.scratch/v027-backlog.md`，各战役 spec 在 `.scratch/<feature>/`。
 
-**2026-09-16 整理批（V30-11）**：.scratch 42 个测试遗留库本地清理；三处散落的体验报告合一到 `docs/reports/`（Round1–3 并排 + `ui-shots/` 证据统一）；根目录截图归档；HANDOFF 全量刷新。**修复 MCP_SERVER_VERSION 漂移**：该硬编码停在 0.26.0 四个版本（MCP 握手对外谎报版本），现 alias `version.ts` 单一源，e2e 新增棘轮检查。**repoqa 旧命名族迁移立为 V30-10 独立票**（跨端契约手术，勿顺手改，见 §4）。
+**方向已定（2026-09-16）**：**A 主轴（给 coding agent 的确定性代码事实层）+ D 交付（可展示资产），Web 面只减不增**——落地 spec 与六票池见 `.scratch/v031-precision/spec.md`，下一步整体切到 §4。此前「连续五个版本做卫生不做产品」的漂移已诊断归因（定位文档 §1），本批的完成定义写死在度量口径 M1–M5。
+
+**2026-09-16 整理批（V30-11）**：.scratch 42 个测试遗留库本地清理；三处散落的体验报告合一到 `docs/reports/`（Round1–3 并排 + `ui-shots/` 证据统一）；根目录截图归档；HANDOFF 全量刷新。**修复 MCP_SERVER_VERSION 漂移**：该硬编码停在 0.26.0 四个版本（MCP 握手对外谎报版本），现 alias `version.ts` 单一源，e2e 新增棘轮检查（62→63）。**repoqa 旧命名族迁移立为 V30-10 独立票**（跨端契约手术，勿顺手改）；**V30-12 = branch protection 必过检查名失配**（需用户本机改，见 §2.3-8）。
 
 **环境风险项（接手必读）——Mimosa git-gate 漂移**：ZCode 层 `git commit/push` 是否被 Mimosa L3 以「全仓存量误报」硬拦，**随用户插件配置漂移、不可假设**（实测：09-05 拦 → 09-08 放开 → 09-10 复拦 → 09-11/12 放行（v0.26 七票直提）→ 09-16 整理批放行；重试与 `--no-verify` 均无效，不可技术绕过）。标准流程：每次收口先自动尝试 commit+push；被拦则如实报告并把「add+commit+tag+push」收敛为 `.scratch/<feature>/` 下单条 `.cmd`（勿用 bash 脚本——用户 cmd 里 bash 解析到 WSL 会失败）交用户本机执行，agent 负责跑后验证落地与 CI。
 
@@ -85,17 +87,25 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | `CHANGELOG.md` | 0.5.x→0.30.0 完整发布条目 |
 | `docs/reports/` | 体验报告 Round1–3（产品缺陷史）与历史评估报告；截图在 `ui-shots/`（本地） |
 | `docs/archive/` | 历史 handoff（v0.3 / 2026-08 / 2026-09）与旧规划文档 |
-| `.scratch/v027-backlog.md` | 跨版本总账：开放项 V27-x/V29-x/V30-x 与关闭记录 |
+| `.scratch/v027-backlog.md` | 跨版本总账：开放项 V27-x/V29-x/V30-x/V31-x 与关闭记录 |
+| `.scratch/v031-precision/spec.md` | **当前方向落地 spec（v0.31 精度优先）**：放弃清单、度量口径 M1–M5、票池 01–06 |
 | `scripts/e2e/closeout_gate.py` | e2e 门禁 = 系统能力可执行规格 |
 | agent 持久记忆 | `C:\Users\Shing\.zcode\cli\memories\projects\codecompass-0da1d6bfa4427c13\memory\`（各版发布边界 + Mimosa 机制 + 双 agent 分工） |
 
-## 4. 下一步候选（按用户已确认的优先级）
+## 4. 下一步：v0.31 精度优先批（方向已定，2026-09-16）
 
-1. **V30-10 repoqa 旧命名族迁移**（整理批新立）：`apps/repoqa-web`、`src` 下 `repoqa-*.ts` 引擎族、`RepoQAClient`、SSE 事件名 `repoqa.evolve.*`、`REPOQA_LLM_*`/`MHW_*` 环境变量、npm files/Dockerfile 路径——SSE 事件名与包路径属对外契约，需独立 spec + 破坏面清单，不排期
-2. **V30-9 gate hermetic 化**：gate spawn 显式清空/覆写 LLM 环境变量（现行纪律见 §2.3-7）
-3. **V29-1 import/evolve 韧性后半**：`POST /api/repos` 202 + WS 进度流化（跨端契约手术，建议与 Web 体验批次并批 grill）
-4. **V27 余账**（详见总账）：V27-5「查调用链」名实升级、V27-6 risk 色族跨视图统一、V27-7 gate 运行史渲染上限、V27-15 长回答 a11y、V27-16 拓扑首屏选题、V27-17 TS 仓 tours 零锚点
-5. 长期候选：方法体级 AST 提取器（scan oversized 桶升级前置）、Mimosa 误报规则协调、DEPRECATE checklist 截断说明、MCP `intentType` enum 校验
+**方向裁决**：A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示的工程资产）；**Web 面只减不增**。裁决底稿在 `D:\WorkBuddyData\CodeCompass-方向定位-2026-09-16.md`，落地 spec 在 `.scratch/v031-precision/spec.md`（含放弃清单、度量口径 M1–M5、实证修正表）。
+
+票池（Wave 1 = 01+06 可并行；Wave 2 = 02+03；Wave 3 = 04 收口）：
+
+1. **01 精度复测基线**（度量先行）：建真实仓库假阳性率 harness，三样本（lazygit / petclinic / 本仓）出 before/after
+2. **02 残余精度攻坚**：主因 = Go 跨文件类型引用（`declaredTypes` 按文件）；目标 <5%，不可达则给诚实下限
+3. **03 发布就绪**：npm 首发 `@codecompass/cli`（凭证在用户侧）+ README 工具数/安装段、benchmark、协作文档、CONTEXT 四处一致性
+4. **04 影响力兑付**：tag `v1.0.0` + 真实数据技术文 + 公开精度评测报告
+5. **05 Web 收敛 6→3**（条件票：只做资产可整票裁剪）
+6. **06 冻结护栏与 V27 余账归位**：新增工具/页签须附降误报论证；V27-5/6/15 冻结、V27-7/16 低优先、V27-17 升级为精度票候选
+
+**仍开放但非本批**：V30-10 repoqa 旧命名族迁移、V30-9 gate hermetic 化、V29-1 import/evolve 韧性后半、V30-12（**需用户本机改 branch protection**，见 §2.3-8）。
 
 ## 5. Suggested skills
 
