@@ -2,9 +2,9 @@ import type { IndexingPhase, StepperProgress } from '../types';
 
 const PHASES: Array<{ id: IndexingPhase; label: string }> = [
   { id: 'DISCOVERY', label: '发现文件' },
-  { id: 'AST_EXTRACTION', label: 'AST 提取' },
-  { id: 'CROSS_LANG_BRIDGE', label: '跨语言桥接' },
-  { id: 'FINALIZING', label: '拓扑收敛' }
+  { id: 'AST_EXTRACTION', label: '代码解析' },
+  { id: 'CROSS_LANG_BRIDGE', label: '跨语言关联' },
+  { id: 'FINALIZING', label: '结构收敛' }
 ];
 
 function phaseState(phase: IndexingPhase, current: IndexingPhase): 'done' | 'active' | 'pending' {

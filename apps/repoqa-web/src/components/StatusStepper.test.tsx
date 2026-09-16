@@ -14,7 +14,7 @@ describe('StatusStepper (v0.6.0)', () => {
         progress={{
           repoId: 'repo-1',
           phase: 'AST_EXTRACTION',
-          phaseLabel: 'AST 提取',
+          phaseLabel: '代码解析',
           currentFile: 'src/App.java',
           processedFiles: 10,
           totalFiles: 131,

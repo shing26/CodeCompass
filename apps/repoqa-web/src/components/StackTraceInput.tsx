@@ -85,7 +85,7 @@ export function StackTraceInput({ streaming, onSubmit }: StackTraceInputProps) {
         />
       )}
       <p className="text-micro text-muted">
-        排查结论仅基于本仓库索引的物理锚点（file:line + commit）；堆栈中无法定位的帧会明确标注 BREAK，不作猜测。
+        排查结论仅基于本仓库索引的精确定位（file:line + commit）；堆栈中无法定位的帧会明确标注断链，不作猜测。
       </p>
     </form>
   );

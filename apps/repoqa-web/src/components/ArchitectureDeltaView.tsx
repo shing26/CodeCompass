@@ -154,7 +154,7 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
             steps={[
               '① 选基线与目标 Commit（base/head）',
               '② 生成差异：新增路由、断边与风险分级一目了然',
-              '③ 点击结果中的符号，定位被波及的调用者'
+              '③ 点击结果中的符号，定位受影响的调用方'
             ]}
           />
           <button

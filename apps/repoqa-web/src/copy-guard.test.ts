@@ -64,8 +64,8 @@ describe('copy guard (v0.26-A ticket 04)', () => {
     // 行为级断言由票 01/02 的组件测试负责；这里只钉「源码字面量没被整句删掉」，
     // 防组件层重构把 tooltip/空态连带蒸发。
     const topbar = readFileSync(join(SRC, 'components', 'TopBar.tsx'), 'utf8');
-    expect(topbar).toContain('问现状：架构、链路、风险都基于代码事实');
-    expect(topbar).toContain('要方案：给改动意图，产出落位建议与风险清单；引擎只读，改动由你执行');
+    expect(topbar).toContain('问现状：架构、链路、风险都基于代码事实，结论可逐条按证据查证');
+    expect(topbar).toContain('要方案：给改动意图，产出落地建议与风险清单；引擎只读，改动由你执行');
     const chat = readFileSync(join(SRC, 'components', 'ChatView.tsx'), 'utf8');
     expect(chat).toContain('引擎只读，改动由你执行');
     const plan = readFileSync(join(SRC, 'components', 'PlanCardView.tsx'), 'utf8');

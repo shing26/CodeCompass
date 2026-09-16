@@ -414,9 +414,9 @@ export function ImportRepoModal({
                 >
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                   {importingRepo.indexTotal && importingRepo.indexTotal > 0
-                    ? `正在解析 AST…（${importingRepo.indexParsed ?? 0}/${importingRepo.indexTotal}）`
+                    ? `正在解析代码结构…（${importingRepo.indexParsed ?? 0}/${importingRepo.indexTotal}）`
                     : importingRepo.fileCount > 0
-                    ? `正在解析 AST…（${importingRepo.fileCount} 个文件）`
+                    ? `正在解析代码结构…（${importingRepo.fileCount} 个文件）`
                     : '正在扫描仓库…（索引中）'}
                 </div>
               ) : (

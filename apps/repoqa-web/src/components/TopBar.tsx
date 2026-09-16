@@ -54,10 +54,10 @@ const TABS: Array<{ id: WorkbenchTab; label: string; title: string }> = [
   // 组件现状修正（review P1-1/P1-2：Canvas 不渲 Mermaid；仪表盘无大文件设施）。
   { id: 'topo', label: '代码拓扑', title: '点击左侧路由或类，逐步走查确定性调用链路（Caller→Target→Callee）' },
   { id: 'metrics', label: '架构仪表盘', title: '一眼查看全仓技术栈、配置拓扑、代码规模与 Top Core API 入口' },
-  { id: 'chat', label: '架构问答', title: '问现状：架构、链路、风险都基于代码事实，结论可逐条 [cite] 查证' },
+  { id: 'chat', label: '架构问答', title: '问现状：架构、链路、风险都基于代码事实，结论可逐条按证据查证' },
   { id: 'gate', label: '变更审计', title: '运行并记录门禁、回看本机门禁运行史，也可复制预置命令到 CI/CD 流水线' },
-  { id: 'delta', label: 'Diff 影响面', title: '对比两个 Git Commit，精确定位被波及的接口与反向调用者' },
-  { id: 'evolve', label: '规范演进', title: '要方案：给改动意图，产出落位建议与风险清单；引擎只读，改动由你执行' }
+  { id: 'delta', label: 'Diff 影响面', title: '对比两个 Git Commit，精确定位受影响的接口与反向调用方' },
+  { id: 'evolve', label: '规范演进', title: '要方案：给改动意图，产出落地建议与风险清单；引擎只读，改动由你执行' }
 ];
 
 function watcherState(status: Repo['status'] | undefined) {

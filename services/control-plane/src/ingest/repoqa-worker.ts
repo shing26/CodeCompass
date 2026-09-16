@@ -494,7 +494,7 @@ export class RepoQAWorker {
             payload: {
               repoId,
               phase: 'AST_EXTRACTION',
-              phaseLabel: 'AST 提取',
+              phaseLabel: '代码解析',
               detail: `Parsing AST... ${parsed} files`,
               parsedCount: parsed,
               totalFiles: total,
@@ -520,7 +520,7 @@ export class RepoQAWorker {
         payload: {
           repoId,
           phase: 'CROSS_LANG_BRIDGE',
-          phaseLabel: '跨语言桥接',
+          phaseLabel: '跨语言关联',
           detail: 'Building cross-language call edges...',
           processedFiles: stats.fileCount,
           totalFiles: stats.fileCount,
@@ -538,7 +538,7 @@ export class RepoQAWorker {
         payload: {
           repoId,
           phase: 'FINALIZING',
-          phaseLabel: '拓扑收敛',
+          phaseLabel: '结构收敛',
           detail: 'Finalizing chunks and symbol graph...',
           processedFiles: stats.fileCount,
           totalFiles: stats.fileCount,
@@ -574,7 +574,7 @@ export class RepoQAWorker {
         payload: {
           repoId,
           phase: 'FINALIZING',
-          phaseLabel: '拓扑收敛',
+          phaseLabel: '结构收敛',
           detail: `Indexed ${stats.fileCount} files, ${stats.lineCount} lines${moduleSummary}`,
           processedFiles: stats.fileCount,
           totalFiles: stats.fileCount,
@@ -654,18 +654,18 @@ export class RepoQAWorker {
     // ---- Stage 1: intent parse (one NLU call, deterministic fallback) ----
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'intent_parse', label: '意图解析', status: 'running' }
+      payload: { stage: 'intent_parse', label: '需求理解', status: 'running' }
     };
     const echo = await this.parseEvolutionIntent(input.question);
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'intent_parse', label: '意图解析', status: 'done', intentEcho: echo }
+      payload: { stage: 'intent_parse', label: '需求理解', status: 'done', intentEcho: echo }
     };
 
     // ---- Stage 2: target resolve (domain radar, deterministic) ----
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'target_resolve', label: '目标锚定', status: 'running' }
+      payload: { stage: 'target_resolve', label: '目标定位', status: 'running' }
     };
     let resolvedTarget = input.target?.trim() || '';
     let alternatives: Array<{ symbol: string; score: number }> = [];
@@ -694,17 +694,17 @@ export class RepoQAWorker {
     }
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'target_resolve', label: '目标锚定', status: 'done', intentEcho: echo }
+      payload: { stage: 'target_resolve', label: '目标定位', status: 'done', intentEcho: echo }
     };
 
     // ---- Stage 3+4: convention scan (inside the EXTEND engine) + pipeline ----
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'running' }
+      payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'running' }
     };
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'pipeline', label: '演进推演', status: 'running' }
+      payload: { stage: 'pipeline', label: '方案生成', status: 'running' }
     };
     let result: ModuleEvolutionResult;
     try {
@@ -773,17 +773,17 @@ export class RepoQAWorker {
     }
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'done' }
+      payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'done' }
     };
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'pipeline', label: '演进推演', status: 'done' }
+      payload: { stage: 'pipeline', label: '方案生成', status: 'done' }
     };
 
     // ---- Stage 5: engine-rendered diagram over the resolved target ----
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'diagram', label: '图谱投射', status: 'running' }
+      payload: { stage: 'diagram', label: '图表生成', status: 'running' }
     };
     let mermaid: string | undefined;
     try {
@@ -798,7 +798,7 @@ export class RepoQAWorker {
     }
     yield {
       type: 'repoqa.evolve.stage',
-      payload: { stage: 'diagram', label: '图谱投射', status: 'done' }
+      payload: { stage: 'diagram', label: '图表生成', status: 'done' }
     };
 
     this.repoqa.recordEvent({

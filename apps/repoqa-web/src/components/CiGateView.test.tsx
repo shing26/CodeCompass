@@ -361,7 +361,7 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     expect(screen.getByTestId('ci-fail-on-auth-impact')).toBeChecked();
   });
 
-  // —— B03：行内受波及树。payload 里 impactedApis 与 delta 同源字段族。
+  // —— B03：行内影响树。payload 里 impactedApis 与 delta 同源字段族。
   function payloadRun(overrides: Partial<GateRunRow> = {}): GateRunRow {
     return gateRunRow({
       payload: {

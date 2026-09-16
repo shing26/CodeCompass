@@ -22,15 +22,15 @@ interface EvolutionViewProps {
   client?: Pick<RepoQAClient, 'radar'>;
 }
 
-/** Stage pipeline shown as the run header of one artifact card. */
+/** Stage pipeline shown as the run header of one plan card. */
 const STAGE_ORDER = ['intent_parse', 'target_resolve', 'convention_scan', 'pipeline', 'diagram'] as const;
 
 const STAGE_LABEL: Record<string, string> = {
-  intent_parse: '意图解析',
-  target_resolve: '目标锚定',
-  convention_scan: '惯例嗅探',
-  pipeline: '演进推演',
-  diagram: '图谱投射'
+  intent_parse: '需求理解',
+  target_resolve: '目标定位',
+  convention_scan: '代码惯例扫描',
+  pipeline: '方案生成',
+  diagram: '图表生成'
 };
 
 /** Wrap a base filename with its click-through affordance. */
@@ -117,7 +117,7 @@ function PlacementCard({
   if (!placement) return null;
   return (
     <section data-testid="evolve-placement" className="rounded-md border border-line bg-surface p-3">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">落位表</h3>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">方案清单</h3>
       <p className="mb-1 font-mono text-xs text-ink">{placement.packagePath}</p>
       <ul className="space-y-1 text-xs text-ink">
         {placement.files.map((file) => (
@@ -249,7 +249,7 @@ function StreamCard({
                 </span>
                 {card.echo.resolvedTarget ? (
                   <span data-testid="evolve-target-pill" className="text-ink">
-                    🎯 目标锚定:{card.echo.resolvedTarget}
+                    🎯 目标定位:{card.echo.resolvedTarget}
                     {card.echo.alternatives[0] && (
                       <span className="text-muted">
                         {' '}(匹配 {Math.round(card.echo.alternatives[0].score)}%)
@@ -258,7 +258,7 @@ function StreamCard({
                   </span>
                 ) : (
                   <span data-testid="evolve-target-pill" className="text-warning">
-                    未锚定目标:{card.echo.rawKeyword}
+                    未定位到目标:{card.echo.rawKeyword}
                   </span>
                 )}
               </div>
@@ -344,7 +344,7 @@ function StreamCard({
               {card.mermaid && (
                 <section data-testid="evolve-diagram" className="rounded-md border border-line bg-surface p-3">
                   <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                    落位靶点(引擎编译产物)
+                    改动目标(引擎编译产物)
                   </h3>
                   <MermaidDiagram
                     code={card.mermaid}
@@ -355,10 +355,10 @@ function StreamCard({
               )}
               {card.result.checklists.length > 0 && (
                 <section data-testid="evolve-checklists" className="rounded-md border border-line bg-surface p-3">
-                  {/* Q5「EXTEND 语境作落位表·变更小节」——按 intentType 收口，
-                    DEPRECATE 的 DELETE 拆除项不得顶落位牌（review P1）。 */}
+                  {/* Q5「EXTEND 语境作『方案·变更』小节」——按 intentType 收口，
+                    DEPRECATE 的 DELETE 拆除项不得顶『方案·变更』牌（review P1）。 */}
                   <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                    {card.result.intentType === 'DEPRECATE' ? '拆除清单' : '落位表·变更'}
+                    {card.result.intentType === 'DEPRECATE' ? '下线清单' : '方案·变更'}
                   </h3>
                   <ul className="space-y-1 text-xs">
                     {card.result.checklists.map((item, index) => (
@@ -442,13 +442,13 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
           <p className="mt-0.5 truncate text-xs text-muted">
             {repo.name}
             {repo.commit ? ` · @ ${repo.commit}` : ''}
-            {cards.length > 0 ? ` · ${cards.length} 张工件卡` : ' · 工件流未开始'}
+            {cards.length > 0 ? ` · ${cards.length} 张方案卡` : ' · 方案流未开始'}
           </p>
           <ScenarioGuide
             steps={[
               '① 输入重构意图（如：给订单模块加导出 / 废弃某 Controller）',
-              '② 引擎扫描惯例冲突，防止越界改动',
-              '③ 产出落位表、死代码清单与风险 Checklist；引擎只读，改动由你执行'
+              '② 引擎扫描代码惯例冲突，防止越界改动',
+              '③ 产出方案清单、死代码清单与风险 Checklist；引擎只读，改动由你执行'
             ]}
           />
         </header>
@@ -457,7 +457,7 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
           <label className="flex flex-col gap-2 text-xs text-muted">
             {cards.length === 0
               ? `演进意图(自然语言,如「${placeholder}」)`
-              : '继续追问(基于当前落位点追加,新卡片进入同一工件流)'}
+              : '继续追问(基于当前方案追加,新卡片进入同一方案流)'}
             <textarea
               data-testid="evolve-intent"
               value={intent}
@@ -465,7 +465,7 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
               rows={2}
               className="rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink outline-none focus:border-accent"
               placeholder={
-                cards.length === 0 ? placeholder : '如:排查这次落位对调用方的影响面'
+                cards.length === 0 ? placeholder : '如:排查这次改动对调用方的影响'
               }
             />
           </label>
@@ -476,11 +476,11 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
             disabled={running || !intent.trim()}
             className="mt-2 rounded-md bg-accent px-4 py-1.5 text-xs font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
-            {running ? '推演中…' : cards.length === 0 ? '开始推演' : '追加推演'}
+            {running ? '方案生成中…' : cards.length === 0 ? '开始生成方案' : '追加方案'}
           </button>
         </section>
 
-        {/* Append-only artifact stream — history collapsed, latest open. */}
+        {/* Append-only plan stream — history collapsed, latest open. */}
         {cards.map((card, index) => {
           const isLatest = index === cards.length - 1;
           const expanded = openOverrides[card.id] ?? isLatest;

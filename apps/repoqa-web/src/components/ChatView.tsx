@@ -13,7 +13,7 @@ const STARTER_CARDS = [
     prompt: '这个仓库的整体架构和技术栈是怎样的？分层和核心模块是什么？'
   },
   {
-    title: '高危大文件与孤岛',
+    title: '高危大文件与孤立代码',
     subtitle: '定位 Top 极值大文件与无入度符号',
     prompt: '分析此仓是否有死代码或高风险大文件？列出最值得关注的几个。'
   },
@@ -24,7 +24,7 @@ const STARTER_CARDS = [
   },
   {
     title: '变更风险评估',
-    subtitle: '分析特定方法或未提交修改的受波及面',
+    subtitle: '分析特定方法或未提交修改的影响范围',
     prompt: '分析这个仓库的变更风险：哪些方法改动影响面最大？'
   }
 ];
@@ -431,7 +431,7 @@ export function ChatView(props: {
           {entries.length === 0 && (
             <div className="chat-empty flex w-full flex-col gap-3 text-center text-sm text-muted">
               <div>
-                直接提问即可，回答中的每个结论都来自代码事实，可点 [cite: N] 查证。引擎只读，改动由你执行。试试：
+                直接提问即可，回答中的每个结论都来自代码事实，点上标证据角标可跳到拓扑查证。引擎只读，改动由你执行。试试：
               </div>
               <div className="chat-starters">
                 {STARTER_CARDS.map((card) => (

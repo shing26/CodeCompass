@@ -115,7 +115,7 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
       />
     );
     await waitFor(() =>
-      expect(screen.getByTestId('import-progress')).toHaveTextContent('正在解析 AST…')
+      expect(screen.getByTestId('import-progress')).toHaveTextContent('正在解析代码结构…')
     );
     expect(screen.getByTestId('import-progress')).toHaveTextContent('12');
 
@@ -157,7 +157,7 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     );
     await waitFor(() =>
       expect(screen.getByTestId('import-progress')).toHaveTextContent(
-        '正在解析 AST…（45/120）'
+        '正在解析代码结构…（45/120）'
       )
     );
 

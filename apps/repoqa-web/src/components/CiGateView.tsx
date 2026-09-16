@@ -17,7 +17,7 @@ interface CiGateViewProps {
   /** v0.26-B ticket 02 — 三段化的②「运行并记录」与③「门禁运行史」依赖它；
    * 不传 client 时两段隐藏，现状区（含 Issue 31 既有断言）零影响。 */
   client?: Pick<RepoQAClient, 'runGate' | 'listGateRuns'>;
-  /** v0.26-B ticket 03 — 受波及树节点点击 → Inspector openFile（票 11 navSeq
+  /** v0.26-B ticket 03 — 影响树节点点击 → Inspector openFile（票 11 navSeq
    * 契约已保证窄屏抽屉复点同文件可开，这里零新机制）。 */
   onNavigate?: (file: string, line: number) => void;
 }
@@ -128,7 +128,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
   const [historyLoading, setHistoryLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  // B03：受波及树行展开态（多行可同开；id 是 gate_runs 全表自增主键的字符串，
+  // B03：影响树行展开态（多行可同开；id 是 gate_runs 全表自增主键的字符串，
   // 跨库不重号，但切库仍清空——旧库 id 的展开态对新列表无意义）。
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // 切库竞态防线：in-flight 的 listGateRuns / runGate 出口回来后若已换请求代次
@@ -448,7 +448,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                     trendMax > 0 && !dirty
                       ? Math.max(Math.round((run.routesCount / trendMax) * 100), run.routesCount > 0 ? 8 : 0)
                       : 0;
-                  // B03：error 行落库无 payload、PASS 零波及行 impactedApis 为空
+                  // B03：error 行落库无 payload、PASS 零影响行 impactedApis 为空
                   // ——两者都不给展开控件（降级态即「不可展开」，不猜别流数据）。
                   const impacted = parseImpactedApis(run.payload);
                   const canExpand = impacted !== null && impacted.length > 0;
@@ -493,7 +493,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                           onClick={() => toggleExpand(run.id)}
                           className="shrink-0 rounded-md border border-line bg-subtle px-2 py-0.5 text-xs text-muted hover:border-accent hover:text-accent"
                         >
-                          {expanded ? '收起受波及树' : '展开受波及树'}
+                          {expanded ? '收起影响树' : '展开影响树'}
                         </button>
                       )}
                       {!dirty && (

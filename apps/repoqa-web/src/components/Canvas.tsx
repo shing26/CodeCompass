@@ -151,7 +151,7 @@ export function Canvas({
                 {selectedNode}
               </span>
               <CountPill data-testid="affected-count">
-                {affectedCount} 波及
+                {affectedCount} 受影响
               </CountPill>
             </div>
             <div className="mb-3 flex items-center gap-2 text-micro font-medium text-muted">
@@ -203,7 +203,7 @@ export function Canvas({
             >
               <span aria-hidden="true">🧭</span>
               <span>
-                离线模式：调用链与符号索引来自 AST 确定性分析，不依赖 LLM / API Key；未配置 LLM
+                离线模式：调用链与符号索引由确定性代码分析生成，不依赖 LLM / API Key；未配置 LLM
                 时静态路径同样可用。
               </span>
             </div>
@@ -273,13 +273,13 @@ export function Canvas({
               </p>
               <p>
                 <strong className="text-ink">② 选一个视图</strong> —
-                <strong className="text-ink">要方案 →</strong>「规范演进」给改动意图，产出落位与风险清单（引擎只读）；
+                <strong className="text-ink">要方案 →</strong>「规范演进」给改动意图，产出落地建议与风险清单（引擎只读）；
                 <strong className="text-ink">问现状 →</strong>「架构问答」自然语言提问，结论可逐条查证（推荐新手从这里开始）。
                 其余：「代码拓扑」深入调用链、「架构仪表盘」看全仓热点、「变更审计」对接 CI 门禁、「Diff 影响面」看架构差异。
               </p>
               <p>
                 <strong className="text-ink">③ 提问或探索</strong> — 在「架构问答」输入如
-                <em>「这个仓库哪里最值得改？」</em>，回答附带 [cite: N] 溯源角标，点角标可跳到拓扑定位。
+                <em>「这个仓库哪里最值得改？」</em>，回答附带证据角标，点角标可跳到拓扑定位。
               </p>
             </div>
             <p className="mt-4 text-xs text-muted">

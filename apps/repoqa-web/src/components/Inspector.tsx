@@ -28,7 +28,7 @@ export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
   onCopyAgentContext?: () => void | Promise<void>;
   /** Issue 31: session token usage shown against the Inspector budget. */
   usage?: TokenUsage;
-  /** Issue 31: 2-Hop caller/callee slices from the latest resolved trace. */
+  /** Issue 31: 上下游（1-hop caller / 1..3-hop callee）切片，跟随最近解析出的调用链。 */
   slices?: Anchor[];
   /** v0.6 closeout: reverse-dependency state for the focused symbol. */
   reverseDeps?: UseReverseDepsResult;
@@ -388,7 +388,7 @@ export function Inspector({
         >
           <div className="flex items-center justify-between gap-2">
             <span className="text-micro font-semibold uppercase tracking-wide text-muted">
-              2-Hop 关联切片
+              上下游关联切片
             </span>
             <span className="shrink-0 font-mono text-micro text-accent">{lineLabel}</span>
           </div>

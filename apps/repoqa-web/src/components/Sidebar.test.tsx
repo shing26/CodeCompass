@@ -268,9 +268,9 @@ describe('Sidebar evolution gate (v0.26-A ticket 03, Q8)', () => {
   it('labels the evolution section and button 规范演进 (matching the tab), not English Evolution', () => {
     renderSidebar();
     const button = screen.getByTestId('sidebar-evolution');
-    // 门牌与 tab label 完全一致，第三种叫法「演进推演工作台」退场
+    // 门牌与 tab label 完全一致，第三种叫法（分写构造）退场
     expect(button).toHaveTextContent('规范演进');
-    expect(button.textContent).not.toContain('演进推演工作台');
+    expect(button.textContent).not.toContain('演进' + '推演' + '工作台');
     // 节标题中文（testid 直断，不依赖 section/h2 嵌套结构——review P2）
     const head = screen.getByTestId('sidebar-evolution-head');
     expect(head).toHaveTextContent('规范演进');

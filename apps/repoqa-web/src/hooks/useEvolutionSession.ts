@@ -270,7 +270,7 @@ export function useEvolutionSession(
     if (previousKey) {
       const previous = (bucketsRef.current.get(previousKey) ?? []).map((card) =>
         card.status === 'streaming'
-          ? { ...card, status: 'error' as const, error: '会话已切换，推演中断。' }
+          ? { ...card, status: 'error' as const, error: '会话已切换，方案生成中断。' }
           : card
       );
       bucketsRef.current.set(previousKey, previous);

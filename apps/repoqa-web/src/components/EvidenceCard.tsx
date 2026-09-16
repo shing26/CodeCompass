@@ -35,7 +35,7 @@ export function EvidenceCard({ evidence, onNavigate }: EvidenceCardProps) {
       className="mt-2 rounded-md border border-line bg-subtle p-2"
     >
       <div className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted">
-        证据 · 零幻觉锚定
+        证据 · 逐字可查
       </div>
       <ul className="flex flex-col gap-1">
         {evidence.map((row, index) => {

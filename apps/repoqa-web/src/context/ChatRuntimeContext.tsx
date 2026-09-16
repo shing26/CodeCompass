@@ -17,7 +17,7 @@ interface ConsentPending {
 interface ChatRuntimeContextValue {
   runtime: RuntimeInfo;
   totalUsage: ReturnType<typeof useChat>['totalUsage'];
-  /** 最近一条 assistant 消息的锚点/调用链步骤——Canvas 与 Inspector 2-Hop 面板共用。 */
+  /** 最近一条 assistant 消息的锚点/调用链步骤——Canvas 与 Inspector 上下游切片面板共用。 */
   canvasAnchors: Anchor[];
   canvasTraceSteps: TraceStep[] | null;
   evolutionSession: ReturnType<typeof useEvolutionSession>;
@@ -144,7 +144,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     setConsentPending(null);
   };
 
-  // The Inspector's 2-Hop slice panel follows the latest resolved trace, and
+  // The Inspector's 上下游切片 slice panel follows the latest resolved trace, and
   // Issue 25 / Ticket 01 — the topology canvas renders the same trace directly
   // (Canvas no longer owns the chat bubble stream).
   const canvasAnchors = useMemo<Anchor[]>(() => {

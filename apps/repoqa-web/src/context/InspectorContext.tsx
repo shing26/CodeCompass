@@ -21,7 +21,7 @@ interface InspectorContextValue {
 const InspectorContext = createContext<InspectorContextValue | null>(null);
 
 /**
- * v0.25.0 批次 3：检查器域状态分片——文件/符号导航、2-Hop 反查与子图切片、
+ * v0.25.0 批次 3：检查器域状态分片——文件/符号导航、上下游反查与子图切片、
  * 移动抽屉、命令面板聚焦与 agent-context 拷贝脱敏提示。只依赖 RepoContext
  * （单向，不 cross-import 其他 Context）。
  */

@@ -168,7 +168,7 @@ export function renderArtifactHtml(input: ArtifactInput): string {
 
   const offlineWarning = offlineReady
     ? ''
-    : `<div class="offline-warning">⚠️ 本工件未找到本地 mermaid 运行时，已回退 CDN 加载：断网打开时拓扑图不会渲染。在仓库内构建后重新导出即可自包含。</div>`;
+    : `<div class="offline-warning">⚠️ 本文件未找到本地 mermaid 运行时，已回退 CDN 加载：断网打开时拓扑图不会渲染。在仓库内构建后重新导出即可自包含。</div>`;
 
   const badges = (input.badges ?? []).map(badgeSvg).join('');
 

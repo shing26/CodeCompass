@@ -93,12 +93,12 @@ const extendResult: ModuleEvolutionResult = {
 
 function stageFrames(runner: string): EvolveEvent[] {
   return [
-    { type: 'stage', payload: { stage: 'intent_parse', label: '意图解析', status: 'running' } },
+    { type: 'stage', payload: { stage: 'intent_parse', label: '需求理解', status: 'running' } },
     {
       type: 'stage',
       payload: {
         stage: 'intent_parse',
-        label: '意图解析',
+        label: '需求理解',
         status: 'done',
         intentEcho: {
           intentType: 'EXTEND',
@@ -113,14 +113,14 @@ function stageFrames(runner: string): EvolveEvent[] {
         }
       }
     },
-    { type: 'stage', payload: { stage: 'target_resolve', label: '目标锚定', status: 'running' } },
-    { type: 'stage', payload: { stage: 'target_resolve', label: '目标锚定', status: 'done' } },
-    { type: 'stage', payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'running' } },
+    { type: 'stage', payload: { stage: 'target_resolve', label: '目标定位', status: 'running' } },
+    { type: 'stage', payload: { stage: 'target_resolve', label: '目标定位', status: 'done' } },
+    { type: 'stage', payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'running' } },
     { type: 'stage', payload: { stage: 'pipeline', label: runner, status: 'running' } },
-    { type: 'stage', payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'done' } },
+    { type: 'stage', payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'done' } },
     { type: 'stage', payload: { stage: 'pipeline', label: runner, status: 'done' } },
-    { type: 'stage', payload: { stage: 'diagram', label: '图谱投射', status: 'running' } },
-    { type: 'stage', payload: { stage: 'diagram', label: '图谱投射', status: 'done' } },
+    { type: 'stage', payload: { stage: 'diagram', label: '图表生成', status: 'running' } },
+    { type: 'stage', payload: { stage: 'diagram', label: '图表生成', status: 'done' } },
     {
       type: 'done',
       payload: {
@@ -143,7 +143,7 @@ function stageFrames(runner: string): EvolveEvent[] {
   ];
 }
 
-const echoFrames = stageFrames('演进推演');
+const echoFrames = stageFrames('方案生成');
 
 /**
  * Scripted evolve stream with a manually-fired connect() — lets a test hold
@@ -223,7 +223,7 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     const onNavigate = vi.fn();
     const client = makeClient([
       scriptedStream(echoFrames),
-      scriptedStream(stageFrames('影响面推演'))
+      scriptedStream(stageFrames('影响面方案'))
     ]);
     render(<SessionHost client={client} repo={repo} onNavigate={onNavigate} />);
 
@@ -242,34 +242,34 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     expect(screen.getByTestId('evolve-diagram')).toBeInTheDocument();
 
     // v0.26-A ticket 03 (Q5)：卡型名一一对应 glossary 四段、旧名退场——
-    // 落位方案→落位表、变更清单→落位表·变更、风险与建议→风险 Checklist。
-    expect(screen.getByTestId('evolve-placement')).toHaveTextContent('落位表');
-    expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('落位表·变更');
+    // 现名：方案清单 / 方案·变更 / 风险 Checklist。
+    expect(screen.getByTestId('evolve-placement')).toHaveTextContent('方案清单');
+    expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('方案·变更');
     expect(screen.getByTestId('evolve-risks')).toHaveTextContent('风险 Checklist');
     // 旧词分写构造=copy-guard 封条自豁免
     expect(screen.getByTestId('evolution-view').textContent).not.toMatch(
-      new RegExp(['落位方案', '变更清单', '风险与建议', '死代码级联', '约定' + '冲突', '推演' + '卡'].join('|'))
+      new RegExp(['落' + '位方案', '落' + '位表', '变更清单', '风险与建议', '死代码级联', '约定' + '冲突', '推演' + '卡'].join('|'))
     );
     // 步骤②③独立正向断言（review P2：不靠全树负断言兜措辞）
-    expect(screen.getByTestId('scenario-guide')).toHaveTextContent('引擎扫描惯例冲突');
+    expect(screen.getByTestId('scenario-guide')).toHaveTextContent('引擎扫描代码惯例冲突');
     expect(screen.getByTestId('scenario-guide')).toHaveTextContent(
-      '产出落位表、死代码清单与风险 Checklist；引擎只读，改动由你执行'
+      '产出方案清单、死代码清单与风险 Checklist；引擎只读，改动由你执行'
     );
 
     // Stream header shows the isolation key and one card.
     expect(screen.getByTestId('evolution-view')).toHaveTextContent('abc1234');
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张工件卡');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张方案卡');
 
     // Follow-up: the input is promoted to a follow-up box and delivers card #2.
-    await user.type(screen.getByTestId('evolve-intent'), '排查这次落位对调用方的影响面');
+    await user.type(screen.getByTestId('evolve-intent'), '排查这次改动对调用方的影响');
     await user.click(screen.getByTestId('evolve-run'));
 
     await waitFor(() => expect(client.evolveStream).toHaveBeenCalledTimes(2));
-    expect(client.evolveStream).toHaveBeenLastCalledWith('repo-1', '排查这次落位对调用方的影响面', undefined);
-    await waitFor(() => expect(screen.getByTestId('evolution-view')).toHaveTextContent('2 张工件卡'));
+    expect(client.evolveStream).toHaveBeenLastCalledWith('repo-1', '排查这次改动对调用方的影响', undefined);
+    await waitFor(() => expect(screen.getByTestId('evolution-view')).toHaveTextContent('2 张方案卡'));
     // Cards keep delivery order and both stay in the timeline.
     expect(screen.getByText('给订单模块加 Excel 导出')).toBeInTheDocument();
-    expect(screen.getByText('排查这次落位对调用方的影响面')).toBeInTheDocument();
+    expect(screen.getByText('排查这次改动对调用方的影响')).toBeInTheDocument();
 
     // History is collapsed, latest is expanded.
     const toggles = screen.getAllByTestId('evolve-card-toggle');
@@ -323,16 +323,16 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     await user.type(screen.getByTestId('evolve-intent'), '给订单模块加 Excel 导出');
     await user.click(screen.getByTestId('evolve-run'));
     await waitFor(() => expect(screen.getByTestId('evolve-card-done')).toBeInTheDocument());
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张工件卡');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张方案卡');
 
     // Repo switch → the stream flips to repo-2's empty bucket.
     rerender(<SessionHost client={client} repo={repoB} />);
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('工件流未开始');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('方案流未开始');
     expect(screen.queryByText('给订单模块加 Excel 导出')).not.toBeInTheDocument();
 
     // …and back to repo-1: the bucket persisted (in-memory v1).
     rerender(<SessionHost client={client} repo={repo} />);
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张工件卡');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张方案卡');
     expect(screen.getByText('给订单模块加 Excel 导出')).toBeInTheDocument();
   });
 
@@ -347,12 +347,12 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
 
     rerender(<SessionHost client={client} repo={reindexed} />);
     expect(screen.getByTestId('evolution-view')).toHaveTextContent('fff0000');
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('工件流未开始');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('方案流未开始');
     expect(screen.queryByText('给订单模块加 Excel 导出')).not.toBeInTheDocument();
 
     // The old (repoId, commit) bucket is still there when the commit reverts.
     rerender(<SessionHost client={client} repo={repo} />);
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张工件卡');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('1 张方案卡');
   });
 
   it('an in-flight card is marked interrupted when the stream switches', async () => {
@@ -371,7 +371,7 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
 
     rerender(<SessionHost client={client} repo={repo} />);
     expect(screen.getByTestId('evolve-card-failed')).toBeInTheDocument();
-    expect(screen.getByTestId('evolution-view')).toHaveTextContent('会话已切换，推演中断。');
+    expect(screen.getByTestId('evolution-view')).toHaveTextContent('会话已切换，方案生成中断。');
   });
 
   it('correction-pill alternative re-delivery appends a new card with the pinned target', async () => {
@@ -389,18 +389,18 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     await user.click(screen.getByTestId('evolve-alt-ExportService'));
     await waitFor(() => expect(client.evolveStream).toHaveBeenCalledTimes(2));
     expect(client.evolveStream).toHaveBeenLastCalledWith('repo-1', '给订单模块加 Excel 导出', 'ExportService');
-    await waitFor(() => expect(screen.getByTestId('evolution-view')).toHaveTextContent('2 张工件卡'));
+    await waitFor(() => expect(screen.getByTestId('evolution-view')).toHaveTextContent('2 张方案卡'));
   });
 
   it('renders the structured conventionConflict card and recovers', async () => {
     const user = userEvent.setup();
     const conflictFrames: EvolveEvent[] = [
-      { type: 'stage', payload: { stage: 'intent_parse', label: '意图解析', status: 'running' } },
-      { type: 'stage', payload: { stage: 'intent_parse', label: '意图解析', status: 'done' } },
-      { type: 'stage', payload: { stage: 'target_resolve', label: '目标锚定', status: 'running' } },
-      { type: 'stage', payload: { stage: 'target_resolve', label: '目标锚定', status: 'done' } },
-      { type: 'stage', payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'running' } },
-      { type: 'stage', payload: { stage: 'pipeline', label: '演进推演', status: 'running' } },
+      { type: 'stage', payload: { stage: 'intent_parse', label: '需求理解', status: 'running' } },
+      { type: 'stage', payload: { stage: 'intent_parse', label: '需求理解', status: 'done' } },
+      { type: 'stage', payload: { stage: 'target_resolve', label: '目标定位', status: 'running' } },
+      { type: 'stage', payload: { stage: 'target_resolve', label: '目标定位', status: 'done' } },
+      { type: 'stage', payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'running' } },
+      { type: 'stage', payload: { stage: 'pipeline', label: '方案生成', status: 'running' } },
       {
         type: 'error',
         payload: {
@@ -451,16 +451,16 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
       }
     };
     const frames: EvolveEvent[] = [
-      { type: 'stage', payload: { stage: 'intent_parse', label: '意图解析', status: 'running' } },
-      { type: 'stage', payload: { stage: 'intent_parse', label: '意图解析', status: 'done' } },
-      { type: 'stage', payload: { stage: 'target_resolve', label: '目标锚定', status: 'running' } },
-      { type: 'stage', payload: { stage: 'target_resolve', label: '目标锚定', status: 'done' } },
-      { type: 'stage', payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'running' } },
-      { type: 'stage', payload: { stage: 'pipeline', label: '演进推演', status: 'running' } },
-      { type: 'stage', payload: { stage: 'convention_scan', label: '惯例嗅探', status: 'done' } },
-      { type: 'stage', payload: { stage: 'pipeline', label: '演进推演', status: 'done' } },
-      { type: 'stage', payload: { stage: 'diagram', label: '图谱投射', status: 'running' } },
-      { type: 'stage', payload: { stage: 'diagram', label: '图谱投射', status: 'done' } },
+      { type: 'stage', payload: { stage: 'intent_parse', label: '需求理解', status: 'running' } },
+      { type: 'stage', payload: { stage: 'intent_parse', label: '需求理解', status: 'done' } },
+      { type: 'stage', payload: { stage: 'target_resolve', label: '目标定位', status: 'running' } },
+      { type: 'stage', payload: { stage: 'target_resolve', label: '目标定位', status: 'done' } },
+      { type: 'stage', payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'running' } },
+      { type: 'stage', payload: { stage: 'pipeline', label: '方案生成', status: 'running' } },
+      { type: 'stage', payload: { stage: 'convention_scan', label: '代码惯例扫描', status: 'done' } },
+      { type: 'stage', payload: { stage: 'pipeline', label: '方案生成', status: 'done' } },
+      { type: 'stage', payload: { stage: 'diagram', label: '图表生成', status: 'running' } },
+      { type: 'stage', payload: { stage: 'diagram', label: '图表生成', status: 'done' } },
       {
         type: 'done',
         payload: {
@@ -486,9 +486,11 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     const dead = await waitFor(() => screen.getByTestId('evolve-deadcode'));
     expect(dead).toHaveTextContent('OrderRepository.findAll');
     expect(screen.queryByTestId('evolve-placement')).not.toBeInTheDocument();
-    // review P1：DEPRECATE 的 checklist 区不得顶「落位表」牌（EXTEND 语境专属小节名）
-    expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('拆除清单');
-    expect(screen.getByTestId('evolve-checklists').textContent).not.toMatch(/落位表/);
+    // review P1：DEPRECATE 的 checklist 区不得顶『方案·变更』牌（EXTEND 语境专属小节名）
+    expect(screen.getByTestId('evolve-checklists')).toHaveTextContent('下线清单');
+    expect(screen.getByTestId('evolve-checklists').textContent).not.toMatch(
+      new RegExp('落' + '位表')
+    );
 
     await user.click(screen.getByText('src/main/java/com/demo/order/OrderRepository.java:9'));
     expect(onNavigate).toHaveBeenCalledWith(
@@ -501,7 +503,7 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     const user = userEvent.setup();
     const client = makeClient([
       scriptedStream(echoFrames),
-      scriptedStream(stageFrames('影响面推演'))
+      scriptedStream(stageFrames('影响面方案'))
     ]);
     render(<SessionHost client={client} repo={repo} />);
 
@@ -511,7 +513,7 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
 
     await user.type(screen.getByTestId('evolve-intent'), '排查影响面');
     await user.click(screen.getByTestId('evolve-run'));
-    await waitFor(() => expect(screen.getByTestId('evolution-view')).toHaveTextContent('2 张工件卡'));
+    await waitFor(() => expect(screen.getByTestId('evolution-view')).toHaveTextContent('2 张方案卡'));
     expect(screen.getAllByTestId('evolve-placement')).toHaveLength(1);
 
     // Re-open the history card — now both artifact sets are on screen.

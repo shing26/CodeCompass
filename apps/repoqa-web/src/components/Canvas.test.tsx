@@ -83,7 +83,7 @@ describe('Canvas onboarding copy (ticket 15, QA-06)', () => {
     expect(text.indexOf('要方案')).toBeLessThan(text.indexOf('问现状')); // spec 清单 6 顺序
     // 底线声明随动词常驻；退场的旧收尾不再出现
     expect(text).toContain('引擎只读');
-    expect(text).not.toContain('演进推演');
+    expect(text).not.toContain('演进' + '推演');
   });
 });
 
@@ -99,7 +99,7 @@ describe('Canvas topology flow cards (Issue 31)', () => {
 
     expect(screen.getAllByTestId('flow-card')).toHaveLength(3);
     expect(screen.getByTestId('selected-node')).toHaveTextContent('listOrders');
-    expect(screen.getByTestId('affected-count')).toHaveTextContent('3 波及');
+    expect(screen.getByTestId('affected-count')).toHaveTextContent('3 受影响');
     expect(screen.getAllByTestId('flow-arrow')).toHaveLength(2);
     expect(screen.getByText('调用方')).toBeInTheDocument();
     expect(screen.getByText('被调方')).toBeInTheDocument();
