@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.30.0] - 2026-09-16
+
+### Highlights
+
+- **去极客化战役（v0.30 票池 G1–G8，`.scratch/v030-degeekify/`）**：承 2026-09-12 用户反馈「太工程化/极客」，grill D1–D8 定案「主战役包」射程——文案+视觉，零行为变更铁律全程守住。(1) **G1 双哨基建（销 V27-10）**：黑名单权威词表升格 `packages/contracts`（`USER_COPY_BLACKLIST` + `USER_COPY_ENGLISH_RETIRED`，web copy-guard 与控制面 `copy-guard.server.test.ts` 物理共表）；英文退役词判据从 2 个 testid 位点升为「JSX 文本节点+字符串字面量」区域扫描（注释/标识符免疫，注入/免疫/活性三证防空转）；服务端文案哨首立（agent 提示词/chat routes/export 模板/worker 中文 label 四面，burn-down 挂账+区域活性判定防僵尸豁免）。(2) **G2 字号降密（销 V27-11①）**：111 处任意值字号收两档——11px→text-xs(12px)、9/10px→新语义档 text-micro(10px)，`grep text-\[Npx\]` 归零（Monaco/SVG 豁免登记）。(3) **G3 chrome 中文化（销 V27-11②+V27-14）**：~55 英文短语全量人话化（文件监视/导入仓库/快速导览/结构规模/上下游/基线引用…），工程通用语保留清单（HTTP 动词/语言名/API/Git/Token/LLM/品牌）；空态降噪（接口零数不印计数、浏览提示中文化）；英文退役表首批 38 词入表；导出模板标题中文化随本票代偿（「架构指标」挂账首摘）。(4) **G4 枚举展示映射+徽章双件（销 V27-11④）**：契约值零动，`client/statusLabel.ts` 统一映射（已验证/断链/存疑/通过/未通过/低中高 风险/扩展挂载/安全下线/增改删+惯例五轴+role）；9 徽章家族收进 `ui/Badge`（6 tone×mono×outline）+`ui/CountPill` 双件，testid 逐文件集合比对零改名。(5) **G5 黑话清扫（销 V27-11③）**：波及→影响、落位→方案系、锚定→定位、孤岛→孤立代码、工件→方案卡/方案流、演进推演→方案生成（了结「前端哨禁词、服务端在用」的闸门冲突活例）、AST 提取→代码解析、2-Hop→上下游；前端 STAGE_LABEL 与控制面 worker 中文 label 双侧同步（stage id/契约零动，五阶段 SSE 断言绿为证）；黑名单扩 16 词，扩表先行残居自报（60 处全在测试，fixture/断言/注释同票清）。(6) **G6 styles.css 销号（销 V27-11⑤）**：85 行 4 段全量迁 Tailwind 语义类（rgba 硬编码色退场、自动跟双主题），mermaid 伪元素角标 BROKEN→断链，`--shadow-neon` 去字面量复刻改 token 引用，A02 时代语义别名层八枚随消费者退役——全仓视觉语言只剩 index.css 一套 token 源。(7) **G7 命名族归一（销 V27-2/3/4）**：agent 系统提示词「拆除计划」→「下线方案」（显式保留删除/清理/下线同义触发词，工具灵敏度零回归）；README 五处、CONTEXT 八词条+新增「用户文案规范（User-Facing Copy）」词条；CiGateView 导览三段化；ADR 正文「模式嗅探」不改写（历史记录），术语演化由词条曾用名承载；cp 挂账清零。(8) 验收三轨：运行时文本门（六视图 innerText：退役词/英文 chrome 零命中+中文 chrome 在场）、双视口布局几何门（裁切/溢出/横滚零回归）、11 页实拍 PNG（`D:/zcode-tmp/v030-shots/`，视觉眼检移交 maintainer）。
+
+### Added
+
+- `packages/contracts/src/copy-blacklist.ts`（`USER_COPY_BLACKLIST` 23 词 + `USER_COPY_ENGLISH_RETIRED` 38 词——双哨共表权威）。
+- `services/control-plane/src/copy-guard.server.test.ts`（服务端文案哨：全文扫+字符串区域扫+burn-down+灵敏度自证）。
+- `apps/repoqa-web/src/client/statusLabel.ts`（+3 例测试）、`components/ui/Badge.tsx`、`components/ui/CountPill.tsx`；tailwind `text-micro` 档。
+- CONTEXT 词条「用户文案规范（User-Facing Copy）」。
+
+### Changed
+
+- Web 界面 chrome 全中文化、机器枚举出中文徽章、字号两档化、导出 ONBOARDING 模板标题与表行中文化（契约字段不动）。
+- 控制面演进 SSE `label` 中文化（`stage` id 与事件序不动）；chat 系统提示词措辞更新（触发语义不变）。
+
+### Removed
+
+- `apps/repoqa-web/src/styles.css`（85 行）及其语义别名层八枚 CSS 变量。
+
+### Tests
+
+- 基线：control-plane **650**、web **363**、bridge 26、e2e 62 checks（含版本一致性门与 golden eval 97 题零翻车）；UI 冒烟四链路绿；新增运行时文本门/布局几何门/实拍 gallery 三轨视觉证据。
+- 新发现立账 **V30-9**：e2e gate 在根 `.env` 在场时实走远程 LLM（外网慢=红位漂移），hermetic 化留后续（对照组纪律：清空 `REPOQA_LLM_*` 跑 gate）。
+
 ## [0.29.0] - 2026-09-16
 
 ### Highlights

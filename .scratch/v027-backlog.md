@@ -5,21 +5,21 @@
 | # | 项 | 来源 | 类型 |
 |---|---|---|---|
 | V27-1 | ~~安全：控制面绑全网卡零鉴权~~ **已随 v0.27-B R4 关闭（2026-09-12）**：默认绑 127.0.0.1 + MHW_CP_HOST 逃生（Docker 镜像预设 0.0.0.0），LAN 告警+health 回显+README；见 `.scratch/v027-production-readiness/issues/04`（CHANGELOG 破坏性条目留收口批） | 收口 review P1-2 | 安全 |
-| V27-2 | chat agent 系统提示词含「拆除计划」（`chat/agent.ts:19,23`），模型可能把退场词复述进答案、前端 copy-guard 对运行期文本盲——与 MCP description 残留（`codecompass_module_evolution` 描述「模块演进推演」、README:179、ADR-0014/0015「模式嗅探」）合并做**文档/措辞统一票** | 收口 review P2-5 + A03 移交 | 命名族 |
-| V27-3 | `repoqa-export.ts:78` ONBOARDING 模板标题「架构指标」+ README:37 沿用——命名族半残（非失实，导出确实产该标题），随 V27-2 统一 | 收口 review P2-6 | 命名族 |
-| V27-4 | CiGateView ScenarioGuide 三步滞后三段化（:288-291 仍纯复制命令旧动线）——票 15「引导滞后」病灶萌芽 | 收口 review P2-7 | 文案 |
+| V27-2 | ~~chat agent 系统提示词含「拆除计划」…文档/措辞统一票~~ **已关闭（2026-09-16 v0.30 G7）**：agent.ts:19/:23 改「下线方案」系表述并显式保留同义触发词；README 五处、CONTEXT 八词条+新词条、导出模板随 G3/G5 收编；ADR 正文不改写裁决留痕；见 `.scratch/v030-degeekify/issues/07` | 收口 review P2-5 + A03 移交 | 命名族 |
+| V27-3 | ~~`repoqa-export.ts:78` ONBOARDING 模板标题「架构指标」+ README:37 沿用~~ **已关闭（2026-09-16 v0.30 G3 代偿）**：导出标题改「结构规模」（去英文括注，cp 英文哨拦路虎根治），README:37 同步；见 v030 issues/03 | 收口 review P2-6 | 命名族 |
+| V27-4 | ~~CiGateView ScenarioGuide 三步滞后~~ **已关闭（2026-09-16 v0.30 G7）**：三段化真实动线（配置基线→本地运行落史→复制命令对接 CI/CD）；见 v030 issues/07 | 收口 review P2-7 | 文案 |
 | V27-5 | 「查调用链」按钮名实升级：导航措辞或跳 topo 后自动聚焦（含 `open-chat`/`onOpenChat` 标识符重命名）。**v0.27-UI AskDock 已落地：「对话唯一入口=tab」的入口孤岛前提消除，本项仅剩名实升级半件** | A01/A04 移交裁决① + v027-ui 票 02 U4 登记 | UX |
 | V27-6 | risk 色族跨视图统一：gate 树红/橙/灰 vs ArchitectureDeltaView 黄/蓝/绿，同概念两档配色 | B03/A04 移交裁决② | UX |
 | V27-7 | gate 运行史 payload 渲染上限：超大 run impactedApis 全量进 DOM（analysis 端不受 maxAffectedRoutes 截断）——slice+尾行 | B03/A04 移交裁决③ | 性能 |
 | V27-8 | 仓库卫生：`.scratch/test-store-*.db` 40 个测试遗留已入库（含本机绝对路径）——gitignore + 清理 | 收口 review P2-11 | 卫生 |
 | V27-9 | LLM 节点池归智能体线（既有在册，随 v0.27 grill 合并裁决） | [[v023-scan-purify]] | 边界 |
-| V27-10 | copy-guard 英文 Evolution 封条仅锚两个 testid 位点（节标题+按钮），位点外的未来英文「Evolution」用户文案会漏网——可升级为「JSX 文本节点级」扫描或补全局正则位点（现值独立 grep 零命中，属前瞻防护） | 发布前 code-review skill（Spec 轴） | 文案哨 |
+| V27-10 | ~~copy-guard 英文 Evolution 封条仅锚两个 testid 位点~~ **已关闭（2026-09-16 v0.30 G1 机制清偿·G8 划账）**：封条升为全 src 非测试源码的 JSX 文本节点+字符串字面量区域扫描，英文退役词表入 contracts 共表（38 词）；见 v030 issues/01 | 发布前 code-review skill（Spec 轴） | 文案哨 |
 | V27-12 | ~~chat 错误裸传~~ **已随 v0.27-B R3 关闭（2026-09-12）**：五面 code 契约+前端 ERROR_COPY 人类化，见 `.scratch/v027-production-readiness/issues/03` | computer-use 走查 D2（v027-ui 票 03） | UX |
 | V27-13 | ~~UI 冒烟进 CI~~ **已随 v0.27-B R7 关闭（2026-09-13）**：`scripts/smoke/ui_smoke.mjs`+`stub-llm.mjs` 挂 `release.yml`（真 chromium 三链路+两段式流式钉+WS 重连韧性断言；stub LLM 零外网零 token）；发现项登 V27-23；见 issues/07（CHANGELOG 留收口批） | computer-use 走查 D3 | 质量 |
-| V27-14 | 未选库 Sidebar 空态噪音（`0 files — expand to browse`/`ROUTES (0)`/中英混排提示），随 V27-11 一并收 | computer-use 走查 D4 | UX |
+| V27-14 | ~~未选库 Sidebar 空态噪音~~ **已关闭（2026-09-16 v0.30 G3）**：导览句人话化、接口零数不印「(0)」、files—expand 提示中文化；见 v030 issues/03 | computer-use 走查 D4 | UX |
 | V27-15 | 长 LLM 回答 ~300+ DOM 节点淹没可访问性树（读屏/键盘导航成本高；computer-use 走查亲踩流式后 index 漂移）：消息区 aria landmark 分区 + aria-live=polite + 超长回答折叠「展开全文」 | computer-use 走查 D5 | a11y |
 | V27-16 | 拓扑首屏自动 trace 选题偏技术侧（CodeCompass 仓选中内部 query 路由而非核心业务）：候选改用 dashboard topApis/inDegree hub 优先，纯内部路由降级 | computer-use 走查 D6 | 产品 |
-| V27-11 | **视觉去极客化战役**（需独立 spec/grill）：①字号降密——104 处任意值 px（9/10/11px 元数据）收进 sm/base 档；②中英混排收口（Import repo/Select a repo/Watcher/Routes/Symbols/Loading… 等常驻英文）；③黑话残留清扫（AST 提取/2-Hop/锚定/孤岛/波及/工件卡/惯例嗅探/落位表/BROKEN/[cite: N] 印在引导语——引 v0.27-UI 探查报告 §3/§5 清单，注意票 15 实名哨与 copy-guard 双闸会拦，需同步改哨）；④徽章族瘦身（16+ 种胶囊/徽标/丸）；⑤styles.css 存量段（plan/scenario/starter）迁 Tailwind token | 2026-09-12 用户反馈「太工程化/极客」→ v0.27-UI spec U5 裁决 | 视觉 |
+| V27-11 | ~~**视觉去极客化战役**（需独立 spec/grill）~~ **已关闭（2026-09-16 v0.30 战役全批 G1–G8）**：①111 处任意值字号收两档；②中英混排收口（~55 短语人话化+38 英文退役词入哨）；③黑话清扫双端（表 B 全量+worker label 同步，闸门冲突了结）；④徽章族→Badge/CountPill 双件；⑤styles.css 销号。四张权威对照表与验收三轨见 `.scratch/v030-degeekify/spec.md`+issues；实拍 PNG=`D:/zcode-tmp/v030-shots/` | 2026-09-12 用户反馈「太工程化/极客」→ v0.27-UI spec U5 裁决 | 视觉 |
 | V27-17 | buildTours 启发式对 TS 前端仓零锚点：CodeCompass 本仓 `GET /tours` 返回 `[]`（Java 仓 nexus-campus / ResuAlign 有 auth-chain），侧栏 Quick Tours 只剩「No tours available」空转——锚点族按 Java 注解写死，需补 TS 侧（Express router 注册/React Context 枢纽/main.tsx 入口链）。内容缺位非界面 bug | 2026-09-12 全功能回归走查 R2（sweep2 段 5 实证） | 内容 |
 | V27-18 | ~~clone 网络瞬断无策略重试~~ **已关闭（2026-09-15 v0.29 T2，reindex 不在范围：localPath 克隆重试无网络面，once-per-click 语义保留）**：isTransientGitFailure 分类器（永久优先：auth/404/timeout 不重试）+ cloneGitRepo 内聚 1s/2s 双退避 + onRetry 落日志（reindex 重试/进度流可感知半边随 import-202 化挂账，见 v029 票 06）；测试 +5（644）；见 v029 issues/02 | 生产就绪度评估 1-缺口3 | 容错 |
 | V27-19 | ~~企业级套件裁决票~~ **已关闭（2026-09-15 v0.29 T7 裁决销项）**：三项全不做（/metrics=单机无抓取方+R6 runtime 已覆盖+新增暴露面；外置告警=无守护形态+R5/R6 已是排障面；fail-fast+.env.example=容错哲学契合单机+重复事实源），重评触发条件=多租户/服务器托管形态出现；生产就绪度评估七维清零；见 v029 issues/07（重开须新 grilling） | 生产就绪度评估 低优先 | 边界 |

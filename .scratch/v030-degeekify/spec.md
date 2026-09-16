@@ -107,6 +107,12 @@
 | 07 | V27-2/3/4+D8③ | 命名族文档票：agent.ts 拆除计划、README 五处、CONTEXT 词条（含「用户文案规范」新词条+惯例嗅探改名）、ScenarioGuide 三段化、ADR 正文不动登记 | export 标题双测试+eval 联动 |
 | 08 | 收口 | 黑名单扩容全表 + 注释扫尾 + 两视口实拍 + golden eval + e2e 62 + UI 冒烟 + docker + CHANGELOG 0.30.0 + 总账划销 V27-2/3/4/10/11/14 | 发布令随票面出 |
 
+## 挂账（本战役发现，不扩范围）
+
+| # | 项 |
+|---|---|
+| V30-9 | e2e gate 非 hermetic：chat/incident 检查在根 `.env`（REPOQA_LLM_*）在场时实走远程 LLM——三跑红位漂移（90s 超时）实证外网慢。hermetic 化=gate spawn 显式清空/覆写 LLM 环境变量（stub 面已由 UI 冒烟覆盖）。对照组 `REPOQA_LLM_BASE= ... python closeout_gate.py` 为现行纪律。来源：票 01 收口实战。 |
+
 ## 明确不做（本战役窗口）
 
 首屏改 chat、六 tab 增删、主题重设计、V27-5 改名（第三次翻车风险）、V27-6 色族（独立票带）、V27-15 a11y、V27-16 选题、V27-17 tours 内容、V29-1 传输手术、ADR 正文改写、MCP 工具 description 全量中文化（MCP 消费者是 agent 不是人，维持英文）。
