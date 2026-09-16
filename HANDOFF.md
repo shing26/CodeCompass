@@ -49,7 +49,8 @@
 5. vitest 并发抖动：瞬时失败复跑两次确认再定性（历史规律：复跑即绿）
 6. esbuild 剥注释：验证 dist 更新要 grep 字符串字面量或验证行为
 7. **e2e gate 非 hermetic（V30-9 挂账）**：根 `.env`（REPOQA_LLM_*）在场时 chat/incident 检查实走远程 LLM（慢、红位漂移）；现行纪律 = 对照组跑法 `REPOQA_LLM_BASE= python scripts/e2e/closeout_gate.py`
-8. Windows：jsdom 无 `scrollIntoView`；stdio 测试 kill 后句柄延迟释放
+8. **CI job 名 = branch protection 必过检查 context**（V30-12）：`ci.yml` 的 job `name:` 会以「工作流名 / job 名」（如 `CI / E2E gate`）成为必过项，**永远不要在 job 名里嵌计数/版本号**（「E2E gate (33 checks)」曾失配十一个版本）；改名必须同步 Settings→Branches 重选检查项（agent 令牌无管理权，需用户本机操作）
+9. Windows：jsdom 无 `scrollIntoView`；stdio 测试 kill 后句柄延迟释放
 
 ### 2.4 版本演进速查（细节全在 CHANGELOG）
 

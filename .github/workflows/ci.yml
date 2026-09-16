@@ -2,8 +2,11 @@ name: CI
 
 # v0.12.0 — hard quality gate for the open-source release. Every push/PR must
 # pass typecheck + unit tests + build on the three first-class platforms; the
-# 33-check e2e gate (real processes, stdio handshake, AST fixtures) runs on
+# e2e closeout gate (real processes, stdio handshake, AST fixtures) runs on
 # ubuntu first and expands to the other platforms once proven stable.
+# Job names below are branch-protection contexts — do not embed counts or
+# version numbers in them (V30-12: "E2E gate (33 checks)" sat unmatched for
+# eleven releases; keep the name count-free and update repo settings with it).
 
 on:
   push:
@@ -43,7 +46,7 @@ jobs:
         run: npm run build
 
   e2e-gate:
-    name: E2E gate (62 checks)
+    name: E2E gate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
