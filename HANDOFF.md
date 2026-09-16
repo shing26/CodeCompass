@@ -39,6 +39,7 @@
 - **幽灵防线**：worker 长任务在每处数据表写入前做 repo 行存在性断言；`invalidate()` **不 abort**，别指望 AbortController
 - **反向邻接**：全图反向查询必须用 `buildFullCallersIndex`
 - **scan 定位红线（v0.21）**：scan 只报确定性事实（"零调用者"是事实不是"可安全删除"），语义判断属 agent
+- **新增须附精度论证（v0.31 方向裁决）**：新增 MCP 工具 / 界面页签 / 大规模重构，提案必须回答"如何降低误报或提升精度"，否则不开票——精度是主业，宽度不是（兜底口径见 `.scratch/v031-precision/spec.md` §1.1 放弃清单）
 - **用户面文案受双哨约束**：web `copy-guard.test.ts` + cp `copy-guard.server.test.ts`，词表在 `packages/contracts` 共表（黑话 23 词 / 英文退役 38 词 / 黑名单）；改用户可见文案先对照 `.scratch/v030-degeekify/spec.md` 四张权威表
 - **目录布局（V27-30 结构手术后）**：`src/` 按域分组——`ingest/`（解析入库）、`engine/`（分析引擎族 `repoqa-*.ts`）、`mcp/`、`eval/`、`chat/`、`routes/`、`languages/`；顶层保留 server/cli/db/config/http/ws 等单文件；测试同位（`.test.ts`）
 

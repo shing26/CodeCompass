@@ -8,9 +8,9 @@
 |---|---|---|
 | MCP 工具面 | `services/control-plane/src/*-engine.ts`、`repoqa-mcp.ts`、gate 工具数断言 | 基本不撞 |
 | 智能体工作台 | `apps/repoqa-web/`、worker/http 的会话编排（Incident/evolve 流） | 基本不撞 |
-| 共享区 | `packages/contracts` 三处镜像类型、SSE 载荷契约、`scripts/e2e/closeout_gate.py` 断言、CHANGELOG / CONTEXT / HANDOFF / README、版本六处 | 必撞，靠约定消 |
+| 共享区 | `packages/contracts` 三处镜像类型、SSE 载荷契约、`scripts/e2e/closeout_gate.py` 断言、CHANGELOG / CONTEXT / HANDOFF / README、版本五处 | 必撞，靠约定消 |
 
-版本六处 = 四个 `package.json` + `cli.ts` 的 `VERSION` + `repoqa-mcp.ts` 的 `MCP_SERVER_VERSION`（e2e gate 校验前三者 + CHANGELOG 顶部 + README 版本行）。唯一例外：`packages/bridge-adapters` 独立 0.6.0 版本线，不随主版本推进。
+版本五处 = 四本 `package.json` + `services/control-plane/src/version.ts`（**单一源**，V27-25）。MCP 握手版本 `mcp/repoqa-mcp.ts::MCP_SERVER_VERSION` 必须 alias `VERSION`、禁字面量——e2e gate 的 `mcp-handshake-version` 棘轮执法（V30-11 发现它曾硬编码漂移四个版本）。gate 另校验 CHANGELOG 顶部、`/health` payload 与 Dockerfile 基座。唯一例外：`packages/bridge-adapters` 独立 0.6.0 版本线，不随主版本推进。
 
 ## 开线前
 
@@ -26,7 +26,7 @@
 
 ## 收口（收口人制）
 
-1. **一个版本一个收口人**：最后收口的线统一做——版本六处推进、CHANGELOG 重排、双轴 code-review（fixed point = 上次审完的 commit，不可省）、全量门禁（控制面 ~550 + 前端 ~280 单测、e2e 52+ 项全绿）。
+1. **一个版本一个收口人**：最后收口的线统一做——版本五处推进、CHANGELOG 重排、双轴 code-review（fixed point = 上次审完的 commit，不可省）、全量门禁（控制面 650 + 前端 363 + bridge 26 单测、e2e 63 项全绿）。
 2. **合并方向**：后收口的线负责把先收口的合进自己的分支再推，master 保持线性历史。
 3. **冲突裁决基准**：
    - 共享文档冲突：不删对方条目，只重排位置。

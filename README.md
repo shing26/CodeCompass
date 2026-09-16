@@ -160,7 +160,7 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 
 ## MCP 工具接入
 
-`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 15 个确定性工具（全部零 LLM、结果确定性可复现）：
+`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 17 个确定性工具（全部零 LLM、结果确定性可复现）：
 
 | 工具 | 用途 |
 | --- | --- |

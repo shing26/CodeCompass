@@ -1,20 +1,27 @@
-# Benchmark — Golden Eval Baseline (v0.16.0)
+# Benchmark — Golden Eval Baseline (v0.30.0)
 
-> `npm run eval`（`services/control-plane` 内 `npx tsx src/repoqa-eval.ts`）一键重放。
-> 数据集：75 条 golden 问题 × 5 个代码内联 fixture（自动物化 + git 提交，确定性可重放）。
+> `npm run eval`（`services/control-plane` 内 `npx tsx src/eval/repoqa-eval.ts`）一键重放。
+> 数据集：97 条 golden 问题 × 代码内联 fixture（自动物化 + git 提交，确定性可重放）。
 > 指标：Recall@5（期望锚点在 Top-5 的比例）、幻觉率（报告了期望之外的锚点）、锚点有效率、平均延迟。
+>
+> **这是合成基准，不是真实仓库精度**——真实仓库的假阳性率另见
+> [`docs/reports/scan-precision-baseline-2026-09-16.md`](reports/scan-precision-baseline-2026-09-16.md)（V31-01 harness，三样本可复跑）。
+> 两者不可混用：本文件证明"已知场景不退化"，精度报告回答"陌生仓库上有多准"。
 
-## 最近一次全量结果
+## 最近一次全量结果（2026-09-16 · v0.30.0）
 
 | Bucket | 用例数 | Recall@5 | 幻觉率 | 锚点有效率 | 平均延迟 |
 | --- | --- | --- | --- | --- | --- |
-| route-chain（调用链） | 20 | 100% | 0% | 100% | ~0ms |
+| route-chain（调用链） | 20 | 100% | 0% | 100% | ~0.05ms |
 | config（配置证据） | 15 | 100% | 0% | 100% | ~0ms |
 | architecture（架构全景） | 15 | 100% | 0% | 100% | ~0ms |
-| intent-anchor（意图锚点，v0.9） | 5 | 100% | 0% | 100% | ~2ms |
-| diagnose-chain（四层穿透，v0.8） | 5 | 100% | 0% | 100% | ~0ms |
-| evolution（模块演进，v0.9） | 5 | 100% | 0% | 100% | ~0ms |
-| incident（排障堆栈，v0.16） | 10 | 100% | 0% | 100% | ~0ms |
+| intent-anchor（意图锚点，v0.9） | 5 | 100% | 0% | 100% | ~2.4ms |
+| diagnose-chain（四层穿透，v0.8） | 5 | 100% | 0% | 100% | ~0.4ms |
+| evolution（模块演进，v0.9） | 5 | 100% | 0% | 100% | ~1.4ms |
+| incident（排障堆栈，v0.16） | 10 | 100% | 0% | 100% | ~0.1ms |
+| evolve-intent（变动意图，v0.24） | 14 | 100% | 0% | 100% | ~0.4ms |
+| convention（代码惯例，v0.9） | 8 | 100% | 0% | 100% | ~0.125ms |
+| **合计** | **97** | 100% | 0% | 100% | — |
 
 **通过阈值（EVAL_PASS_THRESHOLDS）**：Recall@5 ≥ 85%、幻觉率 ≤ 2%、锚点有效率 ≥ 90%。
 **零幻觉合约（v0.16，ADR-0011）**：incident bucket 幻觉率阈值收紧为 **0%**——每条调用链断言必须 grounded

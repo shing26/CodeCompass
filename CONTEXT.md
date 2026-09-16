@@ -76,7 +76,7 @@
 | Engine-rendered Diagram（引擎渲染图） | 图谱几何一律由确定性引擎从 Call Edge 边表渲染（ADR-0013 白名单：traceToMermaid、配置拓扑、Tour 路线）；LLM 仅产出结构化图层指令（图型、focus、折叠层级、节点注释），永不直接产出连线。迁移期缺口与 eval 波及见 ADR-0013。 |
 | Evolution Workbench（规范演进） | 矩阵三视图中唯一新建视图（ADR-0015）：自由文本意图入口，LLM 单次需求理解 + 引擎意图锚点落地目标，解析回显披露不反问；产出四段方案卡（惯例清单 / 方案清单 / 死代码清单 / 风险 Checklist）。曾用名「演进推演台」，v0.30 起与 UI tab 名「规范演进」对齐。 |
 | Workbench Cards（工件卡持久流） | workbench_cards 表按 (repoId, commit) 流落地演进/排查终态卡（seq 单调、UNIQUE 幂等、删仓级联清理）；SSE 终态载荷披露服务端 cardId/seq，`GET /api/repos/:id/workbench-cards` 全量回放，前端切桶 hydrate 按 id 去重合并。 |
-| Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。v1 MCP 感知面冻结为现有 8 工具，演进类工具随 Issue 25 补齐。 |
+| Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。MCP 感知面冻结为**现有 17 工具**（v0.31 校准：数量只减不增，精度增强不受限；演进类工具已随 Issue 25 补齐——旧词条写"冻结为现有 8 工具"是补齐前的历史状态）。 |
 | 用户文案规范（User-Facing Copy） | v0.30 确立的界面语言承诺：用户可见文案以中文为准，工程通用语（HTTP 动词、语言名、API/Git/URL/Token/LLM/MCP、品牌）保留；机器枚举值（payload/SSE/MCP 契约）不改值、经展示层映射出人话徽章；服务端会渲染进 UI 的中文 label 与前端阶段标签双侧同步。退役旧词入共享黑名单（contracts 权威表），web/cp 双哨同表执法、改文案与改哨同 commit。四张对照表为战役工件（`.scratch/v030-degeekify/spec.md`）。 |
 
 ## Error Code Contract（v0.27-B R3）
