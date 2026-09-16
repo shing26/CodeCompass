@@ -443,6 +443,17 @@ def check_versions() -> None:
         bases_ok,
         f"bases={bases} engines_floor={floor.group(1) if floor else '?'}",
     )
+    # V30-11: the MCP handshake version (mcp/repoqa-mcp.ts) sat at a hardcoded
+    # '0.26.0' for four releases — every bump surface was checked except this
+    # one. It must alias the single-source VERSION; a literal here fails the gate.
+    mcp_src = (ROOT / "services/control-plane/src/mcp/repoqa-mcp.ts").read_text(encoding="utf-8")
+    mcp_alias = re.search(r"MCP_SERVER_VERSION\s*=\s*VERSION\b", mcp_src) is not None
+    mcp_literal = re.search(r"MCP_SERVER_VERSION\s*=\s*['\"]", mcp_src) is not None
+    record(
+        "mcp-handshake-version (MCP_SERVER_VERSION aliases version.ts, no literal)",
+        mcp_alias and not mcp_literal,
+        f"alias={mcp_alias} literal={mcp_literal}",
+    )
 
 
 def check_health_payload_version(base: str) -> None:

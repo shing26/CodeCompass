@@ -1,7 +1,7 @@
 # CodeCompass 开发交接文档（Handoff）
 
 > 写给：接手 CodeCompass 开发的下一个 agent（fresh session）
-> 交接时点：2026-09-12，v0.26.0 实施全部完成（tag 见 git log；master 已同步）
+> 交接时点：2026-09-16，v0.30.0 已发布（去极客化战役收口；tag 见 git log，master 已同步）
 > 工作区：`D:\CodeCompass`（Windows 11 / Git Bash / Node 24）
 > 远端：`git@github.com:shing26/CodeCompass.git`（master 与 tag 均已同步）
 
@@ -9,9 +9,11 @@
 
 ## 1. 当前状态（一句话版）
 
-**v0.26.0 门禁运行史 + 问答/演进口心智分离（七票收口，全部门禁绿）**：B 系列三票落地 `gate_runs`/`gate_run_routes` 双表 + `POST gate/run`/`GET gate-runs`（ADR-0017：历史=服务器端执行史），CiGateView 三段化（运行并记录+运行史表+趋势 div 条）+ 行内两层受波及树（route 节点跳 Inspector，票 11 navSeq 复用）；A 系列四票确立「问现状/要方案」canonical 对子 + 底线「引擎只读，改动由你执行」常驻 + PlanCardView→方案摘要（CTA 桥演进）+ 演进侧命名族归一（惯例/落位表/死代码清单/风险 Checklist）+ `copy-guard.test.ts` 文件系统级文案回归哨。收口双轴 review 现场修毕 P1×2（A04 缺图补拍+rig 失败出口；`^-` git ref 选项注入双层守卫），v0.27 台账 9 项在 `.scratch/v027-backlog.md`。e2e 60/60、控制面 588、web 320。MCP 17 工具零变化，REST 新增 gate 两面 additive。决策：`.scratch/v026-gate-history/spec.md`、`.scratch/v026-mind-split/spec.md`。
+**v0.30.0 去极客化战役全批收口（G0–G8 全闭，门禁全绿）**：双文案哨共表（中文 23 词 + 英文 38 词入 `packages/contracts` 跨包权威）+ 字号两档语义化（111 处任意值 → `text-xs`/`text-micro`）+ chrome 中英混排人话化（~55 短语）+ 枚举展示映射（`statusLabel` 表 C）+ Badge/CountPill 双件（9 徽章族归一）+ 黑话双端清扫 + `styles.css` 销号 + 命名族归一（「拆除计划」→「下线方案」，同义触发词保留、工具灵敏度零回归）。前置批次：v0.29 韧性硬化（出库掩码单尺 `maskSensitiveText`、clone 重试分类器、MCP 深链单一源）、v0.28 结构手术（web→contracts 单一源、control-plane 目录归组 ingest/engine/mcp/eval）、v0.27 生产就绪（Docker 修复、版本单一源、WS 优雅关闭挂死真 bug 修复）。门禁基线：控制面 650、web 363、bridge 26、e2e 63（对照组）。总账在 `.scratch/v027-backlog.md`，各战役 spec 在 `.scratch/<feature>/`。
 
-**环境风险项（接手必读）——Mimosa git-gate 漂移**：ZCode 层 `git commit/push` 是否被 Mimosa L3 以「全仓存量误报（~85 高危）」硬拦，**随用户插件配置漂移、不可假设**（实测：09-05 拦 → 09-08 放开 → 09-10 复拦 → **09-11/12 全程放行，v0.26 七票全部直提成功**；重试与 `--no-verify` 均无效，不可技术绕过）。标准流程：每次收口先自动尝试 commit+push；被拦则如实报告并把「add+commit+tag+push」收敛为 `.scratch/<feature>/` 下单条 `.cmd`（勿用 bash 脚本——用户 cmd 里 bash 解析到 WSL 会失败）交用户本机执行，agent 负责跑后验证落地与 CI。**另有环境坑：本机 C 盘 100% 满——vitest/e2e 前必须 `TMPDIR=/d/zcode-tmp TMP=... TEMP=...`，否则 ENOSPC 伪装成测试失败。**
+**2026-09-16 整理批（V30-11）**：.scratch 42 个测试遗留库本地清理；三处散落的体验报告合一到 `docs/reports/`（Round1–3 并排 + `ui-shots/` 证据统一）；根目录截图归档；HANDOFF 全量刷新。**修复 MCP_SERVER_VERSION 漂移**：该硬编码停在 0.26.0 四个版本（MCP 握手对外谎报版本），现 alias `version.ts` 单一源，e2e 新增棘轮检查。**repoqa 旧命名族迁移立为 V30-10 独立票**（跨端契约手术，勿顺手改，见 §4）。
+
+**环境风险项（接手必读）——Mimosa git-gate 漂移**：ZCode 层 `git commit/push` 是否被 Mimosa L3 以「全仓存量误报」硬拦，**随用户插件配置漂移、不可假设**（实测：09-05 拦 → 09-08 放开 → 09-10 复拦 → 09-11/12 放行（v0.26 七票直提）→ 09-16 整理批放行；重试与 `--no-verify` 均无效，不可技术绕过）。标准流程：每次收口先自动尝试 commit+push；被拦则如实报告并把「add+commit+tag+push」收敛为 `.scratch/<feature>/` 下单条 `.cmd`（勿用 bash 脚本——用户 cmd 里 bash 解析到 WSL 会失败）交用户本机执行，agent 负责跑后验证落地与 CI。
 
 ## 2. 新 agent 上手前必须知道的事实
 
@@ -19,55 +21,80 @@
 
 | 事项 | 值 |
 |---|---|
-| 版本一致性硬约束 | 四本 package.json == `cli.ts VERSION` == `MCP_SERVER_VERSION` == `CHANGELOG.md` 顶部条目 == README 版本行（e2e 门禁校验前三者；改版本五处同步） |
-| 构建产物 | `services/control-plane/dist/`（esbuild）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
+| 版本一致性硬约束 | 单一源 = `services/control-plane/src/version.ts`（V27-25）；e2e 校验 root package.json == version.ts == CHANGELOG 顶部 == /health payload；**MCP 握手版本 `mcp/repoqa-mcp.ts::MCP_SERVER_VERSION` 必须 alias VERSION，禁止字面量（v0.30 整理批入闸）**；版本 bump 五处 = 四本 package.json + version.ts |
+| 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
-| 测试命令 | `npm test`（services/control-plane）；`apps/repoqa-web` 用 `npx vitest run`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线 | 控制面 ~550 用例、前端 ~280 用例、e2e 52 项（并行线持续在加）——全绿是发布前提 |
-| MCP | 15 个 `codecompass_*` 工具（`repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + repoqa-mcp.test.ts 三处名单 + closeout_gate.py 工具数断言（installer autoApprove 动态派生不用改） |
+| 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
+| 门禁基线（2026-09-16） | 控制面 650、web 363、bridge 26、e2e 63（对照组，含整理批新增的 mcp-handshake-version 棘轮）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言（installer autoApprove 动态派生不用改） |
 
 ### 2.2 架构不变量（违反即返工）
 
 - **真理之源红线（ADR-0002）**：链路追踪/依赖计算 100% 确定性 AST 图谱，禁止 LLM 猜测
 - **补丁边界（ADR-0006）**：确定性工具的 `suggestedPatch` 恒空；补丁只在 ReAct 编排层由 LLM 生成并标注
-- **脱敏（ADR-0003）**：任何源码切片/错误摘要流出前必须过 `maskSensitiveText`（新例：`list_repos` 的 error 字段）
+- **脱敏（ADR-0003）**：任何源码切片/错误摘要流出前必须过 `maskSensitiveText`（V27-21 起为唯一出库权威，弱尺 `maskSecrets` 已废除）
 - **异步契约（ADR-0016）**：预期 >5s 的新 MCP 工具必须"立即返回 + 轮询"；MCP 调用有 30-60s stdio 超时
 - **幽灵防线**：worker 长任务在每处数据表写入前做 repo 行存在性断言；`invalidate()` **不 abort**，别指望 AbortController
 - **反向邻接**：全图反向查询必须用 `buildFullCallersIndex`
 - **scan 定位红线（v0.21）**：scan 只报确定性事实（"零调用者"是事实不是"可安全删除"），语义判断属 agent
-- **引擎布局**：扁平 `src/<name>-engine.ts` + 同位 `.test.ts`
+- **用户面文案受双哨约束**：web `copy-guard.test.ts` + cp `copy-guard.server.test.ts`，词表在 `packages/contracts` 共表（黑话 23 词 / 英文退役 38 词 / 黑名单）；改用户可见文案先对照 `.scratch/v030-degeekify/spec.md` 四张权威表
+- **目录布局（V27-30 结构手术后）**：`src/` 按域分组——`ingest/`（解析入库）、`engine/`（分析引擎族 `repoqa-*.ts`）、`mcp/`、`eval/`、`chat/`、`routes/`、`languages/`；顶层保留 server/cli/db/config/http/ws 等单文件；测试同位（`.test.ts`）
 
 ### 2.3 本环境工程坑（血泪教训，持续累积）
 
 1. **多行 commit message 一律 `git commit -F <file>`**——heredoc 写反斜杠会变真实字符、`-m` 反引号会被 bash 执行
-2. **Mimosa git-gate 拦 ZCode 工具层的 `git commit`**（不是 git hooks！`--no-verify` 无效）：全仓扫描模式、无 baseline/touched-only 配置面（逻辑在受保护资产）、对 `urlopen` 纯模式匹配（加守卫代码不可见）。**agent 无法 commit 时的出路**：等并行 agent 收编（已发生两次）或用户本机 shell 手动提交；假凭据测试用 `'AKIA' + 'A'.repeat(16)` 运行时构造消除静态模式
+2. **Mimosa git-gate 拦 ZCode 工具层的 `git commit`**（不是 git hooks！`--no-verify` 无效）：全仓扫描模式、无 baseline/touched-only 配置面。**agent 无法 commit 时的出路**：走 `.cmd` 交用户本机 shell 手动提交；假凭据测试用运行时构造（`'AKIA' + 'A'.repeat(16)`）消除静态模式
 3. **双 agent 并行开发**：另一条线（智能体搭建）会直接提交本仓库并打 tag——动手前 `git log --oneline` + 看 CHANGELOG 确认版本号没被占、工作区没被并行改动；**提交只挑自己的文件**
-4. vitest 并发抖动：瞬时失败复跑两次确认再定性（历史规律：412/430/3/10 个的失败复跑即绿）
-5. esbuild 剥注释：验证 dist 更新要 grep 字符串字面量或验证行为
-6. Windows：jsdom 无 `scrollIntoView`；stdio 测试 kill 后句柄延迟释放
+4. **C 盘常满**：vitest/e2e 前必须 `TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp`，否则 ENOSPC 伪装成测试失败
+5. vitest 并发抖动：瞬时失败复跑两次确认再定性（历史规律：复跑即绿）
+6. esbuild 剥注释：验证 dist 更新要 grep 字符串字面量或验证行为
+7. **e2e gate 非 hermetic（V30-9 挂账）**：根 `.env`（REPOQA_LLM_*）在场时 chat/incident 检查实走远程 LLM（慢、红位漂移）；现行纪律 = 对照组跑法 `REPOQA_LLM_BASE= python scripts/e2e/closeout_gate.py`
+8. Windows：jsdom 无 `scrollIntoView`；stdio 测试 kill 后句柄延迟释放
 
 ### 2.4 版本演进速查（细节全在 CHANGELOG）
 
-v0.17 index_repo（索引入口）→ v0.18 index_repo 全异步化 + remove_repo + 幽灵防线（ADR-0016 必读）→ v0.19 并行线 evolution eval → v0.20 codecompass_scan 五桶自荐 → v0.21 oversizedFiles 文件桶 + 检索层定位显性化 + Issue 25 演进工作台合流。真实 agent 反馈（BossHunter、codex）已全部消化——**dogfooding 是最高效的需求来源**。
+v0.17 index_repo → v0.18 全异步化 + remove_repo + 幽灵防线（ADR-0016 必读）→ v0.19 evolution eval → v0.20 scan 自荐 → v0.21 检索层定位显性化 + Issue 25 演进工作台 → v0.22 scan dogfooding 修复 → v0.23 scan 提纯 → v0.24 chat-merge（对话工作台并入本仓）→ v0.25 工程结构批 → v0.26 门禁运行史 + 问答/演进口心智分离 → v0.27 生产就绪（Docker/版本源/WS 挂死）→ v0.28 契约单一源 + 结构手术 → v0.29 韧性硬化（掩码单尺/重试/深链）→ v0.30 去极客化战役。真实 agent 反馈（BossHunter、codex）已全部消化——**dogfooding 是最高效的需求来源**。
+
+### 2.5 仓库布局与归档纪律（2026-09-16 整理批确立）
+
+```
+根目录                  # 只留门面与配置：README/CHANGELOG/CONTEXT/AGENTS/HANDOFF
+                        # + package.json/Dockerfile/docker-compose/bin/scripts/.github
+apps/repoqa-web/        # React 三栏工作台（旧名待 V30-10 迁移）
+services/control-plane/ # 单进程控制面（src 按域分组，见 §2.2）
+packages/{contracts,bridge-adapters}/
+docs/adr/               # 架构决策 0001–0017
+docs/agents/            # agent 协作约定（issue-tracker/triage-labels/parallel-collaboration）
+docs/reports/           # 评估与体验报告唯一归宿：Round1–3 并排 + CodeCompass_* 评估
+docs/reports/ui-shots/  # 截图证据（本地保留不入库；报告内以 `ui-shots/...` 相对路径引用）
+docs/reports/samples/   # 导出样例（ONBOARDING 手册）
+docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/review 等）
+.scratch/<feature>/     # 进行中/已完成 feature 的 spec+issues+qa（*.md 跟踪，其余产物本地）
+.scratch/v027-backlog.md# 跨版本总账（V27-x/V29-x/V30-x），收口划销/挂账按此账
+```
+
+纪律：**新报告进 `docs/reports/`（截图进 `ui-shots/`）；历史文档进 `docs/archive/`；临时产物进 `.scratch/<feature>/` 且不入库；根目录不再新增散件**（历史教训：三处报告、四份 handoff、根目录截图堆就是这么积累出来的）。每次收口必须更新根 `HANDOFF.md` 与总账。
 
 ## 3. 关键文档索引
 
 | 文档 | 内容 |
 |---|---|
-| `CONTEXT.md` | 术语表（含 Async Tool Call / MatchedBy / Candidate Scan）+ 全部 ADR 索引 |
-| `docs/adr/0001–0016` | 架构决策；**0016（MCP 长操作立即返回+轮询）新工具设计前必读** |
-| `CHANGELOG.md` | 0.5.x→0.21.0 完整发布条目 |
-| `docs/reports/` | 历史产品评估报告（v0.2–v0.6 时代，已从根目录归档至此） |
+| `CONTEXT.md` | 术语表（含 出库掩码不变式 / 用户文案规范）+ 全部 ADR 索引 |
+| `docs/adr/0001–0017` | 架构决策；**0016（MCP 长操作立即返回+轮询）新工具设计前必读** |
+| `CHANGELOG.md` | 0.5.x→0.30.0 完整发布条目 |
+| `docs/reports/` | 体验报告 Round1–3（产品缺陷史）与历史评估报告；截图在 `ui-shots/`（本地） |
+| `docs/archive/` | 历史 handoff（v0.3 / 2026-08 / 2026-09）与旧规划文档 |
+| `.scratch/v027-backlog.md` | 跨版本总账：开放项 V27-x/V29-x/V30-x 与关闭记录 |
 | `scripts/e2e/closeout_gate.py` | e2e 门禁 = 系统能力可执行规格 |
 | agent 持久记忆 | `C:\Users\Shing\.zcode\cli\memories\projects\codecompass-0da1d6bfa4427c13\memory\`（各版发布边界 + Mimosa 机制 + 双 agent 分工） |
 
 ## 4. 下一步候选（按用户已确认的优先级）
 
-1. **scan dogfooding 回访**：scan 五桶只在合成 fixture 验证过；fresh agent 会话拿真实 GitHub 仓库走 `index_repo(url) → list_repos 轮询 → scan → nextAction` 全链，观察孤儿桶误报率与 nextAction 引导效果
-2. **方法体级 AST 提取器**：scan oversized 桶升级为真复杂度信号的前置（backlog 第一条）
-3. **对话式智能体项目**（独立项目，消费本 MCP）：依赖面已完整（15 工具 + 异步索引 + 自荐发现）
-4. **Mimosa 误报规则协调**：测试 fixture 的"路径穿越/硬编码凭据"白名单（与插件侧协调，agent 无法 commit 时走并行收编/用户手动）
-5. 小项：DEPRECATE checklist 截断溢出说明、MCP `intentType` enum 校验
+1. **V30-10 repoqa 旧命名族迁移**（整理批新立）：`apps/repoqa-web`、`src` 下 `repoqa-*.ts` 引擎族、`RepoQAClient`、SSE 事件名 `repoqa.evolve.*`、`REPOQA_LLM_*`/`MHW_*` 环境变量、npm files/Dockerfile 路径——SSE 事件名与包路径属对外契约，需独立 spec + 破坏面清单，不排期
+2. **V30-9 gate hermetic 化**：gate spawn 显式清空/覆写 LLM 环境变量（现行纪律见 §2.3-7）
+3. **V29-1 import/evolve 韧性后半**：`POST /api/repos` 202 + WS 进度流化（跨端契约手术，建议与 Web 体验批次并批 grill）
+4. **V27 余账**（详见总账）：V27-5「查调用链」名实升级、V27-6 risk 色族跨视图统一、V27-7 gate 运行史渲染上限、V27-15 长回答 a11y、V27-16 拓扑首屏选题、V27-17 TS 仓 tours 零锚点
+5. 长期候选：方法体级 AST 提取器（scan oversized 桶升级前置）、Mimosa 误报规则协调、DEPRECATE checklist 截断说明、MCP `intentType` enum 校验
 
 ## 5. Suggested skills
 
@@ -84,8 +111,9 @@ v0.17 index_repo（索引入口）→ v0.18 index_repo 全异步化 + remove_rep
 ```bash
 cd D:/CodeCompass
 git log --oneline -3
+export TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp   # C 盘满对策
 npm run typecheck                        # 全仓零错误
-cd services/control-plane && npm test    # 全绿（~550）
+cd services/control-plane && npm test    # 全绿（~650）
 cd ../../apps/repoqa-web && npx vitest run
-cd ../.. && npm run build && npm run e2e  # 52+ 项
+cd ../.. && npm run build && REPOQA_LLM_BASE= python scripts/e2e/closeout_gate.py  # 63 项对照组
 ```

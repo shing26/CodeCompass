@@ -29,6 +29,7 @@ import {
   validateGitBranch,
   validateGitUrl
 } from '../git-importer';
+import { VERSION } from '../version';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -48,7 +49,11 @@ import {
  */
 
 export const MCP_SERVER_NAME = 'codecompass';
-export const MCP_SERVER_VERSION = '0.26.0';
+// V30-11 (整理批): this sat as a hardcoded literal ('0.26.0') for four releases
+// while every other version surface was bumped — the MCP handshake shipped a
+// stale version to clients. Alias the single source (version.ts); the e2e gate
+// now ratchets against a literal reappearing here.
+export const MCP_SERVER_VERSION = VERSION;
 
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */

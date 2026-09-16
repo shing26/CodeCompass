@@ -35,8 +35,12 @@ __pycache__/
 .zcode/
 
 # Product-experience report screenshots (large binary evidence, kept local).
-产品体验报告/ui-shots/
+# Round1 t*-* shots were committed in the v0.6 era — tracked files stay tracked
+# (Round2's r2-* set was lost before this archiving pass); everything from
+# Round3 on stays local-only, mirroring the root image*.png policy below.
+docs/reports/ui-shots/
 
 # Ad-hoc screenshots dropped at repo root during real-use feedback rounds
-# (v0.25.0 收口: untracked image*.png — 二进制证据留本地，参考截图归档进报告目录).
+# (v0.25.0 收口: binary evidence stays local; archive reference shots into
+# docs/reports/ui-shots/ instead of dropping them at the root).
 /image*.png
