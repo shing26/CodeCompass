@@ -26,7 +26,13 @@
 2. **接口方法与其实现进孤儿桶**（375 + 620）——Go 接口多实现时 ADR-0002 要求保持 dynamic，但"零静态调用者"并不等于死代码。
 3. **仅被测试调用**（94）——`buildRadarGraph` 同时丢弃测试路径的节点与边来源（设计如此，issue 03）。
 
-三条裁决落地后 lazygit 孤儿 **1187**，此时 M1 才可能离开 10/10。三项均需改 `scan-engine.ts` / `domain-radar-engine.ts`，**不在本票文件面声明内**，故本增量不动。
+三条裁决落地后 lazygit 孤儿 **1187**，此时 M1 才可能离开 10/10。三项均需改 `scan-engine.ts` / `domain-radar-engine.ts`，**本增量不动**（见下方文件面声明的补登记）。
+
+## 第三增量（2026-09-17）— M2 桶污染归零
+
+票 01 验收第 4 条（M2 = vendor / 测试夹具进榜条数，目标 0）实测未达成：lazygit 0、petclinic 0、**本仓 2**——`services/control-plane/src/http-error.test.ts` 的两个 fixture route 进了 `deepChains` 桶。
+
+根因：`deepChains` 是唯一直接 `pickTopApis(symbols, …)` 的桶，**没有测试路径过滤**；另外四个桶都经由 `buildRadarGraph`（丢测试节点与边来源）或自带 `isTestPath` 判断。修法取最小面：仍用完整符号表解析链（不改任何链深），只在**入口候选**上过滤测试路径，`total` 与列表同源。不动 `pickTopApis` 本身，避免波及 cockpit 面板（其 top APIs 语义另有归属）。
 
 **另需决定**：全桶归因目前只能靠临时诊断（`runScan` 只发布前 10 条候选）。若要把它变成可复跑工具，需让 `runScan` 暴露未截断的桶内容或提供归因入口——建议单开一票（属票 01 面的自然延展）。
 
@@ -85,6 +91,7 @@
 | `services/control-plane/src/languages/LanguageAdapter.ts` | MCP 工具面 | **新增改动**：两个方法各加可选 `context` 形参（可选 → 其余适配器零改动） |
 | `services/control-plane/src/engine/repoqa-callchain.ts`（+test） | MCP 工具面 | 本期未改（字段链恢复路径为既有能力） |
 | `services/control-plane/src/ingest/repoqa-parser.ts`、`repoqa-worker.ts` | MCP 工具面 | 构建并注入包表（全量 + 增量两条路径） |
+| `services/control-plane/src/scan-engine.ts` | MCP 工具面 | **补登记**：第一增量已改（入口点跳过 / 访问器降权 / wiredExcluded）却未登记，现补；第三增量在此修 M2 |
 | `scripts/precision/scan_precision.ts` | 共享区（票 01 面） | **新增 `--edges <sample>`**：边级 Go 归因，使 §7.3 可复跑 |
 | `scripts/precision/verdicts/lazygit.json` | 共享区（票 01 面） | **重判**：top-10 构成已变，旧判定描述的是改动前的榜单 |
 | `scripts/e2e/closeout_gate.py` | 共享区 | 本期未改 |

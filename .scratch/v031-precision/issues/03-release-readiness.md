@@ -38,13 +38,29 @@ M4 = 1：**陌生人照 README 抄一行命令即可接入 Cursor**；同时消�
 
 ## 验收
 
-- [ ] `npm view @codecompass/cli version` 有值；干净目录一行命令跑通 MCP 握手（含截图/日志留档）
-- [ ] README 工具数、安装段、Node/ABI 提示与实现一致
-- [ ] benchmark 文档 bucket 数与题数与 `npm run eval` 实际输出一致
-- [ ] 协作文档与 CONTEXT 词条无「六处/8 工具」等过时表述（grep 留证）
-- [ ] CHANGELOG 0.31.0 条目含发布段
+- [ ] `npm view @codecompass/cli version` 有值；干净目录一行命令跑通 MCP 握手（含截图/日志留档）—— **待用户执行发布**（agent 无凭证；发布前核验已完成，见下）
+- [x] README 工具数、安装段、Node/ABI 提示与实现一致 —— `cb15585`（工具数 15 → 17；安装段随发布后复核）
+- [x] benchmark 文档 bucket 数与题数与 `npm run eval` 实际输出一致 —— `cb15585` 刷到 97 题 / 10 bucket，并加真实仓库段交叉引用；版本标签随 v0.31.0 推进更新为 2026-09-17
+- [x] 协作文档与 CONTEXT 词条无「六处/8 工具」等过时表述（grep 留证）—— `cb15585`（版本五处 + 17 工具）
+- [x] CHANGELOG 0.31.0 条目含发布段 —— 本增量（含发布物、M4 验收命令、发布前核验结果）
+
+**发布前核验（agent 侧，已完成 2026-09-17）**：`npm pack --dry-run` 干净——160 文件 / 5.0 MB / 解包 19.9 MB，`bin/codecompass.js` 与两份 `dist/` 齐全，`.env`、`.scratch`、`node_modules`、测试夹具零入包。版本五处已推进至 0.31.0，e2e gate 的 `version-consistency` 与 `/health payload version` 双绿（后者需先 `npm run build`——`dist/` 不入库，是本次发现的第六处版本落点，CI 已自带 build 步骤）。
+
+**余下两步（用户本机）**：① 确认 `@codecompass` scope 归属 → `npm publish`；② `git tag v0.31.0 && git push origin v0.31.0` 触发 Release 管线。发布后按 M4 验收命令在干净目录实测 `npx @codecompass/cli mcp <path>`。
 
 ## 风险
 
 - npm scope 未创建 / 包名冲突 → 需用户先在 npm 侧建 org。
 - 发布后首次 `npx` 走的是 npm 缓存外的真实下载，冷启动路径必须实测（不能只在本地 `npm link` 验证）。
+
+## 文件面声明（并行协作）
+
+| 文件 | 归属 | 说明 |
+|---|---|---|
+| `package.json`、`services/control-plane/package.json`、`apps/repoqa-web/package.json`、`packages/contracts/package.json` | 共享区（版本五处） | **v0.31.0 推进**（`packages/bridge-adapters` 独立 0.6.0 线不动） |
+| `services/control-plane/src/version.ts` | 共享区（版本五处） | 单一源；`MCP_SERVER_VERSION` 为别名，受 gate `mcp-handshake-version` 棘轮 |
+| `CHANGELOG.md` | 共享区 | **新增 0.31.0 段**（发布段载体） |
+| `README.md`、`docs/benchmark.md`、`docs/agents/parallel-collaboration.md`、`CONTEXT.md` | 共享区 | (b)(c)(d)(e) 已于 `cb15585` 落地；本增量另动了三处**版本叙事**（benchmark 两处版本标签随 v0.31.0 推进刷新、CONTEXT Status 行改 0.31.0 并把 0.30.0 降为「此前」），因为它们会随版本推进变成误导 |
+| `docs/reports/scan-precision-baseline-2026-09-16.md` | 共享区 | 增 M2 归零一行（见 02 第三增量） |
+
+**边界**：`git tag v0.31.0` / GitHub Release / `npm publish` 均为**对外动作**，由用户执行；本票只准备到「工作树就绪 + 发布前核验」为止。

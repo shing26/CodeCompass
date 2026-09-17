@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.31.0] - 2026-09-17
+
+### Highlights
+
+- **精度优先批（v0.31 票池，`.scratch/v031-precision/`）**：承《CodeCompass 方向定位-2026-09-16》裁决「A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付；Web 只减不增」，把度量单位从「功能数」换成**真实仓库假阳性率**，并把「确定性 = 精确」这个核心承诺首次放上真实仓库的刻度尺。(1) **票 01 度量先行**：仓库此前只有 97 题合成 eval、从无真实仓库精度 harness——新建 `scripts/precision/scan_precision.ts`（索引→五桶→固定种子抽样→人工判定入档→`--score` 复算 M1；本增量另加 `--edges` 边级归因），三样本（lazygit Go / spring-petclinic Java / 本仓 TS）一条命令可复跑，克隆复用 + HEAD 记录保证跨轮可比；首份基线报告落 `docs/reports/`。**口径校正**：v0.21 留下的 43%/31%/83% 是「孤儿占符号比」（水位），不是假阳性率；真实假阳性率须逐条核验（本次三仓均 10/10）。(2) **票 02 精度攻坚（三增量）**：第一增量修七项根因（TS 适配器纯 JS dialect 把类型注解与 JSX 全判为语法错误 / 裸调用丢边 / JSX 使用无边 / 局部变量类型不记录 / DI 注解白名单不全 / handler 方法误进孤儿桶 / DTO 访问器），本仓孤儿 −42%、petclinic −76%；第二增量做 Go receiver 绑定——**票面「跨文件是主因」经实测推翻**，真主因是同文件两件事（`:=` 短声明不记类型：它与 `var` 同为 `VarDecl` 节点但无 `VarSpec`，原实现恒读不到类型；裸调用误继承 selfType：Go 无隐式 receiver，却被打上所属类型而走错解析分支）＋ per-repo Go 包表覆盖跨文件跨包，lazygit 孤儿 −13.1%，而**边级增益大一个量级**（`dynamic` 边 −800、可解析边 +498）——孤儿桶只反映「目标此前无其他调用者」的一小撮，调用链才是产品核心；第三增量把 M2 桶污染归零（`deepChains` 是唯一不过滤测试路径的桶，fixture route 曾作为生产入口上榜）。(3) **票 03 发布就绪**：README 工具数 15→17、安装段与实现对齐，`docs/benchmark.md` 从 v0.16/75 题刷到 97 题 10 bucket 并与真实仓库精度分栏陈述，协作文档「版本六处」修正为**版本五处**（单一源 `version.ts`；`MCP_SERVER_VERSION` 为别名且受 gate 棘轮），CONTEXT「MCP 面冻结为 8 工具」校准为 17（数量只减不增、精度增强不受限）。(4) **票 06 冻结护栏**：放弃清单转成硬约束（不再为 Web 做视觉/文案战役、不加第 7 个 Tab 与第 18 个工具、本批只发两个锚点、无度量不立战役），HANDOFF 三处更新 + V27 余账六行处置留痕，并清除对外文案里不可测指标的承诺（Local-First 无遥测 ⇒ TTFP/Adoption 永不入文案）。(5) **本批最重要的结论**：三仓 top-10 假阳性率仍 100%，且**接收器绑定类工作不可能推动它**——top-10 是按位置取前 10（不是最差 10），构成为类型声明、接口方法与其实现、函数值引用、导出 API 与测试脚手架类型；全桶 1618/2805（58%）属**桶语义问题**而非精度问题（类型没有「调用者」概念；Go 接口多实现时 ADR-0002 要求保持 dynamic；「零静态调用者」不等于死代码；`buildRadarGraph` 丢弃测试路径的边来源），已如实出「可达下限 + 根因可解释性」结论并把裁决点交出，未按目标倒推口径。
+
+### Added
+
+- `scripts/precision/scan_precision.ts`（真实仓库精度 harness：`self|lazygit|petclinic` 索引并抽样、`--score` 从判定文件复算 M1、`--edges <sample>` 报边级归因）+ `scripts/precision/verdicts/*.json`（逐条判定留档，键 = `filePath:line`）。
+- `docs/reports/scan-precision-baseline-2026-09-16.md`（三仓 × 五桶 × 假阳性率基线报告，含 §7 第二/第三增量）。
+- `services/control-plane/src/languages/parse-context.ts`（可选跨文件 parse context 契约：单文件契约不变，缺省时每条查找退回文件内并以 `dynamic` 收口）。
+- Go 适配器：`receiverTypeFromTypeNode`（指针 / 限定名 / `ParameterizedType` 的命名类型解析）、`collectGoDeclarations` / `buildGoPackageTable`（per-repo 包表，按包目录归并）、`declTypeName` / `resultTypesOf` / `collectParamNames`。
+- 15 例 Go 适配器用例（局部定型、泛型实例化与泛型调用边、跨文件/跨包定型、无 context 时保持 dynamic 的单文件契约红线、遮蔽与歧义名的 fail-closed 守卫）+ 1 例 `deepChains` 测试路径回归钉。
+
+### Fixed
+
+- **Go 调用边丢失（lazygit 孤儿 3229 → 2805，−13.1%）**：`:=`/`var` 局部变量类型不回填 → 此后 `app.Method()` 全落 dynamic；裸调用误挂 selfType → 方法体内调包级函数走错解析分支；字段类型只读 `TypeName` → `*svc.Repo`/`io.Closer` 字段记成无类型；泛型调用点 `F[T](...)` 完全不记边；跨文件/跨包的函数结果无法定型。
+- `deepChains` 桶不过滤测试路径（唯一漏网的桶）：测试夹具 route 曾作为生产入口点上榜，M2 目标 0 未达成；改为过滤候选而非输入，链深与其余条目不变。
+- TS 适配器此前用纯 JS dialect 解析，类型注解与 JSX 全被判为语法错误节点（探针：8 token 的 `.tsx` 片段 9 个错误节点）——本仓符号 1745 → 1911。
+
+### Changed
+
+- README 工具数 15 → 17；安装段与 `MCP_TOOLS` 实现对齐。`docs/benchmark.md` 刷到 97 题 / 10 bucket，并把「合成基准」与「真实仓库精度」分栏陈述（不得混为一谈）。`docs/agents/parallel-collaboration.md` 版本面改为版本五处；`CONTEXT.md` Dual-Surface 词条校准为 17 工具。`docs/reports/` 新增真实仓库精度报告。
+- 版本五处推进 0.30.0 → **0.31.0**（四本 `package.json` + `version.ts` 单一源；`packages/bridge-adapters` 独立 0.6.0 线不动）。
+
+### 发布
+
+- 首发物 **`@codecompass/cli@0.31.0`**（MCP-first 的确定性代码事实层）。发布动作由维护者本机执行（npm scope 归属确认 → `npm publish`；tag `v0.31.0` 触发 Release 管线）。
+- M4 验收命令：干净机器 `npx @codecompass/cli mcp <path>` 完成 stdio 握手并返回 `list_repos`；发布后核验 `npm view @codecompass/cli version`。
+- 发布前核验已完成：`npm pack --dry-run` 干净（160 文件 / 5.0 MB，`bin/` 与两份 `dist/` 齐全，无 `.env`、`.scratch`、`node_modules` 泄漏）。
+
+### 质量门（v0.31.0 基线）
+
+- 控制面 **650 → 666**（Go 适配器 15 例 + `deepChains` 回归钉 1 例）、web **363**、bridge **26**、e2e **63/63**（含 97 题 golden eval 全阈值：Recall@5 各桶 100%、幻觉 0%）；`tsc --noEmit` 四包净。
+- 真实仓库精度（M1/M2，三样本同源可复跑）：M2 桶污染 **0/0/0**（vendor + 测试夹具进榜条数）；M1（top-10 逐条核验）**10/10 假阳性**——未达标，已按 spec §6.2 降级策略交出「可达下限 + 剩余噪声可解释性」而非按目标倒推口径。
+
+### 契约稳定性
+
+- **MCP 17 工具签名与数量冻结**为 v1 契约：本批零新增工具、零新增页签，只允许「同一工具输出更准」。`packages/contracts`、REST/SSE 端点形状零变化。
+- 精度增强全部落在调用边的**确定性**解析上：ADR-0002 红线（跨文件绑定必须由 import 路径 / 包限定名确定；解析不到就保持 `dynamic`，不得按名字相似度猜）由单测把守——无 context、遮蔽名、歧义包名、同包重复声明四类全部 fail-closed。
+
 ## [0.30.0] - 2026-09-16
 
 ### Highlights

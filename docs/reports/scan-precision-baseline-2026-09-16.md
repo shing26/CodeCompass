@@ -122,6 +122,8 @@ NODE_OPTIONS=--max-old-space-size=4096 \
 
 M1 三仓均由 `--score` 从 `verdicts/*.json` 复算（lazygit 判定本次重判，另两仓沿用既有判定）。
 
+**M2（vendor / 测试夹具进榜条数，目标 0）**：第三增量后三仓 **0 / 0 / 0**（`contaminationTotal`）。首测时本仓为 2——`deepChains` 是五个桶里唯一不经 `buildRadarGraph`、也不自带 `isTestPath` 判断的桶，`http-error.test.ts` 的两个 fixture route 因此作为生产入口上榜；修法为过滤入口候选而非输入（链深与其余条目不变），该桶 100 上限内的测试条目亦一并清除（本仓 total 56 → 48）。
+
 复跑命令：`NODE_OPTIONS=--max-old-space-size=4096 services/control-plane/node_modules/.bin/tsx scripts/precision/scan_precision.ts self lazygit petclinic`
 
 ### 7.5 全桶归因（lazygit 2805 条）

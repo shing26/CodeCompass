@@ -1,4 +1,4 @@
-# Benchmark — Golden Eval Baseline (v0.30.0)
+# Benchmark — Golden Eval Baseline (v0.31.0)
 
 > `npm run eval`（`services/control-plane` 内 `npx tsx src/eval/repoqa-eval.ts`）一键重放。
 > 数据集：97 条 golden 问题 × 代码内联 fixture（自动物化 + git 提交，确定性可重放）。
@@ -8,7 +8,7 @@
 > [`docs/reports/scan-precision-baseline-2026-09-16.md`](reports/scan-precision-baseline-2026-09-16.md)（V31-01 harness，三样本可复跑）。
 > 两者不可混用：本文件证明"已知场景不退化"，精度报告回答"陌生仓库上有多准"。
 
-## 最近一次全量结果（2026-09-16 · v0.30.0）
+## 最近一次全量结果（2026-09-17 · v0.31.0）
 
 | Bucket | 用例数 | Recall@5 | 幻觉率 | 锚点有效率 | 平均延迟 |
 | --- | --- | --- | --- | --- | --- |

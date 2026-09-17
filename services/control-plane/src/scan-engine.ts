@@ -289,11 +289,24 @@ export function runScan(input: ScanInput): ScanResult {
     );
 
   /* Bucket 4 — deep call chains: longest statically-resolvable entry flows.
-     maxDepth 6 mirrors pickTopApis' cockpit default; the total needs an
-     uncapped pass so it reports every entry chain, not just the top N. */
+     maxDepth 6 mirrors pickTopApis' cockpit default. `total` is counted over a
+     100-entry pass (pickTopApis clamps its own limit there) while the list shows
+     the top 10 — one sorted pass now serves both, so the two cannot disagree.
+
+     V31-02 (M2): this bucket resolves chains straight over `symbols`, so unlike
+     the other four it had no test-path filter at all and a fixture route
+     declared in a `*.test.ts` ranked as a production entry point (the only M2
+     violation left in the three samples). The candidate list is filtered rather
+     than the input, so every chain is still resolved over the whole symbol table
+     and no depth changes — only test-file entry points leave the board.
+     `pickTopApis` itself is untouched: the cockpit's top-APIs panel is a
+     different surface with its own semantics. */
   const DEEP_CHAIN_MAX_DEPTH = 6;
-  const deepChains = pickTopApis(symbols, DEEP_CHAIN_MAX_DEPTH, SCAN_TOP_LIMIT);
-  const deepChainTotal = pickTopApis(symbols, DEEP_CHAIN_MAX_DEPTH, 100).length;
+  const deepChainEntries = pickTopApis(symbols, DEEP_CHAIN_MAX_DEPTH, 100).filter(
+    (entry) => !isTestPath(entry.filePath)
+  );
+  const deepChains = deepChainEntries.slice(0, SCAN_TOP_LIMIT);
+  const deepChainTotal = deepChainEntries.length;
   const deepChainItems: ScanCandidate[] = deepChains.map((entry) => ({
     symbol: entry.controller ? `${entry.controller}.${entry.name}` : entry.name,
     kind: 'route',

@@ -265,6 +265,53 @@ describe('runScan', () => {
     expect(top.detail).toMatch(/chain depth \d+: .+ → .+/);
   });
 
+  it('keeps a route declared in a test file out of deepChains (M2)', () => {
+    // V31-02: this bucket resolves chains straight over `symbols`, so it was the
+    // one bucket with no test-path filter — a fixture route ranked as a
+    // production entry point. Filtering candidates (not the input) must not
+    // disturb the surviving entries' depths.
+    const fixtureRoute = symbol({
+      kind: 'route',
+      name: 'GET /boom',
+      filePath: 'src/http-error.test.ts',
+      lineStart: 25,
+      lineEnd: 26,
+      calls: [{ file: 'src/http-error.test.ts', method: 'boom', line: 25, receiver: 'router' }]
+    });
+    const fixtureHandler = symbol({
+      kind: 'method',
+      name: 'boom',
+      parentType: 'Router',
+      filePath: 'src/http-error.test.ts',
+      lineStart: 26,
+      lineEnd: 30,
+      calls: [{ file: 'src/http-error.test.ts', method: 'deepen', line: 28, receiver: 'router' }]
+    });
+    const fixtureTail = symbol({
+      kind: 'method',
+      name: 'deepen',
+      parentType: 'Router',
+      filePath: 'src/http-error.test.ts',
+      lineStart: 31,
+      lineEnd: 33
+    });
+    const symbols = [...SYMBOLS, fixtureRoute, fixtureHandler, fixtureTail];
+    const result = runScan({
+      ...BASE,
+      symbols,
+      index: buildCallIndex(symbols),
+      baseUrl: 'http://localhost:43110'
+    });
+    const chains = result.buckets[3];
+    // Deeper than the production fixture, so without the filter it would rank first.
+    expect(chains.items.some((item) => item.filePath.includes('.test.'))).toBe(false);
+    const production = runScan({ ...BASE, baseUrl: 'http://localhost:43110' }).buckets[3];
+    expect(chains.total).toBe(production.total);
+    expect(chains.items.map((item) => item.detail)).toEqual(
+      production.items.map((item) => item.detail)
+    );
+  });
+
   it('aggregates many medium methods into a file-level debt candidate', () => {
     // Three 200-line methods in one file: none crosses the method threshold
     // (that is the blind spot codex hit), but the file span is 600 lines.
