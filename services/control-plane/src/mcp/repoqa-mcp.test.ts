@@ -13,10 +13,13 @@ import {
   createMcpServer,
   resolveMcpRepo,
   MCP_TOOLS,
+  MCP_SERVER_INSTRUCTIONS,
   runMcpServer,
+  textResult,
   type McpDeps
 } from './repoqa-mcp';
 import { parseArgs, runCli } from '../cli';
+import { ServerLogger } from '../log-sink';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -1242,3 +1245,180 @@ async function untilAsync(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
+
+describe('Issue 07 MCP contract correctness', () => {
+  it('initialize carries non-empty instructions covering the ADR-0016 polling contract', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      const init = await rawInitialize(clientTransport);
+      const instructions = init.result.instructions as string;
+      expect(typeof instructions).toBe('string');
+      expect(instructions.length).toBeGreaterThan(200);
+      // The async contract used to live only inside index_repo's description,
+      // so a client that started with another tool could never learn it.
+      expect(instructions).toContain('list_repos');
+      expect(instructions).toContain('indexing');
+      expect(instructions).toMatch(/index_repo/);
+      expect(instructions).toBe(MCP_SERVER_INSTRUCTIONS);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('every declared parameter type maps to a concrete zod type (no unknown fallback)', () => {
+    // Fail-closed guard: adding a parameter of an unmapped type must throw at
+    // schema-build time rather than silently validating as ZodUnknown, which is
+    // how maxTokens ended up accepting "500" / {} / true / [1,2].
+    const mapped = new Set(['string', 'number', 'boolean', 'array']);
+    const unmapped: string[] = [];
+    for (const tool of MCP_TOOLS) {
+      for (const [key, spec] of Object.entries(tool.inputSchema.properties)) {
+        if (!mapped.has(spec.type)) unmapped.push(`${tool.name}.${key}:${spec.type}`);
+      }
+    }
+    expect(unmapped).toEqual([]);
+  });
+
+  it('rejects a non-numeric maxTokens at the schema layer instead of coercing it', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      // The SDK surfaces input-validation failures as a tool result with
+      // isError:true (McpError is caught and wrapped by the call handler), not
+      // as a JSON-RPC `error` — so the discriminator is the validation message.
+      const bad = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_get_subgraph_context',
+        arguments: { repoId: 'nope', query: 'x', maxTokens: '500' }
+      });
+      const badText = bad.result?.content?.[0]?.text ?? '';
+      expect(bad.result?.isError).toBe(true);
+      expect(badText).toContain('Input validation error');
+
+      const good = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_get_subgraph_context',
+        arguments: { repoId: 'nope', query: 'x', maxTokens: 500 }
+      });
+      const goodText = good.result?.content?.[0]?.text ?? '';
+      expect(goodText).not.toContain('Input validation error');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('textResult masks credentials at the egress layer (all 17 tools share it)', () => {
+    // Fixtures are assembled at runtime, never written as literals (the repo's
+    // masking engine scans its own source, and static keys trip that scan).
+    const awsKey = 'AKIA' + 'A'.repeat(16);
+    const payload = {
+      filePath: 'src/main/java/OwnerController.java',
+      line: 42,
+      // eslint-disable-next-line no-useless-concat
+      env: 'password=' + 'hu' + 'nter2',
+      credential: awsKey
+    };
+
+    const { content } = textResult(payload);
+    const text = content[0].text;
+
+    expect(text).not.toContain(awsKey);
+    expect(text).not.toContain('hunter2');
+    expect(text).toContain('src/main/java/OwnerController.java');
+    expect(text).toContain('42');
+    // Masking must not shred the payload into something unreadable.
+    expect(() => JSON.parse(text)).not.toThrow();
+  });
+});
+
+describe('Issue 12 MCP audit log (评估维 E-M12)', () => {
+  /** Read every audit row written under a data dir, oldest file first. */
+  async function readAuditRows(dataDir: string): Promise<Array<Record<string, unknown>>> {
+    const logDir = path.join(dataDir, 'logs');
+    const files = (await fs.readdir(logDir)).filter((file) => file.endsWith('.jsonl')).sort();
+    const rows: Array<Record<string, unknown>> = [];
+    for (const file of files) {
+      const text = await fs.readFile(path.join(logDir, file), 'utf8');
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        rows.push(JSON.parse(line) as Record<string, unknown>);
+      }
+    }
+    return rows;
+  }
+
+  it('records tool name, duration, sizes and result for every call, with masked args', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const logger = new ServerLogger(deps.dataDir, 'info');
+    const { server, clientTransport } = await startServerPair({ ...deps, logger });
+    try {
+      await rawInitialize(clientTransport);
+      // Fixture assembled at runtime (the repo masks its own source: static
+      // credential literals trip the masking scan).
+      const secret = 'AKIA' + 'A'.repeat(16);
+      await rawCallTool(clientTransport, 'codecompass_get_config_evidence', {
+        repoId: repo.id,
+        query: `password=${secret}`
+      });
+
+      const rows = await readAuditRows(deps.dataDir);
+      const row = rows.find((entry) => entry.msg === 'tool_call');
+      expect(row, JSON.stringify(rows)).toBeDefined();
+      expect(row!.scope).toBe('mcp');
+      expect(row!.tool).toBe('codecompass_get_config_evidence');
+      expect(row!.ok).toBe(true);
+      expect(typeof row!.durationMs).toBe('number');
+      expect(row!.repoId).toBe(repo.id);
+      expect(row!.resultBytes as number).toBeGreaterThan(0);
+      // 入参/出参 are recorded, and the sink's sanitize masked the credential.
+      expect(typeof row!.args).toBe('string');
+      expect(String(row!.args)).toContain('repoId');
+      expect(String(row!.args)).toContain('[REDACTED');
+      expect(JSON.stringify(row)).not.toContain(secret);
+      expect(JSON.stringify(row)).not.toContain('hunter2');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('records failures with ok:false and the error message, then still surfaces the error', async () => {
+    const { deps } = await setupIndexedRepo();
+    const logger = new ServerLogger(deps.dataDir, 'info');
+    const { server, clientTransport } = await startServerPair({ ...deps, logger });
+    try {
+      await rawInitialize(clientTransport);
+      const bad = await rawRequest(clientTransport, 'tools/call', {
+        name: 'codecompass_trace_call_chain',
+        arguments: { repoId: 'no-such-repo', symbolOrMethod: 'nope' }
+      });
+      // Protocol behaviour unchanged: the failure still reaches the client.
+      expect(bad.result?.isError ?? Boolean(bad.error)).toBeTruthy();
+
+      const rows = await readAuditRows(deps.dataDir);
+      const failed = rows.find((entry) => entry.msg === 'tool_call' && entry.ok === false);
+      expect(failed, JSON.stringify(rows)).toBeDefined();
+      expect(failed!.tool).toBe('codecompass_trace_call_chain');
+      expect(typeof failed!.error).toBe('string');
+      expect(failed!.resultBytes).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('writes nothing when no logger is injected (unit tests stay hermetic)', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      await rawCallTool(clientTransport, 'codecompass_list_repos', {});
+      const logDir = path.join(deps.dataDir, 'logs');
+      const exists = await fs
+        .readdir(logDir)
+        .then((files) => files.filter((file) => file.endsWith('.jsonl')).length)
+        .catch(() => 0);
+      expect(exists).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+});

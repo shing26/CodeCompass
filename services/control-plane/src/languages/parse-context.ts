@@ -21,12 +21,23 @@ export interface GoPackageDeclarations {
   results: ReadonlyMap<string, readonly string[]>;
 }
 
-export interface ParseContext {
-  /**
-   * Go declarations by package directory basename (Go's package ≈ directory
+/**
+ * Issue 09 (外部评审 C3) — per-language cross-file declarations. The context
+ * used to expose a single language-shaped field (`goPackages`), which let one
+ * language's detail name a domain interface; languages now namespace their own
+ * payloads under their registry id, and adding one must not touch the others.
+ */
+export interface LanguageDeclarations {
+  /** Go declarations by package directory basename (Go's package ≈ directory
    * convention, the same one the call-chain resolver uses). A basename shared
    * by two directories is dropped from the map at build time: resolving through
-   * an ambiguous package name would be a guess.
-   */
-  goPackages?: ReadonlyMap<string, GoPackageDeclarations>;
+   * an ambiguous package name would be a guess. */
+  go?: ReadonlyMap<string, GoPackageDeclarations>;
+}
+
+export interface ParseContext {
+  /** Cross-file declarations a language adapter may consult. Optional per
+   * language and optional as a whole: absent → the adapter degrades to
+   * `dynamic` (never to a guess — ADR-0002). */
+  languages?: LanguageDeclarations;
 }

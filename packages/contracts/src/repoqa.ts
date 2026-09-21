@@ -481,6 +481,35 @@ export interface ScanCandidate {
   lineEnd?: number;
   /** Deterministic evidence that put this item in its bucket. */
   detail: string;
+  /** ADR-0018 — orphanedPublic only: the symbol has callers, but every one of
+   * them sits in a test path, so the production call graph shows none. Marked,
+   * never excluded: production code reachable only from tests is a real signal. */
+  testOnly?: boolean;
+}
+
+/** ADR-0018 — a deterministic rule that keeps symbols out of a bucket's
+ * candidate list. Reported so the excluded classes stay explicable instead of
+ * silently shrinking the total. */
+export interface ScanExclusion {
+  /** Stable rule id (e.g. `type-declaration`, `interface-member`). */
+  rule: string;
+  /** How many symbols this rule removed. Absent when `deferred`. */
+  count?: number;
+  /** A recorded TARGET that is not implemented yet (ADR-0018: the interface
+   * implementation case needs an interface→implementation relation first).
+   * Declared so a reader knows the class exists and is still inside `total` —
+   * not silently missing. */
+  deferred?: boolean;
+  /** One-line deterministic reason, for the agent reading the payload. */
+  detail: string;
+}
+
+/** ADR-0018 — orphanedPublic census. `zeroCallers + testOnly == total`;
+ * `excluded` accounts for the classes that left the candidate list. */
+export interface ScanCensus {
+  zeroCallers: number;
+  testOnly: number;
+  excluded: ScanExclusion[];
 }
 
 export interface ScanBucket {
@@ -496,6 +525,10 @@ export interface ScanBucket {
   /** v0.23.0 — orphanedPublic only: zero-caller symbols excluded because they
    * are externally wired (DI annotations / entry points), not dead code. */
   wiredExcluded?: number;
+  /** ADR-0018 — orphanedPublic only: deterministic census so symbols that leave
+   * the candidate list stay explicable. This is what makes the ruling
+   * re-computable without a throwaway diagnostic script. */
+  census?: ScanCensus;
 }
 
 export interface ScanResult {

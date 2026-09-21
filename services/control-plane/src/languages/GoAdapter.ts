@@ -4,6 +4,7 @@ import type { SyntaxNode, Tree } from '@lezer/common';
 import { parser } from '@lezer/go';
 import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import { joinRoutePath } from './JavaAdapter';
+import { GO_EXTENSIONS } from './language-extensions';
 import type { LanguageAdapter } from './LanguageAdapter';
 import type { GoPackageDeclarations, ParseContext } from './parse-context';
 
@@ -16,7 +17,6 @@ import type { GoPackageDeclarations, ParseContext } from './parse-context';
  * method-call edges with the same receiver typing the Java adapter uses.
  */
 
-const GO_EXTENSIONS = new Set(['.go']);
 const ROUTE_VERBS = new Set([
   'GET',
   'POST',
@@ -713,9 +713,9 @@ export function parseGoSource(
   // own declarations still win), because a Go package spans files.
   const declarations = createDeclarationScope(
     collectGoDeclarations(tree, source),
-    context?.goPackages?.get(packageNameOf(relativePath)),
+    context?.languages?.go?.get(packageNameOf(relativePath)),
     importPaths,
-    (name) => context?.goPackages?.get(name)
+    (name) => context?.languages?.go?.get(name)
   );
   tree.iterate({
     enter(ref) {
@@ -1170,7 +1170,7 @@ export async function parseGoFile(
  */
 export const GoAdapter: LanguageAdapter = {
   canParse(filePath: string): boolean {
-    return GO_EXTENSIONS.has(path.extname(filePath.toLowerCase()));
+    return GO_EXTENSIONS.includes(path.extname(filePath.toLowerCase()));
   },
   parseFile(
     filePath: string,

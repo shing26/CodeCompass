@@ -2,13 +2,18 @@
  * v0.27-B R3 — 错误码契约（前端面，销 V27-12）。
  *
  * 后端五高频面（chat / gate run / import·reindex / file-raw / delta）与 R1
- * 中间件、R2 传输层共用一张稳定 code 表（权威表在 CONTEXT.md「错误码」节）。
+ * 中间件、R2 传输层共用一张稳定 code 表。权威单一源 =
+ * `packages/contracts/src/error-codes.ts`（票 10，外部评审 C4）；CONTEXT.md
+ * 「Error Code Contract」节与它双向对账（受测试执法）。
  * 本模块负责：①`ApiError`——承载后端 `{error, code}`；②`describeError`——
  * 把 code 映射成人能照做的中文指引。规则：有码给「指引（原始错误：…）」，
  * 无码原样透出（保持既有行为，零新文案风险）。
  * 文案守门：所有 hint 必过 copy-guard 七词黑名单（errorCodes.test.ts 内置自查，
- * 词表按哨同款拆分构造防自燃）；新码先入 CONTEXT.md 表再实现。
+ * 词表按哨同款拆分构造防自燃）。
+ * 新码流程（三步均被强制）：入 contracts `ERROR_CODES` → 本表补 copy
+ * （`Record<ErrorCode, string>` 漏键即编译错）→ CONTEXT.md 表补行（对账测试）。
  */
+import type { ErrorCode } from '../../../../packages/contracts/src/index';
 
 export class ApiError extends Error {
   readonly code: string | undefined;
@@ -21,8 +26,9 @@ export class ApiError extends Error {
   }
 }
 
-/** code → 人类化指引（不含原始错误，由 describeError 追加）。 */
-export const ERROR_COPY: Record<string, string> = {
+/** code → 人类化指引（不含原始错误，由 describeError 追加）。键集被
+ * `Record<ErrorCode, string>` 钉死：契约里的每个码都必须有文案，漏键编译红。 */
+export const ERROR_COPY: Record<ErrorCode, string> = {
   // —— 通用（R1 中间件 / 404 兜底 / 坏 JSON）
   not_found: '这个接口不存在（前后端版本可能不一致），刷新页面重试',
   invalid_json: '请求数据没有通过校验，请重试',
@@ -66,6 +72,7 @@ export function describeError(err: unknown): string {
   const code = typeof e?.code === 'string' ? e.code : undefined;
   const message =
     err instanceof Error ? err.message : typeof e?.message === 'string' ? e.message : String(err);
-  const hint = code ? ERROR_COPY[code] : undefined;
+  // 服务端可能返回任意 string（守卫测试保证它 ∈ 契约）；查 copy 前收窄。
+  const hint = code ? ERROR_COPY[code as ErrorCode] : undefined;
   return hint ? `${hint}（原始错误：${message}）` : message;
 }

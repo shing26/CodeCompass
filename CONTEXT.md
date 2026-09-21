@@ -78,10 +78,13 @@
 | Workbench Cards（工件卡持久流） | workbench_cards 表按 (repoId, commit) 流落地演进/排查终态卡（seq 单调、UNIQUE 幂等、删仓级联清理）；SSE 终态载荷披露服务端 cardId/seq，`GET /api/repos/:id/workbench-cards` 全量回放，前端切桶 hydrate 按 id 去重合并。 |
 | Dual-Surface（双面体） | 产品形态解耦（0012–0015 grilling 收官）：无头感知底座（MCP Server，纯引擎工具、永不内置 LLM 编排，意图解析在宿主侧）与可视化决策大屏（Workbench）；两端消费同一份引擎输出（同锚点同结构），禁止任何一端另起叙述管线。MCP 感知面冻结为**现有 17 工具**（v0.31 校准：数量只减不增，精度增强不受限；演进类工具已随 Issue 25 补齐——旧词条写"冻结为现有 8 工具"是补齐前的历史状态）。 |
 | 用户文案规范（User-Facing Copy） | v0.30 确立的界面语言承诺：用户可见文案以中文为准，工程通用语（HTTP 动词、语言名、API/Git/URL/Token/LLM/MCP、品牌）保留；机器枚举值（payload/SSE/MCP 契约）不改值、经展示层映射出人话徽章；服务端会渲染进 UI 的中文 label 与前端阶段标签双侧同步。退役旧词入共享黑名单（contracts 权威表），web/cp 双哨同表执法、改文案与改哨同 commit。四张对照表为战役工件（`.scratch/v030-degeekify/spec.md`）。 |
+| 交付指标 M1–M5（Delivery Metrics） | 本仓 v0.31 spec §3 自定的交付度量：M1 真实仓库假阳性率、M2 桶污染率、M3 合成回归护栏、M4 发布可用性、M5 工程资产。**只在本仓内部使用**（验收判据 = M1<5% + M4=1 + M5≥3）。 |
+| 评估维 E-M1–E-M12（Evaluation Dimensions） | 外部评分标准（`项目开发判断标准-三维度评分体系`，MCP 表 12 维，P0=3/P1=2/P2=1 权重，满分 81）的维度编号：E-M12 可观测与审计、E-M7 幂等与副作用边界、E-M4 上下文治理、E-M5 错误可读性、E-M2 工具契约定义、E-M10 可测试与可模拟 等。**与交付指标编号撞号但含义不同**（评估 E-M1 = 协议合规；交付 M1 = 真实仓库假阳性率）——文档中一律带 `E-` 前缀，禁止省略。 |
 
 ## Error Code Contract（v0.27-B R3）
 
 HTTP 错误响应统一 `{error: string, code?: string}`（`code` 为稳定机器码，自 v0.27.0 起在五高频面强制）。前端唯一消费口 `apps/repoqa-web/src/client/errorCodes.ts`（`ERROR_COPY` 表 + `describeError`：有码→中文指引+原始错误保留，无码→原样透出）。新码先入本表再实现；文案禁入 copy-guard 七词黑名单。
+**单一源（票 10，2026-09-19）**：码表落 `packages/contracts/src/error-codes.ts`（`ERROR_CODES` / `ErrorCode`）。执法三件：前端 copy 受 `Record<ErrorCode, string>` 编译执法；服务端 `code:` 字面量受 `error-code-guard.test.ts` 扫描哨执法；本表与代码双向对账受测试执法。**新码三处同动**：contracts `ERROR_CODES` → 前端 `ERROR_COPY` → 本表。
 
 | 域 | code | 触发 |
 |---|---|---|

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TypeScriptAdapter, parseTypeScriptSource } from './TypeScriptAdapter';
+import { buildCallIndex, resolveCallEdge } from '../engine/repoqa-callchain';
 
 describe('TypeScriptAdapter — symbol extraction (Issue 25)', () => {
   it('recognizes TS files and extracts plain class/function/interface/type symbols', () => {
@@ -239,5 +240,142 @@ export async function loadUsers() {
 
     const loadUsers = symbols.find((symbol) => symbol.name === 'loadUsers');
     expect(loadUsers?.calls?.[0]?.http).toEqual({ method: 'GET', url: '/users' });
+  });
+
+  it('issue 11 attribution: typed hook param + nested callback resolves its receiver', () => {
+    // Mirrors apps/repoqa-web/src/hooks/useRepoCatalog.ts — the shape behind
+    // the scan top-10 finding (8/10 RepoQAClient.* false positives).
+    const source = `
+import type { RepoQAClient } from '../client/RepoQAClient';
+export function useCatalog(client: RepoQAClient, initialId?: string | null) {
+  const refresh = useCallback(async (): Promise<string[]> => {
+    const list = await client.listRepos();
+    return list;
+  }, [client]);
+  return refresh;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/hooks/useCatalog.ts', 'repo');
+    const hook = symbols.find((symbol) => symbol.name === 'useCatalog');
+    const call = hook?.calls?.find((entry) => entry.method === 'listRepos');
+    expect(
+      call,
+      `symbols=${JSON.stringify(symbols.map((s) => ({ name: s.name, calls: s.calls })))}`
+    ).toBeDefined();
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('issue 11 second hop: the typed receiver binds to the cross-file class method', () => {    const classSource = `
+export class RepoQAClient {
+  constructor(baseURL: string) {}
+  async listRepos(): Promise<string[]> { return []; }
+}
+`;
+    const hookSource = `
+import type { RepoQAClient } from '../client/RepoQAClient';
+export function useCatalog(client: RepoQAClient) {
+  const refresh = useCallback(async () => {
+    const list = await client.listRepos();
+    return list;
+  }, [client]);
+  return refresh;
+}
+`;
+    const classSymbols = parseTypeScriptSource(classSource, 'src/client/RepoQAClient.ts', 'r');
+    const hookSymbols = parseTypeScriptSource(hookSource, 'src/hooks/useCatalog.ts', 'r');
+    const symbols = [...classSymbols, ...hookSymbols];
+    const index = buildCallIndex(symbols);
+    const hook = hookSymbols.find((symbol) => symbol.name === 'useCatalog')!;
+    const call = hook.calls!.find((entry) => entry.method === 'listRepos')!;
+    const resolved = resolveCallEdge(index, hook, call);
+    expect('target' in resolved && resolved.target.name).toBe('listRepos');
+    expect('target' in resolved && resolved.target.parentType).toBe('RepoQAClient');
+  });
+
+  it('issue 11: destructured props bind member-wise from the inline type literal', () => {
+    // RepoProvider({ client, children }: { client: RepoQAClient; … }) — the
+    // dominant React parameter shape (RepoContext.tsx:87).
+    const source = `
+export function RepoProvider({ client, children }: { client: RepoQAClient; children: ReactNode }) {
+  const clone = useCallback(async (url: string) => {
+    const repo = await client.cloneRepo(url);
+    return repo;
+  }, [client]);
+  return children;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/context/RepoContext.tsx', 'r');
+    const provider = symbols.find((symbol) => symbol.name === 'RepoProvider');
+    const call = provider?.calls?.find((entry) => entry.method === 'cloneRepo');
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('issue 11: a const-assigned nested arrow reaches the outer typed param', () => {
+    // The handleCloneRemote shape (RepoContext.tsx:334) — its arrow gets its
+    // own scope, so the lookup must walk the closure chain outward.
+    const source = `
+export function RepoProvider({ client, children }: { client: RepoQAClient; children: ReactNode }) {
+  const handleCloneRemote = async (url: string): Promise<Repo> => {
+    const repo = await client.cloneRepo(url);
+    return repo;
+  };
+  return handleCloneRemote;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/context/RepoContext.tsx', 'r');
+    const handler = symbols.find((symbol) => symbol.name === 'handleCloneRemote');
+    const call = handler?.calls?.find((entry) => entry.method === 'cloneRepo');
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('issue 11: an untyped inner redeclaration shadows the outer typed binding (fail-closed)', () => {
+    const source = `
+export function outer(client: RepoQAClient) {
+  function inner() {
+    const client = getClient();
+    client.listRepos();
+  }
+  return inner;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/x.ts', 'r');
+    const inner = symbols.find((symbol) => symbol.name === 'inner');
+    const call = inner?.calls?.find((entry) => entry.method === 'listRepos');
+    // The nearest binding of `client` is the untyped local — the typed outer
+    // parameter must NOT be revived for it.
+    expect(call?.receiverType).toBeUndefined();
+    expect(call?.dynamic).toBe(true);
+  });
+
+  it('issue 11: a `new` expression records a constructor call edge', () => {
+    const source = `
+import { RepoQAClient } from './client/RepoQAClient';
+const client = new RepoQAClient('/api');
+export function boot() {
+  return client;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/boot.ts', 'r');
+    // Module-level new: attributed to the nearest enclosing symbol (the boot
+    // function here has none — use a function-wrapped case instead).
+    const wrapped = parseTypeScriptSource(
+      `
+import { RepoQAClient } from './client/RepoQAClient';
+export function makeClient() {
+  return new RepoQAClient('/api');
+}
+`,
+      'src/boot.ts',
+      'r'
+    );
+    const makeClient = wrapped.find((symbol) => symbol.name === 'makeClient');
+    const call = makeClient?.calls?.find((entry) => entry.method === 'constructor');
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+    // The module-level case must not crash or emit a bogus edge.
+    expect(symbols.every((symbol) => (symbol.calls ?? []).every((entry) => entry.method !== 'constructor' || entry.receiver === 'RepoQAClient'))).toBe(true);
   });
 });

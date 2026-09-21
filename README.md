@@ -160,14 +160,12 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 
 ## MCP 工具接入
 
-`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 17 个确定性工具（全部零 LLM、结果确定性可复现）：
+<!-- mcp-tools:begin -->
+`codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 **17 个**确定性工具（全部零 LLM、结果确定性可复现）：
 
 | 工具 | 用途 |
 | --- | --- |
-| `codecompass_index_repo` | **索引入口**：克隆 GitHub 仓库或索引本地目录；异步契约——立即返回 `indexing`，轮询 `list_repos` 至 ready/error（ADR-0016） |
 | `codecompass_list_repos` | 列出已索引仓库（id / status / fileCount / symbolCount / error 根因） |
-| `codecompass_remove_repo` | 移除索引（级联清除符号/事件，磁盘保留；indexing 中拒删） |
-| `codecompass_scan` | **自荐发现**：五桶候选——零调用者孤儿 / PageRank 热点 / 超长方法 / 深链入口 / 超大文件，每桶带锚点与下一步工具引导 |
 | `codecompass_trace_call_chain` | 解析确定性静态调用链 |
 | `codecompass_get_dashboard` | 聚合零 Prompt 架构驾驶舱 |
 | `codecompass_get_config_evidence` | 配置 key 证据（只返回 file:line，不返回 value） |
@@ -175,10 +173,16 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 | `codecompass_reverse_deps` | who-uses 反向调用者查询 |
 | `codecompass_get_pr_impact` | Git PR 架构影响面分析 |
 | `codecompass_get_subgraph_context` | **Graph RAG 子图提取**：上游 1 层调用方 + 下游 1~3 层被调方、骨架折叠、Token 剪枝与凭据脱敏 |
+| `codecompass_domain_radar` | **领域全景雷达**：出入度 + 确定性 PageRank 的 Hub 节点、Top APIs、持久化底座与意图锚点（零 embedding） |
+| `codecompass_module_evolution` | **已弃用（deprecated）**——由 `codecompass_plan_evolution` 接替；保留仅为向后兼容 |
 | `codecompass_diagnose` | **跨栈根因穿透**：前端组件 → 路由 → Service → Mapper 分层链路，逐层 VERIFIED/BROKEN/SUSPECT |
 | `codecompass_refactor_plan` | **重构爆炸半径**：直接/间接调用方、受影响路由与前端组件、风险评级与迁移步骤 |
-| `codecompass_domain_radar` | **领域全景雷达**：出入度 + 确定性 PageRank 的 Hub 节点、Top APIs、持久化底座与意图锚点（零 embedding） |
-| `codecompass_module_evolution` | **模块演进（已弃用，由 plan_evolution 接替）**：DEPRECATE 固定点级联孤立死代码 + 清理 Checklist；EXTEND 事务边界证据 + 解耦模式脚手架 |
+| `codecompass_index_repo` | **索引入口**：克隆 GitHub 仓库或索引本地目录；异步契约——立即返回 `indexing`，轮询 `list_repos` 至 ready/error（ADR-0016） |
+| `codecompass_remove_repo` | 移除索引（级联清除符号/事件，磁盘保留；indexing 中拒删） |
+| `codecompass_scan` | **自荐发现**：五桶候选——零调用者孤儿（ADR-0018 后只含**可调用符号**，类型声明与接口成员按规则排除、计数于 `census.excluded`） / PageRank 热点 / 超长方法 / 深链入口 / 超大文件，每桶带锚点与下一步工具引导 |
+| `codecompass_get_conventions` | 约定画像五轴（return_wrapping / interface_impl_style / di_style / naming / async_pattern），邻居优先仲裁 |
+| `codecompass_plan_evolution` | **演进方案（`module_evolution` 的接替者）**：EXTEND 挂载点 + 声明级事务边界 + 解耦模式与脚手架；DEPRECATE 固定点级联孤立死代码 + 清理 Checklist（补丁仍归 LLM 层） |
+<!-- mcp-tools:end -->
 
 ### Cursor
 
@@ -189,7 +193,7 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
   "mcpServers": {
     "codecompass": {
       "command": "npx",
-      "args": ["codecompass", "mcp", "/path/to/your/repo"]
+      "args": ["-y", "@codecompass/cli", "mcp", "/path/to/your/repo"]
     }
   }
 }
@@ -204,7 +208,7 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
   "mcpServers": {
     "codecompass": {
       "command": "npx",
-      "args": ["codecompass", "mcp", "/path/to/your/repo"]
+      "args": ["-y", "@codecompass/cli", "mcp", "/path/to/your/repo"]
     }
   }
 }
@@ -241,4 +245,4 @@ docs/adr/                   # 架构决策记录；术语表见 CONTEXT.md
 
 ## 版本
 
-当前版本：`v0.26.0`（CHANGELOG 含 0.5.x–0.26.0 完整条目）。语义化版本规则见 `docs/adr/`。
+当前版本：`v0.31.0`（单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–0.31.0 完整条目）。语义化版本规则见 `docs/adr/`。

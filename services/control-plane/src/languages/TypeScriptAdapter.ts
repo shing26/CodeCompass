@@ -4,6 +4,7 @@ import type { SyntaxNode } from '@lezer/common';
 import { parser } from '@lezer/javascript';
 import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import { joinRoutePath } from './JavaAdapter';
+import { TYPESCRIPT_EXTENSIONS } from './language-extensions';
 import type { LanguageAdapter } from './LanguageAdapter';
 
 /**
@@ -19,7 +20,8 @@ import type { LanguageAdapter } from './LanguageAdapter';
  * kinds, so the two never double-count.
  */
 
-const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);
+// Issue 09: extension list lives in language-extensions.ts (single source,
+// shared with the registry and the scan-side SOURCE_EXTENSIONS).
 const TYPESCRIPT_PARSER = parser.configure({ dialect: 'jsx ts' });
 const EXPRESS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'all', 'use']);
 const AXIOS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch']);
@@ -37,6 +39,15 @@ const HTTP_VERB_ANNOTATIONS = new Set([
 interface MethodScope {
   params: Map<string, string>;
   locals: Map<string, string>;
+  /** Issue 11 — every name bound in this scope, typed or not. The shadowing
+   * fence: a receiver lookup stops at the nearest scope that DECLARES the
+   * name, even when that binding carries no type, so an untyped inner
+   * declaration can never be "revived" by a typed outer one (the same
+   * fail-closed rule the Go adapter adopted in V31-02). */
+  declared: Set<string>;
+  /** Enclosing function scope (closure semantics). Nested arrows assigned to
+   * consts get their own scope, so lookups must be able to walk outward. */
+  parent?: MethodScope;
 }
 
 interface TypeRecord {
@@ -194,13 +205,50 @@ function declarationName(node: SyntaxNode, source: string): string | undefined {
   return undefined;
 }
 
-function typeAnnotationName(node: SyntaxNode, source: string): string | undefined {
-  const annotation = node.getChild('TypeAnnotation');
-  if (!annotation) return undefined;
+/** Extract the type name out of a TypeAnnotation node. */
+function typeNameFromAnnotation(annotation: SyntaxNode, source: string): string | undefined {
   const typeNode = annotation.getChild('TypeName');
   const raw = typeNode ? textOf(typeNode, source) : textOf(annotation, source).replace(/^:\s*/, '');
   const simple = raw.split(/[<[(]/)[0].trim();
   return simple || undefined;
+}
+
+function typeAnnotationName(node: SyntaxNode, source: string): string | undefined {
+  const annotation = node.getChild('TypeAnnotation');
+  return annotation ? typeNameFromAnnotation(annotation, source) : undefined;
+}
+
+/**
+ * Issue 11 — member-wise bindings of an inline type-literal annotation, e.g.
+ * `RepoProvider({ client, children }: { client: RepoQAClient; children: X })`.
+ * Destructured props are the dominant React parameter shape; each member the
+ * literal explicitly types is a deterministic binding. Only plain identifier
+ * types are bound (fail-closed): inline object/function-typed members and
+ * nested structures are skipped rather than guessed.
+ */
+function typeLiteralMembers(annotation: SyntaxNode, source: string): Array<[string, string]> {
+  const raw = textOf(annotation, source).replace(/^:\s*/, '').trim();
+  if (!raw.startsWith('{') || !raw.endsWith('}')) return [];
+  const body = raw.slice(1, -1);
+  const members: Array<[string, string]> = [];
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const ch = body[index];
+    if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth += 1;
+    else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth -= 1;
+    else if ((ch === ';' || ch === ',') && depth === 0) {
+      parts.push(body.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(body.slice(start));
+  for (const part of parts) {
+    const match = /^\s*([A-Za-z_$][\w$]*)\s*\??\s*:\s*([A-Za-z_$][\w$.]*)\s*$/.exec(part);
+    if (match) members.push([match[1], match[2]]);
+  }
+  return members;
 }
 
 function decoratorNameAndValue(
@@ -252,18 +300,58 @@ function isRouterReceiver(receiver: string | undefined): boolean {
 
 function collectParams(node: SyntaxNode, source: string): MethodScope {
   const params = new Map<string, string>();
+  const declared = new Set<string>();
   const list = node.getChild('ParamList');
-  if (!list) return { params, locals: new Map() };
+  if (!list) return { params, locals: new Map(), declared };
+  // Issue 11 (dogfooding 2026-09-19): a parameter's `: Type` annotation is a
+  // SIBLING of its VariableDefinition inside the ParamList (lezer shape), not
+  // a child — typeAnnotationName on the definition itself never saw it, so
+  // every typed parameter stayed untyped and every method call through it went
+  // dynamic (the scan orphan top-10 was 8/10 RepoQAClient.*). Pair each
+  // definition with the next annotation before the following definition.
+  let pendingParam: string | undefined;
   let child = list.firstChild;
   while (child) {
-    if (child.name === 'VariableDefinition') {
-      const name = textOf(child, source);
-      const type = typeAnnotationName(child, source);
-      if (type) params.set(name, type);
+    // A parameter definition is a VariableDefinition (plain) or an
+    // ObjectPattern/ArrayPattern (destructured) — lezer keeps all of them as
+    // siblings of their TypeAnnotation inside the ParamList.
+    if (child.name === 'VariableDefinition' || child.name === 'ObjectPattern' || child.name === 'ArrayPattern') {
+      pendingParam = textOf(child, source);
+      // The fence must know the name even when no annotation follows.
+      declared.add(pendingParam);
+      if (child.name !== 'VariableDefinition') {
+        // Destructured members are the real bindings — record each identifier
+        // so an inner untyped redeclaration shadows them correctly.
+        for (const match of pendingParam.matchAll(/[A-Za-z_$][\w$]*/g)) {
+          declared.add(match[0]);
+        }
+      }
+    } else if (child.name === 'TypeAnnotation' && pendingParam !== undefined) {
+      const raw = textOf(child, source).replace(/^:\s*/, '').trim();
+      if (raw.startsWith('{')) {
+        // Destructured props (`{ client, children }: { client: X; … }`) bind
+        // member-wise from the explicit literal — still deterministic, and
+        // untyped/complex members stay unbound (fail-closed).
+        for (const [member, type] of typeLiteralMembers(child, source)) {
+          params.set(member, type);
+        }
+      } else {
+        const type = typeNameFromAnnotation(child, source);
+        if (type) params.set(pendingParam, type);
+      }
+      pendingParam = undefined;
     }
     child = child.nextSibling;
   }
-  return { params, locals: new Map() };
+  return { params, locals: new Map(), declared };
+}
+
+/** Issue 11 — push a scope linked to the enclosing one (closure chain), so a
+ * nested arrow's receiver lookups can reach the outer function's typed
+ * parameters and locals. */
+function pushScope(scopeStack: MethodScope[], scope: MethodScope): void {
+  scope.parent = scopeStack[scopeStack.length - 1];
+  scopeStack.push(scope);
 }
 
 function receiverTypeOf(
@@ -273,10 +361,14 @@ function receiverTypeOf(
 ): string | undefined {
   if (!receiver) return undefined;
   if (receiver === 'this') return typeStack[typeStack.length - 1]?.name;
-  const local = scope?.locals.get(receiver);
-  if (local) return local;
-  const param = scope?.params.get(receiver);
-  if (param) return param;
+  // Issue 11 — walk the closure chain outward. The nearest DECLARATION wins
+  // (JS semantics): if that binding is untyped, stop — an untyped inner
+  // declaration must not be revived by a typed outer one (fail-closed).
+  for (let current = scope; current; current = current.parent) {
+    if (current.declared.has(receiver)) {
+      return current.locals.get(receiver) ?? current.params.get(receiver);
+    }
+  }
   for (let index = typeStack.length - 1; index >= 0; index -= 1) {
     const field = typeStack[index].fields.get(receiver);
     if (field) return field;
@@ -573,7 +665,7 @@ export function parseTypeScriptSource(
         }
         symbols.push(symbol);
         methodStack.push(symbol);
-        scopeStack.push(collectParams(node, source));
+        pushScope(scopeStack, collectParams(node, source));
         return;
       }
 
@@ -592,7 +684,7 @@ export function parseTypeScriptSource(
         };
         symbols.push(symbol);
         methodStack.push(symbol);
-        scopeStack.push(collectParams(node, source));
+        pushScope(scopeStack, collectParams(node, source));
         return;
       }
 
@@ -607,12 +699,18 @@ export function parseTypeScriptSource(
         // whole class family read as dead code (self-repo orphan top-10).
         const scope = scopeStack[scopeStack.length - 1];
         if (def && scope) {
-          const declared = typeAnnotationName(node, source);
+          const name = textOf(def, source);
+          // The fence records every binding, typed or not (issue 11).
+          scope.declared.add(name);
+          for (const match of name.matchAll(/[A-Za-z_$][\w$]*/g)) {
+            scope.declared.add(match[0]);
+          }
+          const declaredType = typeAnnotationName(node, source);
           const newExpr = node.getChild('NewExpression');
           const newShape = newExpr ? callShape(newExpr, source) : undefined;
           const constructed = newShape?.bareName ?? newShape?.parts?.[0];
-          const resolved = declared ?? constructed;
-          if (resolved) scope.locals.set(textOf(def, source), resolved);
+          const resolved = declaredType ?? constructed;
+          if (resolved) scope.locals.set(name, resolved);
         }
         if (def && initCall) {
           const initShape = callShape(initCall, source);
@@ -643,7 +741,7 @@ export function parseTypeScriptSource(
           };
           symbols.push(symbol);
           methodStack.push(symbol);
-          scopeStack.push(collectParams(fn, source));
+          pushScope(scopeStack, collectParams(fn, source));
           moduleArrowPushed.push(true);
         } else {
           moduleArrowPushed.push(false);
@@ -663,6 +761,38 @@ export function parseTypeScriptSource(
         const calls = current.calls ?? [];
         if (!calls.some((existing) => existing.method === tag && existing.line === line)) {
           calls.push({ file: relativePath, method: tag, line, dynamic: false });
+          current.calls = calls;
+        }
+        return;
+      }
+
+      // Issue 11 — `new RepoQAClient(...)` is how a constructor is invoked;
+      // without an edge the constructor always read as an orphan no matter how
+      // alive the class was. Same attribution rules as a call expression.
+      // (callShape cannot be used here: its firstChild read hits the `new`
+      // keyword, not the callee.)
+      if (node.name === 'NewExpression') {
+        if (methodStack.length === 0) return;
+        const member = node.getChild('MemberExpression');
+        const callee = member
+          ? memberParts(member, source).join('.')
+          : node.getChild('VariableName')
+            ? textOf(node.getChild('VariableName')!, source)
+            : undefined;
+        const className = callee?.split('.').pop();
+        if (!className) return;
+        const current = methodStack[methodStack.length - 1];
+        const line = lineAt(source, node.from);
+        const calls = current.calls ?? [];
+        if (!calls.some((existing) => existing.method === 'constructor' && existing.receiver === className && existing.line === line)) {
+          calls.push({
+            file: relativePath,
+            method: 'constructor',
+            line,
+            receiver: className,
+            receiverType: className,
+            dynamic: false
+          });
           current.calls = calls;
         }
         return;
@@ -824,7 +954,7 @@ export async function parseTypeScriptFile(
 export const TypeScriptAdapter: LanguageAdapter = {
   canParse(filePath: string): boolean {
     const lower = filePath.toLowerCase();
-    return TYPESCRIPT_EXTENSIONS.has(path.extname(lower));
+    return TYPESCRIPT_EXTENSIONS.includes(path.extname(lower));
   },
   parseFile(filePath: string, repoId: string, root: string): Promise<RepoSymbol[]> {
     return parseTypeScriptFile(filePath, repoId, root);

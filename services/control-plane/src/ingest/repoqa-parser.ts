@@ -1,13 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RepoSymbol } from './repoqa-repos';
-import type { LanguageAdapter } from '../languages/LanguageAdapter';
 import type { ParseContext } from '../languages/parse-context';
-import { JavaAdapter } from '../languages/JavaAdapter';
-import { TypeScriptAdapter } from '../languages/TypeScriptAdapter';
 import { GoAdapter, buildGoPackageTable } from '../languages/GoAdapter';
-import { PythonAdapter } from '../languages/PythonAdapter';
-import { PrismaAdapter } from '../languages/PrismaAdapter';
+// Issue 09: the adapter list moved to languages/registry.ts (single wiring
+// table); this module forwards the historical `adapterFor` API for callers
+// that predate the registry.
+import { adapterFor } from '../languages/registry';
 
 /**
  * Language adapter dispatcher. The Java implementation moved to
@@ -17,12 +16,7 @@ import { PrismaAdapter } from '../languages/PrismaAdapter';
  */
 export * from '../languages/JavaAdapter';
 
-const ADAPTERS: LanguageAdapter[] = [JavaAdapter, TypeScriptAdapter, GoAdapter, PythonAdapter, PrismaAdapter];
-
-/** Return the language adapter owning `filePath`, or undefined. */
-export function adapterFor(filePath: string): LanguageAdapter | undefined {
-  return ADAPTERS.find((adapter) => adapter.canParse(filePath));
-}
+export { adapterFor };
 
 /** Parse any adapter-owned source file into symbols (empty for unknown types). */
 export async function parseSourceFile(
@@ -57,7 +51,7 @@ export async function buildParseContext(
   if (goFiles.length === 0) return undefined;
   const sources = await readGoSources(root, goFiles);
   if (sources.length === 0) return undefined;
-  return { goPackages: buildGoPackageTable(sources) };
+  return { languages: { go: buildGoPackageTable(sources) } };
 }
 
 /**
@@ -81,7 +75,7 @@ export async function buildParseContextForFile(
   if (!goFiles.includes(absolutePath)) goFiles.push(absolutePath);
   const sources = await readGoSources(root, goFiles);
   if (sources.length === 0) return undefined;
-  return { goPackages: buildGoPackageTable(sources) };
+  return { languages: { go: buildGoPackageTable(sources) } };
 }
 
 /**

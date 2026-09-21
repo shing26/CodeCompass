@@ -5,7 +5,7 @@ import type { RepoSymbol } from '../ingest/repoqa-repos';
 import { adapterFor } from '../ingest/repoqa-parser';
 import { CallResolver, symbolIdentity } from './repoqa-callchain';
 import { scanPom, scanProperties, scanYaml, type ScannedKey } from '../ingest/repoqa-config';
-import { SOURCE_EXTENSIONS } from '../ingest/repoqa-scan';
+import { SOURCE_EXTENSIONS } from '../languages/registry';
 import type {
   ArchitectureDeltaReport,
   CallEdge,

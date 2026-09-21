@@ -4,6 +4,7 @@ import type { SyntaxNode } from '@lezer/common';
 import { parser } from '@lezer/python';
 import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import { joinRoutePath } from './JavaAdapter';
+import { PYTHON_EXTENSIONS } from './language-extensions';
 import type { LanguageAdapter } from './LanguageAdapter';
 
 /**
@@ -15,7 +16,6 @@ import type { LanguageAdapter } from './LanguageAdapter';
  * (`self.repo.find_by_id(...)`, `service.find_one(...)`).
  */
 
-const PYTHON_EXTENSIONS = new Set(['.py']);
 const HTTP_VERBS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head']);
 const ROUTER_NAMES = new Set(['app', 'router', 'api', 'bp', 'blueprint', 'route']);
 
@@ -663,7 +663,7 @@ export async function parsePythonFile(
  */
 export const PythonAdapter: LanguageAdapter = {
   canParse(filePath: string): boolean {
-    return PYTHON_EXTENSIONS.has(path.extname(filePath.toLowerCase()));
+    return PYTHON_EXTENSIONS.includes(path.extname(filePath.toLowerCase()));
   },
   parseFile(filePath: string, repoId: string, root: string): Promise<RepoSymbol[]> {
     return parsePythonFile(filePath, repoId, root);

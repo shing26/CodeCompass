@@ -59,7 +59,17 @@ function buildSymbols(): RepoSymbol[] {
     lineStart: 100,
     lineEnd: 130
   });
-  return [route, controller, service, repository, findAll, orphan];
+  // ADR-0018: the class above is no longer an orphan CANDIDATE (types have no
+  // caller concept) — it now exercises ruling 1. This callable zero-caller
+  // symbol is what keeps the bucket non-empty.
+  const orphanMethod = symbol({
+    kind: 'method',
+    name: 'legacyCompute',
+    parentType: 'LegacyHelper',
+    lineStart: 110,
+    lineEnd: 120
+  });
+  return [route, controller, service, repository, findAll, orphan, orphanMethod];
 }
 
 const SYMBOLS = buildSymbols();
@@ -95,13 +105,131 @@ describe('runScan', () => {
     const orphans = result.buckets[0];
     expect(orphans.total).toBeGreaterThanOrEqual(1);
     const names = orphans.items.map((item) => item.symbol);
-    expect(names).toContain('LegacyHelper');
+    expect(names).toContain('LegacyHelper.legacyCompute');
+    // ADR-0018 ruling 1: the owning CLASS is out of scope — types have no caller.
+    expect(names).not.toContain('LegacyHelper');
     for (const item of orphans.items) {
       expect(item.kind).not.toBe('route');
       expect(item.detail).toContain('0 static callers');
     }
     // The orphan note discloses the reflective false-positive boundary.
     expect(orphans.note).toContain('reflective');
+  });
+
+  it('narrows the orphan scope to callable symbols and counts what left (ADR-0018 ruling 1)', () => {
+    const types = [
+      symbol({ kind: 'class', name: 'PlainHelper', lineStart: 200, lineEnd: 210 }),
+      symbol({ kind: 'interface', name: 'OrderPort', lineStart: 220, lineEnd: 230 }),
+      symbol({ kind: 'service', name: 'AuditService', lineStart: 240, lineEnd: 250 }),
+      symbol({ kind: 'repository', name: 'AuditRepo', lineStart: 260, lineEnd: 270 })
+    ];
+    const result = runScan({
+      ...BASE,
+      symbols: [...SYMBOLS, ...types],
+      baseUrl: 'http://localhost:43110'
+    });
+    const orphans = result.buckets[0];
+    const names = orphans.items.map((item) => item.symbol);
+    for (const type of ['PlainHelper', 'OrderPort', 'AuditService', 'AuditRepo']) {
+      expect(names).not.toContain(type);
+    }
+    const census = orphans.census!;
+    // The fixture ships one class (LegacyHelper) + one repository (OrderRepository);
+    // both were zero-caller candidates before the ruling.
+    expect(census.excluded.find((e) => e.rule === 'type-declaration')?.count).toBe(6);
+    expect(orphans.census!.excluded.find((e) => e.rule === 'type-declaration')?.deferred).toBeUndefined();
+  });
+
+  it('excludes interface members but declares the interface-implementation step as deferred (ADR-0018 ruling 2)', () => {
+    const iface = symbol({ kind: 'interface', name: 'PaymentPort', lineStart: 300, lineEnd: 310 });
+    const declared = symbol({
+      kind: 'method',
+      name: 'pay',
+      parentType: 'PaymentPort',
+      lineStart: 305,
+      lineEnd: 306
+    });
+    // Same-name class + interface: the owner name cannot be disambiguated from
+    // the symbol table alone, so it counts as a contract member (fail-closed).
+    const ambiguousClass = symbol({ kind: 'class', name: 'AmbiguousPort', lineStart: 320, lineEnd: 325 });
+    const ambiguousIface = symbol({ kind: 'interface', name: 'AmbiguousPort', lineStart: 330, lineEnd: 335 });
+    const ambiguousMember = symbol({
+      kind: 'method',
+      name: 'handle',
+      parentType: 'AmbiguousPort',
+      lineStart: 332,
+      lineEnd: 333
+    });
+    // A method whose owner is a plain class must stay a normal candidate.
+    const plainClass = symbol({ kind: 'class', name: 'PlainOwner', lineStart: 340, lineEnd: 350 });
+    const classMethod = symbol({
+      kind: 'method',
+      name: 'compute',
+      parentType: 'PlainOwner',
+      lineStart: 342,
+      lineEnd: 347
+    });
+    const result = runScan({
+      ...BASE,
+      symbols: [
+        ...SYMBOLS,
+        iface,
+        declared,
+        ambiguousClass,
+        ambiguousIface,
+        ambiguousMember,
+        plainClass,
+        classMethod
+      ],
+      baseUrl: 'http://localhost:43110'
+    });
+    const orphans = result.buckets[0];
+    const names = orphans.items.map((item) => item.symbol);
+    expect(names).not.toContain('PaymentPort.pay');
+    expect(names).not.toContain('AmbiguousPort.handle');
+    expect(names).toContain('PlainOwner.compute');
+    const census = orphans.census!;
+    // pay + handle (the ambiguous owner is treated as a contract member).
+    expect(census.excluded.find((e) => e.rule === 'interface-member')?.count).toBe(2);
+    const deferred = census.excluded.find((e) => e.rule === 'interface-implementation');
+    expect(deferred?.deferred).toBe(true);
+    expect(deferred?.count).toBeUndefined();
+  });
+
+  it('marks test-only callers instead of excluding them and keeps the census conserved (ADR-0018 ruling 3)', () => {
+    const testCaller = symbol({
+      kind: 'method',
+      name: 'onlyUsedByTests',
+      parentType: 'LegacyHelper',
+      lineStart: 150,
+      lineEnd: 155
+    });
+    const harness = symbol({
+      kind: 'method',
+      name: 'testHarness',
+      filePath: 'src/test/java/com/demo/LegacyHelperTest.java',
+      lineStart: 20,
+      lineEnd: 30,
+      calls: [{ file: JAVA_FILE, method: 'onlyUsedByTests', line: 22, receiver: 'legacyHelper' }]
+    });
+    // The extended symbol set needs its own index: the shared INDEX is built
+    // from the base fixture, so a caller added later would not resolve.
+    const symbols = [...SYMBOLS, testCaller, harness];
+    const result = runScan({
+      ...BASE,
+      symbols,
+      index: buildCallIndex(symbols),
+      baseUrl: 'http://localhost:43110'
+    });
+    const orphans = result.buckets[0];
+    const marked = orphans.items.find((item) => item.symbol === 'LegacyHelper.onlyUsedByTests');
+    expect(marked?.testOnly).toBe(true);
+    // Marked, not excluded: the entry stays in the bucket and in the total.
+    expect(orphans.census!.testOnly).toBe(1);
+    const unmarked = orphans.items.find((item) => item.symbol === 'LegacyHelper.legacyCompute');
+    expect(unmarked?.testOnly).toBeUndefined();
+    // Conservation: the census accounts for every entry of the bucket.
+    expect(orphans.census!.zeroCallers + orphans.census!.testOnly).toBe(orphans.total);
   });
 
   it('excludes externally wired symbols from orphanedPublic and counts them (issue 04)', () => {
@@ -147,7 +275,7 @@ describe('runScan', () => {
     expect(names).not.toContain('CustomersServiceClient');
     expect(names).not.toContain('main');
     expect(names).not.toContain('PetClinicApplication');
-    expect(orphans.total).toBe(2); // LegacyHelper + OrderRepository class, unchanged by wired symbols
+    expect(orphans.total).toBe(1); // LegacyHelper.legacyCompute — the class itself is out of scope (ADR-0018)
     expect(orphans.wiredExcluded).toBe(4);
     expect(orphans.note).toContain('wiredExcluded');
   });
@@ -352,8 +480,9 @@ describe('runScan', () => {
   it('truncates every bucket to the shared top limit', () => {
     const manyOrphans = Array.from({ length: SCAN_TOP_LIMIT + 5 }, (_, index) =>
       symbol({
-        kind: 'class',
-        name: `Orphan${index}`,
+        kind: 'method',
+        name: `orphanCompute${index}`,
+        parentType: 'LegacyHelper',
         filePath: `src/Orphan${index}.java`,
         lineStart: 10,
         lineEnd: 20
@@ -366,9 +495,9 @@ describe('runScan', () => {
     });
     const orphans = result.buckets[0];
     expect(orphans.items).toHaveLength(SCAN_TOP_LIMIT);
-    // 15 synthetic orphans + LegacyHelper + the OrderRepository class (a
-    // 0-caller class symbol — its calls point outward, nothing points at it).
-    expect(orphans.total).toBe(SCAN_TOP_LIMIT + 5 + 2);
+    // 15 synthetic callable orphans + the fixture's legacyCompute. (The class
+    // symbols that used to pad this bucket are out of scope since ADR-0018.)
+    expect(orphans.total).toBe(SCAN_TOP_LIMIT + 5 + 1);
   });
 
   it('gives empty buckets a neutral nextAction instead of a tool pointer (issue 05)', () => {

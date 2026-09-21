@@ -533,11 +533,13 @@ describe('V31-02 — Go package table (cross-file)', () => {
 
   it('binds a value built by another file of the same package', () => {
     const context: ParseContext = {
-      goPackages: buildGoPackageTable([
-        { relativePath: 'pkg/app.go', source: appFile },
-        { relativePath: 'pkg/ctor.go', source: ctorFile },
-        { relativePath: 'pkg/use.go', source: useFile }
-      ])
+      languages: {
+        go: buildGoPackageTable([
+          { relativePath: 'pkg/app.go', source: appFile },
+          { relativePath: 'pkg/ctor.go', source: ctorFile },
+          { relativePath: 'pkg/use.go', source: useFile }
+        ])
+      }
     };
     const { runCall, resolved } = resolveRun(context);
     expect(runCall).toMatchObject({ receiverType: 'App', dynamic: false });
@@ -574,7 +576,7 @@ describe('V31-02 — Go package table (cross-file)', () => {
       { relativePath: 'pkg/consumer.go', source: consumerFile },
       { relativePath: 'other/widget.go', source: widgetFile }
     ];
-    const context: ParseContext = { goPackages: buildGoPackageTable(files) };
+    const context: ParseContext = { languages: { go: buildGoPackageTable(files) } };
     const symbols = files.flatMap((file) => parseGoSource(file.source, file.relativePath, 'r', context));
     const useIt = symbols.find((symbol) => symbol.name === 'UseIt');
     const spinCall = (useIt?.calls ?? []).find((call) => call.method === 'Spin');

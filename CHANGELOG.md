@@ -41,6 +41,56 @@
 - **MCP 17 工具签名与数量冻结**为 v1 契约：本批零新增工具、零新增页签，只允许「同一工具输出更准」。`packages/contracts`、REST/SSE 端点形状零变化。
 - 精度增强全部落在调用边的**确定性**解析上：ADR-0002 红线（跨文件绑定必须由 import 路径 / 包限定名确定；解析不到就保持 `dynamic`，不得按名字相似度猜）由单测把守——无 context、遮蔽名、歧义包名、同包重复声明四类全部 fail-closed。
 
+### 续批（2026-09-18 / 09-20）：MCP 契约收口 · 桶语义裁决 · 外部评审两票 · TS 接收者定型 · 精度棘轮
+
+**票 07 MCP 契约正确性收口**（用户 2026-09-18 批准，附两项硬条件）：(a) 新增 `MCP_SERVER_INSTRUCTIONS` 并传入 `ServerOptions`——17 个工具跨 5 个使用阶段却从无编排指引，ADR-0016 的轮询契约此前只写在 `index_repo` 自己的 description 里；(b) `zodForJsonType()` 取代 `type === 'string' ? z.string() : z.unknown()`——后者让唯一非 string 参数 `maxTokens` 形同无约束（`"500"` / `{}` / `true` / `[1,2]` 全通过），未识别类型现改为抛错；(c) `textResult()` 成为统一出库收口点（此前全文件仅 1 处脱敏，`diagnose` / `graphrag` 各自内部脱敏使出口本身无人把守）；(d) README 工具表改**由 `MCP_TOOLS` 生成**——票 03 只改了正文数字、漏了可枚举清单且打了 ✅，生成 + 双向 gate 断言根治该类漂移（硬条件①），配 `readme-tool-table-parity` / `readme-version` 两条 gate；**硬条件②**：`textResult` 层有独立单测（不得用各自已脱敏的两条路充当证据）。
+
+**ADR-0018 桶语义三裁决 + 票 08 落地**（用户 2026-09-18 裁决 A / A→A′ / B）：孤儿桶的**声称范围**收窄为「可调用符号的零静态调用者」——类型声明（lazygit 623）与接口成员（375）不进候选并**按规则计数**（`census.excluded`），接口**实现**方法（620）以 `deferred` 规则显式登记待接口-实现关系表，仅被测试调用者加 `testOnly` 标注**不排除**。**lazygit 孤儿 2805 → 1807**（与裁决算术逐字吻合）。响应内 `census` 成为全桶归因的唯一权威口径（取代一次性诊断脚本），harness 对不守恒直接抛错。
+
+**外部框架评审候选两票**（用户 2026-09-19 批准）：**票 09** 语言注册表单表派生——加一种语言此前要改 5 张手维护表且两个漂移方向都静默（文件被扫零符号／根本不入扫描），现 `language-extensions.ts`（唯一数据）+ `registry.ts`（唯一接线，派生 `SOURCE_EXTENSIONS` / `adapterFor`），`ParseContext.goPackages` 泛化为按语言键；**票 10** 错误码单一源 `packages/contracts/src/error-codes.ts`（30 码，wire 格式零变化）——前端 `Record<ErrorCode, string>` 编译执法、服务端 `code:` 字面量扫描哨执法、CONTEXT 表与代码双向对账。两票**零行为变更**（三仓精度逐字节不变）。
+
+**票 11 TS 接收者定型**（dogfooding 实测驱动）：scan 孤儿 top-10 有 8/10 是 `RepoQAClient.*` 假阳性。归因实验推翻了票面「作用域链」假设——真拦路虎是 **lezer 把参数 `: Type` 注解放成 ParamList 的兄弟节点**，`typeAnnotationName` 只找直接子节点，**参数注解从未被读过**。四步递进：(a) 注解兄弟配对、(d) 解构参数（ObjectPattern）按类型字面量逐成员绑定、(链) `MethodScope.parent` 闭包链 + `declared` 遮蔽栅栏（最近声明处停，未定型不复活）、(h) `new X()` 记构造边。**self 孤儿 283 → 236**（−16.6%），lazygit/petclinic 每步复测逐字节不变。
+
+**V31-05 精度棘轮**（长期缺口：精度回退从无门禁）：harness 增 `--ratchet`——结构不变量（普查守恒 / 污染为 0 / 候选只含可调用符号 / ADR-0018 排除规则在位 / 接口实现 deferred 仍声明）+ **冻结基线**的比值天花板（只能显式 `--ratchet-update` 抬升）；接进 e2e 门禁 → CI 自动执法。另修 `--score` 的**覆盖度隐患**：陈旧判定文件会静默缩小分母（未判定条目直接消失），现输出携带分母并对未覆盖样本标注 ⚠。
+
+### Added（续批）
+
+- `packages/contracts/src/error-codes.ts`（`ERROR_CODES` / `ErrorCode` / `ERROR_CODE_LIST`）；`packages/contracts/src/repoqa.ts` 增 `ScanCandidate.testOnly` / `ScanExclusion` / `ScanCensus` / `ScanBucket.census`。
+- `services/control-plane/src/languages/language-extensions.ts`（唯一扩展名源）、`languages/registry.ts`（唯一接线表 + 派生）。
+- `services/control-plane/src/error-code-guard.test.ts`（服务端错误码扫描哨）、`languages/registry.test.ts`（扩展名双向守恒）。
+- `docs/adr/0018-orphan-bucket-semantics.md`；`.scratch/v031-precision/issues/07|08|09|10|11`。
+- `scripts/precision/ratchet-baseline.json`（冻结基线）、`scripts/precision/verdicts/self.json` 重判、`package.json` 增 `precision` / `precision:ratchet` 脚本。
+- `docs/reports/CodeCompass-补齐清单分析-2026-09-18.md`、`docs/reports/CodeCompass-框架补强建议分析-2026-09-19.md`。
+
+### Fixed（续批）
+
+- TS 适配器**参数类型注解从未被读取**（lezer 形状）+ 解构参数未配对 + 直接子箭头作用域不链外层 + `new` 不计构造边 → 自仓孤儿 283 → **236**。
+- MCP `maxTokens` 类型护栏空转；MCP 出库无统一脱敏收口点；README 工具表与实现不一致（正文数字已改、清单漏改）。
+- 加语言的 5 张手维护表 → 2 处；错误码三处手维护 → 单一源 + 三项执法。
+
+### Changed（续批）
+
+- README 工具表与版本串改由生成器/断言维护（`sync-mcp-tool-table.py` + `readme-version` gate）；README 两处 IDE 配置的 `npx codecompass` → `npx -y @codecompass/cli`（前者会解析到 npm 上他人同名包）。
+- `CONTEXT.md` 错误码节标注单一源与「新码三处同动」流程。
+
+### 质量门（续批后基线，取代本节上方旧数值）
+
+- 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。
+- 真实仓库精度：lazygit 孤儿 **1807**、petclinic **13**、self **236**（普查三仓守恒）；**M1 self 首次离开 100%：90.0%（9/10）**，唯一真阳性 = `RepoQAClient.getRepo`（前端 client 方法全仓零调用者，仅测试替身 mock）。lazygit/petclinic 的判定文件仍覆盖 4/10 与 5/10（旧榜单），已由 `--score` 覆盖度守卫标注 ⚠，**不可与 self 的 9/10 混引**。
+
+### 评分维补齐批（2026-09-21）：票 12–16
+
+承外部评分（`项目评估结果/CodeCompass/20260920-MCP-431790b9.json`，63/81 = 77.78%）与《短板清单-20260921》《项目提升计划-20260921》，按「能护住已得成果」排序补齐四个评估维，另立通用协议套件消 E-M10 的口径争议。
+
+- **票 12（E-M12 可观测与审计 1→3，全表最低分）**：`registerPlain` 是 17 个工具的唯一出口，审计挂在那里——`McpDeps` 增**可选** `logger`（单测不注入 ⇒ 不写文件），`runMcpServer` 从 dataDir 构造既有 `ServerLogger`（脱敏/截断/轮转/保留全套复用，**不自建序列化**）。落 `scope:'mcp'`、`msg:'tool_call'`，字段 `tool/durationMs/ok/argsBytes/resultBytes/args/result`。3 分证据：`npm run mcp:stats`（成功率/耗时分布/错误分布，零依赖脚本）+ 一次真实排障复盘（报告的案例：三步定位出"宿主凭猜测传 repoId"而非引擎故障）。新增 ADR-0019（记录入参出参与 HTTP sink "排除 body" 政策的差异理由）。
+- **票 13（E-M7 幂等与副作用边界 2→3）**：先核契约再钉测试——`idempotency.test.ts` 三条（同路径复用 repoId 且 `created:false`／重复删除 fail-closed 不误伤／indexing 中拒绝删除），转红实测成立（禁掉 `findByLocalPath` 复用即红）；新增 `docs/mcp-tool-contract.md`（17 工具读写/副作用分类表 + 通用套件用法）；gate 增 `write_logged`（写工具必须留审计行）。
+- **票 14（E-M10 可测试与可模拟）**：新增**通用** `scripts/e2e/mcp_conformance.py`（六项协议断言，探针全部运行时从 `tools/list` 发现，**零项目数据依赖**）+ 故意违规的假服务端 fixture（两种模式）。**双向验收**：本仓 6/6 绿；假服务端 `--mode=handshake` 抓出握手违规、`--mode=tools` 抓出 4 条（空描述/未知名静默成功/类型不匹配未拒/缺必填未拒），而真正合规的信封断言正确通过。`closeout_gate.py` **保持不动**（本仓业务语义回归资产），两者并存。
+- **票 15（E-M4 上下文治理 2→3）**：真实 MCP 会话三档同 query 对比——默认档 **7309** 估算 token（`prunedCount=7`、`truncated=true`）vs 上限档 **12719**（`prunedCount=0`）⇒ **剪枝省 42.5%**；超限触发实测成立。实测纠正：初版用 200000 当"关剪枝"，被 handler（合法区间 1..100000）拒绝而脚本把 48 字符错误当输出，算出 −60808% 的荒谬数字——现被拒档位单列、不参与节省计算。
+- **票 16（E-M5 自愈率 2→3；E-M2 仍 2）**：模型在环一轮（`deepseek-v4-flash`，20/20 调用，native tool calling）。**E-M5 = 7/7 = 100%**（口径：只有真失败的 7 个场景计入——另 3 个"首次调用其实没失败"的场景已剔除并标注）；**E-M2 误调率 60%（4/10）仅作前向基线，不声称 3 分**，且报告指出该数字主要被 `instructions` 的"list_repos first"指令污染（6 次选错中 5 次是选 `list_repos`），要拿 3 分须先改测量协议。
+- **记账**：spec §4 票池加 12–16 与 **E-M\* 命名约定**；`CONTEXT.md` 增「交付指标 M1–M5 / 评估维 E-M1–E-M12」词条（两套编号撞号，文档一律带前缀）；`probe.py` 复算对照：结构化日志 **73 → 122**、工具schema 35→47、上下文治理 61→69、MCP服务端 19→20；E-M7 的 `幂等键` 5→5 系探针按设计排除测试文件，其 3 分证据由票面与契约表承载（已登记）。
+
+**门禁状态如实说明**：本批六条新断言（issue12 审计 / issue14 通用套件双向 / precision-ratchet / readme 两条）全部通过；收口时本机 gate 为 **68 passed / 2 failed**，两条失败均为 `incident SSE` 与 `chat SSE`，根因是 **provider 返回 HTTP 402（额度不足，独立探测确认）**而非代码——CI 无 `.env` 时该两检查走确定性降级，最近 6 次 CI 全绿为证。额度是否被票 16 的模型在环实验（40 次调用）耗尽**无法确定**；**复跑实验与本地全绿门禁都需先恢复额度**。是否让 e2e gate 支持 stub 回退（Release 冒烟门已有 `scripts/smoke/stub-llm.mjs`）属门禁语义决策，待裁定，本批只登记证据。
+
 ## [0.30.0] - 2026-09-16
 
 ### Highlights

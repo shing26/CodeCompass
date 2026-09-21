@@ -46,7 +46,18 @@ M4 = 1：**陌生人照 README 抄一行命令即可接入 Cursor**；同时消�
 
 **发布前核验（agent 侧，已完成 2026-09-17）**：`npm pack --dry-run` 干净——160 文件 / 5.0 MB / 解包 19.9 MB，`bin/codecompass.js` 与两份 `dist/` 齐全，`.env`、`.scratch`、`node_modules`、测试夹具零入包。版本五处已推进至 0.31.0，e2e gate 的 `version-consistency` 与 `/health payload version` 双绿（后者需先 `npm run build`——`dist/` 不入库，是本次发现的第六处版本落点，CI 已自带 build 步骤）。
 
-**余下两步（用户本机）**：① 确认 `@codecompass` scope 归属 → `npm publish`；② `git tag v0.31.0 && git push origin v0.31.0` 触发 Release 管线。发布后按 M4 验收命令在干净目录实测 `npx @codecompass/cli mcp <path>`。
+**余下三步（用户本机）**：① **发布前查 `files` 字段**（2026-09-18 用户裁决追加，核验口径见下）；② 确认 `@codecompass` scope 归属 → `npm publish`；③ `git tag v0.31.0 && git push origin v0.31.0` 触发 Release 管线。发布后按 M4 验收命令在干净目录实测 `npx @codecompass/cli mcp <path>`。
+
+**`files` 字段核验口径（2026-09-18 实测，本机复现）**：`files` 只声明三项（`bin/`、`services/control-plane/dist/`、`apps/repoqa-web/dist/`），
+**包能成立靠三件事，发布前需逐条确认**：
+
+1. `LICENSE` 与 `README.md` **不在 `files` 里却入包**——npm 的 always-include 白名单兜底（实测 `npm pack --dry-run` 两者均在，160 文件 / 5.0 MB / 解包 19.9 MB）。改包名或换 registry 时这条兜底不保证成立。
+2. **工作区包已被内联进 dist**：`dist/cli.js` / `dist/index.js` 中 `@codecompass/contracts`、`@codecompass/bridge-adapters` 出现次数均为 0，
+   因此二者的 dist 不必入包，也**不得**事后把根 `dependencies` 改成引用它们（会立刻变成运行时缺包）。
+3. **三处外部依赖必须留在根 `dependencies`**：`better-sqlite3` / `express` / `ws`（实测 dist 中仍是外部 `require`，未 bundle）。
+   `bin/codecompass.js` 用相对路径解析 `../services/control-plane/dist/cli.js`，这正是两个 `dist/` 必须在 `files` 内的原因。
+
+`prepublishOnly` 已挂 `npm run build`，故 `dist/` 不入库也不会发出过期产物；`engines: node >= 24` 仅告警不阻断，README 已写明 better-sqlite3 的 ABI 理由。
 
 ## 风险
 

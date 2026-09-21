@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { SyntaxNode } from '@lezer/common';
 import { parser } from '@lezer/java';
 import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
+import { JAVA_EXTENSIONS } from './language-extensions';
 import type { LanguageAdapter } from './LanguageAdapter';
 
 export function lineAt(source: string, offset: number): number {
@@ -791,7 +792,7 @@ export function parseJavaSource(
  */
 export const JavaAdapter: LanguageAdapter = {
   canParse(filePath: string): boolean {
-    return filePath.toLowerCase().endsWith('.java');
+    return JAVA_EXTENSIONS.includes(path.extname(filePath.toLowerCase()));
   },
   parseFile(filePath: string, repoId: string, root: string): Promise<RepoSymbol[]> {
     return parseJavaFile(filePath, repoId, root);

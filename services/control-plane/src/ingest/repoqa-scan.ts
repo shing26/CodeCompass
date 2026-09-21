@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parsePomModules } from './repoqa-parser';
+// Issue 09: the extension set is derived from languages/registry.ts (single
+// source shared with the adapters' canParse). Re-exported here for callers
+// that predate the registry; the definition lives in exactly one place.
+import { SOURCE_EXTENSIONS } from '../languages/registry';
+
+export { SOURCE_EXTENSIONS };
 
 /**
  * v0.15 — scale budget is configurable via `REPOQA_MAX_FILES` /
@@ -20,19 +26,7 @@ export const MAX_LINES = budgetFromEnv(process.env.REPOQA_MAX_LINES, 2_000_000);
 export const LARGE_FILE_LINE_LIMIT = 3000;
 export const LARGE_FILE_LINE_LENGTH_LIMIT = 1000;
 
-/** v0.5.1 — source extensions whose SLOC counts toward the line budget. */
-export const SOURCE_EXTENSIONS = new Set([
-  '.java',
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.py',
-  '.go',
-  // v0.15: Prisma schema files parse into data-layer symbols.
-  '.prisma'
-]);
+/** Issue 09: derived from the language registry — see the import above. */
 
 /** Issue 25: web-family files parsed by the TypeScript/JavaScript adapter. */
 export const WEB_FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs']);

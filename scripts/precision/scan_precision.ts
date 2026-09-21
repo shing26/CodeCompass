@@ -197,6 +197,10 @@ async function measure(sample: SampleRef): Promise<void> {
       total: bucket.total,
       listed: bucket.items.length,
       wiredExcluded: bucket.wiredExcluded,
+      // ADR-0018: the census is the point of the ruling — recording it here is
+      // what makes "what left the candidate list, and how much" re-computable on
+      // a real repo instead of only in a synthetic unit test.
+      census: bucket.census,
       contamination,
       items: bucket.items
     };
@@ -208,10 +212,29 @@ async function measure(sample: SampleRef): Promise<void> {
   // sample (the bucket payload carries only the top N — this is a sample
   // distribution, not a full-bucket census). Type declarations (class/
   // interface/…) cannot have callers at all — "0 static callers" says nothing
-  // about them without reference tracking.
+  // about them without reference tracking; ADR-0018 removed them from the
+  // candidate list entirely, so this histogram is expected to be method-only.
   const kindCounts: Record<string, number> = {};
   for (const item of orphanItems) {
     kindCounts[item.kind] = (kindCounts[item.kind] ?? 0) + 1;
+  }
+  // ADR-0018 necessary condition ② — the census must conserve on `total`. Fail
+  // loudly instead of writing a snapshot whose numbers do not add up.
+  if (orphan?.census) {
+    const { zeroCallers, testOnly } = orphan.census;
+    if (zeroCallers + testOnly !== orphan.total) {
+      throw new Error(
+        `[precision] ${sample.name}: orphan census does not conserve — ` +
+          `zeroCallers(${zeroCallers}) + testOnly(${testOnly}) != total(${orphan.total})`
+      );
+    }
+    const flagged = orphanItems.filter((item) => item.testOnly === true).length;
+    if (flagged > testOnly) {
+      throw new Error(
+        `[precision] ${sample.name}: census.testOnly(${testOnly}) is below the flagged ` +
+          `candidates in the listed sample(${flagged})`
+      );
+    }
   }
   const record = {
     name: sample.name,
@@ -346,7 +369,16 @@ async function score(): Promise<void> {
     const judged = keys.map((k) => verdicts[k]?.verdict).filter(Boolean);
     const fp = judged.filter((v) => v === 'false-positive').length;
     const tp = judged.filter((v) => v === 'true-positive').length;
-    const rate = judged.length ? `${((fp / judged.length) * 100).toFixed(1)}% (${fp}/${judged.length})` : '—';
+    // V31-05 — coverage guard: a stale verdict file silently shrinks the
+    // denominator (an unjudged entry just disappears from `judged`), so a
+    // re-judged sample and a stale one would print the same "100%" and look
+    // comparable. Never let that happen again: show the denominator and mark
+    // incomplete rows loudly.
+    const covered = `${judged.length}/${keys.length}`;
+    const stale = judged.length < keys.length;
+    const rate = judged.length
+      ? `${((fp / judged.length) * 100).toFixed(1)}% (${fp}/${judged.length})${stale ? ` ⚠ 覆盖 ${covered}，未覆盖的 ${keys.length - judged.length} 条不计入` : ''}`
+      : '—';
     rows.push(`| ${dump.name}@${dump.commit} | ${keys.length} | ${tp} | ${fp} | ${rate} |`);
   }
   console.log('| 样本 | 抽样 | 真阳性 | 假阳性 | M1 假阳性率 |');
@@ -354,10 +386,177 @@ async function score(): Promise<void> {
   console.log(rows.join('\n'));
 }
 
+/**
+ * V31-05 — the precision RATCHET (ticket 08/11 closeout, user-approved
+ * 2026-09-19): precision regressions had no gate at all, so the numbers won a
+ * hard fight for and then nothing defended them.
+ *
+ * What it guards, and why each is a STRUCTURAL invariant rather than a raw
+ * count: source files legitimately appear and disappear, so `orphanTotal`
+ * alone would red-flag ordinary work. The invariants below can only break if
+ * a real regression lands:
+ *   1. census conservation  — zeroCallers + testOnly == total (ADR-0018)
+ *   2. contamination == 0   — vendor/test fixtures never on any board (M2)
+ *   3. callable-only scope  — every listed orphan is a `method` (ADR-0018)
+ *   4. exclusion rules live — `type-declaration` counted > 0, and the deferred
+ *                             `interface-implementation` target still declared
+ *   5. ratio ceiling        — orphanTotal/symbolCount against a FROZEN baseline
+ *                             with documented slack (guards the class of bugs
+ *                             that silently stops recording edges)
+ *
+ * The baseline is frozen on purpose: it never self-updates. Raising it is an
+ * explicit `--ratchet-update` (a deliberate, reviewable act), because a ratchet
+ * that follows the code defends nothing.
+ */
+const RATCHET_BASELINE = path.join(process.cwd(), 'scripts/precision/ratchet-baseline.json');
+/** Ceiling = frozen ratio * (1 + SLACK) + FLOOR — headroom for small-sample noise. */
+const RATCHET_SLACK = 0.25;
+const RATCHET_FLOOR = 0.02;
+
+interface RatchetBaselineEntry {
+  commit: string;
+  symbolCount: number;
+  orphanTotal: number;
+  ratio: number;
+  recordedAt: string;
+}
+
+interface RatchetBaseline {
+  note: string;
+  samples: Record<string, RatchetBaselineEntry>;
+}
+
+async function ratchet(names: string[], update: boolean): Promise<void> {
+  let baseline: RatchetBaseline = { note: '', samples: {} };
+  try {
+    baseline = JSON.parse(await fs.readFile(RATCHET_BASELINE, 'utf8')) as RatchetBaseline;
+  } catch {
+    baseline = {
+      note:
+        'Frozen precision ratchet baseline (V31-05). ratioCeiling = ratio * (1 + 0.25) + 0.02. ' +
+        'Raise it only with an explicit `--ratchet-update` and a reason in the commit message.',
+      samples: {}
+    };
+  }
+
+  const failures: string[] = [];
+  const rows: string[] = [];
+
+  for (const name of names) {
+    const sample = SAMPLES.find((s) => s.name === name);
+    if (!sample) throw new Error(`unknown sample "${name}"`);
+    await measure(sample);
+    const dump = JSON.parse(
+      await fs.readFile(path.join(OUT_DIR, `${name}.json`), 'utf8')
+    ) as {
+      name: string;
+      commit: string;
+      symbolCount: number;
+      contaminationTotal: number;
+      orphanKindCounts: Record<string, number>;
+      buckets: Array<{
+        id: string;
+        total: number;
+        census?: {
+          zeroCallers: number;
+          testOnly: number;
+          excluded: Array<{ rule: string; count?: number; deferred?: boolean }>;
+        };
+      }>;
+    };
+
+    const orphan = dump.buckets.find((b) => b.id === 'orphanedPublic');
+    if (!orphan?.census) {
+      failures.push(`${name}: orphanedPublic has no census — ADR-0018 reporting was dropped`);
+      continue;
+    }
+    const { zeroCallers, testOnly, excluded } = orphan.census;
+
+    // 1. conservation
+    if (zeroCallers + testOnly !== orphan.total) {
+      failures.push(
+        `${name}: census does not conserve — ${zeroCallers} + ${testOnly} != ${orphan.total}`
+      );
+    }
+    // 2. contamination — the record stores it per class ({vendor, testPath}), so sum it.
+    const contamination = dump.contaminationTotal as unknown;
+    const contaminationSum =
+      typeof contamination === 'number'
+        ? contamination
+        : Object.values((contamination ?? {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+    if (contaminationSum !== 0) {
+      failures.push(
+        `${name}: contamination=${contaminationSum} (${JSON.stringify(contamination)}) — vendor/test fixtures on a board`
+      );
+    }
+    // 3. callable-only scope
+    const nonCallable = Object.keys(dump.orphanKindCounts).filter((kind) => kind !== 'method');
+    if (nonCallable.length > 0) {
+      failures.push(`${name}: non-callable kinds back in the orphan list: ${nonCallable.join(', ')}`);
+    }
+    // 4. exclusion rules live
+    const typeDecl = excluded.find((e) => e.rule === 'type-declaration');
+    if (!typeDecl?.count) {
+      failures.push(`${name}: type-declaration exclusion is gone or counted 0 — ADR-0018 rule disabled?`);
+    }
+    if (!excluded.some((e) => e.rule === 'interface-implementation' && e.deferred === true)) {
+      failures.push(`${name}: deferred interface-implementation target is no longer declared`);
+    }
+    // 5. ratio ceiling against the FROZEN baseline
+    const ratio = dump.symbolCount > 0 ? orphan.total / dump.symbolCount : 0;
+    const entry = baseline.samples[name];
+    if (!entry || update) {
+      baseline.samples[name] = {
+        commit: dump.commit,
+        symbolCount: dump.symbolCount,
+        orphanTotal: orphan.total,
+        ratio,
+        recordedAt: new Date().toISOString()
+      };
+      rows.push(
+        `| ${name} | ${orphan.total}/${dump.symbolCount} | ${(ratio * 100).toFixed(1)}% | ${entry ? 'refreshed' : 'recorded'} |`
+      );
+      continue;
+    }
+    const ceiling = entry.ratio * (1 + RATCHET_SLACK) + RATCHET_FLOOR;
+    const ok = ratio <= ceiling;
+    if (!ok) {
+      failures.push(
+        `${name}: orphan ratio ${(ratio * 100).toFixed(1)}% exceeds ceiling ${(ceiling * 100).toFixed(1)}% ` +
+          `(frozen baseline ${(entry.ratio * 100).toFixed(1)}% @ ${entry.commit})`
+      );
+    }
+    rows.push(
+      `| ${name} | ${orphan.total}/${dump.symbolCount} | ${(ratio * 100).toFixed(1)}% | ` +
+        `${ok ? 'ok' : 'EXCEEDED'} (ceiling ${(ceiling * 100).toFixed(1)}%) |`
+    );
+  }
+
+  // A failing run must not bootstrap or refresh the baseline: the frozen entry
+  // is a reference for a state that passed.
+  if (update || failures.length === 0) {
+    await fs.mkdir(path.dirname(RATCHET_BASELINE), { recursive: true });
+    await fs.writeFile(RATCHET_BASELINE, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
+  }
+
+  console.log('| 样本 | 孤儿/符号 | 比值 | 棘轮 |');
+  console.log('|---|---|---|---|');
+  console.log(rows.join('\n'));
+  if (failures.length > 0) {
+    console.error('[precision] RATCHET FAILED:');
+    for (const failure of failures) console.error(`  - ${failure}`);
+    throw new Error(`${failures.length} ratchet invariant(s) violated`);
+  }
+  console.error(`[precision] ratchet ok (${names.join(', ')})`);
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.includes('--score')) {
     await score();
+  } else if (args.includes('--ratchet')) {
+    const names = args.filter((a) => !a.startsWith('--'));
+    await ratchet(names.length ? names : ['self'], args.includes('--ratchet-update'));
   } else if (args.includes('--edges')) {
     const name = args[args.indexOf('--edges') + 1];
     if (!name) throw new Error('--edges needs a sample name');

@@ -1,11 +1,13 @@
 import type {
   ScanBucket,
   ScanCandidate,
+  ScanCensus,
+  ScanExclusion,
   ScanResult
 } from '../../../packages/contracts/src/index';
 import type { RepoSymbol } from './ingest/repoqa-repos';
 import type { SymbolIndex } from './engine/repoqa-callchain';
-import { symbolIdentity } from './engine/repoqa-callchain';
+import { symbolIdentity, buildFullCallersIndex } from './engine/repoqa-callchain';
 import { buildRadarGraph, computePageRank } from './domain-radar-engine';
 import { pickTopApis } from './engine/repoqa-dashboard';
 import { cockpitLink, isTestPath } from './diagnose-engine';
@@ -26,6 +28,14 @@ export const OVERSIZED_METHOD_LINES = 150;
 /** A file whose symbol-covered span reaches ≥600 lines is a debt hotspot. */
 export const OVERSIZED_FILE_LINES = 600;
 
+/**
+ * ADR-0018 (ruling 1) — the orphan bucket claims "zero-static-caller CALLABLE
+ * symbols". A type declaration has no caller by definition, so it never
+ * belonged in the candidate list; on lazygit those accounted for 623 of 2805
+ * entries (22%) and dominated the top-10 (which is why M1 sat at 100%).
+ */
+const CALLABLE_KINDS: ReadonlySet<string> = new Set(['method']);
+
 interface ScanInput {
   repoId: string;
   repoName: string;
@@ -35,11 +45,15 @@ interface ScanInput {
 }
 
 const ORPHAN_NOTE =
-  'Static zero-caller only: reflective lookups, dynamic proxies and MQ ' +
-  'subscriptions are invisible to AST analysis — verify before removing. ' +
-  'Externally wired symbols (Spring @Bean/@FeignClient/…, entry points) are ' +
-  'excluded from candidates and counted in wiredExcluded; HTTP handlers ' +
-  '(a route target) and serializer accessors are excluded the same way.';
+  'Scope (ADR-0018): zero-static-caller CALLABLE symbols only — type ' +
+  'declarations and interface members have no caller by definition and are ' +
+  'excluded (counted in census.excluded). Static zero-caller only: reflective ' +
+  'lookups, dynamic proxies and MQ subscriptions are invisible to AST analysis ' +
+  '— verify before removing. Externally wired symbols (Spring ' +
+  '@Bean/@FeignClient/…, entry points) are excluded from candidates and counted ' +
+  'in wiredExcluded; HTTP handlers (a route target) and serializer accessors are ' +
+  'excluded the same way. Candidates flagged testOnly do have callers — all of ' +
+  'them in test paths.';
 
 const HUBS_NOTE =
   'Board only: accessor methods (get/set/is prefix, ≤5-line body) rank high ' +
@@ -152,7 +166,8 @@ function bucket(
   total: number,
   nextAction: string,
   note?: string,
-  wiredExcluded?: number
+  wiredExcluded?: number,
+  census?: ScanCensus
 ): ScanBucket {
   return {
     id,
@@ -161,7 +176,8 @@ function bucket(
     total,
     nextAction: total === 0 ? EMPTY_BUCKET_ACTION : nextAction,
     ...(note ? { note } : {}),
-    ...(wiredExcluded !== undefined ? { wiredExcluded } : {})
+    ...(wiredExcluded !== undefined ? { wiredExcluded } : {}),
+    ...(census ? { census } : {})
   };
 }
 
@@ -172,6 +188,11 @@ export function runScan(input: ScanInput): ScanResult {
   // test paths.
   const graph = buildRadarGraph(symbols, index);
   const rank = computePageRank([...graph.symbolsById.keys()], graph.edges);
+  // ADR-0018 (ruling 3) — the full callers index (test callers included) is what
+  // makes "called only from tests" decidable: buildRadarGraph drops test nodes
+  // AND their edges, so such a symbol shows in-degree 0 in the graph and would
+  // otherwise be indistinguishable from genuinely unreferenced code.
+  const { callersOf } = buildFullCallersIndex(symbols, index);
 
   /* Bucket 1 — orphaned public code: production symbols with zero callers.
      Routes are external HTTP entry points, so a missing caller is normal for
@@ -181,6 +202,20 @@ export function runScan(input: ScanInput): ScanResult {
      list and are counted in wiredExcluded. */
   const orphanItems: ScanCandidate[] = [];
   let wiredExcluded = 0;
+  // ADR-0018 rulings 1 & 2 — the bucket's claim is narrowed to callable
+  // symbols, so the classes that leave the candidate list are counted instead
+  // of silently shrinking `total` (necessary condition ② of the ruling).
+  let typeDeclarations = 0;
+  let interfaceMembers = 0;
+  // Owner names of interface declarations. `parentType` is a bare name, not an
+  // id, so a name shared by an interface and a class cannot be disambiguated
+  // from the symbol table alone — fail-closed: such an owner counts as an
+  // interface member and leaves the list. The bucket must not claim a contract
+  // member is dead just because two declarations share a name.
+  const interfaceNames = new Set<string>();
+  for (const symbol of symbols) {
+    if (symbol.kind === 'interface') interfaceNames.add(symbol.name);
+  }
   // Annotation-wired type names, so members of a @Configuration class or a
   // @FeignClient interface inherit the wired status without an own annotation.
   // Built from the raw symbol input: PRODUCTION_KINDS gates the graph node
@@ -216,24 +251,72 @@ export function runScan(input: ScanInput): ScanResult {
     // rule that keeps accessors off the hubs board (issue 06) applies here too,
     // otherwise every mapped DTO contributes its getters to the orphan total.
     if (isAccessorLike(symbol) || isFieldAccessor(symbol, fieldNamesByType)) continue;
+    // Deliberately BEFORE the ADR-0018 scope narrowing below: external wiring is
+    // the more specific deterministic reason, so an annotated type is reported
+    // as wired (where it has always been counted) rather than as a plain type
+    // declaration. Both paths exclude — only the attribution differs.
     const wired = wiredKindOf(symbol, wiredTypes);
     if (wired !== undefined) {
       wiredExcluded += 1;
+      continue;
+    }
+    // ADR-0018 (rulings 1 & 2) — scope narrowing sits AFTER the zero-caller test
+    // on purpose: the census must describe the zero-caller population (that is
+    // exactly what the report's 623 / 375 classify).
+    if (!CALLABLE_KINDS.has(symbol.kind)) {
+      typeDeclarations += 1;
+      continue;
+    }
+    if (symbol.parentType !== undefined && interfaceNames.has(symbol.parentType)) {
+      interfaceMembers += 1;
       continue;
     }
     const span =
       symbol.lineEnd !== undefined && symbol.lineStart !== undefined
         ? symbol.lineEnd - symbol.lineStart
         : undefined;
-    orphanItems.push(
-      candidateOf(
-        symbol,
-        span !== undefined ? `0 static callers; spans ${span} lines` : '0 static callers',
-        span !== undefined ? symbol.lineEnd : undefined
-      )
+    const candidate = candidateOf(
+      symbol,
+      span !== undefined ? `0 static callers; spans ${span} lines` : '0 static callers',
+      span !== undefined ? symbol.lineEnd : undefined
     );
+    // Ruling 3: marked, never excluded — production code reachable only from
+    // tests is a real signal, so it stays in the bucket with the reason visible.
+    const callers = callersOf.get(id) ?? [];
+    if (callers.length > 0 && callers.every((caller) => isTestPath(caller.filePath))) {
+      candidate.testOnly = true;
+    }
+    orphanItems.push(candidate);
   }
   orphanItems.sort(byLocation);
+
+  // ADR-0018 (necessary condition ②): what left the list is counted, and the
+  // census conserves on `total`. The deferred entry is a recorded TARGET
+  // (ruling 2's second step) — declared so a reader knows those symbols are
+  // still inside `total`, rather than silently absent.
+  const testOnlyCount = orphanItems.filter((item) => item.testOnly === true).length;
+  const orphanExcluded: ScanExclusion[] = [
+    {
+      rule: 'type-declaration',
+      count: typeDeclarations,
+      detail: 'types have no caller by definition; the bucket claims callable symbols only'
+    },
+    {
+      rule: 'interface-member',
+      count: interfaceMembers,
+      detail: 'contract members; zero static callers is their normal shape (ADR-0002 keeps dispatch dynamic)'
+    },
+    {
+      rule: 'interface-implementation',
+      deferred: true,
+      detail: 'needs an interface→implementation relation (A′ step 2); these symbols are still counted in total'
+    }
+  ];
+  const orphanCensus: ScanCensus = {
+    zeroCallers: orphanItems.length - testOnlyCount,
+    testOnly: testOnlyCount,
+    excluded: orphanExcluded
+  };
 
   /* Bucket 2 — hubs: PageRank top; the blast-radius heavyweights.
      Issue 06 (dogfooding): ≤5-line named accessors rank high only because
@@ -365,7 +448,8 @@ export function runScan(input: ScanInput): ScanResult {
         orphanItems.length,
         'Plan a safe teardown with codecompass_module_evolution (DEPRECATE) before deleting anything.',
         ORPHAN_NOTE,
-        wiredExcluded
+        wiredExcluded,
+        orphanCensus
       ),
       bucket(
         'hubs',

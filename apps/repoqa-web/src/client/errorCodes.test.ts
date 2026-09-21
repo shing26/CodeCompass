@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ApiError, ERROR_COPY, describeError } from './errorCodes';
 import { COPY_BLACKLIST } from './copyBlacklist';
 import { NetworkTimeoutError } from './timeout';
+import { ERROR_CODE_LIST } from '../../../../packages/contracts/src/index';
 
 describe('v0.27-B R3: error code contract (frontend)', () => {
   it('known code → human hint carrying the original message for debugging', () => {
@@ -32,5 +33,13 @@ describe('v0.27-B R3: error code contract (frontend)', () => {
         expect(hint, `${code} contains ${word}`).not.toContain(word);
       }
     }
+  });
+
+  it('ERROR_COPY covers exactly the contracts error-code table (issue 10)', () => {
+    // 编译期由 Record<ErrorCode, string> 钉死；这里做运行时镜像断言，
+    // 防止有人把类型放宽回 Record<string, string> 后静默漏键。
+    const copyKeys = Object.keys(ERROR_COPY).sort();
+    expect(copyKeys).toEqual([...ERROR_CODE_LIST].sort());
+    expect(copyKeys).toHaveLength(30);
   });
 });

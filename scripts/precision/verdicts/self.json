@@ -1,17 +1,58 @@
 {
   "_meta": {
-    "sample": "self@2fb15ac (CodeCompass), top-10 of orphanedPublic",
-    "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md",
-    "measured": "2026-09-16"
+    "sample": "self (CodeCompass working tree @ 5700bbd + v0.31 uncommitted batch), top-10 of orphanedPublic",
+    "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md §9",
+    "measured": "2026-09-20",
+    "note": "Re-judged after ADR-0018 (bucket scope narrowed to callable symbols) and ticket 11 (TS receiver typing). The previous list described the pre-narrowing bucket; 4 keys survive with sharper classes, 6 are new entries the narrower scope surfaced."
   },
-  "apps/repoqa-web/src/App.tsx:22": { "verdict": "false-positive", "class": "type-declaration", "reason": "AppProps is an interface used inside App.tsx — a type has no callers by construction, so a zero-caller report says nothing" },
-  "apps/repoqa-web/src/App.tsx:34": { "verdict": "false-positive", "class": "module-level-usage", "reason": "App is rendered by main.tsx at module level (<App />) and exercised by 58 files — module-level JSX has no enclosing symbol to carry the edge" },
-  "apps/repoqa-web/src/App.tsx:129": { "verdict": "false-positive", "class": "value-reference", "reason": "onKeyDown is passed as a prop/attribute value ({onKeyDown}) — an identifier reference, not a call expression" },
-  "apps/repoqa-web/src/brand-marks.ts:9": { "verdict": "false-positive", "class": "type-declaration", "reason": "BrandId is a type alias/interface; no callers can exist" },
-  "apps/repoqa-web/src/brand-marks.ts:23": { "verdict": "false-positive", "class": "type-declaration", "reason": "BrandInput is an interface used by brand-marks.ts itself" },
-  "apps/repoqa-web/src/brand-marks.ts:182": { "verdict": "false-positive", "class": "in-file-usage", "reason": "referenced by brand-marks.test.ts and its own module; not dead" },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:40": { "verdict": "false-positive", "class": "type-declaration", "reason": "class symbol referenced by 31 files; instantiation (new) is not a call edge today" },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:48": { "verdict": "false-positive", "class": "receiver-binding", "reason": "constructor referenced by 30 files; construction is not recorded as an edge" },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:60": { "verdict": "false-positive", "class": "receiver-binding", "reason": "listRepos called on local/field instances (const c = new RepoQAClient(...)); local type tracking added in this batch but factory-returned instances still stay dynamic" },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:73": { "verdict": "false-positive", "class": "receiver-binding", "reason": "getRepo referenced by 15 files, same receiver-binding gap" }
+  "apps/repoqa-web/src/App.tsx:34": {
+    "verdict": "false-positive",
+    "class": "module-level-jsx",
+    "reason": "App is rendered by main.tsx via createRoot(...).render(<StrictMode><App /></StrictMode>) and by App.test.tsx. Module-level JSX has no enclosing symbol to carry the edge (report §5 P1) — hence testOnly=true: only the test-file renders resolve."
+  },
+  "apps/repoqa-web/src/App.tsx:129": {
+    "verdict": "false-positive",
+    "class": "value-reference",
+    "reason": "onKeyDown is passed as a JSX attribute value ({onKeyDown}) — an identifier reference, not a call expression; no call edge can exist."
+  },
+  "apps/repoqa-web/src/brand-marks.ts:182": {
+    "verdict": "false-positive",
+    "class": "test-only-export",
+    "reason": "brandColor has no production caller, but brand-marks.test.ts imports and calls it. Not dead code — an exported utility whose only consumer is its own test (test-only API smell, the class census.testOnly is meant to expose)."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:73": {
+    "verdict": "true-positive",
+    "class": "unreferenced-client-method",
+    "reason": "RepoQAClient.getRepo has ZERO callers: `grep -rn '\\.getRepo(' apps/repoqa-web/src` outside this file returns 0 hits; the only other occurrences are vi.fn() stubs in five test doubles (App/useInspector/useRepoCatalog/useDashboard/useTours tests) that exist for interface-shape completeness, plus the unrelated server-side RepoQARepos.getRepo (a different class). Dead frontend API — removal candidate."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:213": {
+    "verdict": "false-positive",
+    "class": "factory-return-receiver",
+    "reason": "pickFolder is called at App.tsx:156, but App's `client` comes from useMemo(() => clientProp ?? new RepoQAClient(...)) — the deep-NewExpression case (family f) stays dynamic, so the edge is not counted."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:237": {
+    "verdict": "false-positive",
+    "class": "callback-param-aliasing",
+    "reason": "listReverseDeps is called at useReverseDeps.ts:18 as `(c, repoId_, name) => c.listReverseDeps(...)` — the callback parameter `c` is typed by the callee's signature (family e), which the adapter does not infer."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:299": {
+    "verdict": "false-positive",
+    "class": "utility-type-props",
+    "reason": "radar is called at EvolutionView.tsx:397 and CommandPalette.tsx:98; the receiver is typed `Pick<RepoQAClient, 'radar'>` (family g) — a utility-type annotation the adapter does not expand."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:312": {
+    "verdict": "false-positive",
+    "class": "utility-type-props",
+    "reason": "getArchitectureDelta is called at ArchitectureDeltaView.tsx:71 with the receiver typed `Pick<RepoQAClient, 'getArchitectureDelta'>` (family g)."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:359": {
+    "verdict": "false-positive",
+    "class": "utility-type-props",
+    "reason": "runGate is called at CiGateView.tsx:237 with the receiver typed `Pick<RepoQAClient, 'runGate' | 'listGateRuns'>` (family g)."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:398": {
+    "verdict": "false-positive",
+    "class": "utility-type-props",
+    "reason": "listGateRuns is called at CiGateView.tsx:159, same `Pick<...>` receiver (family g)."
+  }
 }

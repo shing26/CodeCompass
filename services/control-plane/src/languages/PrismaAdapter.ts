@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RepoSymbol } from '../ingest/repoqa-repos';
+import { PRISMA_EXTENSIONS } from './language-extensions';
 import type { LanguageAdapter } from './LanguageAdapter';
 
 /**
@@ -51,7 +52,7 @@ function lineAt(source: string, offset: number): number {
 
 export const PrismaAdapter: LanguageAdapter = {
   canParse(filePath: string): boolean {
-    return filePath.toLowerCase().endsWith('.prisma');
+    return PRISMA_EXTENSIONS.includes(path.extname(filePath.toLowerCase()));
   },
 
   async parseFile(filePath: string, repoId: string, root: string): Promise<RepoSymbol[]> {

@@ -33,6 +33,8 @@
 
 - **Web 6 Tab → 条件收敛为 3**（票 05；D 目标下可整票裁剪）：`chat`/`gate`/`delta` 保留一级导航，`topo`/`metrics`/`evolve` 降为深链页面。
 - **MCP 17 工具**：签名与数量冻结为 v1 契约；本批只允许「同一工具输出更准」，不允许加签名、加工具。
+  **类型/校验收紧与输出掩码属修复，不受此限**（2026-09-18 随票 07 裁决确认）；唯一新增的服务端字段是
+  initialize 期的 `instructions` 提示串，不改任何工具签名与数量。
 
 ### 1.3 待用户裁决的一项（不阻塞本批）
 
@@ -81,8 +83,23 @@
 | [04](issues/04-impact-delivery.md) | 影响力兑付（v1.0.0 + 技术文 + 公开评测） | 02、03 | M5 ≥3；tag 双绿；benchmark 数字可由命令复现 |
 | [05](issues/05-web-convergence.md) | Web 收敛 6→3（**条件票**，D 目标可裁剪） | — | 一级导航 3 项；深链全可达；web 单测全绿且净减 |
 | [06](issues/06-freeze-guardrails.md) | 冻结护栏与 V27 余账归位 | — | 三文档口径一致；六项 V27 余账处置留痕 |
+| [07](issues/07-mcp-contract-closeout.md) | MCP 契约正确性收口（**2026-09-18 裁决批准，附两项硬条件**） | — | `instructions` 非空；`maxTokens` 三类非法输入被拒；`textResult` 掩码有独立单测；README 工具表由脚本生成且受双向 gate 断言 |
+| [08](issues/08-bucket-semantics.md) | 孤儿桶语义收窄（**ADR-0018**，2026-09-18 裁决 A / A→A′ / B） | 02 | lazygit 孤儿 2805 → 1807；排除计数守恒且可解释；接口实现项以 `deferred` 显式登记；M1 复算留档（允许仍 100%） |
+| [09](issues/09-language-registry.md) | 语言注册表单表派生 + ParseContext 按语言键（外部评审 C2/C3，**2026-09-19 批准**） | — | 加语言操作面收敛为 2 处；扩展名双向守恒单测；三仓精度复算逐字节不变 |
+| [10](issues/10-error-code-contract.md) | 错误码单一源 contracts/error-codes.ts（外部评审 C4，**2026-09-19 批准**） | — | 前端 `Record<ErrorCode,string>` 编译执法；服务端扫描哨；CONTEXT 表 ↔ 代码双向对账；wire 格式零变化 |
+| [11](issues/11-nested-scope-receiver-typing.md) | TS 接收者定型（实例字段回填；**2026-09-19 已实施**） | — | self 孤儿 **283 → 236**（原根因族清空）；lazygit/petclinic 逐字节不变；fail-closed 遮蔽单测；剩 7 条 top-10 分属 (g)(e)(f) 三族已登记 |
+| [12](issues/12-mcp-audit-log.md) | MCP 审计日志接线（**评估维 E-M12：1→3**，2026-09-21 批准） | — | 收口点接线 + 可选 logger 注入；e2e 断言审计行字段齐全；`mcp:stats` 出成功率/耗时分布/错误分布 |
+| [13](issues/13-idempotency-and-side-effects.md) | 幂等与副作用边界（**E-M7：2→3**） | 12 | 三条重复调用测试（身份幂等/重复删除 fail-closed/indexing 中拒绝）；`docs/mcp-tool-contract.md` 读写分类表 |
+| [14](issues/14-mcp-conformance-suite.md) | 通用 MCP 协议层一致性套件（**E-M10：口径边缘→名实相符**） | — | 6 项协议断言可对任意服务端跑；对违规假服务端必须报错；零项目数据依赖 |
+| [15](issues/15-context-budget-comparison.md) | 上下文治理 token 剪枝对比（**E-M4：2→3**） | — | 两档对比表 + 超限触发实测（`truncated=true`）；脚本可复跑 |
+| [16](issues/16-model-in-the-loop.md) | 模型在环一轮实验（**E-M5：2→3；E-M2 仅前向基线仍 2**） | — | 自愈成功率 + 误调率基线入报告；≤20 次调用；口径声明齐全 |
 
-**波次**：Wave 1 = 01 + 06（可并行，零冲突）；Wave 2 = 02 + 03（02 动引擎、03 动发布与文档，文件面不撞）；Wave 3 = 04（收口人制，含 v1.0.0 版本五处推进）；05 视 §1.3 裁决择机。
+**波次**：Wave 1 = 01 + 06（可并行，零冲突）；Wave 2 = 02 + 03（02 动引擎、03 动发布与文档，文件面不撞）；Wave 3 = 04（收口人制，含 v1.0.0 版本五处推进）；05 视 §1.3 裁决择机；
+**07 = Wave 1.5**（2026-09-18 裁决批准；与 03 共享 `README.md`，须串行或合并提交——本批 v0.31.0 尚未打 tag，07 可在 tag 前搭车收口）；
+**08 = Wave 2.5**（2026-09-18 三裁决落地；排在票 02 之后，因为它消费票 02 的基线，且与 07 共享 `repoqa-mcp.ts` 与 README 生成块，须串行）；
+**09 + 10 = Wave 3.5**（2026-09-19 批准，外部框架评审 C2/C3/C4 的候选票；09 动 languages/ingest 面、10 动契约与前端错误码面，文件面不撞，可并行）；
+**12–16 = Wave 4**（2026-09-21 批准，外部评分维补齐批：E-M12→E-M7 串行（13 依赖 12 的日志），14/15 可并行，16 需模型在环且排在最后——它是唯一花 token 的一项）。
+**命名约定**：评估维写作 **E-M1…E-M12**（外部评分标准 §2.1），与本 spec §3 的交付指标 **M1–M5** 区分；两套编号含义不同，文档中不得省略前缀。
 
 ---
 

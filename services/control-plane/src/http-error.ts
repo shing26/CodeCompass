@@ -1,4 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { ERROR_CODES } from '../../../packages/contracts/src/index';
 import { maskSensitiveText } from './engine/repoqa-masking';
 import type { ServerLogger } from './log-sink';
 
@@ -105,6 +106,8 @@ export function errorMiddleware(
   logServerError(req, res, err);
   res.status(status).json({
     error: status < 500 ? 'request error' : 'internal server error',
-    code: status < 500 ? 'request_error' : 'internal_error'
+    // 票 10：唯一非字面量发射点改走契约常量（编译期执法）；其余 38 个
+    // `code: '<literal>'` 发射点由 error-code-guard.test.ts 扫描哨执法。
+    code: status < 500 ? ERROR_CODES.request_error : ERROR_CODES.internal_error
   });
 }

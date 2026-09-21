@@ -8,6 +8,7 @@ import { loadConfig, cockpitBaseUrl } from '../config';
 import { openDb, ensureDefaultWorkspace, backupDb } from '../db';
 import { maskSensitiveText } from '../engine/repoqa-masking';
 import { EventBus } from '../events';
+import { ServerLogger } from '../log-sink';
 import type { Repo } from '../ingest/repoqa-repos';
 import { RepoQARepos, deriveLocalRepoName, type RepoSymbol } from '../ingest/repoqa-repos';
 import { RepoQAWorker } from '../ingest/repoqa-worker';
@@ -55,6 +56,31 @@ export const MCP_SERVER_NAME = 'codecompass';
 // now ratchets against a literal reappearing here.
 export const MCP_SERVER_VERSION = VERSION;
 
+/**
+ * Issue 07(a) — the cross-tool orchestration string handed to clients at
+ * initialize. Tool descriptions say what each tool does; none of them can say
+ * in what ORDER to use the 17 tools, and the ADR-0016 async contract
+ * (index_repo returns immediately, list_repos must be polled) lived only inside
+ * index_repo's own description — an agent that started elsewhere never saw it.
+ * Kept deliberately short: it is a prompt, not documentation.
+ */
+export const MCP_SERVER_INSTRUCTIONS = [
+  'CodeCompass is a deterministic, zero-LLM code-fact layer over an indexed repository.',
+  '',
+  'Workflow order:',
+  '1. list_repos first — never guess a repoId. If the repo is missing, call index_repo.',
+  '2. index_repo returns { status: "indexing" } immediately (ADR-0016). It does NOT wait;',
+  '   poll list_repos until that repoId reports "ready" or "error" before any other tool.',
+  '3. scan to find where to start (orphans / hubs / oversized / deep chains), then',
+  '   diagnose, trace_call_chain or reverse_deps to locate the exact code path.',
+  '4. plan_evolution and get_conventions to draft a change plan on a located symbol.',
+  '',
+  'Boundaries: every tool is read-only except index_repo and remove_repo; the engine never',
+  'edits your source. Static call edges are not runtime paths — treat BREAK/SUSPECT markers',
+  'as facts about what static resolution could prove, and do not narrate around them.',
+  'Facts only: file paths, line numbers and symbol names returned here are exact anchors.'
+].join('\n');
+
 /* ------------------------------------------------------------------ */
 /* Stdout protocol guard                                               */
 /* ------------------------------------------------------------------ */
@@ -83,6 +109,14 @@ export interface McpDeps {
   worker: RepoQAWorker;
   /** Data root; remote clones land under `<dataDir>/clones/`. */
   dataDir: string;
+  /**
+   * Issue 12 (评估维 E-M12) — optional audit sink. Absent in unit tests on
+   * purpose: no logger injected ⇒ no files written, tests stay hermetic.
+   * `runMcpServer` constructs one from the data dir. Writes go through the
+   * sink's own sanitize (maskSensitiveText + truncation), never a bespoke
+   * serializer — the R1 masking invariant extends to this surface.
+   */
+  logger?: ServerLogger;
 }
 
 /** Handlers shared by worker + MCP tests; JSON is the wire format for tool results. */
@@ -364,7 +398,9 @@ export const MCP_TOOLS: McpToolMeta[] = [
     description:
       'Candidate Scan — proactive "what should I touch in this repo?" (deterministic, ' +
       'zero-LLM). Returns five buckets with file:line anchors: orphanedPublic (zero ' +
-      'static callers — verify reflectively-invoked code first), hubs (highest ' +
+      'static callers among CALLABLE symbols — types and interface members are out of ' +
+      'scope by ADR-0018 and counted in census.excluded; candidates flagged testOnly ' +
+      'have callers only in tests — verify reflectively-invoked code first), hubs (highest ' +
       'PageRank, run refactor_plan before touching), oversized (methods ≥150 lines), ' +
       'deepChains (longest entry flows — run diagnose on them), oversizedFiles ' +
       '(file-level debt hotspots). Each bucket carries the deterministic next tool ' +
@@ -954,21 +990,59 @@ export function mcpScan(deps: McpDeps, args: McpToolHandlerArgs): Record<string,
 /* MCP server (SDK)                                                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Issue 07(b) — map a declared JSON Schema type to a concrete zod type.
+ *
+ * The previous implementation was `spec.type === 'string' ? z.string() : z.unknown()`,
+ * i.e. every non-string parameter was validated by ZodUnknown, which accepts
+ * anything: maxTokens="500" / {} / true / [1,2] all reached the handler (the
+ * handler's own Number() + range check was the only guard). Unrecognised types
+ * now throw instead of silently degrading — a new parameter type must be mapped
+ * deliberately rather than becoming unvalidated by accident.
+ */
+function zodForJsonType(meta: McpToolMeta, key: string, type: string): z.ZodType {
+  switch (type) {
+    case 'string':
+      return z.string();
+    case 'number':
+      return z.number();
+    case 'boolean':
+      return z.boolean();
+    case 'array':
+      return z.array(z.string());
+    default:
+      throw new Error(
+        `zodForJsonType: unmapped JSON Schema type "${type}" for ${meta.name}.${key}`
+      );
+  }
+}
+
 function zodShapeFor(meta: McpToolMeta): Record<string, z.ZodType> {
   const required = new Set(meta.inputSchema.required);
   const shape: Record<string, z.ZodType> = {};
   for (const [key, spec] of Object.entries(meta.inputSchema.properties)) {
-    const base = spec.type === 'string' ? z.string() : z.unknown();
-    shape[key] = required.has(key) ? base : (base as z.ZodString).optional();
+    const base = zodForJsonType(meta, key, spec.type);
+    shape[key] = required.has(key) ? base : base.optional();
   }
   return shape;
 }
 
-function textResult(value: unknown) {
-  const text =
+/**
+ * Issue 07(c) — single egress chokepoint for every tool result.
+ *
+ * Before this, masking on the MCP surface existed in exactly one place
+ * (repo.error); diagnose's readSnippet and graphrag mask internally, so those
+ * two paths happened to be safe — but nothing guarded the exit itself, so any
+ * future tool returning a credential-bearing field would ship it silently.
+ * Masking here covers all 17 tools and every tool added later. Exported so the
+ * egress layer itself is unit-tested (not just the two paths that self-mask).
+ */
+export function textResult(value: unknown) {
+  const text = maskSensitiveText(
     typeof value === 'string'
       ? value
-      : JSON.stringify(value, null, 2);
+      : JSON.stringify(value, null, 2)
+  );
   return { content: [{ type: 'text' as const, text }] };
 }
 
@@ -976,7 +1050,7 @@ function textResult(value: unknown) {
 export function createMcpServer(deps: McpDeps): McpServer {
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    { capabilities: { tools: {} } }
+    { capabilities: { tools: {} }, instructions: MCP_SERVER_INSTRUCTIONS }
   );
 
   const handlers: Record<string, (args: McpToolHandlerArgs) => unknown | Promise<unknown>> = {
@@ -1001,6 +1075,51 @@ export function createMcpServer(deps: McpDeps): McpServer {
 
   // The SDK's registerTool generics infer very deep schemas; register through a
   // thin helper that treats the zod shape as opaque so typecheck stays shallow.
+  //
+  // Issue 12 (评估维 E-M12) — this is the ONLY exit for all 17 tools, so the
+  // audit hook lives here: one place covers every tool and every tool added
+  // later. The scoring standard asks for 入参/出参/耗时/结果 per call, and the
+  // 3-point tier wants success rate + latency distribution + error distribution
+  // — all derivable from these fields (see scripts/mcp/audit_stats.mjs).
+  // Args/results are logged as JSON strings so the sink's sanitize masks and
+  // truncates them (≤4096 chars each) while the true byte sizes stay recorded.
+  const audit = (
+    tool: string,
+    args: McpToolHandlerArgs,
+    outcome: { ok: boolean; value?: unknown; error?: unknown },
+    startedAt: number
+  ): void => {
+    const logger = deps.logger;
+    if (!logger) return;
+    const serialize = (value: unknown): { text: string | undefined; bytes: number } => {
+      if (value === undefined) return { text: undefined, bytes: 0 };
+      try {
+        const text = typeof value === 'string' ? value : JSON.stringify(value);
+        return { text, bytes: Buffer.byteLength(text, 'utf8') };
+      } catch {
+        // Circular / non-serializable payloads must never break a tool call.
+        return { text: '<unserializable>', bytes: 0 };
+      }
+    };
+    const argsJson = serialize(args ?? {});
+    const resultJson = serialize(outcome.value);
+    const fields: Record<string, unknown> = {
+      tool,
+      durationMs: Math.round(performance.now() - startedAt),
+      ok: outcome.ok,
+      argsBytes: argsJson.bytes,
+      resultBytes: outcome.ok ? resultJson.bytes : 0
+    };
+    if (argsJson.text !== undefined) fields.args = argsJson.text;
+    if (outcome.ok && resultJson.text !== undefined) fields.result = resultJson.text;
+    if (!outcome.ok) {
+      fields.error = outcome.error instanceof Error ? outcome.error.message : String(outcome.error);
+    }
+    const repoId = (args as { repoId?: unknown })?.repoId;
+    if (typeof repoId === 'string') fields.repoId = repoId;
+    logger.info('mcp', 'tool_call', fields);
+  };
+
   const registerPlain = (
     meta: McpToolMeta,
     handler: (args: McpToolHandlerArgs) => unknown | Promise<unknown>
@@ -1008,7 +1127,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
     (server.registerTool as any)(
       meta.name,
       { description: meta.description, inputSchema: zodShapeFor(meta) },
-      async (args: McpToolHandlerArgs) => textResult(await handler(args))
+      async (args: McpToolHandlerArgs) => {
+        const startedAt = performance.now();
+        try {
+          const value = await handler(args);
+          audit(meta.name, args, { ok: true, value }, startedAt);
+          return textResult(value);
+        } catch (error) {
+          // Audit then rethrow: the protocol behaviour must not change.
+          audit(meta.name, args, { ok: false, error }, startedAt);
+          throw error;
+        }
+      }
     );
   };
 
@@ -1074,7 +1204,10 @@ export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<v
       );
     }
 
-    const server = createMcpServer({ repoqa, worker, dataDir: config.dataDir });
+    // Issue 12 — the audit sink exists only on the real serving path: unit
+    // tests inject nothing and therefore write no files.
+    const logger = new ServerLogger(config.dataDir, env.MHW_LOG_LEVEL);
+    const server = createMcpServer({ repoqa, worker, dataDir: config.dataDir, logger });
     const done = new Promise<void>((resolve) => {
       server.server.onclose = () => resolve();
       server.server.onerror = () => resolve();

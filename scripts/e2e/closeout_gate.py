@@ -456,6 +456,109 @@ def check_versions() -> None:
     )
 
 
+def check_doc_surface() -> None:
+    """Issue 07 hard condition #1 + ticket 03(b): README cannot drift again.
+
+    Two different failures lived here and one of them had already shipped a
+    falsely-ticked acceptance box:
+      * the tool LIST drifted — ticket 03(b) bumped the prose count to 17 but
+        left the enumerable table at 15 rows. The table is now generated from
+        MCP_TOOLS, so parity is proven by regenerating and diffing (the
+        generator does both directions and names the drift).
+      * the VERSION string sat at v0.26.0 while package.json/version.ts were at
+        0.31.0 — check_versions asserted three surfaces but never the README.
+    """
+    sync = ROOT / "scripts/docs/sync-mcp-tool-table.py"
+    if not sync.exists():
+        record("readme-tool-table-parity (generated from MCP_TOOLS)", False,
+               f"generator missing: {sync}")
+    else:
+        proc = subprocess.run(
+            [sys.executable, str(sync), "--check"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
+        record(
+            "readme-tool-table-parity (generated from MCP_TOOLS, bidirectional)",
+            proc.returncode == 0,
+            _tail(proc) if proc.returncode != 0 else (proc.stdout or "").strip()[:120],
+        )
+
+    pkg_version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    readme_version = re.search(
+        r"当前版本：`v([0-9]+\.[0-9]+\.[0-9]+)`",
+        (ROOT / "README.md").read_text(encoding="utf-8"),
+    )
+    got = readme_version.group(1) if readme_version else ""
+    record(
+        "readme-version (README 当前版本 == package.json version)",
+        got == pkg_version,
+        f"readme={got!r} package.json={pkg_version!r}",
+    )
+
+
+def check_precision_ratchet(node: str) -> None:
+    """V31-05 — precision regressions had no gate at all.
+
+    Runs the harness in `--ratchet self` mode: structural invariants (census
+    conservation, contamination=0, callable-only orphan scope, ADR-0018
+    exclusion rules live) plus the orphan-ratio ceiling against a FROZEN
+    baseline. `self` only — CI has no lazygit/petclinic clones, and the ratio
+    invariants do not need them. Indexing the working tree takes ~10s.
+    """
+    ratchet = ROOT / "scripts/precision/scan_precision.ts"
+    tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
+    if not ratchet.exists() or not tsx.exists():
+        record("precision-ratchet (self): invariants + frozen ratio ceiling", False,
+               f"missing {ratchet if not ratchet.exists() else tsx}")
+        return
+    proc = subprocess.run(
+        [node, "--max-old-space-size=4096", str(tsx), str(ratchet), "--ratchet", "self"],
+        cwd=ROOT, capture_output=True, text=True, timeout=600,
+    )
+    record(
+        "precision-ratchet (self): invariants + frozen ratio ceiling",
+        proc.returncode == 0,
+        _tail(proc) if proc.returncode != 0 else (proc.stdout or "").strip().splitlines()[-1] if proc.stdout else "ok",
+    )
+
+
+def check_mcp_conformance(node: str, cli: Path, repo_path: Path, data_dir: Path) -> None:
+    """Issue 14 (评估维 E-M10) — the portable protocol suite, both directions.
+
+    Runs the generic conformance suite (script + fixture, no project coupling)
+    against this server (must be green) AND against the deliberately broken
+    fixture server in both violation modes (must be caught). Green-on-self alone
+    would not prove "runnable against any implementation" — the reverse run does.
+    """
+    suite = ROOT / "scripts/e2e/mcp_conformance.py"
+    bad = ROOT / "scripts/e2e/fixtures/mcp-bad-server.mjs"
+    if not suite.exists() or not bad.exists():
+        record("issue14 mcp-conformance (portable suite + reverse proof)", False,
+               f"missing {suite if not suite.exists() else bad}")
+        return
+
+    good_cmd = f'"{node}" "{cli}" mcp "{repo_path}" --data-dir "{data_dir}"'
+    runs = [
+        ("self", [sys.executable, str(suite), "--server-cmd", good_cmd], 0),
+        ("bad-handshake", [sys.executable, str(suite), "--server-cmd", f'"{node}" "{bad}" --mode=handshake'], 1),
+        ("bad-tools", [sys.executable, str(suite), "--server-cmd", f'"{node}" "{bad}" --mode=tools'], 1),
+    ]
+    outcomes = []
+    ok = True
+    for label, command, expected in runs:
+        proc = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=300)
+        hit_expected = (proc.returncode == expected) if expected == 0 else (proc.returncode != 0)
+        if not hit_expected:
+            ok = False
+        tail = (proc.stdout or "").strip().splitlines()
+        outcomes.append(f"{label}:rc={proc.returncode}{'/' + tail[-1].split('—')[0].strip() if tail else ''}")
+    record(
+        "issue14 mcp-conformance (portable suite + reverse proof)",
+        ok,
+        " | ".join(outcomes),
+    )
+
+
 def check_health_payload_version(base: str) -> None:
     """V27-25: /health used to report a stale hardcoded 0.6.0 — wait_health only
     probed reachability. Assert the payload echoes the single-source VERSION."""
@@ -988,6 +1091,36 @@ def check_mcp_composite_tools(
                 "arguments": {"localPath": str(repo_path)},
             },
         },
+        # Issue 07(b) — maxTokens is the only non-string parameter in the whole
+        # tool surface, and it used to be validated by ZodUnknown (accepts
+        # anything). A string must now be rejected before the handler runs.
+        {
+            "jsonrpc": "2.0",
+            "id": 8,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_get_subgraph_context",
+                "arguments": {
+                    "repoId": "demo-polyglot",
+                    "query": "owners",
+                    "maxTokens": "500",
+                },
+            },
+        },
+        # ...and the legitimate numeric form must still pass.
+        {
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {
+                "name": "codecompass_get_subgraph_context",
+                "arguments": {
+                    "repoId": "demo-polyglot",
+                    "query": "owners",
+                    "maxTokens": 500,
+                },
+            },
+        },
     ]
     responses = _mcp_roundtrip(node, cli, repo_path, data_dir, requests)
 
@@ -1003,6 +1136,81 @@ def check_mcp_composite_tools(
         and "codecompass_scan" in names and "codecompass_get_conventions" in names
         and "codecompass_plan_evolution" in names and len(names) == 17,
         f"tools={len(names)}",
+    )
+
+    # Issue 07(a): 17 tools span five usage stages and nothing used to tell a
+    # client the order to call them in — the ADR-0016 async contract lived only
+    # inside index_repo's own description. Assert the handshake carries it.
+    instructions = responses.get(1, {}).get("result", {}).get("instructions") or ""
+    record(
+        "issue07 mcp-server-instructions (initialize carries cross-tool workflow guidance)",
+        "list_repos" in instructions and "indexing" in instructions and len(instructions) > 200,
+        f"len={len(instructions)}",
+    )
+
+    # Issue 07(d): compare the LIVE tools/list against the README table rather
+    # than the source file, so documentation drift is caught against what a real
+    # client is actually offered.
+    readme_text = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_tools = set(re.findall(r"^\|\s*`(codecompass_[a-z_]+)`\s*\|", readme_text, re.MULTILINE))
+    live_tools = set(names)
+    record(
+        "issue07 readme-tool-table-parity (live tools/list set == README table set)",
+        live_tools == readme_tools and len(readme_tools) == 17,
+        f"live={len(live_tools)} readme={len(readme_tools)} "
+        f"missing_in_readme={sorted(live_tools - readme_tools)} stale_in_readme={sorted(readme_tools - live_tools)}",
+    )
+
+    # Issue 07(b): the type guard must reject, not silently coerce. The SDK wraps
+    # an input-validation McpError into a tool result with isError:true, so the
+    # discriminator is the validation message, not a JSON-RPC `error` field.
+    def _tool_text(rid: int) -> str:
+        return "".join(
+            item.get("text", "")
+            for item in responses.get(rid, {}).get("result", {}).get("content", [])
+        )
+
+    rejected = "Input validation error" in _tool_text(8)
+    accepted = "Input validation error" not in _tool_text(9)
+    record(
+        "issue07 mcp-tool-schema-types (maxTokens string rejected / number accepted)",
+        rejected and accepted,
+        f"string_rejected={rejected} number_accepted={accepted}",
+    )
+
+    # Issue 12 (评估维 E-M12) — the audit sink must have recorded the calls made
+    # above. This asserts the wiring end-to-end (real CLI process, real data
+    # dir), not just that a logger object exists in the source.
+    log_dir = Path(data_dir) / "logs"
+    audit_rows: list[dict] = []
+    if log_dir.is_dir():
+        for log_file in sorted(log_dir.glob("control-plane-*.jsonl")):
+            for raw in log_file.read_text(encoding="utf-8").splitlines():
+                if not raw.strip():
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if row.get("scope") == "mcp" and row.get("msg") == "tool_call":
+                    audit_rows.append(row)
+    tools_logged = {row.get("tool") for row in audit_rows}
+    fields_ok = all(
+        isinstance(row.get("durationMs"), (int, float))
+        and isinstance(row.get("ok"), bool)
+        and row.get("resultBytes") is not None
+        for row in audit_rows
+    ) if audit_rows else False
+    # Issue 13 (E-M7) — a WRITE tool must also leave a row: that is the
+    # "副作用审计日志" half of the 3-point requirement.
+    write_logged = any(
+        row.get("tool") == "codecompass_index_repo" and row.get("ok") is True
+        for row in audit_rows
+    )
+    record(
+        "issue12 mcp-audit-log (tool_call rows with tool/durationMs/ok/resultBytes)",
+        len(audit_rows) >= 2 and "codecompass_diagnose" in tools_logged and fields_ok and write_logged,
+        f"rows={len(audit_rows)} tools={sorted(t for t in tools_logged if t)} fields_ok={fields_ok} write_logged={write_logged}",
     )
 
     diagnose_text = ""
@@ -1895,6 +2103,10 @@ def main() -> int:
 
     # Version consistency needs no server either.
     check_versions()
+    # Issue 07: README tool table (generated) + README version string.
+    check_doc_surface()
+    # V31-05: precision ratchet (no server; indexes the working tree itself).
+    check_precision_ratchet(args.node)
 
     server = subprocess.Popen(
         [args.node, str(cli), "--port", str(port), "--data-dir", str(data_dir), "--no-browser"],
@@ -1928,6 +2140,8 @@ def main() -> int:
 
         # v0.8 — composite tools over MCP stdio and the CLI surface.
         check_mcp_composite_tools(args.node, cli, polyglot, data_dir, tmp)
+        # Issue 14 — portable protocol conformance (self + reverse proof).
+        check_mcp_conformance(args.node, cli, polyglot, data_dir)
         check_cli_composite(args.node, cli, polyglot, data_dir, tmp)
         # v0.9 — domain radar, module evolution, multi-view artifacts.
         check_v09_radar_evolve(args.node, cli, polyglot, data_dir, tmp)
