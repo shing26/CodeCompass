@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { TypeScriptAdapter, parseTypeScriptSource } from './TypeScriptAdapter';
+import {
+  TypeScriptAdapter,
+  buildTypeScriptDeclarations,
+  parseTypeScriptSource
+} from './TypeScriptAdapter';
+import type { ParseContext, TypeScriptDeclarations } from './parse-context';
 import { buildCallIndex, resolveCallEdge } from '../engine/repoqa-callchain';
 
 describe('TypeScriptAdapter — symbol extraction (Issue 25)', () => {
@@ -520,5 +525,381 @@ export function makeClient() {
     expect(call?.dynamic).toBe(false);
     // The module-level case must not crash or emit a bogus edge.
     expect(symbols.every((symbol) => (symbol.calls ?? []).every((entry) => entry.method !== 'constructor' || entry.receiver === 'RepoQAClient'))).toBe(true);
+  });
+});
+
+/**
+ * Issue 18(f)2/(e) — the cross-file declaration table. Every case below is one
+ * of the shapes the self-repo top-10 actually contained, or an anti-example that
+ * must stay dynamic. The table is built by `buildTypeScriptDeclarations`, the
+ * same scanner the worker runs once per index.
+ */
+function contextOf(
+  files: ReadonlyArray<{ relativePath: string; source: string }>
+): ParseContext {
+  return { languages: { typescript: buildTypeScriptDeclarations(files) } };
+}
+
+describe('TypeScriptAdapter — cross-file declarations (issue 18(f)2/(e))', () => {
+  it('f2: a hook return type from another file types the destructured receiver', () => {
+    // App.tsx:54/156 shape: `const { client } = useFixtureContext()` in WorkbenchShell, with
+    // `useFixtureContext(): FixtureContextValue` and the interface both in RepoContext.tsx.
+    // The call sits in a JSX attribute arrow, so it is attributed to the shell.
+    const context = contextOf([
+      {
+        relativePath: 'src/context/RepoContext.tsx',
+        source: `
+interface FixtureContextValue { client: RepoQAClient; repoId: string | null }
+export function useFixtureContext(): FixtureContextValue { return value; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function WorkbenchShell() {
+  const { client, repoId } = useFixtureContext();
+  return <TopBar onPickFolder={() => client.pickFolder()} />;
+}
+`,
+      'src/App.tsx',
+      'repo',
+      context
+    );
+    const shell = symbols.find((symbol) => symbol.name === 'WorkbenchShell');
+    const call = shell?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('f2: the cross-file hook is reached without a rename, and resolves to the class method', () => {
+    const context = contextOf([
+      {
+        relativePath: 'src/context/RepoContext.tsx',
+        source: `
+interface FixtureContextValue { client: RepoQAClient }
+export function useFixtureContext(): FixtureContextValue { return value; }
+`
+      },
+      {
+        relativePath: 'src/client/RepoQAClient.ts',
+        source: `
+export class RepoQAClient {
+  async getSubgraphContext(repoId: string, query: string) { return {}; }
+}
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function InspectorProvider({ children }) {
+  const { client, repoId } = useFixtureContext();
+  const handleCopy = async () => {
+    const context = await client.getSubgraphContext(repoId, query);
+    return context;
+  };
+  return handleCopy;
+}
+`,
+      'src/context/InspectorContext.tsx',
+      'repo',
+      context
+    );
+    // The const arrow is its own symbol (InspectorContext.tsx:69 shape).
+    const handler = symbols.find((symbol) => symbol.name === 'handleCopy');
+    const call = handler?.calls?.find((entry) => entry.method === 'getSubgraphContext');
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('f2 anti-false-edge: no table means no binding, and an unknown hook stays dynamic', () => {
+    const source = `
+export function WorkbenchShell() {
+  const { client } = useFixtureContext();
+  return <TopBar onPickFolder={() => client.pickFolder()} />;
+}
+`;
+    const receiverOf = (context?: ParseContext): string | undefined =>
+      parseTypeScriptSource(source, 'src/App.tsx', 'repo', context)
+        .find((symbol) => symbol.name === 'WorkbenchShell')
+        ?.calls?.find((entry) => entry.method === 'pickFolder')?.receiverType;
+
+    // No context at all (the pre-increment behaviour): the receiver stays dynamic.
+    expect(receiverOf()).toBeUndefined();
+
+    // A table that knows a DIFFERENT hook must not type this one.
+    const otherHook = contextOf([
+      {
+        relativePath: 'src/other.ts',
+        source: `
+interface OtherValue { client: RepoQAClient }
+export function useOther(): OtherValue { return value; }
+`
+      }
+    ]);
+    expect(receiverOf(otherHook)).toBeUndefined();
+  });
+
+  it('f2 fail-closed: a hook without a return annotation binds nothing', () => {
+    const context = contextOf([
+      {
+        relativePath: 'src/context/RepoContext.tsx',
+        source: `
+interface FixtureContextValue { client: RepoQAClient }
+export function useFixtureContext() { return value; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function WorkbenchShell() {
+  const { client } = useFixtureContext();
+  return <TopBar onPickFolder={() => client.pickFolder()} />;
+}
+`,
+      'src/App.tsx',
+      'repo',
+      context
+    );
+    const call = symbols
+      .find((symbol) => symbol.name === 'WorkbenchShell')
+      ?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(call?.dynamic).toBe(true);
+  });
+
+  it('f2: a rename or default in the destructuring pattern binds the member name never', () => {
+    // `{ client: renamed }` binds `renamed`, not `client`. Typing `client` here
+    // would attach an edge to a variable that does not exist.
+    const context = contextOf([
+      {
+        relativePath: 'src/context/RepoContext.tsx',
+        source: `
+interface FixtureContextValue { client: RepoQAClient }
+export function useFixtureContext(): FixtureContextValue { return value; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function WorkbenchShell() {
+  const { client: renamed } = useFixtureContext();
+  return <TopBar onPickFolder={() => client.pickFolder()} />;
+}
+`,
+      'src/App.tsx',
+      'repo',
+      context
+    );
+    const call = symbols
+      .find((symbol) => symbol.name === 'WorkbenchShell')
+      ?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(call?.receiverType).toBeUndefined();
+    expect(call?.dynamic).toBe(true);
+  });
+
+  it('f2 anti-false-edge: a cross-file Pick<> receiver keeps its restriction', () => {
+    // The restriction has to survive the cross-file hop, or a member outside K
+    // would resolve into an edge the type system does not have.
+    const context = contextOf([
+      {
+        relativePath: 'src/context/RepoContext.tsx',
+        source: `
+interface FixtureContextValue { client: Pick<RepoQAClient, 'runGate'> }
+export function useFixtureContext(): FixtureContextValue { return value; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function WorkbenchShell() {
+  const { client } = useFixtureContext();
+  return (
+    <TopBar
+      onRun={() => client.runGate()}
+      onPick={() => client.pickFolder()}
+    />
+  );
+}
+`,
+      'src/App.tsx',
+      'repo',
+      context
+    );
+    const shell = symbols.find((symbol) => symbol.name === 'WorkbenchShell');
+    const allowed = shell?.calls?.find((entry) => entry.method === 'runGate');
+    const outside = shell?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(allowed?.receiverType).toBe('RepoQAClient');
+    expect(allowed?.dynamic).toBe(false);
+    expect(outside?.receiverType).toBeUndefined();
+    expect(outside?.dynamic).toBe(true);
+  });
+
+  it('f2: a file-local interface shadows the cross-file one of the same name', () => {
+    const context = contextOf([
+      {
+        relativePath: 'src/context/RepoContext.tsx',
+        source: `
+interface FixtureContextValue { client: OtherClient }
+export function useFixtureContext(): FixtureContextValue { return value; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+interface FixtureContextValue { client: RepoQAClient }
+export function WorkbenchShell() {
+  const { client } = useFixtureContext();
+  return <TopBar onPickFolder={() => client.pickFolder()} />;
+}
+`,
+      'src/App.tsx',
+      'repo',
+      context
+    );
+    const call = symbols
+      .find((symbol) => symbol.name === 'WorkbenchShell')
+      ?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(call?.receiverType).toBe('RepoQAClient');
+  });
+
+  it('table: the same name declared twice with different content is dropped', () => {
+    const declarations: TypeScriptDeclarations = buildTypeScriptDeclarations([
+      { relativePath: 'a.ts', source: `interface Shared { client: RepoQAClient }` },
+      { relativePath: 'b.ts', source: `interface Shared { client: OtherClient }` },
+      { relativePath: 'c.ts', source: `interface Identical { client: RepoQAClient }` },
+      { relativePath: 'd.ts', source: `interface Identical { client: RepoQAClient }` }
+    ]);
+    // Conflicting declarations: resolving through either would be a guess.
+    expect(declarations.interfaces.has('Shared')).toBe(false);
+    // Identical redeclaration is harmless.
+    expect(declarations.interfaces.get('Identical')?.get('client')).toBe('RepoQAClient');
+  });
+
+  it('table: a function whose two declarations disagree is dropped from both maps', () => {
+    const declarations = buildTypeScriptDeclarations([
+      { relativePath: 'a.ts', source: `export function useThing(): Alpha { return a; }` },
+      { relativePath: 'b.ts', source: `export function useThing(): Beta { return b; }` }
+    ]);
+    expect(declarations.returns.has('useThing')).toBe(false);
+    expect(declarations.params.has('useThing')).toBe(false);
+  });
+
+  it('e: a callback parameter is typed by the callee signature from another file', () => {
+    // useReverseDeps.ts:18 shape — `(c, repoId_, name) => c.listReverseDeps(...)`
+    // with the callback type declared on useSymbolResource's fourth parameter.
+    const context = contextOf([
+      {
+        relativePath: 'src/hooks/useSymbolResource.ts',
+        source: `
+export function useSymbolResource<T>(
+  client: RepoQAClient,
+  repoId: string | null,
+  symbolName: string | null,
+  fetch: (client: RepoQAClient, repoId: string, symbolName: string) => Promise<T>
+): SymbolResourceState<T> { return state; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function useReverseDeps(client, repoId, symbolName) {
+  return useSymbolResource(client, repoId, symbolName, (c, repoId_, name) =>
+    c.listReverseDeps(repoId_, name)
+  );
+}
+`,
+      'src/hooks/useReverseDeps.ts',
+      'repo',
+      context
+    );
+    const hook = symbols.find((symbol) => symbol.name === 'useReverseDeps');
+    const call = hook?.calls?.find((entry) => entry.method === 'listReverseDeps');
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('e: a callback argument index is matched positionally, not by identity', () => {
+    // The first version used indexOf on the argument list; lezer hands out fresh
+    // SyntaxNode wrappers, so it never matched and this binding silently never
+    // fired. A callback in a later position is the case that catches a regression.
+    const context = contextOf([
+      {
+        relativePath: 'src/hooks/useThing.ts',
+        source: `
+export function useThing(a: A, b: B, fetch: (client: RepoQAClient) => Promise<void>) { return 1; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function consumer() {
+  return useThing(first, second, (client) => client.pickFolder());
+}
+`,
+      'src/consumer.ts',
+      'repo',
+      context
+    );
+    const call = symbols
+      .find((symbol) => symbol.name === 'consumer')
+      ?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(call?.receiverType).toBe('RepoQAClient');
+  });
+
+  it('e anti-override: a callback parameter with its own annotation is never replaced', () => {
+    // Even an annotation that does NOT resolve must win — falling back to the
+    // callee signature would silently contradict what the file says.
+    const context = contextOf([
+      {
+        relativePath: 'src/hooks/useThing.ts',
+        source: `
+export function useThing(fetch: (client: RepoQAClient) => Promise<void>) { return 1; }
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function consumer() {
+  return useThing((c: SomethingUnresolvable) => c.pickFolder());
+}
+`,
+      'src/consumer.ts',
+      'repo',
+      context
+    );
+    const call = symbols
+      .find((symbol) => symbol.name === 'consumer')
+      ?.calls?.find((entry) => entry.method === 'pickFolder');
+    expect(call?.receiverType).toBeUndefined();
+    expect(call?.dynamic).toBe(true);
+  });
+
+  it('e fail-closed: a non-signature parameter type, an unknown callee and arity mismatch bind nothing', () => {
+    const context = contextOf([
+      {
+        relativePath: 'src/hooks/useThing.ts',
+        source: `
+export function plain(fetch: RepoQAClient) { return 1; }
+export function union(fetch: RepoQAClient | OtherClient) { return 1; }
+export function oneParam(fetch: (client: RepoQAClient) => Promise<void>) { return 1; }
+`
+      }
+    ]);
+    const parse = (body: string): ReturnType<typeof parseTypeScriptSource> =>
+      parseTypeScriptSource(body, 'src/consumer.ts', 'repo', context);
+    const receiverOf = (symbols: ReturnType<typeof parseTypeScriptSource>): string | undefined =>
+      symbols
+        .find((symbol) => symbol.name === 'consumer')
+        ?.calls?.find((entry) => entry.method === 'pickFolder')?.receiverType;
+
+    // Not a function type at all.
+    expect(receiverOf(parse(`export function consumer() { return plain((c) => c.pickFolder()); }`))).toBeUndefined();
+    // A union is not a signature.
+    expect(receiverOf(parse(`export function consumer() { return union((c) => c.pickFolder()); }`))).toBeUndefined();
+    // A callee the table has never heard of.
+    expect(receiverOf(parse(`export function consumer() { return unknownFn((c) => c.pickFolder()); }`))).toBeUndefined();
+    // More parameters than the declared signature has: a shape we do not understand.
+    expect(
+      receiverOf(parse(`export function consumer() { return oneParam((c, extra) => c.pickFolder()); }`))
+    ).toBeUndefined();
   });
 });

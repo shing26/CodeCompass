@@ -6,6 +6,7 @@ import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import { joinRoutePath } from './JavaAdapter';
 import { TYPESCRIPT_EXTENSIONS } from './language-extensions';
 import type { LanguageAdapter } from './LanguageAdapter';
+import type { ParseContext, TypeScriptDeclarations } from './parse-context';
 
 /**
  * Issue 25 — TypeScript/JavaScript adapter.
@@ -64,6 +65,13 @@ interface ReceiverType {
   name: string;
   allowed?: ReadonlySet<string>;
 }
+
+/**
+ * Issue 18(f)2 — member lookup for a named type, file-local first and
+ * cross-file second. A file that declares its own `Foo` must win over the
+ * repo-wide `Foo` (the same nearest-declaration-wins rule the scope chain uses).
+ */
+type MemberLookup = (typeName: string) => ReadonlyMap<string, string> | undefined;
 
 interface TypeRecord {
   name: string;
@@ -327,7 +335,7 @@ function isRouterReceiver(receiver: string | undefined): boolean {
 function collectParams(
   node: SyntaxNode,
   source: string,
-  interfaceMembers: ReadonlyMap<string, ReadonlyMap<string, string>>
+  memberLookup: MemberLookup
 ): MethodScope {
   const params = new Map<string, ReceiverType>();
   const declared = new Set<string>();
@@ -363,22 +371,23 @@ function collectParams(
         // member-wise from the explicit literal — still deterministic, and
         // untyped/complex members stay unbound (fail-closed).
         for (const [member, memberType] of typeLiteralMembers(child, source)) {
-          const resolved = resolveTypeRef(memberType, interfaceMembers);
+          const resolved = resolveTypeRef(memberType);
           if (resolved) params.set(member, resolved);
         }
-      } else if (/^[A-Za-z_$][\w$]*$/.test(raw) && interfaceMembers.has(raw)) {
+      } else if (/^[A-Za-z_$][\w$]*$/.test(raw) && memberLookup(raw)) {
         // Issue 18(g) — a NAMED props interface (`{ client }: EvolutionViewProps`):
         // the members live in the interface body, so bind each member the
         // annotation actually declares (attribution experiment showed this was
-        // broken independently of the Pick<> case below).
-        for (const [member, memberType] of interfaceMembers.get(raw)!) {
-          const resolved = resolveTypeRef(memberType, interfaceMembers);
+        // broken independently of the Pick<> case below). Issue 18(f)2 — the
+        // interface may now be declared in another file.
+        for (const [member, memberType] of memberLookup(raw)!) {
+          const resolved = resolveTypeRef(memberType);
           if (resolved) params.set(member, resolved);
         }
       } else {
         // Plain / utility-typed parameter (`client: RepoQAClient`,
         // `client: Pick<RepoQAClient, 'radar'>`).
-        const resolved = resolveTypeRef(raw, interfaceMembers);
+        const resolved = resolveTypeRef(raw);
         if (resolved) params.set(pendingParam, resolved);
       }
       pendingParam = undefined;
@@ -442,12 +451,169 @@ function memoFactoryClass(node: SyntaxNode, source: string): string | undefined 
   return name || undefined;
 }
 
+/**
+ * Issue 18(e) — bind a callback argument's parameters from the callee's declared
+ * signature.
+ *
+ * `useSymbolResource(client, repoId, name, (c, rid, n) => c.listReverseDeps(rid, n))`
+ * is the observed shape: `c` has no annotation of its own, and its type is decided
+ * by the fourth parameter of `useSymbolResource`, declared in another file as
+ * `(client: RepoQAClient, repoId: string, symbolName: string) => Promise<T>`.
+ *
+ * Only that shape is accepted: the declared parameter must be a function type, the
+ * callback must not declare more parameters than the signature does, and each
+ * position must resolve to a plain/Pick receiver type. A parameter that carries its
+ * own annotation is never overridden — even when that annotation did not resolve,
+ * because falling back to the callee signature would silently replace what the file
+ * actually says. Returns undefined when nothing was bound, so the caller pushes no
+ * scope at all.
+ */
+function bindCallbackParams(
+  node: SyntaxNode,
+  source: string,
+  memberLookup: MemberLookup,
+  crossFile: TypeScriptDeclarations | undefined
+): MethodScope | undefined {
+  const argList = node.parent;
+  const call = argList?.parent;
+  if (!crossFile || !argList || !call) return undefined;
+  if (argList.name !== 'ArgList' || call.name !== 'CallExpression') return undefined;
+  const callee = callShape(call, source).bareName;
+  if (!callee) return undefined;
+  const declaredParams = crossFile.params.get(callee);
+  if (!declaredParams) return undefined;
+  // Positional match, not indexOf: lezer hands out a fresh SyntaxNode wrapper per
+  // access, so the same argument is never reference-equal to the one walked out of
+  // the ArgList (identity comparison silently returned -1 here — the first version
+  // of this binding never fired for that reason).
+  const index = argumentNodes(call).findIndex(
+    (argument) => argument.from === node.from && argument.to === node.to
+  );
+  if (index < 0) return undefined;
+  const declaredType = declaredParams[index];
+  const paramTypes = declaredType ? functionTypeParamTypes(declaredType) : undefined;
+  if (!paramTypes) return undefined;
+
+  const list = node.getChild('ParamList');
+  if (!list) return undefined;
+  const annotated = annotatedParamNames(list, source);
+  const scope = collectParams(node, source, memberLookup);
+  const definitions = list.getChildren('VariableDefinition');
+  // More parameters than the signature declares is a shape we do not understand.
+  if (definitions.length > paramTypes.length) return undefined;
+  let bound = false;
+  definitions.forEach((definition, position) => {
+    const name = textOf(definition, source);
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) return; // destructured or rest parameter
+    if (annotated.has(name)) return; // its own annotation wins
+    const resolved = resolveTypeRef(paramTypes[position]);
+    if (!resolved) return;
+    scope.params.set(name, resolved);
+    scope.declared.add(name);
+    bound = true;
+  });
+  return bound ? scope : undefined;
+}
+
+/** Names of the parameters carrying their own annotation — the same pairing rule
+ * `collectParams` uses (annotation is a SIBLING of the definition in the list). */
+function annotatedParamNames(list: SyntaxNode, source: string): Set<string> {
+  const out = new Set<string>();
+  let pending: string | undefined;
+  let child = list.firstChild;
+  while (child) {
+    if (
+      child.name === 'VariableDefinition' ||
+      child.name === 'ObjectPattern' ||
+      child.name === 'ArrayPattern'
+    ) {
+      pending = textOf(child, source);
+    } else if (child.name === 'TypeAnnotation' && pending !== undefined) {
+      out.add(pending);
+      pending = undefined;
+    }
+    child = child.nextSibling;
+  }
+  return out;
+}
+
 /** Issue 11 — push a scope linked to the enclosing one (closure chain), so a
  * nested arrow's receiver lookups can reach the outer function's typed
  * parameters and locals. */
 function pushScope(scopeStack: MethodScope[], scope: MethodScope): void {
   scope.parent = scopeStack[scopeStack.length - 1];
   scopeStack.push(scope);
+}
+
+/** Issue 18(f)2 — the declared return type of a call's callee, when the callee is
+ * a cross-file function we have a signature for. `const ctx = useRepo()` then
+ * types `ctx` the same way the destructuring form does. Nothing is bound when the
+ * name is absent from the table or the annotation is not a plain/Pick type. */
+function declaredReturnType(
+  initCall: SyntaxNode | null | undefined,
+  source: string,
+  crossFile: TypeScriptDeclarations | undefined
+): ReceiverType | undefined {
+  if (!initCall || !crossFile) return undefined;
+  const callee = callShape(initCall, source).bareName;
+  if (!callee) return undefined;
+  const declared = crossFile.returns.get(callee);
+  return declared ? resolveTypeRef(declared) : undefined;
+}
+
+/**
+ * Issue 18(f)2 — `const { client, repoId } = useRepo()`.
+ *
+ * The destructured names are real bindings, so they are recorded in the scope's
+ * fence even when their type cannot be resolved (an untyped inner binding must
+ * still shadow an outer one). Only members whose type actually resolves get a
+ * type — anything else stays dynamic.
+ *
+ * Only a bare `{ name }` binds the member under its own name, so everything else
+ * is skipped rather than approximated:
+ *   `{ client: renamed }` binds `renamed` (lezer spells the target a
+ *   VariableDefinition) — typing `client` would attach an edge to a variable that
+ *   does not exist;
+ *   `{ client = fallback }` keeps the name but lets the value come from
+ *   elsewhere, so the origin is ambiguous;
+ *   `{ ...rest }` binds the REMAINING members as one object, never a single
+ *   member's type.
+ * In all three the real binding still goes into the fence.
+ */
+function bindDestructuredFromCall(
+  pattern: SyntaxNode,
+  initCall: SyntaxNode | null | undefined,
+  source: string,
+  scope: MethodScope,
+  memberLookup: MemberLookup,
+  crossFile: TypeScriptDeclarations | undefined
+): void {
+  const members = (() => {
+    const returned = declaredReturnType(initCall, source, crossFile);
+    return returned ? memberLookup(returned.name) : undefined;
+  })();
+  for (const property of pattern.getChildren('PatternProperty')) {
+    const nameNode = property.getChild('PropertyName');
+    const memberName = nameNode ? textOf(nameNode, source) : undefined;
+    const targets = property.getChildren('VariableDefinition');
+    const simple =
+      memberName !== undefined &&
+      targets.length === 0 &&
+      property.getChildren('Equals').length === 0 &&
+      property.getChildren('Spread').length === 0;
+    if (!simple) {
+      // Fence the names this shape really binds: the rename target, or the member
+      // name itself when only a default is involved.
+      for (const target of targets) scope.declared.add(textOf(target, source));
+      if (memberName && targets.length === 0) scope.declared.add(memberName);
+      continue;
+    }
+    scope.declared.add(memberName);
+    const raw = members?.get(memberName);
+    if (!raw) continue;
+    const resolved = resolveTypeRef(raw);
+    if (resolved) scope.locals.set(memberName, resolved);
+  }
 }
 
 function receiverTypeOf(
@@ -584,7 +750,18 @@ function httpCallDescriptor(
   return { method: property.toUpperCase(), url: joinHttpUrl(client?.baseURL, path) };
 }
 
-/** Mask string literals and comments with same-length spaces (offsets stable). */
+/** Mask string literals and comments with same-length spaces (offsets stable).
+ *
+ * KNOWN GAP (2026-09-24, registered — not fixed here): the `'`/`"` branch is
+ * line-bounded, so a MULTI-LINE template literal is only masked up to its first
+ * newline and its contents are then scanned as source. A test fixture holding
+ * `interface X { … }` therefore produced a phantom interface symbol, and the
+ * issue 18(f)2 declaration table dropped the real `X` as ambiguous. Widening the
+ * backtick branch to span newlines fixes that but breaks worse: a backtick inside
+ * a COMMENT (or a regex literal) then pairs with one far away and leaves real
+ * comment text unmasked — this file did exactly that to itself. A correct fix is
+ * two-phase masking (comments and quotes first, then templates over the result),
+ * which needs its own measurement, so it stays a separate ticket. */
 function maskLiteralsAndComments(source: string): string {
   return source.replace(
     /(["'`])(?:\\.|(?!\1)[^\\\n])*\1|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
@@ -669,11 +846,7 @@ function splitTopLevel(text: string, separator: string): string[] {
  *   `X | undefined`           → same as `X`  (optional members are common)
  *   anything else (unions of objects, arrays, functions, inline literals) → undefined
  */
-function resolveTypeRef(
-  raw: string,
-  interfaceMembers: ReadonlyMap<string, ReadonlyMap<string, string>>,
-  depth = 0
-): ReceiverType | undefined {
+function resolveTypeRef(raw: string, depth = 0): ReceiverType | undefined {
   if (depth > 4) return undefined;
   let text = raw.trim();
   if (!text) return undefined;
@@ -706,7 +879,6 @@ function resolveTypeRef(
   }
   // A named interface/type alias used as a member type is an object shape, not
   // a receiver — callers that destructure it consult the member table instead.
-  void interfaceMembers;
   return undefined;
 }
 
@@ -764,6 +936,174 @@ function extractTypeOnlyDeclarations(
 }
 
 /**
+ * Issue 18(f)2/(e) — the repo-wide declaration table.
+ *
+ * Built with the same text scanners the per-file pass uses, deliberately NOT
+ * with a second lezer parse: the review already has "the Go adapter parses every
+ * file twice" on the measurement backlog, and adding a second full parse of every
+ * TS file to a TS-heavy repo would be a much larger cost than this table is worth.
+ * Scanning is a single regex pass over a masked copy, so the price is one extra
+ * read plus that pass — and every shape it cannot recognise is simply absent
+ * (fail-closed), never guessed.
+ *
+ * Ambiguity rule (same as the Go package table): a name declared in two places
+ * with *different* content is dropped, because choosing between two conflicting
+ * declarations would be a guess. Identical redeclarations are harmless and kept.
+ */
+export function buildTypeScriptDeclarations(
+  sources: ReadonlyArray<{ relativePath: string; source: string }>
+): TypeScriptDeclarations {
+  const interfaces = new Map<string, ReadonlyMap<string, string>>();
+  const returns = new Map<string, string>();
+  const params = new Map<string, readonly string[]>();
+  const ambiguous = new Set<string>();
+
+  const keep = <T>(
+    map: Map<string, T>,
+    name: string,
+    value: T,
+    same: (a: T, b: T) => boolean
+  ): void => {
+    if (ambiguous.has(name)) return;
+    const existing = map.get(name);
+    if (existing === undefined) {
+      map.set(name, value);
+      return;
+    }
+    if (same(existing, value)) return;
+    map.delete(name);
+    ambiguous.add(name);
+  };
+  const sameMembers = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean => {
+    if (a.size !== b.size) return false;
+    for (const [key, value] of a) if (b.get(key) !== value) return false;
+    return true;
+  };
+  const sameList = (a: readonly string[], b: readonly string[]): boolean =>
+    a.length === b.length && a.every((value, index) => value === b[index]);
+
+  for (const { relativePath, source } of sources) {
+    // Interfaces: reuse the per-file extractor so the member-splitting rules
+    // (depth-aware, `=>`-aware) have exactly one definition. It masks the source
+    // itself and slices members out of the RAW text, which is what keeps
+    // `Pick<X, 'a'>` intact — the masked view blanks string literals.
+    const local = new Map<string, Map<string, string>>();
+    extractTypeOnlyDeclarations(source, relativePath, '', [], local);
+    for (const [name, members] of local) keep(interfaces, name, members, sameMembers);
+
+    const masked = maskLiteralsAndComments(source);
+    for (const signature of scanFunctionSignatures(masked, source)) {
+      keep(returns, signature.name, signature.returnType, (a, b) => a === b);
+      keep(params, signature.name, signature.paramTypes, sameList);
+      // A function whose two declarations disagree must be dropped from BOTH
+      // maps: a return type from one file and parameters from another would be a
+      // combination neither file declares.
+      if (ambiguous.has(signature.name)) {
+        returns.delete(signature.name);
+        params.delete(signature.name);
+      }
+    }
+  }
+
+  return { interfaces, returns, params };
+}
+
+/**
+ * `function name<…>(…): Return` declarations, read from the masked view (so
+ * comments and string literals cannot fake a declaration) but sliced out of the
+ * raw source (so a `Pick<X, 'a'>` return type keeps its quotes).
+ *
+ * Accepted shapes are intentionally narrow; anything else is skipped rather than
+ * approximated: the type-parameter list must be balanced, the parameter list must
+ * close on its own paren, and the return annotation is whatever follows up to the
+ * body brace. Arrow-function consts (`export const useX = (…) => …`) are not
+ * scanned — none of the observed shapes needed them, and a wrong scan here would
+ * type a receiver from a declaration that does not exist.
+ */
+function scanFunctionSignatures(
+  masked: string,
+  source: string
+): Array<{ name: string; returnType: string; paramTypes: string[] }> {
+  const out: Array<{ name: string; returnType: string; paramTypes: string[] }> = [];
+  const declarationRe = /\bfunction\s+([A-Za-z_$][\w$]*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = declarationRe.exec(masked)) !== null) {
+    let cursor = match.index + match[0].length;
+    if (masked[cursor] === '<') {
+      const close = matchAngle(masked, cursor);
+      if (close < 0) continue;
+      cursor = close + 1;
+    }
+    while (/\s/.test(masked[cursor] ?? '')) cursor += 1;
+    if (masked[cursor] !== '(') continue;
+    const closeParen = matchParen(masked, cursor);
+    if (closeParen < 0) continue;
+    // Raw text for both halves — see the doc comment above.
+    const paramTypes = splitTopLevel(source.slice(cursor + 1, closeParen), ',').map(paramTypeText);
+    let rest = source.slice(closeParen + 1);
+    const body = rest.indexOf('{');
+    if (body >= 0) rest = rest.slice(0, body);
+    rest = rest.replace(/^\s*:\s*/, '').trim();
+    if (rest.includes('=>') || rest.includes('\n')) rest = '';
+    out.push({ name: match[1], returnType: rest, paramTypes });
+    declarationRe.lastIndex = closeParen + 1;
+  }
+  return out;
+}
+
+/** Index of the paren closing the one at `open`, or -1. Paren-only depth is
+ * enough: the input is masked, so no string or comment can hide an unbalanced
+ * paren. */
+function matchParen(text: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    if (text[index] === '(') depth += 1;
+    else if (text[index] === ')') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+/** Index of the `>` closing the `<` at `open`, or -1. `=>` is skipped: its `>`
+ * is an arrow, and counting it drives the depth negative (the defect the issue
+ * 18(g) probe found in the member splitter). */
+function matchAngle(text: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < text.length; index += 1) {
+    const ch = text[index];
+    if (ch === '>' && text[index - 1] === '=') continue;
+    if (ch === '<') depth += 1;
+    else if (ch === '>') {
+      depth -= 1;
+      if (depth === 0) return index;
+    } else if (ch === ';' || ch === '{') return -1;
+  }
+  return -1;
+}
+
+/** The type half of a parameter (`c: RepoQAClient` → `RepoQAClient`); '' when
+ * the parameter carries no annotation. Split at bracket depth 0 so an object
+ * literal type (`{ a: string }`) keeps its own colon. */
+function paramTypeText(part: string): string {
+  const halves = splitTopLevel(part, ':');
+  return halves.length >= 2 ? halves.slice(1).join(':').trim() : '';
+}
+
+/** Parameter types of a declared FUNCTION type (`(c: X, r: string) => Promise<T>`
+ * → `['X', 'string']`); undefined for anything else, including a plain type name
+ * or a union, so a callback is never bound from a shape that is not a signature. */
+function functionTypeParamTypes(raw: string): string[] | undefined {
+  const text = raw.trim();
+  if (!text.startsWith('(')) return undefined;
+  const close = matchParen(text, 0);
+  if (close < 0) return undefined;
+  if (!text.slice(close + 1).trim().startsWith('=>')) return undefined;
+  return splitTopLevel(text.slice(1, close), ',').map(paramTypeText);
+}
+
+/**
  * Parse TypeScript/JavaScript source already in memory into the same symbol
  * table as the Java adapter. Partial syntax (e.g. TS-only constructs the JS
  * grammar rejects) yields the symbols that could be recovered instead of
@@ -772,20 +1112,27 @@ function extractTypeOnlyDeclarations(
 export function parseTypeScriptSource(
   source: string,
   relativePath: string,
-  repoId: string
+  repoId: string,
+  context?: ParseContext
 ): RepoSymbol[] {
   const symbols: RepoSymbol[] = [];
-  // Issue 18(g) — interface member types, file-local. Same-file is enough for
-  // the observed shapes (a component and its props interface live together);
-  // cross-file interface members stay unbound (fail-closed, same rule as the
-  // Go package table: no guess by name similarity).
+  // Issue 18(g) — interface member types, file-local first. Issue 18(f)2 — the
+  // repo-wide table is the fallback, so a hook declared in another file can type
+  // the value this file destructures out of it. A file that declares its own
+  // `Foo` always wins over the repo-wide one (nearest declaration wins).
+  const crossFile = context?.languages?.typescript;
   const interfaceMembers = new Map<string, Map<string, string>>();
+  const memberLookup: MemberLookup = (typeName) =>
+    interfaceMembers.get(typeName) ?? crossFile?.interfaces.get(typeName);
   extractTypeOnlyDeclarations(source, relativePath, repoId, symbols, interfaceMembers);
 
   const typeStack: TypeRecord[] = [];
   const methodStack: RepoSymbol[] = [];
   const scopeStack: MethodScope[] = [];
   const moduleArrowPushed: boolean[] = [];
+  // Issue 18(e) — one entry per arrow/function-expression entered, so `leave` can
+  // pop exactly the scopes this pass pushed (parallel to moduleArrowPushed).
+  const callbackScopes: Array<MethodScope | undefined> = [];
   const httpClients = new Map<string, HttpClientRecord>();
   // The JS grammar parses a leading decorator as a bogus nameless
   // ClassDeclaration; carry its decorators forward to the real declaration.
@@ -796,6 +1143,19 @@ export function parseTypeScriptSource(
   tree.iterate({
     enter(ref) {
       const node = ref.node;
+
+      // Issue 18(e) — a callback argument's parameters are typed by the CALLEE's
+      // signature (`useSymbolResource(…, (c, rid, n) => c.listReverseDeps(…))`),
+      // which usually lives in another file. Only a signature we actually have is
+      // used, and only for positions the callback left untyped; no table, no
+      // binding (fail-closed). Entering/leaving is tracked for every arrow so the
+      // scope stack stays balanced.
+      if (node.name === 'ArrowFunction' || node.name === 'FunctionExpression') {
+        const callbackScope = bindCallbackParams(node, source, memberLookup, crossFile);
+        callbackScopes.push(callbackScope);
+        if (callbackScope) pushScope(scopeStack, callbackScope);
+        return;
+      }
 
       if (node.name === 'ClassDeclaration') {
         const name = declarationName(node, source);
@@ -892,7 +1252,7 @@ export function parseTypeScriptSource(
         }
         symbols.push(symbol);
         methodStack.push(symbol);
-        pushScope(scopeStack, collectParams(node, source, interfaceMembers));
+        pushScope(scopeStack, collectParams(node, source, memberLookup));
         return;
       }
 
@@ -911,7 +1271,7 @@ export function parseTypeScriptSource(
         };
         symbols.push(symbol);
         methodStack.push(symbol);
-        pushScope(scopeStack, collectParams(node, source, interfaceMembers));
+        pushScope(scopeStack, collectParams(node, source, memberLookup));
         return;
       }
 
@@ -919,6 +1279,7 @@ export function parseTypeScriptSource(
         const fn =
           node.getChild('ArrowFunction') ?? node.getChild('FunctionExpression');
         const def = node.getChildren('VariableDefinition')[0];
+        const pattern = node.getChild('ObjectPattern');
         const initCall = node.getChild('CallExpression');
         // V31-02 — record the local's type so calls through it bind at parse
         // time. `const client = new RepoQAClient(...)` used to leave the
@@ -936,15 +1297,26 @@ export function parseTypeScriptSource(
           const newShape = newExpr ? callShape(newExpr, source) : undefined;
           const constructed = newShape?.bareName ?? newShape?.parts?.[0];
           // Issue 18(g): resolve the annotation text (so `Pick<X,'a'>` keeps its
-          // restriction); issue 18(f): the memo-factory shape; then the plain
-          // `new X()` direct-child case.
-          const fromAnnotation = resolveTypeRef(rawTypeAnnotationText(node, source) ?? '', interfaceMembers);
+          // restriction); issue 18(f): the memo-factory shape; issue 18(f)2: the
+          // return type of a cross-file hook/function; then the plain `new X()`
+          // direct-child case.
+          const fromAnnotation = resolveTypeRef(rawTypeAnnotationText(node, source) ?? '');
           const fromMemo = memoFactoryClass(node, source);
+          const fromReturn = declaredReturnType(initCall, source, crossFile);
           const resolved =
             fromAnnotation ??
             (fromMemo ? { name: fromMemo } : undefined) ??
+            fromReturn ??
             (constructed ? { name: constructed } : undefined);
           if (resolved) scope.locals.set(name, resolved);
+        }
+        // Issue 18(f)2 — `const { client } = useRepo()`: the binding names live
+        // in an ObjectPattern, so there is no VariableDefinition to type. The
+        // hook's return type (another file) names the interface; that interface's
+        // member table (a third file) says what `client` is. Both lookups must
+        // resolve or nothing is bound — a half-resolved destructure is a guess.
+        if (pattern && scope) {
+          bindDestructuredFromCall(pattern, initCall, source, scope, memberLookup, crossFile);
         }
         if (def && initCall) {
           const initShape = callShape(initCall, source);
@@ -975,7 +1347,7 @@ export function parseTypeScriptSource(
           };
           symbols.push(symbol);
           methodStack.push(symbol);
-          pushScope(scopeStack, collectParams(fn, source, interfaceMembers));
+          pushScope(scopeStack, collectParams(fn, source, memberLookup));
           moduleArrowPushed.push(true);
         } else {
           moduleArrowPushed.push(false);
@@ -1152,6 +1524,11 @@ export function parseTypeScriptSource(
     },
     leave(ref) {
       const node = ref.node;
+      if (node.name === 'ArrowFunction' || node.name === 'FunctionExpression') {
+        // Issue 18(e) — pop only the scope this pass pushed for a callback.
+        if (callbackScopes.pop()) scopeStack.pop();
+        return;
+      }
       if (node.name === 'ClassDeclaration') {
         if (declarationName(node, source)) typeStack.pop();
         return;
@@ -1177,11 +1554,12 @@ export function parseTypeScriptSource(
 export async function parseTypeScriptFile(
   filePath: string,
   repoId: string,
-  root: string
+  root: string,
+  context?: ParseContext
 ): Promise<RepoSymbol[]> {
   const source = await fs.readFile(filePath, 'utf8');
   const relativePath = path.relative(root, filePath).split(path.sep).join('/');
-  return parseTypeScriptSource(source, relativePath, repoId);
+  return parseTypeScriptSource(source, relativePath, repoId, context);
 }
 
 /**
@@ -1193,10 +1571,20 @@ export const TypeScriptAdapter: LanguageAdapter = {
     const lower = filePath.toLowerCase();
     return TYPESCRIPT_EXTENSIONS.includes(path.extname(lower));
   },
-  parseFile(filePath: string, repoId: string, root: string): Promise<RepoSymbol[]> {
-    return parseTypeScriptFile(filePath, repoId, root);
+  parseFile(
+    filePath: string,
+    repoId: string,
+    root: string,
+    context?: ParseContext
+  ): Promise<RepoSymbol[]> {
+    return parseTypeScriptFile(filePath, repoId, root, context);
   },
-  parseSource(source: string, relativePath: string, repoId: string): RepoSymbol[] {
-    return parseTypeScriptSource(source, relativePath, repoId);
+  parseSource(
+    source: string,
+    relativePath: string,
+    repoId: string,
+    context?: ParseContext
+  ): RepoSymbol[] {
+    return parseTypeScriptSource(source, relativePath, repoId, context);
   }
 };

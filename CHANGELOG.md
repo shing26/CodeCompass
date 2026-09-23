@@ -97,7 +97,21 @@
 - **实测（三仓同源复跑）**：**四条目标全部离榜**（`radar` / `getArchitectureDelta` / `runGate` / `listGateRuns`）；self 孤儿 **250 → 248**（净减，未制造新孤儿）；lazygit **1807** / petclinic **13** **逐字节不变**；普查守恒三仓成立；adapter **18** 用例全绿（含越界反例、联合 fail-closed、两名 Pick 与函数类型在前的回归钉）。
 - 复测新露面两条按分工登记：`getSubgraphContext` 有生产调用点（`InspectorContext.tsx:72`）属 (f)/上下文 Provider 族；`QueryStream.onEvent/onError/onDone` 待查死 API 或订阅模式未捕获。
 - **(f) 第一半（`useMemo` 工厂的深层 `new`）**：窄规则白名单 `useMemo(() => new T(...))` / `useMemo(() => X ?? new T(...))`；**反例守死**——`items.map(u => new User(u))` 是实例的**集合**，整体定型会把 `users` 误判为 `User`（造出类型系统没有的边），单测含该反例。**实测它不推动 top-10**：`App.tsx:38` 的 `client` 仅作为 JSX 属性传给 `<RepoProvider>`，无方法调用（self 孤儿 248 不变，属预期）。
-- **(f) 第二半与 (e) 经实测定位为同一件事：需要跨文件类型/成员表**。`pickFolder` 的调用点在 `App.tsx:52` 的 **`WorkbenchShell`**（不是 `App`），其 `client` 来自 `const { client } = useRepo()`；而 `useRepo(): RepoContextValue`（`RepoContext.tsx:423`）的返回类型接口**声明在另一个文件**。机制与 V31-02 的 Go per-repo 包表同源 → 扩 `ParseContext` 加 TS 条目（接口成员表 + hook 返回类型，歧义名丢弃）。本增量未达成该项，已在票 18 如实登记。
+- **(f) 第二半与 (e) 经实测定位为同一件事：需要跨文件类型/成员表**。`pickFolder` 的调用点在 `App.tsx:52` 的 **`WorkbenchShell`**（不是 `App`），其 `client` 来自 `const { client } = useRepo()`；而 `useRepo(): RepoContextValue`（`RepoContext.tsx:423`）的返回类型接口**声明在另一个文件**。机制与 V31-02 的 Go per-repo 包表同源 → 扩 `ParseContext` 加 TS 条目（接口成员表 + hook 返回类型，歧义名丢弃）。**该增量已于 2026-09-24 落地，见下节。**
+
+### 精度残余族收口：(f) 第二半 + (e) 跨文件类型/成员表（2026-09-24）
+
+票 18 的后两族落地，**self top-10 的 `RepoQAClient.*` 由 7 条压到 1 条**（仅剩真阳性 `getRepo`）。机制 = 扩 `ParseContext.languages.typescript`（`TypeScriptDeclarations`：接口成员表 + 函数返回类型 + 形参类型），`buildParseContext` 建一次仓级表，**只扫不解析**（review 已把 Go"每轮解析两次"挂在"待测量"上，再给每个 TS 文件加一趟完整 parse 是更大的账）。
+
+- **两个消费口**：① `const { client } = useRepo()`（ObjectPattern 不是 VariableDefinition，此前整条分支都进不去）——hook 返回类型（跨文件）+ 该接口成员表（第三个文件）；② 回调实参按**被调方签名**定型（(e)）——`useSymbolResource(…, (c, rid, n) => c.listReverseDeps(…))` 的 `c` 由第四个形参的函数类型决定。
+- **表纪律**：一律存注解**原文**（`Pick<X,'a'>` 的限制必须活到调用点）；同名**异内容**整体丢弃（同 Go 包表规矩，歧义即不猜）；文件内声明优先于跨文件。
+- **探针抓出两处真缺陷**（均修 + 回归钉）：① `argumentNodes(call).indexOf(node)` **恒为 -1**——lezer 每次访问都新建 `SyntaxNode`，同一实参永不引用相等，(e) 绑定**静默从不触发**；改按 `from/to` 位置匹配。② 重命名解构 `{ client: renamed }` 的目标在 lezer 里是 **VariableDefinition 而非 VariableName** → 首版守卫漏判，把 `client` 绑成 `RepoQAClient`（**假边**，本票最怕的方向）；改为"只有裸 `{ name }` 才定型"。
+- **实测（三仓同源复跑）**：self 孤儿 **248 → 246**、top-10 `RepoQAClient.*` **7 → 1**；真索引复验 `pickFolder ← WorkbenchShell`、`listReverseDeps ← useReverseDeps`、`getSubgraphContext ← useSubgraphContext + handleCopyAgentContext`；lazygit **1807** / petclinic **13** 逐字节不变；普查守恒 `667 = 246 + 421`；棘轮 12.1%（天花板 17.1%）。
+- **反例单测 13 条**（adapter 19 → 32）：无表/未知 hook 不绑、无返回注解不绑、重命名与默认值不绑、跨文件 `Pick<X,'runGate'>` 上调 `pickFolder` 必须 dynamic、本地接口压过跨文件同名、同名异内容丢弃、函数两处声明不一致则 returns 与 params 双双丢弃、(e) 侧自身注解优先（哪怕不可解析）、非函数类型/联合/未知被调方/实参多于形参一律不绑。
+- **一处刻意未做（诚实登记）**：增量单文件刷新路径**不建 TS 表**（仓级表要在每次保存时读全仓 TS 文件，而该调用点只有变更路径）→ 单文件刷新后的 TS 文件丢跨文件边直到下次全量索引，即"这个表出现之前所有 TS 文件的状态"，永不比原来更差。Go 侧不受影响。
+- **测量期自指陷阱（已记入票 19）**：首次复测 `pickFolder` 仍 0 调用者——不是代码坏，而是本票新加的**单测 fixture 自己声明了 `interface RepoContextValue`**（多行模板串未被掩码）与真声明同名异内容 → 歧义规则正确地丢了真表项。修法 = fixture 改名；掩码缺陷另立票 19——**一行加宽 backtick 分支会坏得更厉害**：注释里的反引号会与远处反引号配对，使真注释文字不被掩码，本仓 `TypeScriptAdapter.ts` 当场自伤（探针留证），正确修法是两阶段掩码。
+- **新立两票**：票 19（多行模板串未掩码 → 幻影声明）、票 20（接口→实现关系表 = ADR-0018 `deferred` 的 A′ step 2；票 18 复测后新露面的 `QueryStream.*` / `EvolveStream.*` 属此族）。
+- **门禁**：控制面 **698 → 711**、web 364、bridge 26、e2e **71/0**、97 题 eval 全阈值（Recall@5 100%、幻觉 0%）、四包 `tsc --noEmit` 净。
 
 ### 质量门（续批后基线，取代本节上方旧数值）
 

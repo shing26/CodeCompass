@@ -2,9 +2,10 @@
 
 ![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)
 
-本地优先的**多语言代码理解工作台** —— 一条命令导入任何仓库，自动产出架构看板、跨语言确定性调用链与可溯源的 Agent 上下文。全部在一个 Node.js 进程内完成：AST 索引 → 确定性分析 → 零 Prompt 驾驶舱。
+本地优先的**多语言代码事实层**，主轴是 **MCP**：一条命令导入任何仓库，向 coding agent 提供确定性的调用链、反向依赖、影响面与可点击的 `file:line` 锚点。全部在一个 Node.js 进程内完成：AST 索引 → 确定性分析 → 零 LLM。
 
 > 定位（ADR-0001/0002）：对源码**只读**、永不写回；只承诺**确定性静态分析**，不调用 LLM 也能给出全部核心结论；每个结论都带可点击的 `file:line` 锚点。
+> **消费面主次**：`codecompass mcp` 的 17 个工具是**产品面**（给 IDE / agent 宿主用）；Web 界面是**演示与调试面**——用来肉眼确认引擎结论，不承担产品定位，近期不投入新功能。
 
 ## 定位：给 agent 的确定性检索层
 
@@ -106,9 +107,9 @@ codecompass diff <base> <head> [path] # PR 架构影响面
 codecompass --version
 ```
 
-### Web 工作台
+### Web 界面（演示与调试面，非产品面）
 
-导入完成后浏览器访问 `http://localhost:<port>`，三栏工作台（clean / cyber 双主题）：
+导入完成后浏览器访问 `http://localhost:<port>`，三栏布局（clean / cyber 双主题）。它存在的意义是**肉眼确认引擎结论**与排查解析问题，不是给人长期使用的产品界面——产品面是上面的 MCP 工具；本仓近期对它的投入原则是**只减不增**（收敛与修缺陷，不加新功能）。
 
 > **绑定说明（v0.27.0 起）**：服务默认只监听 `127.0.0.1`（本机回环）——控制面无鉴权，不再默认暴露到局域网。确需他机访问（如投屏展示）时设 `MHW_CP_HOST=0.0.0.0` 启动，启动日志会打印 LAN 暴露告警；Docker 镜像已在内部预设该逃生值，`-p` 端口映射照常。
 
@@ -233,7 +234,7 @@ python scripts/e2e/closeout_gate.py   # API 级端到端回归基线
 ## 目录结构
 
 ```
-apps/repoqa-web/            # React 三栏工作台（看板 / 调用链 / 差异 / Inspector）
+apps/repoqa-web/            # React 三栏界面（演示与调试面：看板 / 调用链 / 差异 / Inspector）
 services/control-plane/     # 单进程控制面：解析、索引、调用链、桥接、脱敏、导出
 packages/contracts/         # 前后端共享契约
 packages/bridge-adapters/   # 协议适配层

@@ -11,7 +11,10 @@
 
 **v0.30.0 去极客化战役全批收口（G0–G8 全闭，门禁全绿）**：双文案哨共表（中文 23 词 + 英文 38 词入 `packages/contracts` 跨包权威）+ 字号两档语义化（111 处任意值 → `text-xs`/`text-micro`）+ chrome 中英混排人话化（~55 短语）+ 枚举展示映射（`statusLabel` 表 C）+ Badge/CountPill 双件（9 徽章族归一）+ 黑话双端清扫 + `styles.css` 销号 + 命名族归一（「拆除计划」→「下线方案」，同义触发词保留、工具灵敏度零回归）。前置批次：v0.29 韧性硬化（出库掩码单尺 `maskSensitiveText`、clone 重试分类器、MCP 深链单一源）、v0.28 结构手术（web→contracts 单一源、control-plane 目录归组 ingest/engine/mcp/eval）、v0.27 生产就绪（Docker 修复、版本单一源、WS 优雅关闭挂死真 bug 修复）。门禁基线：控制面 650、web 363、bridge 26、e2e 63（对照组）。总账在 `.scratch/v027-backlog.md`，各战役 spec 在 `.scratch/<feature>/`。
 
-**方向已定（2026-09-16）**：**A 主轴（给 coding agent 的确定性代码事实层）+ D 交付（可展示资产），Web 面只减不增**——落地 spec 与六票池见 `.scratch/v031-precision/spec.md`，下一步整体切到 §4。此前「连续五个版本做卫生不做产品」的漂移已诊断归因（定位文档 §1），本批的完成定义写死在度量口径 M1–M5。
+**方向已定（2026-09-16，2026-09-24 复核重申）**：**A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示资产），Web 面只减不增**——落地 spec 与票池（01–20）见 `.scratch/v031-precision/spec.md`，下一步整体切到 §4。此前「连续五个版本做卫生不做产品」的漂移已诊断归因（定位文档 §1），本批的完成定义写死在度量口径 M1–M5。
+**2026-09-24 定位口径对齐（用户提出）**：README 首句此前仍自称「多语言代码理解**工作台**」，与"主轴是 MCP、Web 只是演示调试面"矛盾——已改首句为「多语言代码**事实层**，主轴是 **MCP**」并显式写明消费面主次；`CONTEXT.md` 的 CodeCompass 身份词条同步。**Web 界面确实长期搁置（v0.30 后无新功能，v0.31 起"只减不增"）**，文档不得再把它写成产品面。
+
+**2026-09-24 精度残余族收口**：票 18 三族全落地（(g) 09-21；(f) 两半 + (e) 09-24），self top-10 的 `RepoQAClient.*` **7 → 1**（仅真阳性 `getRepo`），self 孤儿 **248 → 246**，lazygit 1807 / petclinic 13 **逐字节不变**。派生两票已立：**19**（多行模板串未掩码 → 幻影声明；修法必须两阶段，一行正则自伤）、**20**（接口→实现关系表 = ADR-0018 `deferred` 的 A′ step 2；self 流订阅族与 lazygit 620 条同源）。
 
 **2026-09-16 整理批（V30-11）**：.scratch 42 个测试遗留库本地清理；三处散落的体验报告合一到 `docs/reports/`（Round1–3 并排 + `ui-shots/` 证据统一）；根目录截图归档；HANDOFF 全量刷新。**修复 MCP_SERVER_VERSION 漂移**：该硬编码停在 0.26.0 四个版本（MCP 握手对外谎报版本），现 alias `version.ts` 单一源，e2e 新增棘轮检查（62→63）。**repoqa 旧命名族迁移立为 V30-10 独立票**（跨端契约手术，勿顺手改）；**V30-12 = branch protection 必过检查名失配**（需用户本机改，见 §2.3-8）。
 
@@ -27,7 +30,7 @@
 | 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
 | 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线（2026-09-16） | 控制面 650、web 363、bridge 26、e2e 63（对照组，含整理批新增的 mcp-handshake-version 棘轮）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| 门禁基线（2026-09-24） | 控制面 **711**、web **364**、bridge **26**、e2e **71/0**（含 mcp-handshake-version 棘轮与 V31-05 精度棘轮）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
 | MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言（installer autoApprove 动态派生不用改） |
 
 ### 2.2 架构不变量（违反即返工）
@@ -104,20 +107,25 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 01 精度复测基线 / 02 残余精度攻坚 / 06 冻结护栏 | ✅ 已落地 |
 | 07 MCP 契约收口 / 08 桶语义收窄（ADR-0018） / 09 语言注册表 / 10 错误码单一源 / 11 TS 接收者定型 | ✅ 已落地 |
 | 12–16 评估维补齐（E-M12 审计 / E-M7 幂等 / E-M10 通用协议套件 / E-M4 token 对比 / E-M5 自愈率） | ✅ 已落地（外部评分 63/81 → 预期 73/81） |
+| 18 精度残余三族（(g) 工具类型/具名接口成员 / (f) 两半 / (e) 闭包参数别名） | ✅ **三族全落地（2026-09-21 / 09-24）**：self top-10 的 `RepoQAClient.*` **7 → 1**（仅真阳性 `getRepo`），self 孤儿 248 → 246，lazygit 1807 / petclinic 13 逐字节不变 |
 | 03 发布就绪 | ⏳ **仅剩用户侧**：npm org + `npm login` + `npm publish --access public` + tag（M4 未达 1） |
 | 04 影响力兑付（v1.0.0 + 技术文 + 公开评测） | ⬜ 未开工（依赖 02、03） |
 | 05 Web 收敛 6→3 | ⬜ 未开工（**条件票**，D 目标可整裁） |
+| 17 TS/JS 仓的 Tour 锚点族（V27-17 升级票） | ⬜ 未开工（本仓 `get_tours` 仍返回 `[]`） |
+| 19 多行模板串未掩码 → 幻影声明 | ⬜ **已立项（2026-09-24，票 18 实测派生）**——掩码器必须两阶段（先注释/引号、后模板），一行加宽 backtick 分支会自伤 |
+| 20 接口→实现关系表（ADR-0018 `deferred` 的 A′ step 2） | ⬜ **已立项（2026-09-24）**——票 18 压掉 `RepoQAClient.*` 后，self top-10 新面孔 `QueryStream.*` / `EvolveStream.*` 属此族（lazygit 620 条同源） |
 
 **仍开放（非本批，按性质）**：
 
 1. **V27-17 buildTours 对 TS 仓零锚点**（已升级为 A 线精度候选，**票 17 已立**）——空 tours = agent 拿到空事实。
-2. **精度残余三族**（票 11 登记，票 18 待立）：(g) `Pick<>` 工具类型 / (e) 闭包参数别名 / (f) `useMemo` 流。
-3. **ADR-0018 `deferred`：接口实现方法**（lazygit 620）——需接口→实现关系表。
+2. ~~精度残余三族~~ **已闭（票 18 三族全落地，2026-09-24）**；其派生两票见上表（19 / 20）。
+3. **ADR-0018 `deferred`：接口实现方法**（lazygit 620）——**已立票 20**（票 18 复测后 self 侧也露头：`QueryStream.*` / `EvolveStream.*`）。
 4. **`RepoQAClient.getRepo` 死码**（M1 唯一真阳性，移除候选）。
 5. **Go 适配器每轮解析两次**（评审 judgement call）——**待测量**后再决定是否开票（"先有度量，再有战役"）。
 6. **V29-1** import/evolve 韧性后半（POST 202 + WS 进度流化，需独立 spec）。
 7. **V30-10** repoqa 旧命名族迁移（含对外契约：SSE 事件名/环境变量/包路径，需破坏面清单）。
 8. **V30-12** branch protection 必过检查名失配（**需用户本机**改 Settings，见 §2.3-8）。
+9. **多行模板串未掩码 → 幻影声明**（票 19）——**任何**含多行模板串的仓库都受影响（本仓 `chat/agent.ts` 提示词、`engine/repoqa-export.ts` 导出模板同样暴露）；修法必须两阶段，别用一行正则。
 
 ## 5. Suggested skills
 
@@ -136,7 +144,8 @@ cd D:/CodeCompass
 git log --oneline -3
 export TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp   # C 盘满对策
 npm run typecheck                        # 全仓零错误
-cd services/control-plane && npm test    # 全绿（~693）
-cd ../../apps/repoqa-web && npx vitest run
-cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 70 项（gate 自带 LLM 环境清空，V30-9）
+cd services/control-plane && npm test    # 全绿（711）
+cd ../../apps/repoqa-web && npx vitest run   # 364
+cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 71 项（gate 自带 LLM 环境清空，V30-9）
+npm run precision && npm run precision:ratchet   # 三仓孤儿数 + 棘轮（self 12.1% < 17.1%）
 ```

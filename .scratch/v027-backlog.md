@@ -45,4 +45,6 @@
 
 | V30-9 | ~~e2e gate 非 hermetic~~ **已关闭（2026-09-21）**：gate 在 spawn HTTP 服务端时显式清空 `REPOQA_LLM_BASE/URL/API_KEY`（`chat/llm.ts:121` 的 `{...dotEnv, ...thisEnv}` 保证进程环境优先；置空后 `!url && !base → return null` 走确定性降级），并留 `CLOSEOUT_GATE_LIVE_LLM=1` opt-in 供人工 eyeball。**实测**：本机门禁 **71 passed / 0 failed**（改前 68/2，两条红是 provider HTTP 402）；且顺带发现 402 曾**连带吞掉**下游 `ADR-0010 commit stamp` 断言（incident 无 done payload 时 `closeout_gate.py:732-734` 提前 return，该断言根本不记录）——现在 71 项全绿。stub 面仍由 UI 冒烟（`scripts/smoke/stub-llm.mjs`）覆盖。出处：`.scratch/v030-degeekify/spec.md:114`、`HANDOFF.md` §2.3-7。**本行系 2026-09-21 补登记——此前只在 v030 spec 与 HANDOFF 提到，backlog 无行，两账不对齐。** | v0.30 票 01 收口实战 | CI/门禁 |
 
+| V31-2 | **精度残余族收口（票 18 三族全落地）**：(g) 工具类型/具名接口成员（09-21）→ (f) 两半（`useMemo` 工厂 09-21 + 上下文解构 09-24）→ (e) 闭包参数别名（09-24）。核心机制 = 扩 `ParseContext.languages.typescript` 跨文件类型/成员表（接口成员 + 函数返回类型 + 形参类型，**只扫不解析**；同名异内容整体丢弃）。**实测**：self top-10 的 `RepoQAClient.*` **7 → 1**（仅真阳性 `getRepo`），self 孤儿 **248 → 246**；lazygit **1807** / petclinic **13** 逐字节不变；普查守恒 `667 = 246 + 421`；棘轮 12.1% < 17.1%。**探针抓出两处真缺陷**：`indexOf(node)` 恒 -1（lezer 节点非引用稳定）→ (e) 静默哑弹；重命名解构目标是 VariableDefinition 非 VariableName → 假边。**派生两票**：19（多行模板串未掩码 → 幻影声明）、20（接口→实现关系表 = ADR-0018 `deferred` A′ step 2）。门禁 cp 711 / web 364 / bridge 26 / e2e 71/0 / eval 97 全绿 | 2026-09-24 继续任务 | 精度 |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

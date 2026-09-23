@@ -245,6 +245,63 @@ self 孤儿 248 不变属预期，不是"改了没用"。
 其 `client` 来自 `const { client } = useRepo()`（`:54`）；而 `useRepo(): RepoContextValue`（`RepoContext.tsx:423`）的
 返回类型接口**声明在另一个文件**。因此两族共同缺的是：① 跨文件的 hook/函数**返回类型**、② 跨文件的接口**成员表**。
 机制与 V31-02 的 Go per-repo 包表同源（`ParseContext` 已为此建过契约与注入路径），可照搬扩 TS 条目（歧义名一律丢弃）。
-**本增量未做该项**，已在票 18 如实登记为待开工。
+**该增量已于 2026-09-24 落地，见 §11。**
+
+## 11. 第六增量（V31-06 精度残余 (f) 第二半 + (e)：跨文件类型/成员表，2026-09-24）
+
+票 18 的收官。**归因先行**（`.scratch/probe-f2e.ts`）：四条目标逐文件 before/after 对照，`before`（无 context = 增量前行为）全红、`after` 全绿。
+
+| 目标 | 调用点 | 机制 |
+|---|---|---|
+| `RepoQAClient.pickFolder` | `App.tsx:156`（`WorkbenchShell`） | (f)2 解构 + 跨文件 hook 返回类型 |
+| `RepoQAClient.previewRepo` | `App.tsx:148` | 同上 |
+| `RepoQAClient.getSubgraphContext` | `InspectorContext.tsx:72` | 同上（另有 `useSubgraphContext` 经 (e)） |
+| `RepoQAClient.listReverseDeps` | `useReverseDeps.ts:18` | (e) 回调实参按被调方签名定型 |
+
+**机制**：`ParseContext.languages.typescript` = 接口成员表 + 函数返回类型 + 形参类型，`buildParseContext` 一次建表。
+**只扫不解析**：接口成员沿用既有正则切分器（成员取自**原文**，掩码视图只用来定位）；函数签名用「掩码视图定位 + 原文切片」的括号配对扫描——
+本报告 §7 已把 Go「每轮解析两次」挂上"待测量"，再给每个 TS 文件加一趟完整 lezer parse 是更大的账。
+歧义纪律同 Go 包表：**同名异内容整体丢弃**；文件内声明优先于跨文件。
+
+**实现中由探针抓出的两处真缺陷**（均已修 + 回归钉）：
+
+| 缺陷 | 症状 | 修法 |
+|---|---|---|
+| `argumentNodes(call).indexOf(node)` 恒为 -1（lezer 每次访问都新建 `SyntaxNode` 包装，同一实参永不引用相等） | (e) 绑定**静默从不触发**——"改了没用"型哑弹，无报错 | 改按 `from/to` 位置匹配；留"回调在第 3 个实参位"的回归钉 |
+| 重命名解构 `{ client: renamed }` 的目标在 lezer 里是 **VariableDefinition** 而非 VariableName | 首版守卫漏判 → 把 `client` 绑成 `RepoQAClient`（**假边**，本票最怕的方向） | 只有裸 `{ name }` 才定型；重命名/默认值/剩余项仍进作用域栅栏 |
+
+**三仓复测（同源可复跑）**：
+
+| 样本 | 孤儿（前 → 后） | 说明 |
+|---|---|---|
+| self | **248 → 246** | top-10 的 `RepoQAClient.*` **7 → 1**（仅真阳性 `getRepo`）；三条目标离榜（真索引复验调用者） |
+| lazygit | **1807 → 1807** | 逐字节不变 |
+| petclinic | **13 → 13** | 逐字节不变 |
+
+普查守恒 `667 = 246 + 421`；棘轮 246/2039 = 12.1%（天花板 17.1%）；adapter 32 用例、控制面 711、web 364、bridge 26、e2e 71/0、97 题 eval 全阈值。
+
+### 11.1 测量期踩到的自指陷阱（→ 票 19）
+
+首次复测 `pickFolder` 仍是 **0 调用者**，而同源码 + 同表的探针显示边已建立。真因**不是代码**：
+
+> 本增量新加的**单测 fixture 自己声明了 `interface RepoContextValue`**（多行模板串，`TypeScriptAdapter.test.ts`），
+> 与真声明 `RepoContext.tsx` 的**内容不同** → 歧义规则（正确地）丢弃了真表项 → 绑定失败。
+
+根因是 `maskLiteralsAndComments` 的 `'`/`"` 分支**按行**（`[^\\\n]` 排除换行），**多行模板串只被掩到第一个换行**，
+其后内容按源码扫描 → 模板串里的 `interface X {` 变成**幻影声明**。生产代码同样暴露（`chat/agent.ts` 提示词、
+`engine/repoqa-export.ts` 导出模板都是多行模板串）。
+
+**一行加宽 backtick 分支会坏得更厉害**（实测）：掩码器自身源码与注释里就有反引号，跨行匹配后注释里的反引号会与
+远处的反引号配对，使中间的真注释文字**不被掩码**——本仓 `TypeScriptAdapter.ts` 当场自伤（探针输出
+`masked@29859 line=760`：它注释里那句 `interface RepoContextValue { … }` 成了幻影声明）。
+**这是顺序问题不是正则强度问题**：必须先把注释/引号掩掉，才可能安全地按模板串匹配反引号。故本增量**只改 fixture 命名**
+（测试不该与真仓库标识符同名异义），掩码缺陷立为**票 19**（两阶段掩码 + 反引号正则边界）。
+
+### 11.2 复测后新露面的族（→ 票 20）
+
+`RepoQAClient.*` 压到 1 条后，top-10 的新面孔是**流订阅族**：`QueryStream.*`（`onEvent`/`onError`/`onDone`/`connect`）
+与 `EvolveStream.*`。机制与三族都不同——调用点是 `stream.onEvent(...)`，而 `stream` 的类型是**接口**
+（`QueryStreamLike` / `EvolveStreamLike`），实现是 `QueryStream` **类**：需要**接口→实现关系表**，
+正是 ADR-0018 显式 `deferred` 的 A′ step 2（lazygit 620 条同源）。立为**票 20**。
 
 

@@ -30,7 +30,7 @@
 
 | Term | Definition |
 |------|------------|
-| CodeCompass（曾用名 RepoPulse） | 只读代码智能工作台：导入仓库后生成 AST 符号、调用链、chunks，并围绕 SSE 问答提供可点击代码证据。 |
+| CodeCompass（曾用名 RepoPulse） | 本地优先的只读代码事实层，**主轴 MCP**：导入仓库后生成 AST 符号、调用链、chunks，经 17 个 `codecompass_*` 工具向 coding agent 提供可点击代码证据。Web 界面是**演示与调试面**（肉眼确认引擎结论），不承担产品定位，投入原则只减不增（v0.31 方向裁决）。 |
 | Repo Index | 某仓库在指定 commit 下的只读解析快照，包含元数据、symbols、chunks 与索引状态，不写回源码。 |
 | AST Symbol | 静态解析出的可定位代码单元，如 class、method、route、field，必须带 file/line range。 |
 | Call Edge | 静态解析出的调用关系；不等同于运行时链路，也不能推断接口动态绑定。 |

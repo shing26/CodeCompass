@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { RepoSymbol } from './repoqa-repos';
-import type { ParseContext } from '../languages/parse-context';
+import type { LanguageDeclarations, ParseContext } from '../languages/parse-context';
 import { GoAdapter, buildGoPackageTable } from '../languages/GoAdapter';
+import { TypeScriptAdapter, buildTypeScriptDeclarations } from '../languages/TypeScriptAdapter';
 // Issue 09: the adapter list moved to languages/registry.ts (single wiring
 // table); this module forwards the historical `adapterFor` API for callers
 // that predate the registry.
@@ -30,28 +31,46 @@ export async function parseSourceFile(
 }
 
 /**
- * V31-02 — the repo-level parse context, built once per index run before any
- * file is parsed.
+ * V31-02 / Issue 18(f)2 — the repo-level parse context, built once per index run
+ * before any file is parsed.
  *
- * Go is the only consumer today and the reason the mechanism exists: a Go
- * package spans files, so `pkg/app/entry_point.go` calling `NewApp` declared in
+ * Go is the original consumer and the reason the mechanism exists: a Go package
+ * spans files, so `pkg/app/entry_point.go` calling `NewApp` declared in
  * `pkg/app/app.go` could not type the value it received, and every later
  * `value.Method()` became a dynamic break that the Candidate Scan reported as
- * "zero static callers". This pass reads the Go files and records declarations
- * only (no symbols), which is a fraction of the cost of the symbol pass.
+ * "zero static callers".
  *
- * Returns undefined when the repo has no Go sources, so non-Go repos pay
- * nothing.
+ * TypeScript needs the same shape for a different reason (issue 18(f)2): a hook
+ * declared in one file returns an interface declared in another, and the value a
+ * third file destructures out of it is a receiver whose methods live in a fourth.
+ * The TS table is scanned, not parsed a second time — see
+ * `buildTypeScriptDeclarations` for why.
+ *
+ * Returns undefined when the repo has neither language, so other repos pay nothing.
  */
 export async function buildParseContext(
   root: string,
   files: readonly string[]
 ): Promise<ParseContext | undefined> {
+  const languages: LanguageDeclarations = {};
   const goFiles = files.filter((filePath) => GoAdapter.canParse(filePath));
-  if (goFiles.length === 0) return undefined;
-  const sources = await readGoSources(root, goFiles);
-  if (sources.length === 0) return undefined;
-  return { languages: { go: buildGoPackageTable(sources) } };
+  if (goFiles.length > 0) {
+    const sources = await readSources(root, goFiles);
+    if (sources.length > 0) languages.go = buildGoPackageTable(sources);
+  }
+  const tsFiles = files.filter((filePath) => TypeScriptAdapter.canParse(filePath));
+  if (tsFiles.length > 0) {
+    const sources = await readSources(root, tsFiles);
+    if (sources.length > 0) {
+      const typescript = buildTypeScriptDeclarations(sources);
+      // An all-empty table is not worth carrying: it would make every TS file
+      // pay a lookup that can never hit.
+      if (typescript.interfaces.size > 0 || typescript.returns.size > 0) {
+        languages.typescript = typescript;
+      }
+    }
+  }
+  return languages.go || languages.typescript ? { languages } : undefined;
 }
 
 /**
@@ -59,8 +78,16 @@ export async function buildParseContext(
  * directory, so the changed file's siblings are the complete package table it
  * needs. Scoped this way rather than re-reading the repo on every file save.
  *
- * Returns undefined for a non-Go file up front — a TypeScript save must not pay
- * for a directory scan when the adapter will ignore the table anyway.
+ * TypeScript deliberately gets nothing here. Its table is repo-wide (the hook and
+ * the interface it returns routinely live in different directories), so an
+ * honest incremental build would have to read every TS file in the repo on every
+ * save; the changed path is all this call site has. A TS file re-parsed this way
+ * therefore loses its cross-file edges until the next full index — which is
+ * exactly what every TS file had before this table existed, so the state is never
+ * worse than it was, only less complete than a full index.
+ *
+ * Returns undefined for any other file up front — a Python save must not pay for
+ * a directory scan when the adapter will ignore the table anyway.
  */
 export async function buildParseContextForFile(
   root: string,
@@ -73,16 +100,16 @@ export async function buildParseContextForFile(
     .filter((entry) => GoAdapter.canParse(entry))
     .map((entry) => path.join(directory, entry));
   if (!goFiles.includes(absolutePath)) goFiles.push(absolutePath);
-  const sources = await readGoSources(root, goFiles);
+  const sources = await readSources(root, goFiles);
   if (sources.length === 0) return undefined;
   return { languages: { go: buildGoPackageTable(sources) } };
 }
 
 /**
- * Read the given Go files into repo-relative sources, skipping any that cannot
- * be read: a file that vanished mid-index must not fail the whole context.
+ * Read the given files into repo-relative sources, skipping any that cannot be
+ * read: a file that vanished mid-index must not fail the whole context.
  */
-async function readGoSources(
+async function readSources(
   root: string,
   files: readonly string[]
 ): Promise<Array<{ relativePath: string; source: string }>> {
