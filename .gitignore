@@ -47,3 +47,8 @@ docs/reports/ui-shots/
 
 # Precision harness raw dumps (regenerated; verdicts/ are the committed evidence).
 scripts/precision/out/
+
+# Issue-16 model-in-the-loop raw dump + local agent-tool ignore file
+# (both are regenerable / machine-local; the reports carry the numbers).
+scripts/out/
+.zcodeignore

@@ -509,6 +509,16 @@ export interface ScanExclusion {
 export interface ScanCensus {
   zeroCallers: number;
   testOnly: number;
+  /**
+   * Zero-caller symbols that survived the PRE-EXISTING exclusions (routes, HTTP
+   * handler targets, accessor-like methods, externally wired symbols) — i.e. the
+   * population the ADR-0018 scope rules then partition. Counted INDEPENDENTLY at
+   * that point in the loop, never derived from the sum below, so the identity
+   * `candidatesBeforeRules === zeroCallers + testOnly + Σ excluded[].count`
+   * is a real cross-check (2026-09-21 review: the previous conservation
+   * assertion was tautological because zeroCallers was computed as total − testOnly).
+   */
+  candidatesBeforeRules: number;
   excluded: ScanExclusion[];
 }
 

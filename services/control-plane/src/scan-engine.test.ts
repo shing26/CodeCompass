@@ -477,6 +477,28 @@ describe('runScan', () => {
     expect(second).toBe(first);
   });
 
+  it('census conservation is a real cross-rule identity, not algebra (issue 08 P1)', () => {
+    // 2026-09-21 review: the shipped assertion was `zeroCallers + testOnly === total`,
+    // which is an ALGEBRAIC identity — zeroCallers is computed as `total − testOnly`
+    // in the engine, so it could never fire. This pins the meaningful identity and
+    // pins the absolute numbers so the test is able to fail:
+    //   fixture (base) zero-caller population = LegacyHelper (class) +
+    //   OrderRepository (repository) + LegacyHelper.legacyCompute (method) = 3,
+    //   of which 2 are type declarations and 1 stays a candidate.
+    const result = runScan({ ...BASE, baseUrl: 'http://localhost:43110' });
+    const orphans = result.buckets[0];
+    const census = orphans.census!;
+    const excludedTotal = census.excluded.reduce((sum, rule) => sum + (rule.count ?? 0), 0);
+
+    expect(census.candidatesBeforeRules).toBe(3);
+    expect(orphans.total).toBe(1);
+    expect(excludedTotal).toBe(2);
+    expect(census.candidatesBeforeRules).toBe(orphans.total + excludedTotal);
+    // …and the point of the fix in one line: the pre-rule counter must NOT equal
+    // the post-rule total (if it did, it was derived from the summands).
+    expect(census.candidatesBeforeRules).not.toBe(orphans.total);
+  });
+
   it('truncates every bucket to the shared top limit', () => {
     const manyOrphans = Array.from({ length: SCAN_TOP_LIMIT + 5 }, (_, index) =>
       symbol({

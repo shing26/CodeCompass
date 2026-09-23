@@ -22,6 +22,7 @@
     "precision:ratchet": "npm run precision -- --ratchet self",
     "mcp:stats": "node scripts/mcp/audit_stats.mjs",
     "mcp:token-compare": "node scripts/mcp/token_pruning_compare.mjs",
+    "mcp:model-probe": "node --max-old-space-size=4096 services/control-plane/node_modules/tsx/dist/cli.mjs scripts/eval/mcp_model_in_loop.ts",
     "build": "npm run build --prefix packages/contracts && npm run build --prefix packages/bridge-adapters && npm run build --prefix services/control-plane && npm run build --prefix apps/repoqa-web",
     "dev": "npm run dev --prefix apps/repoqa-web",
     "start": "node services/control-plane/dist/cli.js",

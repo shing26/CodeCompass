@@ -207,6 +207,10 @@ export function runScan(input: ScanInput): ScanResult {
   // of silently shrinking `total` (necessary condition ② of the ruling).
   let typeDeclarations = 0;
   let interfaceMembers = 0;
+  // Independently counted at the pre-scope-rules point (see the increment in the
+  // loop): the population the ADR-0018 rules partition, which makes the
+  // conservation identity a real cross-check rather than algebra.
+  let candidatesBeforeRules = 0;
   // Owner names of interface declarations. `parentType` is a bare name, not an
   // id, so a name shared by an interface and a class cannot be disambiguated
   // from the symbol table alone — fail-closed: such an owner counts as an
@@ -263,6 +267,13 @@ export function runScan(input: ScanInput): ScanResult {
     // ADR-0018 (rulings 1 & 2) — scope narrowing sits AFTER the zero-caller test
     // on purpose: the census must describe the zero-caller population (that is
     // exactly what the report's 623 / 375 classify).
+    //
+    // 2026-09-21 review fix: count this population HERE, at the point where only
+    // the pre-existing exclusions have applied. The counter must be independent
+    // of the rules below it — computing it as `total + Σexcluded` afterwards
+    // would make the conservation assertion tautological again (which is exactly
+    // what the reviewer caught: zeroCallers was `total − testOnly`).
+    candidatesBeforeRules += 1;
     if (!CALLABLE_KINDS.has(symbol.kind)) {
       typeDeclarations += 1;
       continue;
@@ -315,8 +326,21 @@ export function runScan(input: ScanInput): ScanResult {
   const orphanCensus: ScanCensus = {
     zeroCallers: orphanItems.length - testOnlyCount,
     testOnly: testOnlyCount,
+    candidatesBeforeRules,
     excluded: orphanExcluded
   };
+  // The conservation identity, enforced where the census is BUILT (so the
+  // in-process consumers — MCP payload, harness, tests — all inherit the check).
+  // `zeroCallers + testOnly == total` is intentionally absent: that one is an
+  // algebraic identity of the two lines above. What must hold is this:
+  const excludedTotal = orphanExcluded.reduce((sum, rule) => sum + (rule.count ?? 0), 0);
+  if (candidatesBeforeRules !== orphanItems.length + excludedTotal) {
+    throw new Error(
+      `orphan census does not conserve: candidatesBeforeRules(${candidatesBeforeRules}) != ` +
+        `total(${orphanItems.length}) + excluded(${excludedTotal}) — a rule is miscounting ` +
+        `or the pre-rule counter moved out of position (ADR-0018 necessary condition ②)`
+    );
+  }
 
   /* Bucket 2 — hubs: PageRank top; the blast-radius heavyweights.
      Issue 06 (dogfooding): ≤5-line named accessors rank high only because

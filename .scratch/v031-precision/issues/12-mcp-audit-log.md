@@ -25,8 +25,14 @@
 
 ### (c) 记录字段（对齐 3 分的统计需求）
 
-`scope='mcp'`，`msg='tool_call'`，fields：`tool` / `durationMs` / `ok` / `isError` / `errorCode?` / `repoId?` / `argsBytes` / `resultBytes` / `truncated?`。
-耗时用 `performance.now()` 差；handler 抛错时 catch → 记 `ok:false` + 错误码（若有）后**原样重抛**（不改变协议行为）。
+`scope='mcp'`，`msg='tool_call'`，**实际落盘字段**：`tool` / `durationMs` / `ok` / `argsBytes` / `resultBytes` / `args` / `result` / `repoId?` / `error?`。
+
+**与初版设计的偏差（2026-09-21 双轴评审自证后修正本票措辞）**：
+① 用 `ok: boolean` 取代原计划的 `isError`（单一布尔即可推导，避免双字段互相矛盾）；
+② **不落 `errorCode`**——MCP handler 抛的是普通 `Error`（如 `Repo not found: x`），该层没有稳定错误码；错误分布按**错误文本**聚合（`audit_stats.mjs`），这是本层的实情，不是遗漏；
+③ 不单独落 `truncated`——截断由 sink 内部完成（每串 ≤4096），真实体积由 `argsBytes`/`resultBytes` 承载，重复落一个布尔会与 sink 语义重叠。
+
+耗时用 `performance.now()` 差；handler 抛错时 catch → 记 `ok:false` + 错误文本后**原样重抛**（不改变协议行为）。
 
 ### (d) 调用统计入口（3 分证据）
 

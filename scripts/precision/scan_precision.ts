@@ -218,14 +218,26 @@ async function measure(sample: SampleRef): Promise<void> {
   for (const item of orphanItems) {
     kindCounts[item.kind] = (kindCounts[item.kind] ?? 0) + 1;
   }
-  // ADR-0018 necessary condition ② — the census must conserve on `total`. Fail
-  // loudly instead of writing a snapshot whose numbers do not add up.
+  // ADR-0018 necessary condition ② — the census must conserve. Fail loudly
+  // instead of writing a snapshot whose numbers do not add up.
+  //
+  // 2026-09-21 review fix: the old check was `zeroCallers + testOnly !== total`,
+  // which is an ALGEBRAIC identity (zeroCallers is computed as `total − testOnly`
+  // in the engine) and therefore could never fire. The meaningful identity is
+  // across the ADR-0018 rules: the independently counted pre-rule population
+  // must equal what stayed in the bucket plus what each rule removed.
   if (orphan?.census) {
-    const { zeroCallers, testOnly } = orphan.census;
-    if (zeroCallers + testOnly !== orphan.total) {
+    const { zeroCallers, testOnly, candidatesBeforeRules, excluded } = orphan.census;
+    const excludedTotal = excluded.reduce((sum, rule) => sum + (rule.count ?? 0), 0);
+    if (candidatesBeforeRules !== orphan.total + excludedTotal) {
       throw new Error(
         `[precision] ${sample.name}: orphan census does not conserve — ` +
-          `zeroCallers(${zeroCallers}) + testOnly(${testOnly}) != total(${orphan.total})`
+          `candidatesBeforeRules(${candidatesBeforeRules}) != total(${orphan.total}) + excluded(${excludedTotal})`
+      );
+    }
+    if (zeroCallers + testOnly !== orphan.total) {
+      throw new Error(
+        `[precision] ${sample.name}: census.zeroCallers(${zeroCallers}) + testOnly(${testOnly}) != total(${orphan.total})`
       );
     }
     const flagged = orphanItems.filter((item) => item.testOnly === true).length;
@@ -460,6 +472,7 @@ async function ratchet(names: string[], update: boolean): Promise<void> {
         census?: {
           zeroCallers: number;
           testOnly: number;
+          candidatesBeforeRules: number;
           excluded: Array<{ rule: string; count?: number; deferred?: boolean }>;
         };
       }>;
@@ -470,9 +483,17 @@ async function ratchet(names: string[], update: boolean): Promise<void> {
       failures.push(`${name}: orphanedPublic has no census — ADR-0018 reporting was dropped`);
       continue;
     }
-    const { zeroCallers, testOnly, excluded } = orphan.census;
+    const { zeroCallers, testOnly, candidatesBeforeRules, excluded } = orphan.census;
 
-    // 1. conservation
+    // 1. conservation — the meaningful cross-rule identity (2026-09-21 review:
+    // `zeroCallers + testOnly == total` alone is algebraic, see measure()).
+    const excludedTotal = excluded.reduce((sum, rule) => sum + (rule.count ?? 0), 0);
+    if (candidatesBeforeRules !== orphan.total + excludedTotal) {
+      failures.push(
+        `${name}: census does not conserve — candidatesBeforeRules(${candidatesBeforeRules}) != ` +
+          `total(${orphan.total}) + excluded(${excludedTotal})`
+      );
+    }
     if (zeroCallers + testOnly !== orphan.total) {
       failures.push(
         `${name}: census does not conserve — ${zeroCallers} + ${testOnly} != ${orphan.total}`

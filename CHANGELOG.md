@@ -73,6 +73,15 @@
 - README 工具表与版本串改由生成器/断言维护（`sync-mcp-tool-table.py` + `readme-version` gate）；README 两处 IDE 配置的 `npx codecompass` → `npx -y @codecompass/cli`（前者会解析到 npm 上他人同名包）。
 - `CONTEXT.md` 错误码节标注单一源与「新码三处同动」流程。
 
+### 双轴评审与 P1 修复（2026-09-21）
+
+按 `HANDOFF.md:116`（发布前双轴 `code-review`，fixed point = 上次审完 commit，不可省）对 **v0.31 整条线**（`80c3ab1..HEAD`，7 提交 / 81 文件 / 7369 插入）补跑评审——该线段此前**从未评审**。报告：`docs/reports/code-review-2026-09-21.md`（两轴并排 + 主代理逐条自证与处置）。
+
+- **Standards 轴**（8 条）：ADR 索引 `0001–0017` → **`0001–0019`**（三处，本批新增 0018/0019 后静默漂移，无 gate 覆盖该区间）；ADR-0018 字段名 `excludedByRule` 对齐实现 `census.excluded`；**错误码哨正则收双引号**（原 `/code:\s*'…'/` 使 `code: "x"` 整体绕过守卫）+ 形状断言钉住；`scripts/out/` 原始 dump 取消跟踪并入 `.gitignore`（沿用 `scripts/precision/out/` 先例）。
+- **Spec 轴**（10 条）：补票 16 承诺的 `mcp:model-probe`；票 12(c) 字段表改正为实际落盘字段（`ok` 取代 `isError`；该层无稳定错误码故错误分布按文本聚合；截断由 sink 内部完成）；票 11 的 M1 行改为"已补做"（指向 `verdicts/self.json`，self 90.0%）；`.zcodeignore`（本会话工具生成的本地配置）取消跟踪。
+- **P1 修复：普查守恒空转**——评审发现初版守恒断言是**同义反复**（`census.zeroCallers` 由 `total − testOnly` 反推，故 `zeroCallers + testOnly === total` 恒成立，harness 抛错守卫/棘轮不变量①/单测三处永不触发）。修法：引擎在**收窄规则之前**独立累加 `census.candidatesBeforeRules`（计数器不得由 `total + Σexcluded` 派生——独立性就是这条断言的全部价值），真等式 `candidatesBeforeRules === total + Σ excluded[].count` 落**四处**（census 构造处直接抛错 / harness 守卫 / 棘轮不变量① / 单测钉值）；转入红实测成立（计数器移到规则之后即精确报错）。**三仓实测复现收窄前总数**：lazygit **2805** = 1807+623+375、petclinic **45** = 13+31+1、self 668——与基线报告 §7.4/§7.5 逐字吻合，**ADR-0018 的裁决算术从此每次运行都被机器核对**。
+- 未自证项（Go 每轮解析两次的性能、≤5 魔法数、Feature Envy、5 适配器谓词重复、`scan-engine` 排除块 Divergent Change）按 judgement call 登记在报告，未改码。
+
 ### 质量门（续批后基线，取代本节上方旧数值）
 
 - 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。

@@ -53,6 +53,10 @@
       复跑：`NODE_OPTIONS=--max-old-space-size=4096 services/control-plane/node_modules/.bin/tsx scripts/precision/scan_precision.ts self lazygit petclinic`
 - [x] `excluded` 计数可解释且守恒：三仓 `zeroCallers + testOnly == total` 全部成立（lazygit 1693+114=1807；
       petclinic 13+0=13；self 279+4=283），且 **harness 现在会因不守恒直接抛错**（不留"数字对不上"的快照）
+      —— **2026-09-21 双轴评审发现该断言是代数恒等式（永久不触发），当日修复**：独立计数器 `census.candidatesBeforeRules`
+      + 真等式 `candidatesBeforeRules === total + Σexcluded.count`，落 census 构造处 / harness / 棘轮 / 单测四处；
+      三仓实测复现收窄前总数 lazygit **2805**、petclinic **45**、self 668（与报告 §7.4/§7.5 逐字吻合），
+      转红实测成立（计数器移到规则之后即精确报错）
 - [x] 接口实现方法项以 `deferred` 规则出现在响应里（count 缺席 + `deferred: true`），不是静默缺失
 - [x] `testOnly` 标注有单测（含"标注而非排除"与守恒断言）；口径未变（测试调用仍不计入调用者）
 - [x] 97 题 golden eval 全阈值不回退；e2e **68/68**；控制面单测 **670 → 673**（+3 裁决用例）；四包 typecheck 净

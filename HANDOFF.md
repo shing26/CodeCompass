@@ -67,7 +67,7 @@ v0.17 index_repo → v0.18 全异步化 + remove_repo + 幽灵防线（ADR-0016 
 apps/repoqa-web/        # React 三栏工作台（旧名待 V30-10 迁移）
 services/control-plane/ # 单进程控制面（src 按域分组，见 §2.2）
 packages/{contracts,bridge-adapters}/
-docs/adr/               # 架构决策 0001–0017
+docs/adr/               # 架构决策 0001–0019
 docs/agents/            # agent 协作约定（issue-tracker/triage-labels/parallel-collaboration）
 docs/reports/           # 评估与体验报告唯一归宿：Round1–3 并排 + CodeCompass_* 评估
 docs/reports/ui-shots/  # 截图证据（本地保留不入库；报告内以 `ui-shots/...` 相对路径引用）
@@ -84,8 +84,8 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 文档 | 内容 |
 |---|---|
 | `CONTEXT.md` | 术语表（含 出库掩码不变式 / 用户文案规范）+ 全部 ADR 索引 |
-| `docs/adr/0001–0017` | 架构决策；**0016（MCP 长操作立即返回+轮询）新工具设计前必读** |
-| `CHANGELOG.md` | 0.5.x→0.30.0 完整发布条目 |
+| `docs/adr/0001–0019` | 架构决策；**0016（MCP 长操作立即返回+轮询）新工具设计前必读；0018（孤儿桶只声称可调用符号）改 scan 语义前必读** |
+| `CHANGELOG.md` | 0.5.x→0.31.0 完整发布条目 |
 | `docs/reports/` | 体验报告 Round1–3（产品缺陷史）与历史评估报告；截图在 `ui-shots/`（本地） |
 | `docs/archive/` | 历史 handoff（v0.3 / 2026-08 / 2026-09）与旧规划文档 |
 | `.scratch/v027-backlog.md` | 跨版本总账：开放项 V27-x/V29-x/V30-x/V31-x 与关闭记录 |

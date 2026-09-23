@@ -39,7 +39,7 @@
 - [x] `self` 孤儿桶显著下降：**283 → 236（−47）**；原单一根因族（参数注解）清空——listRepos/importRepo/deleteRepo/reindexRepo/cloneRepo 全部获得调用边；**但 top-10 仍有 7 条 `RepoQAClient.*`，各自卡在实施中新登记的不同机制族**（见下），"不再被占据"未完全达成
 - [x] 97 题 golden eval 全阈值不回退（幻觉 0%）；e2e **68/68**；cp 单测 **680 → 686**（+6）；四包 typecheck 净
 - [x] 三仓复测数字入档：lazygit **1807** / petclinic **13** **逐字节不变**（每步增量都复测过）；self 普查守恒
-- [ ] M1（top-10 假阳性率）复算留档——**未重判**（`verdicts/self.json` 的判定仍描述改动前的榜单构成，需下一增量重判后再算 M1）
+- [x] M1（top-10 假阳性率）复算留档——**已于后续批次补做**：`scripts/precision/verdicts/self.json` 按新 top-10 逐条重判（measured 2026-09-20），`npm run precision -- --score` 得 **self 90.0%（9/10，唯一真阳性 = `RepoQAClient.getRepo`）**，并追加 `--score` 覆盖度守卫（未判定条目不再静默消失）。lazygit/petclinic 同期补满 10/10（各 100%）。
 
 ## 实施记录（2026-09-19，三轮递进）
 

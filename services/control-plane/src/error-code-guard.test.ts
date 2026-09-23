@@ -37,8 +37,10 @@ function collectTsFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** `code: '<literal>'` — the one emission shape the scan recognizes. */
-const CODE_LITERAL_RE = /code:\s*'([a-z][a-z_]+)'/g;
+/** `code: '<literal>'` — the one emission shape the scan recognizes. Both quote
+ * styles: single quotes are the repo's habit, but a double-quoted emission is
+ * the same emission and must not slip past the guard (2026-09-21 review). */
+const CODE_LITERAL_RE = /code:\s*['"]([a-z][a-z_]+)['"]/g;
 
 describe('error-code guard (issue 10)', () => {
   it('every emitted `code:` literal is in the contracts table', () => {
@@ -70,6 +72,9 @@ describe('error-code guard (issue 10)', () => {
     expect("code: status < 500 ? ERROR_CODES.request_error : ERROR_CODES.internal_error").toMatch(/ERROR_CODES\./);
     // Error message strings with spaces must not be captured.
     expect(literal("res.status(404).json({ error: 'invalid JSON body', code: 'invalid_json' });")).toBe('invalid_json');
+    // Both quote styles count as an emission (hardened after the 2026-09-21
+    // review: a double-quoted `code:` used to slip past the guard entirely).
+    expect(literal('res.status(400).json({ error: "x", code: "made_up_code" });')).toBe('made_up_code');
   });
 
   it('every contract code appears in the CONTEXT.md Error Code Contract table (issue 10)', () => {
