@@ -49,9 +49,9 @@
 2. **Mimosa git-gate 拦 ZCode 工具层的 `git commit`**（不是 git hooks！`--no-verify` 无效）：全仓扫描模式、无 baseline/touched-only 配置面。**agent 无法 commit 时的出路**：走 `.cmd` 交用户本机 shell 手动提交；假凭据测试用运行时构造（`'AKIA' + 'A'.repeat(16)`）消除静态模式
 3. **双 agent 并行开发**：另一条线（智能体搭建）会直接提交本仓库并打 tag——动手前 `git log --oneline` + 看 CHANGELOG 确认版本号没被占、工作区没被并行改动；**提交只挑自己的文件**
 4. **C 盘常满**：vitest/e2e 前必须 `TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp`，否则 ENOSPC 伪装成测试失败
-5. vitest 并发抖动：瞬时失败复跑两次确认再定性（历史规律：复跑即绿）
+5. vitest 并发抖动：瞬时失败复跑两次确认再定性（历史规律：复跑即绿）。**同族两例**（2026-09-21 实测）：① 前端 `npm run build` 在内存吃紧时 `vite:worker Failed to allocate memory`（monaco 的 ts.worker 6MB 块）→ `NODE_OPTIONS=--max-old-space-size=6144 npm run build` 即过；② gate 在机器换页时可能 `server did not become healthy` → 复跑即绿。两者都不是代码问题，但**发布前 `prepublishOnly` 会跑全量构建**，撞上时别误判为坏包
 6. esbuild 剥注释：验证 dist 更新要 grep 字符串字面量或验证行为
-7. **e2e gate 非 hermetic（V30-9 挂账）**：根 `.env`（REPOQA_LLM_*）在场时 chat/incident 检查实走远程 LLM（慢、红位漂移）；现行纪律 = 对照组跑法 `REPOQA_LLM_BASE= python scripts/e2e/closeout_gate.py`
+7. **e2e gate 已 hermetic（V30-9 已闭，2026-09-21）**：gate 在 spawn HTTP 服务端时显式清空 `REPOQA_LLM_BASE/URL/API_KEY`（`chat/llm.ts:121` 的 `{...dotEnv, ...thisEnv}` 保证进程环境优先 → `!url && !base` 走确定性降级），因此 chat/incident 检查不再依赖远程 LLM；要 eyeball 真实回答时用 `CLOSEOUT_GATE_LIVE_LLM=1 python scripts/e2e/closeout_gate.py`。**历史**：此前 `.env` 在场即实走远程 LLM，外网慢致红位漂移，2026-09-21 更因 provider 额度耗尽（HTTP 402）把门禁染红（同时连带吞掉下游的 `ADR-0010 commit stamp` 断言——incident 无 done payload 时该函数提前 return）
 8. **CI job 名 = branch protection 必过检查 context**（V30-12）：`ci.yml` 的 job `name:` 会以「工作流名 / job 名」（如 `CI / E2E gate`）成为必过项，**永远不要在 job 名里嵌计数/版本号**（「E2E gate (33 checks)」曾失配十一个版本）；改名必须同步 Settings→Branches 重选检查项（agent 令牌无管理权，需用户本机操作）
 9. Windows：jsdom 无 `scrollIntoView`；stdio 测试 kill 后句柄延迟释放
 
@@ -93,20 +93,31 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | `scripts/e2e/closeout_gate.py` | e2e 门禁 = 系统能力可执行规格 |
 | agent 持久记忆 | `C:\Users\Shing\.zcode\cli\memories\projects\codecompass-0da1d6bfa4427c13\memory\`（各版发布边界 + Mimosa 机制 + 双 agent 分工） |
 
-## 4. 下一步：v0.31 精度优先批（方向已定，2026-09-16）
+## 4. 当前批次：v0.31 精度优先批（**主体已落地**，2026-09-21 刷新）
 
-**方向裁决**：A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示的工程资产）；**Web 面只减不增**。裁决底稿在 `D:\WorkBuddyData\CodeCompass-方向定位-2026-09-16.md`，落地 spec 在 `.scratch/v031-precision/spec.md`（含放弃清单、度量口径 M1–M5、实证修正表）。
+**方向裁决**：A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示的工程资产）；**Web 面只减不增**。裁决底稿在 `D:\WorkBuddyData\CodeCompass-方向定位-2026-09-16.md`，落地 spec 在 `.scratch/v031-precision/spec.md`。
 
-票池（Wave 1 = 01+06 可并行；Wave 2 = 02+03；Wave 3 = 04 收口）：
+**票池状态（01–16；详情见各 issue 与 CHANGELOG 0.31.0）**：
 
-1. **01 精度复测基线**（度量先行）：建真实仓库假阳性率 harness，三样本（lazygit / petclinic / 本仓）出 before/after
-2. **02 残余精度攻坚**：主因 = Go 跨文件类型引用（`declaredTypes` 按文件）；目标 <5%，不可达则给诚实下限
-3. **03 发布就绪**：npm 首发 `@codecompass/cli`（凭证在用户侧）+ README 工具数/安装段、benchmark、协作文档、CONTEXT 四处一致性
-4. **04 影响力兑付**：tag `v1.0.0` + 真实数据技术文 + 公开精度评测报告
-5. **05 Web 收敛 6→3**（条件票：只做资产可整票裁剪）
-6. **06 冻结护栏与 V27 余账归位**：新增工具/页签须附降误报论证；V27-5/6/15 冻结、V27-7/16 低优先、V27-17 升级为精度票候选
+| 票 | 状态 |
+|---|---|
+| 01 精度复测基线 / 02 残余精度攻坚 / 06 冻结护栏 | ✅ 已落地 |
+| 07 MCP 契约收口 / 08 桶语义收窄（ADR-0018） / 09 语言注册表 / 10 错误码单一源 / 11 TS 接收者定型 | ✅ 已落地 |
+| 12–16 评估维补齐（E-M12 审计 / E-M7 幂等 / E-M10 通用协议套件 / E-M4 token 对比 / E-M5 自愈率） | ✅ 已落地（外部评分 63/81 → 预期 73/81） |
+| 03 发布就绪 | ⏳ **仅剩用户侧**：npm org + `npm login` + `npm publish --access public` + tag（M4 未达 1） |
+| 04 影响力兑付（v1.0.0 + 技术文 + 公开评测） | ⬜ 未开工（依赖 02、03） |
+| 05 Web 收敛 6→3 | ⬜ 未开工（**条件票**，D 目标可整裁） |
 
-**仍开放但非本批**：V30-10 repoqa 旧命名族迁移、V30-9 gate hermetic 化、V29-1 import/evolve 韧性后半、V30-12（**需用户本机改 branch protection**，见 §2.3-8）。
+**仍开放（非本批，按性质）**：
+
+1. **V27-17 buildTours 对 TS 仓零锚点**（已升级为 A 线精度候选，**票 17 已立**）——空 tours = agent 拿到空事实。
+2. **精度残余三族**（票 11 登记，票 18 待立）：(g) `Pick<>` 工具类型 / (e) 闭包参数别名 / (f) `useMemo` 流。
+3. **ADR-0018 `deferred`：接口实现方法**（lazygit 620）——需接口→实现关系表。
+4. **`RepoQAClient.getRepo` 死码**（M1 唯一真阳性，移除候选）。
+5. **Go 适配器每轮解析两次**（评审 judgement call）——**待测量**后再决定是否开票（"先有度量，再有战役"）。
+6. **V29-1** import/evolve 韧性后半（POST 202 + WS 进度流化，需独立 spec）。
+7. **V30-10** repoqa 旧命名族迁移（含对外契约：SSE 事件名/环境变量/包路径，需破坏面清单）。
+8. **V30-12** branch protection 必过检查名失配（**需用户本机**改 Settings，见 §2.3-8）。
 
 ## 5. Suggested skills
 
@@ -125,7 +136,7 @@ cd D:/CodeCompass
 git log --oneline -3
 export TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp   # C 盘满对策
 npm run typecheck                        # 全仓零错误
-cd services/control-plane && npm test    # 全绿（~650）
+cd services/control-plane && npm test    # 全绿（~693）
 cd ../../apps/repoqa-web && npx vitest run
-cd ../.. && npm run build && REPOQA_LLM_BASE= python scripts/e2e/closeout_gate.py  # 63 项对照组
+cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 70 项（gate 自带 LLM 环境清空，V30-9）
 ```

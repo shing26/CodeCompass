@@ -37,8 +37,8 @@ const HTTP_VERB_ANNOTATIONS = new Set([
 ]);
 
 interface MethodScope {
-  params: Map<string, string>;
-  locals: Map<string, string>;
+  params: Map<string, ReceiverType>;
+  locals: Map<string, ReceiverType>;
   /** Issue 11 — every name bound in this scope, typed or not. The shadowing
    * fence: a receiver lookup stops at the nearest scope that DECLARES the
    * name, even when that binding carries no type, so an untyped inner
@@ -48,6 +48,21 @@ interface MethodScope {
   /** Enclosing function scope (closure semantics). Nested arrows assigned to
    * consts get their own scope, so lookups must be able to walk outward. */
   parent?: MethodScope;
+}
+
+/**
+ * Issue 18(g) — a resolved receiver type, optionally RESTRICTED to the members
+ * an annotation actually exposes (`Pick<T, 'a' | 'b'>`).
+ *
+ * Why the restriction is not optional: expanding `Pick<T, K>` to plain `T`
+ * would let a call to a member outside `K` resolve into a real edge — trading
+ * a false positive for a false NEGATIVE, which is the worse failure (ADR-0002:
+ * unresolved stays `dynamic`, never guessed). So the allowed set travels with
+ * the type and a call outside it stays dynamic.
+ */
+interface ReceiverType {
+  name: string;
+  allowed?: ReadonlySet<string>;
 }
 
 interface TypeRecord {
@@ -218,6 +233,13 @@ function typeAnnotationName(node: SyntaxNode, source: string): string | undefine
   return annotation ? typeNameFromAnnotation(annotation, source) : undefined;
 }
 
+/** Raw annotation text (`: Pick<X,'a'>` → `Pick<X,'a'>`) — issue 18(g) needs
+ * the untruncated text so utility types keep their restriction. */
+function rawTypeAnnotationText(node: SyntaxNode, source: string): string | undefined {
+  const annotation = node.getChild('TypeAnnotation');
+  return annotation ? textOf(annotation, source).replace(/^:\s*/, '').trim() : undefined;
+}
+
 /**
  * Issue 11 — member-wise bindings of an inline type-literal annotation, e.g.
  * `RepoProvider({ client, children }: { client: RepoQAClient; children: X })`.
@@ -245,7 +267,11 @@ function typeLiteralMembers(annotation: SyntaxNode, source: string): Array<[stri
   }
   parts.push(body.slice(start));
   for (const part of parts) {
-    const match = /^\s*([A-Za-z_$][\w$]*)\s*\??\s*:\s*([A-Za-z_$][\w$.]*)\s*$/.exec(part);
+    // Raw member type text (not a pre-extracted name): the member may be a
+    // utility type whose restriction must reach the call site — issue 18(g)
+    // attribution showed `{ client?: Pick<X,'radar'> }` used to be dropped here
+    // because the old regex only accepted plain identifier paths.
+    const match = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*\??\s*:\s*(.+?)\s*$/.exec(part);
     if (match) members.push([match[1], match[2]]);
   }
   return members;
@@ -298,8 +324,12 @@ function isRouterReceiver(receiver: string | undefined): boolean {
   return receiver === 'app' || receiver === 'router' || /^[A-Za-z_$][\w$]*Router$/.test(receiver);
 }
 
-function collectParams(node: SyntaxNode, source: string): MethodScope {
-  const params = new Map<string, string>();
+function collectParams(
+  node: SyntaxNode,
+  source: string,
+  interfaceMembers: ReadonlyMap<string, ReadonlyMap<string, string>>
+): MethodScope {
+  const params = new Map<string, ReceiverType>();
   const declared = new Set<string>();
   const list = node.getChild('ParamList');
   if (!list) return { params, locals: new Map(), declared };
@@ -332,18 +362,84 @@ function collectParams(node: SyntaxNode, source: string): MethodScope {
         // Destructured props (`{ client, children }: { client: X; … }`) bind
         // member-wise from the explicit literal — still deterministic, and
         // untyped/complex members stay unbound (fail-closed).
-        for (const [member, type] of typeLiteralMembers(child, source)) {
-          params.set(member, type);
+        for (const [member, memberType] of typeLiteralMembers(child, source)) {
+          const resolved = resolveTypeRef(memberType, interfaceMembers);
+          if (resolved) params.set(member, resolved);
+        }
+      } else if (/^[A-Za-z_$][\w$]*$/.test(raw) && interfaceMembers.has(raw)) {
+        // Issue 18(g) — a NAMED props interface (`{ client }: EvolutionViewProps`):
+        // the members live in the interface body, so bind each member the
+        // annotation actually declares (attribution experiment showed this was
+        // broken independently of the Pick<> case below).
+        for (const [member, memberType] of interfaceMembers.get(raw)!) {
+          const resolved = resolveTypeRef(memberType, interfaceMembers);
+          if (resolved) params.set(member, resolved);
         }
       } else {
-        const type = typeNameFromAnnotation(child, source);
-        if (type) params.set(pendingParam, type);
+        // Plain / utility-typed parameter (`client: RepoQAClient`,
+        // `client: Pick<RepoQAClient, 'radar'>`).
+        const resolved = resolveTypeRef(raw, interfaceMembers);
+        if (resolved) params.set(pendingParam, resolved);
       }
       pendingParam = undefined;
     }
     child = child.nextSibling;
   }
   return { params, locals: new Map(), declared };
+}
+
+/** All descendant nodes with the given name (depth-first, self excluded). */
+function findDescendants(node: SyntaxNode, name: string): SyntaxNode[] {
+  const out: SyntaxNode[] = [];
+  const walk = (current: SyntaxNode): void => {
+    for (let child = current.firstChild; child; child = child.nextSibling) {
+      if (child.name === name) out.push(child);
+      walk(child);
+    }
+  };
+  walk(node);
+  return out;
+}
+
+/** Issue 18(f) — the NARROW deep-`new` rule.
+ *
+ * `const client = useMemo(() => prop ?? new RepoQAClient(...), [prop])` really
+ * is the instance, but the NewExpression sits inside the arrow, so the
+ * direct-child lookup misses it. A blanket "find a NewExpression anywhere in
+ * the initializer" is NOT acceptable: `const users = items.map(u => new User(u))`
+ * is a COLLECTION of instances and would be mistyped as `User`.
+ *
+ * Accepted shapes only (whitelist, fail-closed):
+ *   useMemo(() => new T(...))        → T
+ *   useMemo(() => X ?? new T(...))   → T      (`??` / `||`)
+ * Everything else — map/filter/reduce, ternary branches, nested arrows, more
+ * than one `new` — returns undefined.
+ */
+function memoFactoryClass(node: SyntaxNode, source: string): string | undefined {
+  const call = node.getChild('CallExpression');
+  if (!call) return undefined;
+  if (callShape(call, source).bareName !== 'useMemo') return undefined;
+  const arrow = argumentNodes(call)[0];
+  if (!arrow || arrow.name !== 'ArrowFunction') return undefined;
+  // An expression-bodied arrow's value is its last child (a Block body has none).
+  const body = arrow.lastChild;
+  if (!body || body.name === 'Block') return undefined;
+  let newExpr: SyntaxNode | undefined;
+  if (body.name === 'NewExpression') {
+    newExpr = body;
+  } else if (body.name === 'BinaryExpression') {
+    const logicOp = body.getChild('LogicOp');
+    if (!logicOp || !/^(\?\?|\|\|)$/.test(textOf(logicOp, source).trim())) return undefined;
+    const found = findDescendants(body, 'NewExpression');
+    if (found.length !== 1) return undefined; // ambiguous → fail closed
+    newExpr = found[0];
+  } else {
+    return undefined;
+  }
+  const callee = newExpr.getChild('MemberExpression') ?? newExpr.getChild('VariableName');
+  if (!callee) return undefined;
+  const name = textOf(callee, source).split('.').pop();
+  return name || undefined;
 }
 
 /** Issue 11 — push a scope linked to the enclosing one (closure chain), so a
@@ -358,9 +454,12 @@ function receiverTypeOf(
   receiver: string | undefined,
   scope: MethodScope | undefined,
   typeStack: TypeRecord[]
-): string | undefined {
+): ReceiverType | undefined {
   if (!receiver) return undefined;
-  if (receiver === 'this') return typeStack[typeStack.length - 1]?.name;
+  if (receiver === 'this') {
+    const name = typeStack[typeStack.length - 1]?.name;
+    return name ? { name } : undefined;
+  }
   // Issue 11 — walk the closure chain outward. The nearest DECLARATION wins
   // (JS semantics): if that binding is untyped, stop — an untyped inner
   // declaration must not be revived by a typed outer one (fail-closed).
@@ -371,9 +470,19 @@ function receiverTypeOf(
   }
   for (let index = typeStack.length - 1; index >= 0; index -= 1) {
     const field = typeStack[index].fields.get(receiver);
-    if (field) return field;
+    if (field) return { name: field };
   }
   return undefined;
+}
+
+/**
+ * Issue 18(g) — does this receiver actually expose `method`?
+ * A `Pick<T, K>` receiver may only resolve members inside K; anything else
+ * stays dynamic, because resolving it into `T` would invent an edge that the
+ * type system does not have (false negative > false positive, ADR-0002).
+ */
+function receiverExposes(receiverType: ReceiverType, method: string): boolean {
+  return receiverType.allowed === undefined || receiverType.allowed.has(method);
 }
 
 /**
@@ -462,7 +571,7 @@ function httpCallDescriptor(
     base === 'ky' ||
     base === 'ofetch' ||
     client !== undefined ||
-    /Axios/.test(receiverTypeOf(base, scope, typeStack) ?? '') ||
+    /Axios/.test(receiverTypeOf(base, scope, typeStack)?.name ?? '') ||
     /^(api|http|client|request|fetcher)/i.test(base) ||
     /(Client|Api|Http)$/i.test(base);
   if (!isAxiosClient) return undefined;
@@ -495,11 +604,118 @@ function findClosingBrace(masked: string, openIndex: number): number {
   return openIndex;
 }
 
+/** Issue 18(g) — member name → RAW type text, read from an interface body.
+ * Raw text (not a resolved name) on purpose: the member type may itself be a
+ * utility type (`Pick<X, 'a'>`) whose restriction must survive to the call
+ * site. Method members (`radar(...): T`) have no `:` after the name and are
+ * skipped — a method on a props object is not a receiver binding. */
+function parseInterfaceMembers(body: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const ch = body[index];
+    // `=>` is an arrow, not a generic close — counting it drives depth negative
+    // and silently swallows every member AFTER a function-typed one (e.g.
+    // `onNavigate?: () => void;` before `client?: Pick<…>`).
+    if (ch === '>' && body[index - 1] === '=') continue;
+    if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth += 1;
+    else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth -= 1;
+    else if ((ch === ';' || ch === ',' || ch === '\n') && depth === 0) {
+      parts.push(body.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(body.slice(start));
+  for (const part of parts) {
+    const match = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\s*\??\s*:\s*([^\n]+?)\s*$/.exec(part);
+    if (match) out.set(match[1], match[2]);
+  }
+  return out;
+}
+
+/** Split on a separator only at bracket depth 0 — the same discipline the
+ * interface-member splitter uses. Type-annotation text is full of nested
+ * `<…>`/`(…)`/`[…]`, so a naive `split('|')` tears `Pick<X, 'a' | 'b'>` apart
+ * (2026-09-21: that is exactly how a two-name Pick silently failed while the
+ * one-name form worked). */
+function splitTopLevel(text: string, separator: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+    if (ch === '>' && text[index - 1] === '=') continue; // `=>` is an arrow
+    if (ch === '{' || ch === '(' || ch === '[' || ch === '<') depth += 1;
+    else if (ch === '}' || ch === ')' || ch === ']' || ch === '>') depth -= 1;
+    else if (ch === separator && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/**
+ * Issue 18(g) — resolve an annotation's RAW text into a receiver type.
+ * Deliberately narrow, and everything unrecognised fails closed (undefined =
+ * the call stays dynamic):
+ *   `RepoQAClient`            → { name }
+ *   `Pick<RepoQAClient,'a'>`  → { name, allowed: {a} }   (K must be a plain
+ *                                name list — nested generics are refused so a
+ *                                mis-split can never widen the allowed set)
+ *   `X | undefined`           → same as `X`  (optional members are common)
+ *   anything else (unions of objects, arrays, functions, inline literals) → undefined
+ */
+function resolveTypeRef(
+  raw: string,
+  interfaceMembers: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  depth = 0
+): ReceiverType | undefined {
+  if (depth > 4) return undefined;
+  let text = raw.trim();
+  if (!text) return undefined;
+  // `T | undefined` / `T | null` — an optional member still types the receiver.
+  // Top-level split only: a `|` inside `Pick<…>` is part of K, not a union.
+  const stripped = splitTopLevel(text, '|')
+    .map((part) => part.trim())
+    .filter((part) => part && part !== 'undefined' && part !== 'null');
+  if (stripped.length === 1) text = stripped[0];
+  else if (stripped.length > 1) return undefined; // real unions: fail closed
+  if (/^[A-Za-z_$][\w$.]*$/.test(text)) return { name: text };
+  const pick = /^Pick<\s*([A-Za-z_$][\w$.]*)\s*,\s*(.+?)>$/s.exec(text);
+  if (pick) {
+    const listText = pick[2].trim();
+    // Only a plain name list is accepted (quoted or bare, separated by | or ,).
+    if (
+      !/^('[^']+'|"[^"]+"|[A-Za-z_$][\w$]*)(\s*[|,]\s*('[^']+'|"[^"]+"|[A-Za-z_$][\w$]*))*$/.test(
+        listText
+      )
+    ) {
+      return undefined;
+    }
+    const allowed = new Set<string>();
+    for (const match of listText.matchAll(/'([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*)/g)) {
+      const name = match[1] ?? match[2] ?? match[3];
+      if (name) allowed.add(name);
+    }
+    if (allowed.size === 0) return undefined;
+    return { name: pick[1], allowed };
+  }
+  // A named interface/type alias used as a member type is an object shape, not
+  // a receiver — callers that destructure it consult the member table instead.
+  void interfaceMembers;
+  return undefined;
+}
+
 function extractTypeOnlyDeclarations(
   source: string,
   relativePath: string,
   repoId: string,
-  symbols: RepoSymbol[]
+  symbols: RepoSymbol[],
+  interfaceMembers: Map<string, Map<string, string>>
 ): void {
   const masked = maskLiteralsAndComments(source);
   const interfaceRe =
@@ -511,6 +727,12 @@ function extractTypeOnlyDeclarations(
     const extendsMatch = /\bextends\s+([A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*)/.exec(
       match[0]
     );
+    // Members come from the RAW body (the masked view blanks string-literal
+    // types like `Pick<X, 'radar'>`); offsets are identical, so the brace span
+    // found in `masked` is valid in `source`.
+    if (close > open) {
+      interfaceMembers.set(match[1], parseInterfaceMembers(source.slice(open + 1, close)));
+    }
     symbols.push({
       repoId,
       kind: 'interface',
@@ -553,7 +775,12 @@ export function parseTypeScriptSource(
   repoId: string
 ): RepoSymbol[] {
   const symbols: RepoSymbol[] = [];
-  extractTypeOnlyDeclarations(source, relativePath, repoId, symbols);
+  // Issue 18(g) — interface member types, file-local. Same-file is enough for
+  // the observed shapes (a component and its props interface live together);
+  // cross-file interface members stay unbound (fail-closed, same rule as the
+  // Go package table: no guess by name similarity).
+  const interfaceMembers = new Map<string, Map<string, string>>();
+  extractTypeOnlyDeclarations(source, relativePath, repoId, symbols, interfaceMembers);
 
   const typeStack: TypeRecord[] = [];
   const methodStack: RepoSymbol[] = [];
@@ -665,7 +892,7 @@ export function parseTypeScriptSource(
         }
         symbols.push(symbol);
         methodStack.push(symbol);
-        pushScope(scopeStack, collectParams(node, source));
+        pushScope(scopeStack, collectParams(node, source, interfaceMembers));
         return;
       }
 
@@ -684,7 +911,7 @@ export function parseTypeScriptSource(
         };
         symbols.push(symbol);
         methodStack.push(symbol);
-        pushScope(scopeStack, collectParams(node, source));
+        pushScope(scopeStack, collectParams(node, source, interfaceMembers));
         return;
       }
 
@@ -705,11 +932,18 @@ export function parseTypeScriptSource(
           for (const match of name.matchAll(/[A-Za-z_$][\w$]*/g)) {
             scope.declared.add(match[0]);
           }
-          const declaredType = typeAnnotationName(node, source);
           const newExpr = node.getChild('NewExpression');
           const newShape = newExpr ? callShape(newExpr, source) : undefined;
           const constructed = newShape?.bareName ?? newShape?.parts?.[0];
-          const resolved = declaredType ?? constructed;
+          // Issue 18(g): resolve the annotation text (so `Pick<X,'a'>` keeps its
+          // restriction); issue 18(f): the memo-factory shape; then the plain
+          // `new X()` direct-child case.
+          const fromAnnotation = resolveTypeRef(rawTypeAnnotationText(node, source) ?? '', interfaceMembers);
+          const fromMemo = memoFactoryClass(node, source);
+          const resolved =
+            fromAnnotation ??
+            (fromMemo ? { name: fromMemo } : undefined) ??
+            (constructed ? { name: constructed } : undefined);
           if (resolved) scope.locals.set(name, resolved);
         }
         if (def && initCall) {
@@ -741,7 +975,7 @@ export function parseTypeScriptSource(
           };
           symbols.push(symbol);
           methodStack.push(symbol);
-          pushScope(scopeStack, collectParams(fn, source));
+          pushScope(scopeStack, collectParams(fn, source, interfaceMembers));
           moduleArrowPushed.push(true);
         } else {
           moduleArrowPushed.push(false);
@@ -891,13 +1125,16 @@ export function parseTypeScriptSource(
               ? parts[0]
               : parts.slice(0, -1).join('.');
         const receiverType = receiverTypeOf(receiver, scope, typeStack);
+        const method = parts[parts.length - 1];
+        // Issue 18(g): a restricted receiver (`Pick<T, K>`) only exposes K.
+        const exposes = receiverType !== undefined && receiverExposes(receiverType, method);
         const call: RepoSymbolCall = {
           file: relativePath,
-          method: parts[parts.length - 1],
+          method,
           line,
           receiver,
-          receiverType,
-          dynamic: receiverType === undefined
+          receiverType: exposes ? receiverType!.name : undefined,
+          dynamic: !exposes
         };
         const calls = current.calls ?? [];
         if (

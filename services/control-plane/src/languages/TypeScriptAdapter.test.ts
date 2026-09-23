@@ -350,6 +350,149 @@ export function outer(client: RepoQAClient) {
     expect(call?.dynamic).toBe(true);
   });
 
+  it('issue 18(g) attribution: named props interface member + Pick<> — where does it break?', () => {
+    // Mirrors EvolutionView.tsx:22 / CiGateView.tsx:19 / ArchitectureDeltaView.tsx:13:
+    //   interface XProps { client?: Pick<RepoQAClient, 'radar'> }
+    //   function X({ client }: XProps) { … client.radar(…) }
+    const source = `
+import type { RepoQAClient } from '../client/RepoQAClient';
+interface EvolutionViewProps {
+  repo: Repo;
+  client?: Pick<RepoQAClient, 'radar'>;
+}
+export function EvolutionView({ client }: EvolutionViewProps) {
+  const load = useCallback(async () => {
+    const hubs = await client.radar(repo.id, '');
+    return hubs;
+  }, [client]);
+  return load;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/components/EvolutionView.tsx', 'repo');
+    const component = symbols.find((symbol) => symbol.name === 'EvolutionView');
+    const call = component?.calls?.find((entry) => entry.method === 'radar');
+    expect(
+      call,
+      `symbols=${JSON.stringify(symbols.map((s) => ({ name: s.name, kind: s.kind, calls: s.calls })))}`
+    ).toBeDefined();
+    // Attribution result (2026-09-21): TWO independent breaks had to be fixed —
+    // (1) a NAMED props interface's members were never bound (only inline
+    // literals were), and (2) `Pick<T, K>` was never expanded. Each was proven
+    // broken in isolation by the four-variant probe in ticket 18.
+    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('issue 18(g) anti-false-edge: a Pick<> receiver must NOT expose members outside K', () => {
+    // The whole point of carrying the allowed set: expanding Pick<T,K> to plain T
+    // would resolve deleteRepo() into an edge the type system does not have —
+    // trading a false positive for the worse failure (a false negative).
+    const source = `
+interface Props { client?: Pick<RepoQAClient, 'radar'>; }
+export function View({ client }: Props) {
+  const load = useCallback(async () => {
+    await client.radar('r', '');
+    await client.deleteRepo('x');
+  }, [client]);
+  return load;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/components/View.tsx', 'repo');
+    const component = symbols.find((symbol) => symbol.name === 'View');
+    const allowed = component?.calls?.find((entry) => entry.method === 'radar');
+    const outOfScope = component?.calls?.find((entry) => entry.method === 'deleteRepo');
+    expect(allowed?.receiverType).toBe('RepoQAClient');
+    expect(allowed?.dynamic).toBe(false);
+    // Not in K → stays dynamic (no invented edge).
+    expect(outOfScope?.receiverType).toBeUndefined();
+    expect(outOfScope?.dynamic).toBe(true);
+  });
+
+  it('issue 18(g) fail-closed: unions and non-name Pick keys bind nothing', () => {
+    const source = `
+interface A { client?: RepoQAClient | RepoQAClient2; }
+interface B { client?: Pick<RepoQAClient, keyof RepoQAClient>; }
+export function V1({ client }: A) {
+  const load = useCallback(async () => { await client.radar('r', ''); }, [client]);
+  return load;
+}
+export function V2({ client }: B) {
+  const load = useCallback(async () => { await client.radar('r', ''); }, [client]);
+  return load;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/components/U.tsx', 'repo');
+    for (const name of ['V1', 'V2']) {
+      const fn = symbols.find((symbol) => symbol.name === name);
+      const call = fn?.calls?.find((entry) => entry.method === 'radar');
+      expect(call?.receiverType, name).toBeUndefined();
+      expect(call?.dynamic, name).toBe(true);
+    }
+  });
+
+  it('issue 18(g) regressions: multi-name Pick keys and a function-typed member must not break binding', () => {
+    // Two real defects found by the ticket's four-variant probe (2026-09-21):
+    //   1. a NAIVE `split('|')` for union-stripping tore `Pick<X, 'a' | 'b'>`
+    //      apart, so a two-name Pick silently failed while the one-name form
+    //      worked (the `|` lives inside `<>`, at depth 1);
+    //   2. counting the `>` of `=>` as a generic close drove the depth counter
+    //      negative and swallowed every member AFTER a function-typed one.
+    const source = `
+interface Props {
+  onNavigate?: (file: string, line: number) => void;
+  client?: Pick<RepoQAClient, 'runGate' | 'listGateRuns'>;
+}
+export function View({ client }: Props) {
+  const loadHistory = useCallback(async () => {
+    const page = await client.listGateRuns('r', { limit: 20 });
+    return page;
+  }, [client]);
+  const handleRun = async () => {
+    const run = await client.runGate('r', 'a', 'b', {});
+    return run;
+  };
+  return null;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/components/View.tsx', 'repo');
+    const component = symbols.find((symbol) => symbol.name === 'View');
+    const list = component?.calls?.find((entry) => entry.method === 'listGateRuns');
+    expect(list?.receiverType).toBe('RepoQAClient');
+    expect(list?.dynamic).toBe(false);
+    // The second call sits in a `const handleRun = async () => …` arrow, which
+    // gets its OWN scope — the closure chain must reach the component's params.
+    const handleRun = symbols.find((symbol) => symbol.name === 'handleRun');
+    const run = handleRun?.calls?.find((entry) => entry.method === 'runGate');
+    expect(run?.receiverType).toBe('RepoQAClient');
+    expect(run?.dynamic).toBe(false);
+  });
+
+  it('issue 18(f): a useMemo factory instance binds, a collection of instances does NOT', () => {
+    // App.tsx:38 shape — the instance lives behind the arrow, so the direct-child
+    // lookup misses it. And the anti-example: `items.map(u => new User(u))` is an
+    // ARRAY of instances; mistyping it as `User` would invent edges.
+    const source = `
+export function App({ clientProp }: { clientProp?: RepoQAClient }) {
+  const client = useMemo(() => clientProp ?? new RepoQAClient(resolveBaseUrl()), [clientProp]);
+  const users = items.map((u) => new User(u));
+  const boot = useCallback(() => {
+    client.pickFolder();
+    users.pickFolder();
+  }, [client, users]);
+  return boot;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/App.tsx', 'repo');
+    const app = symbols.find((symbol) => symbol.name === 'App');
+    const direct = app?.calls?.find((entry) => entry.receiver === 'client');
+    const collection = app?.calls?.find((entry) => entry.receiver === 'users');
+    expect(direct?.receiverType).toBe('RepoQAClient');
+    expect(direct?.dynamic).toBe(false);
+    // The collection must stay dynamic — this is the fail-closed guard.
+    expect(collection?.receiverType).toBeUndefined();
+    expect(collection?.dynamic).toBe(true);
+  });
+
   it('issue 11: a `new` expression records a constructor call edge', () => {
     const source = `
 import { RepoQAClient } from './client/RepoQAClient';

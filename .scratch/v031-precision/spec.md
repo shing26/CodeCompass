@@ -93,6 +93,8 @@
 | [14](issues/14-mcp-conformance-suite.md) | 通用 MCP 协议层一致性套件（**E-M10：口径边缘→名实相符**） | — | 6 项协议断言可对任意服务端跑；对违规假服务端必须报错；零项目数据依赖 |
 | [15](issues/15-context-budget-comparison.md) | 上下文治理 token 剪枝对比（**E-M4：2→3**） | — | 两档对比表 + 超限触发实测（`truncated=true`）；脚本可复跑 |
 | [16](issues/16-model-in-the-loop.md) | 模型在环一轮实验（**E-M5：2→3；E-M2 仅前向基线仍 2**） | — | 自愈成功率 + 误调率基线入报告；≤20 次调用；口径声明齐全 |
+| [17](issues/17-ts-tour-anchors.md) | TS/JS 仓的 Tour 锚点族（**V27-17 升级票**；2026-09-21 立项待开工） | 11（同域 TS 解析） | 本仓 `get_tours` 非空且锚点可验证；Java 侧不回退；模块级 JSX 边使 self 孤儿**下降**；三仓复测留档 |
+| [18](issues/18-residual-receiver-families.md) | 精度残余三族（(g) `Pick<>`/具名接口成员 · (f) `useMemo` 工厂/上下文解构 · (e) 闭包参数别名；2026-09-21 立项待开工） | 11（同文件，须串行） | 每族归因实验先红后绿；三族各有**反例单测**（防假边）；self top-10 的 `RepoQAClient.*` 7 条 → ≤1；lazygit/petclinic 逐字节不变 |
 
 **波次**：Wave 1 = 01 + 06（可并行，零冲突）；Wave 2 = 02 + 03（02 动引擎、03 动发布与文档，文件面不撞）；Wave 3 = 04（收口人制，含 v1.0.0 版本五处推进）；05 视 §1.3 裁决择机；
 **07 = Wave 1.5**（2026-09-18 裁决批准；与 03 共享 `README.md`，须串行或合并提交——本批 v0.31.0 尚未打 tag，07 可在 tag 前搭车收口）；

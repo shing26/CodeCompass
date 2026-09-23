@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import socket
@@ -2108,9 +2109,32 @@ def main() -> int:
     # V31-05: precision ratchet (no server; indexes the working tree itself).
     check_precision_ratchet(args.node)
 
+    # V30-9 — keep the gate HERMETIC. The chat/incident checks must exercise the
+    # deterministic degrade path, not a remote LLM: a live provider made red flags
+    # drift on slow networks, and on 2026-09-21 an out-of-credit provider (HTTP 402)
+    # turned the gate red outright while CI (no .env) stayed green — i.e. the same
+    # commit was green in CI and red locally for a reason that was not code.
+    #
+    # Process env wins over .env (chat/llm.ts:121 `{...dotEnv, ...thisEnv}`), so
+    # blanking these is enough: `!url && !base -> return null` = no LLM = deterministic.
+    # Manual live run (e.g. to eyeball real answers): CLOSEOUT_GATE_LIVE_LLM=1.
+    gate_env = dict(os.environ)
+    live_llm = bool(os.environ.get("CLOSEOUT_GATE_LIVE_LLM"))
+    if not live_llm:
+        for var in (
+            "REPOQA_LLM_BASE",
+            "REPOQA_LLM_URL",
+            "REPOQA_LLM_API_KEY",
+            "COPILOT_LLM_BASE",
+            "COPILOT_LLM_URL",
+            "COPILOT_LLM_API_KEY",
+        ):
+            gate_env[var] = ""
+    print(f"[gate] V30-9 LLM mode: {'LIVE (CLOSEOUT_GATE_LIVE_LLM=1)' if live_llm else 'hermetic (LLM env blanked)'}")
+
     server = subprocess.Popen(
         [args.node, str(cli), "--port", str(port), "--data-dir", str(data_dir), "--no-browser"],
-        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=gate_env,
     )
     try:
         wait_health(base)

@@ -207,4 +207,44 @@ harness 现在对不守恒**直接抛错**：留一份"数字对不上"的快照
 
 **方法教训（与 §7.1 同源）**：票面的初始归因假设（作用域链）被"先红"的归因实验部分推翻——真拦路虎是注解捕获；而作用域链在 (a)(d) 落地后对 `handleCloneRemote` 形态**又**成为必要。归因和修法必须交替进行，一次性设计没有意义。
 
+## 10. 第五增量（V31-06 精度残余 (g) 族：工具类型与具名接口成员，2026-09-21）
+
+票 18 的第一族。**归因实验再次推翻票面假设**：票面写"`Pick<>` 不展开与具名接口不查表，两者可能只坏一个"；四变体探针实测为**两处独立都坏**——B（内联字面量 + `Pick<>`）与 D（具名接口 + 普通类型）各自单独失败，A（内联 + 普通类型）通过。
+
+**实现中又由探针暴露两处真缺陷**（均已在代码里修掉并加回归钉）：
+
+| 缺陷 | 症状 | 修法 |
+|---|---|---|
+| 朴素 `split('|')` 撕裂 `Pick<X, 'a' \| 'b'>`——`\|` 在 `<>` 内属 K 列表，却被联合剥离逻辑误判为"真联合"→ 直接 fail-closed | **单名 Pick 通过、两名失败**（症状看似随机，实为确定性） | 深度感知 `splitTopLevel`（与成员切分同一纪律） |
+| `=>` 的 `>` 被当成泛型闭合 → 深度变负 → 分隔符不再生效 | **函数类型成员之后的所有成员全部丢失**（`onNavigate?: () => void;` 排在 `client` 之前时即失效） | 两个文本切分器都忽略 `=>` |
+
+**三仓复测（同源可复跑）**：
+
+| 样本 | 孤儿（本增量前 → 后） | 说明 |
+|---|---|---|
+| self | **250 → 248**（净减） | 四条目标 `radar`/`getArchitectureDelta`/`runGate`/`listGateRuns` **全部离榜**；净减说明未制造新孤儿 |
+| lazygit | **1807 → 1807** | 逐字节不变（不触 Go） |
+| petclinic | **13 → 13** | 逐字节不变（不触 Java） |
+
+普查守恒（`candidatesBeforeRules` 等式）三仓成立；adapter 18 用例全绿（含 `Pick` 越界必须 dynamic 的反例、`A | B` 与 `Pick<X, keyof X>` 的 fail-closed、两名 Pick 与函数类型在前的回归钉）。
+
+**复测新露面两条（按票 18 分工登记，不在 (g) 范围）**：`RepoQAClient.getSubgraphContext` 有**生产调用点**（`apps/repoqa-web/src/context/InspectorContext.tsx:72`）→ 假阳性，属 (f)/上下文 Provider 族；`QueryStream.onEvent/onError/onDone`（`RepoQAClient.ts:660-670`）是流订阅 API，待查是死 API 还是订阅模式未捕获。
+
+### 10.1 (f) 第一半：`useMemo` 工厂的深层 `new`（同批落地）
+
+窄规则（白名单 + 反例守死）：仅 `useMemo(() => new T(...))` 与 `useMemo(() => X ?? new T(...))` 才把变量定型为 `T`；
+`items.map(u => new User(u))` 这类**实例集合**必须保持 dynamic（否则 `users` 被误判为 `User`，造出类型系统没有的边）。
+单测同时钉正例与反例。
+
+**实测它不推动 top-10**（诚实登记）：`App.tsx:38` 的 `client` 只作为 JSX 属性传给 `<RepoProvider client={client}>`，**没有方法调用** ——
+self 孤儿 248 不变属预期，不是"改了没用"。
+
+### 10.2 (f) 第二半与 (e)：同一件事 —— 需要跨文件类型/成员表
+
+复测定位（推翻"机制简单"的预判）：`pickFolder` 的调用点（`App.tsx:156`）在 **`WorkbenchShell`（`App.tsx:52`）** 内，
+其 `client` 来自 `const { client } = useRepo()`（`:54`）；而 `useRepo(): RepoContextValue`（`RepoContext.tsx:423`）的
+返回类型接口**声明在另一个文件**。因此两族共同缺的是：① 跨文件的 hook/函数**返回类型**、② 跨文件的接口**成员表**。
+机制与 V31-02 的 Go per-repo 包表同源（`ParseContext` 已为此建过契约与注入路径），可照搬扩 TS 条目（歧义名一律丢弃）。
+**本增量未做该项**，已在票 18 如实登记为待开工。
+
 

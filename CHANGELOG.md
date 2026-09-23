@@ -80,7 +80,24 @@
 - **Standards 轴**（8 条）：ADR 索引 `0001–0017` → **`0001–0019`**（三处，本批新增 0018/0019 后静默漂移，无 gate 覆盖该区间）；ADR-0018 字段名 `excludedByRule` 对齐实现 `census.excluded`；**错误码哨正则收双引号**（原 `/code:\s*'…'/` 使 `code: "x"` 整体绕过守卫）+ 形状断言钉住；`scripts/out/` 原始 dump 取消跟踪并入 `.gitignore`（沿用 `scripts/precision/out/` 先例）。
 - **Spec 轴**（10 条）：补票 16 承诺的 `mcp:model-probe`；票 12(c) 字段表改正为实际落盘字段（`ok` 取代 `isError`；该层无稳定错误码故错误分布按文本聚合；截断由 sink 内部完成）；票 11 的 M1 行改为"已补做"（指向 `verdicts/self.json`，self 90.0%）；`.zcodeignore`（本会话工具生成的本地配置）取消跟踪。
 - **P1 修复：普查守恒空转**——评审发现初版守恒断言是**同义反复**（`census.zeroCallers` 由 `total − testOnly` 反推，故 `zeroCallers + testOnly === total` 恒成立，harness 抛错守卫/棘轮不变量①/单测三处永不触发）。修法：引擎在**收窄规则之前**独立累加 `census.candidatesBeforeRules`（计数器不得由 `total + Σexcluded` 派生——独立性就是这条断言的全部价值），真等式 `candidatesBeforeRules === total + Σ excluded[].count` 落**四处**（census 构造处直接抛错 / harness 守卫 / 棘轮不变量① / 单测钉值）；转入红实测成立（计数器移到规则之后即精确报错）。**三仓实测复现收窄前总数**：lazygit **2805** = 1807+623+375、petclinic **45** = 13+31+1、self 668——与基线报告 §7.4/§7.5 逐字吻合，**ADR-0018 的裁决算术从此每次运行都被机器核对**。
-- 未自证项（Go 每轮解析两次的性能、≤5 魔法数、Feature Envy、5 适配器谓词重复、`scan-engine` 排除块 Divergent Change）按 judgement call 登记在报告，未改码。
+- 未自证项（Go 每轮解析两次的性能、≤5 魔法数、Feature Envy、5 适配器谓词重复、`scan-engine` 排除块 Divergent Change）按 judgement call 登记在报告，未改码——**2026-09-21 逐条裁决**：5 条"不做"（均落在 spec §6.5「不服务 M1–M5 不做」之下，属整洁性偏好），Go 双解析留"待测量"入口（先量占比再决定是否合并两趟解析）。
+
+### 台账刷新与 V30-9 关闭（2026-09-21）
+
+- **V30-9 e2e gate hermetic 化（已闭）**：gate 在 spawn HTTP 服务端时显式清空 `REPOQA_LLM_BASE/URL/API_KEY`（`chat/llm.ts:121` 的 `{...dotEnv, ...thisEnv}` 保证进程环境优先；置空后 `!url && !base → return null` 走确定性降级），并留 `CLOSEOUT_GATE_LIVE_LLM=1` opt-in 供人工 eyeball。**实测：本机门禁 68/2 → 71/0**（两条红原为 provider HTTP 402）。**顺带发现**：402 曾**连带吞掉**下游 `ADR-0010 commit stamp` 断言——incident 无 done payload 时 `closeout_gate.py:732-734` 提前 return，该断言根本不记录；现已全绿 71 项。
+- **V27-17 立项（票 17）**：TS/JS 仓的 Tour 锚点族。现场实测本仓 `get_tours` 返回 `[]`，且工具 note 自陈"tours currently cover Java/Spring REST projects"；根因 = 三个 tour 的锚点全为 Java/Spring 概念（Servlet Filter / 拦截器 / route 方法），而 TS 入口族（`app.use(fn)` 中间件注册、React Context 枢纽、`main.tsx` 模块级 JSX）**根本不进符号图**（`app.use(fn)` 因取不到字符串首参被 route 分支丢弃；模块级 JSX 无边 = 报告 §5 P1 已登记缺口）。
+- **文档台账刷新**：`HANDOFF.md` §4 由"下一步 = 六票"改为**票池 01–16 现状表 + 仍开放清单**（§6 数字 650→693、63→69 项；§2.3-7 改为"已 hermetic + live opt-in"）；`CONTEXT.md` Status 补 ADR-0018/0019 与评估维批、棘轮；**V30-9 补进 `v027-backlog.md`**（此前只在 v030 spec 与 HANDOFF 提到，两账不对齐）。
+
+### 精度残余族：(g) 工具类型/具名接口成员 + (f) 第一半（2026-09-21）
+
+票 18 的两族落地（(f) 第二半与 (e) 待跨文件机制，见下）。**归因实验推翻了票面假设**——不是"两处可能只坏一个"，而是**两处独立都坏**：变体 B（内联字面量 + `Pick<>`）与变体 D（具名接口 + 普通类型）各自单独失败，而 A（内联 + 普通类型）通过。
+
+- **落地**：`ReceiverType { name, allowed? }` 贯穿 `params`/`locals`/`receiverTypeOf`；`resolveTypeRef` 解析注解**原文**（`X` / `Pick<X,'a'|'b'>` / `X | undefined`），其余 fail-closed；文件内 interface 成员表 `parseInterfaceMembers`；调用点 `receiverExposes` 判 `Pick` 越界即 `dynamic`（**不把 `Pick<T,K>` 展开成 `T`**——那会造出类型系统没有的边，假阴性比假阳性更坏）。
+- **实现中又由探针暴露两处真缺陷**（均已修 + 回归钉）：① 朴素 `split('|')` 撕裂 `Pick<X, 'a' | 'b'>`（`|` 在 `<>` 内属 K 列表）→ 症状是"单名 Pick 通过、两名失败"；② `=>` 的 `>` 被当成泛型闭合 → 深度变负 → **函数类型成员之后的所有成员全部丢失**。修法：深度感知切分 + 两个文本切分器都忽略 `=>`。
+- **实测（三仓同源复跑）**：**四条目标全部离榜**（`radar` / `getArchitectureDelta` / `runGate` / `listGateRuns`）；self 孤儿 **250 → 248**（净减，未制造新孤儿）；lazygit **1807** / petclinic **13** **逐字节不变**；普查守恒三仓成立；adapter **18** 用例全绿（含越界反例、联合 fail-closed、两名 Pick 与函数类型在前的回归钉）。
+- 复测新露面两条按分工登记：`getSubgraphContext` 有生产调用点（`InspectorContext.tsx:72`）属 (f)/上下文 Provider 族；`QueryStream.onEvent/onError/onDone` 待查死 API 或订阅模式未捕获。
+- **(f) 第一半（`useMemo` 工厂的深层 `new`）**：窄规则白名单 `useMemo(() => new T(...))` / `useMemo(() => X ?? new T(...))`；**反例守死**——`items.map(u => new User(u))` 是实例的**集合**，整体定型会把 `users` 误判为 `User`（造出类型系统没有的边），单测含该反例。**实测它不推动 top-10**：`App.tsx:38` 的 `client` 仅作为 JSX 属性传给 `<RepoProvider>`，无方法调用（self 孤儿 248 不变，属预期）。
+- **(f) 第二半与 (e) 经实测定位为同一件事：需要跨文件类型/成员表**。`pickFolder` 的调用点在 `App.tsx:52` 的 **`WorkbenchShell`**（不是 `App`），其 `client` 来自 `const { client } = useRepo()`；而 `useRepo(): RepoContextValue`（`RepoContext.tsx:423`）的返回类型接口**声明在另一个文件**。机制与 V31-02 的 Go per-repo 包表同源 → 扩 `ParseContext` 加 TS 条目（接口成员表 + hook 返回类型，歧义名丢弃）。本增量未达成该项，已在票 18 如实登记。
 
 ### 质量门（续批后基线，取代本节上方旧数值）
 
