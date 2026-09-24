@@ -173,6 +173,20 @@ main-flow  挂载链（5 steps）：main [main.tsx:9 = createRoot(...).render(] 
 - **门禁**：控制面 **722 → 727**、web 364、bridge 26、e2e **71/0**、97 题 eval 九桶全 100%、四包 `tsc --noEmit` 净。
 - **已知边界**：挂载链取"首个可解析的边"而非组件树遍历（需给边加 JSX 标记才能走纯组件树，契约面变更另议）；`error-handling` 对 TS 仍空（Express 四参错误中间件是确定性信号，未做）；跨文件中间件顺序按文件路径排序（tour 描述已披露）。
 
+### 发布就绪重核：从【打包产物】跑通 M4 的本地等价物（2026-09-24，票 03）
+
+发布本身（npm scope/publish/tag）在用户本机，本批把 **agent 侧能核验的全部重做了一遍**——原因是 09-17 首次核验后仓库又落了 6 张票的改动。
+
+- **包内容复检**：`npm pack --dry-run` 仍 **160 文件 / 5.0 MB / 解包 19.9 MB**；`LICENSE` + `README.md` 经 npm always-include 兜底入包、
+  `bin/codecompass.js` 在、两份 dist 齐（控制面 2 + web 154）；可疑条目扫描（`.env` / `.scratch` / `node_modules` / `src/` / `.test.`）**命中 0**。
+- **新增可复跑脚本 `scripts/smoke/packed-mcp-handshake.mjs`**：`npm pack --pack-destination <tmp>` → 干净目录 `npm install <tgz>` →
+  从**安装后的包**读 `bin` 字段解析入口 → 起 `codecompass mcp <path>` → 子进程 stdio JSON-RPC 依次 `initialize` / `tools/list` / `tools/call list_repos`。
+  **实测**：`serverVersion=0.31.0`、`instructionsPresent=true`、**`toolCount=17`**、`listReposOk=true`（payload 4879 B）。
+  这比"在工作树里跑"强：验证的是**包内容与 `bin` 声明**（正是 M4 在干净机器上真正走的那条路）；唯一未覆盖的是 npm 下载本身。
+- **README 定位对齐**（用户 2026-09-24 指出）：首句原自称「多语言代码理解**工作台**」，与"主轴是 MCP、Web 只减不增"的裁决矛盾 →
+  改为「多语言代码**事实层**，主轴是 **MCP**」并写明消费面主次；`CONTEXT.md` 身份词条与 HANDOFF §1 同步，HANDOFF 记录"Web 界面确实长期搁置"这一事实。
+- **用户本机余下三步**：`npm login` → `npm publish --access public` → `git tag v0.31.0 && git push origin v0.31.0`（发布后按 M4 命令实测 `npx @codecompass/cli mcp <path>`）。
+
 ### 质量门（续批后基线，取代本节上方旧数值）
 
 - 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。

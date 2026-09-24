@@ -108,7 +108,7 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 07 MCP 契约收口 / 08 桶语义收窄（ADR-0018） / 09 语言注册表 / 10 错误码单一源 / 11 TS 接收者定型 | ✅ 已落地 |
 | 12–16 评估维补齐（E-M12 审计 / E-M7 幂等 / E-M10 通用协议套件 / E-M4 token 对比 / E-M5 自愈率） | ✅ 已落地（外部评分 63/81 → 预期 73/81） |
 | 18 精度残余三族（(g) 工具类型/具名接口成员 / (f) 两半 / (e) 闭包参数别名） | ✅ **三族全落地（2026-09-21 / 09-24）**：self top-10 的 `RepoQAClient.*` **7 → 1**（仅真阳性 `getRepo`），self 孤儿 248 → 246，lazygit 1807 / petclinic 13 逐字节不变 |
-| 03 发布就绪 | ⏳ **仅剩用户侧**：npm org + `npm login` + `npm publish --access public` + tag（M4 未达 1） |
+| 03 发布就绪 | ⏳ **仅剩用户侧**：`npm login`（含 `@codecompass` scope）→ `npm publish --access public` → `git tag v0.31.0 && git push origin v0.31.0`（M4 未达 1）。**agent 侧已全部完成并重核（2026-09-24）**：包内容 160 文件/5.0 MB 干净 + **打包产物端到端跑通 M4 本地等价物**（`scripts/smoke/packed-mcp-handshake.mjs`：装 tgz → `bin` → stdio `initialize`/`tools/list`/`list_repos`，实测 17 工具、version 0.31.0、instructions 非空）；README 定位已对齐 MCP 主轴 |
 | 04 影响力兑付（v1.0.0 + 技术文 + 公开评测） | ⬜ 未开工（依赖 02、03） |
 | 05 Web 收敛 6→3 | ⬜ 未开工（**条件票**，D 目标可整裁） |
 | 17 TS/JS 仓的 Tour 锚点族（V27-17 升级票） | ✅ **已落地（2026-09-24）**——本仓 `get_tours` 由 `[]` 变两条真实路线（中间件链 4 steps / 挂载链 5 steps）；两族入场：`app.use(name)` 登记为 `USE *` + 调用边、模块级 `render(<App />)` 挂**模块节点**（新 kind `module`，并进 `PRODUCTION_KINDS` 与 `effectiveStart`）；self 孤儿 246 → **243**、`App` 离榜；lazygit/petclinic 逐字节不变 |

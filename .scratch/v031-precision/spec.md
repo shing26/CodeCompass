@@ -79,7 +79,7 @@
 |---|---|---|---|
 | [01](issues/01-precision-baseline.md) | 精度复测基线（度量先行） | — | 一条命令产出三仓五桶 + 抽样清单；人工核验后出 before/after 对照表 |
 | [02](issues/02-residual-precision.md) | 残余精度攻坚 | 01 | M1 三仓 <5%；不可达则给可达下限与根因清单 |
-| [03](issues/03-release-readiness.md) | 发布就绪（npm 首发 + 文档一致性） | 01 | M4=1；README 工具数/安装段、benchmark、协作文档三处与实现一致 |
+| [03](issues/03-release-readiness.md) | 发布就绪（npm 首发 + 文档一致性）——**agent 侧全完成并重核（2026-09-24）**，仅剩用户侧 `npm login`/`publish`/`tag` | 01 | M4=1；包内容干净 + **打包产物端到端握手 17 工具**；README/benchmark/协作文档/CONTEXT 四处与实现一致 |
 | [04](issues/04-impact-delivery.md) | 影响力兑付（v1.0.0 + 技术文 + 公开评测） | 02、03 | M5 ≥3；tag 双绿；benchmark 数字可由命令复现 |
 | [05](issues/05-web-convergence.md) | Web 收敛 6→3（**条件票**，D 目标可裁剪） | — | 一级导航 3 项；深链全可达；web 单测全绿且净减 |
 | [06](issues/06-freeze-guardrails.md) | 冻结护栏与 V27 余账归位 | — | 三文档口径一致；六项 V27 余账处置留痕 |

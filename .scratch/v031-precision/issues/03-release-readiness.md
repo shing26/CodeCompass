@@ -39,16 +39,36 @@ M4 = 1：**陌生人照 README 抄一行命令即可接入 Cursor**；同时消�
 ## 验收
 
 - [ ] `npm view @codecompass/cli version` 有值；干净目录一行命令跑通 MCP 握手（含截图/日志留档）—— **待用户执行发布**（agent 无凭证；发布前核验已完成，见下）
-- [x] README 工具数、安装段、Node/ABI 提示与实现一致 —— `cb15585`（工具数 15 → 17；安装段随发布后复核）
+- [x] README 工具数、安装段、Node/ABI 提示与实现一致 —— `cb15585`（工具数 15 → 17；安装段随发布后复核）；**2026-09-24 增补：首句定位改为「多语言代码事实层，主轴 MCP」**（原文自称"工作台"，与"Web 只减不增"的裁决矛盾，用户当场指出）
 - [x] benchmark 文档 bucket 数与题数与 `npm run eval` 实际输出一致 —— `cb15585` 刷到 97 题 / 10 bucket，并加真实仓库段交叉引用；版本标签随 v0.31.0 推进更新为 2026-09-17
 - [x] 协作文档与 CONTEXT 词条无「六处/8 工具」等过时表述（grep 留证）—— `cb15585`（版本五处 + 17 工具）
 - [x] CHANGELOG 0.31.0 条目含发布段 —— 本增量（含发布物、M4 验收命令、发布前核验结果）
 
-**发布前核验（agent 侧，已完成 2026-09-17）**：`npm pack --dry-run` 干净——160 文件 / 5.0 MB / 解包 19.9 MB，`bin/codecompass.js` 与两份 `dist/` 齐全，`.env`、`.scratch`、`node_modules`、测试夹具零入包。版本五处已推进至 0.31.0，e2e gate 的 `version-consistency` 与 `/health payload version` 双绿（后者需先 `npm run build`——`dist/` 不入库，是本次发现的第六处版本落点，CI 已自带 build 步骤）。
+**发布前核验（agent 侧，2026-09-17 首次；2026-09-24 重做——此后仓库又落了 6 张票的改动）**：
 
-**余下三步（用户本机）**：① **发布前查 `files` 字段**（2026-09-18 用户裁决追加，核验口径见下）；② 确认 `@codecompass` scope 归属 → `npm publish`；③ `git tag v0.31.0 && git push origin v0.31.0` 触发 Release 管线。发布后按 M4 验收命令在干净目录实测 `npx @codecompass/cli mcp <path>`。
+1. `npm pack --dry-run` 复检：仍是 **160 文件 / 5.0 MB / 解包 19.9 MB**；`LICENSE` + `README.md` 经 npm always-include 兜底入包、
+   `bin/codecompass.js` 在、两份 dist 齐（控制面 2 + web 154）、可疑条目扫描（`.env` / `.scratch` / `node_modules` / `src/` / `.test.`）**命中 0**。
+2. **打包产物端到端跑通 M4 的本地等价物**（新增可复跑脚本 `scripts/smoke/packed-mcp-handshake.mjs`）：
+   `npm pack --pack-destination <tmp>` → 干净目录 `npm install <tgz>` → 从**安装后的包**读 `bin` 字段解析入口 →
+   起 `codecompass mcp <path>` → 子进程 stdio JSON-RPC 依次 `initialize` / `tools/list` / `tools/call list_repos`。
+   **实测**：`serverVersion=0.31.0`、`instructionsPresent=true`、**`toolCount=17`**、`listReposOk=true`（payload 4879 B）。
+   这比"在工作树里跑"强：它验证的是**包内容与 `bin` 声明**，正是 M4 在干净机器上真正走的那条路；唯一未覆盖的是 npm 下载本身（需先发布）。
 
-**`files` 字段核验口径（2026-09-18 实测，本机复现）**：`files` 只声明三项（`bin/`、`services/control-plane/dist/`、`apps/repoqa-web/dist/`），
+**用户本机余下三步**：
+
+```bash
+# 1) 确认 @codecompass scope 归属（npm 侧建 org）+ 登录
+npm login
+npm view @codecompass/cli version        # 发布前应为 404，发布后须有值
+# 2) 发布（prepublishOnly 自动跑全量构建，约 2–4 分钟）
+npm publish --access public
+# 3) 打 tag 触发 Release 管线
+git tag v0.31.0 && git push origin v0.31.0
+# 4) 发布后按 M4 验收：干净目录一行命令
+npx @codecompass/cli mcp <某仓库路径>     # 完成 stdio 握手并返回 list_repos
+```
+
+**`files` 字段核验口径（2026-09-18 实测，2026-09-24 复检同结论）**：`files` 只声明三项（`bin/`、`services/control-plane/dist/`、`apps/repoqa-web/dist/`），
 **包能成立靠三件事，发布前需逐条确认**：
 
 1. `LICENSE` 与 `README.md` **不在 `files` 里却入包**——npm 的 always-include 白名单兜底（实测 `npm pack --dry-run` 两者均在，160 文件 / 5.0 MB / 解包 19.9 MB）。改包名或换 registry 时这条兜底不保证成立。
