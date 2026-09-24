@@ -132,6 +132,18 @@
 - **新立票 21**：`resolveCall` 在 `dynamic === false` 但 `receiverType` 不在索引里时仍退回**按名解析**（同文件/全局方法名）→ **假边**方向的口子，票 20 的定型面把它暴露得更宽（`(c: SomethingUnresolvable) => c.pickFolder()` 在真仓里会绑到 `RepoQAClient.pickFolder`）。
 - **门禁**：控制面 **711 → 716**、web 364、bridge 26、e2e **71/0**、97 题 eval 全阈值、四包 `tsc --noEmit` 净。
 
+### 按名回退假边口子收口（2026-09-24，票 21）
+
+`resolveCall` 收尾的按名解析条件是 `!call.dynamic`，它把两种语义相反的情况混在一起：**"适配器没有接收者信息"**（裸调用 / 旧格式行——按名解析是 V31-02 的既定能力）与**"适配器声明了接收者类型、但索引不认识这个类型"**（外部类型：`Error`、`strings.Builder`、第三方工厂）。后者此前也会落到按名解析，**用同名方法猜出一条边**——ADR-0002 明确禁止。
+
+- **先量**（新探针 `.scratch/probe-t21.ts`，三仓真索引）：**1014 条**这样的边被猜出来——self **438**、lazygit **575**、petclinic **1**。典型：`Error.constructor → HarnessRegistry.constructor`（**356 条**）、`T.Run → IntegrationTest.Run`（**206 条**）、`strings.Builder.WriteString → gocui.View.WriteString`、`Database.close → FakeEventSource.close`（跨端绑到 web 端测试替身）、`ReactiveCircuitBreakerFactory.create → VisitResource.create`。
+- **排除"真缺口"**：逐条核对"类型名在本仓有符号、只是 kind 不在 `TYPE_KINDS`"——self 25（全是票 19 造出的假方法名）、lazygit 248（全是同名巧合：仓里有叫 `Mutex`/`Set` 的*方法*，接收者却是标准库类型）、petclinic 0。**无一条成立**。
+- **修法**：条件改为 `!call.dynamic && !call.receiverType`，并加"裸调用 + `this.foo()` 不得回退"的回归钉。
+- **修后复量**：三仓该类边 **0 / 0 / 0**。
+- **⚠ 孤儿桶因此变大（self 237 → 246、lazygit 1807 → 1828、petclinic 13 → 13）——这是精度提高的信号，不是回退**：去掉假边后，那些**只靠假边"被调用"**的符号现在真的零调用者，于是进入桶。此前它们因一条猜出来的边而**不出现**（假阴性）；现在出现得**正确**。桶声称的是"零静态调用者"这个事实，事实没变，可见性变了。**调用链正确性与 M1 都没退化，变的是那个代理指标的读数**——代理指标方向与真实质量方向相反，正是本批反复强调的口径纪律。棘轮是天花板（17.1%），self 12.0% 仍在界内，未动 `--ratchet-update`。
+- **顺带**：`module-evolution-engine.test.ts` 两处 fixture 此前**依赖被修掉的回退**（只声明了方法、没声明 owning type，如 `DateUtil`/`DayMath`/`CheckInPayloads`）——真实管线不会这样（类符号与方法总是同源，否则 TS/Java 都编译不过），已补上类型声明。
+- **门禁**：控制面 **716 → 718**、web 364、bridge 26、e2e **71/0**、97 题 eval 九桶 Recall@5 全 100%、四包 `tsc --noEmit` 净。
+
 ### 质量门（续批后基线，取代本节上方旧数值）
 
 - 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。

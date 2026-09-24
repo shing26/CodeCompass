@@ -367,7 +367,55 @@ QueryStream kind=class interfaces=[QueryStreamLike] methods=15
 ### 12.4 派生票
 
 - **票 21**：`resolveCall` 在 `dynamic === false` 但 `receiverType` 不在索引里时，仍退回**按名解析**（同文件/全局方法名）
-  → **假边**方向的口子；本增量的定型面把它暴露得更宽（`(c: SomethingUnresolvable) => c.pickFolder()` 在真仓里会绑到 `RepoQAClient.pickFolder`）。
+  → **假边**方向的口子；本增量的定型面把它暴露得更宽（`(c: SomethingUnresolvable) => c.pickFolder()` 在真仓里会绑到 `RepoQAClient.pickFolder`）。**该票随后落地，见 §13。**
 - **成员链接收者**（`a.b.c()`）：本增量未支持，登记在票 20 §5。
+
+## 13. 第八增量（票 21：按名回退假边口子，2026-09-24）
+
+`resolveCall` 收尾的按名解析条件是 `!call.dynamic`，把两种语义相反的情况混在一起：
+
+| 情况 | `receiverType` | 含义 | 应走 |
+|---|---|---|---|
+| 裸调用 `foo(...)` / `this.foo()` | 无 | "没有接收者信息"，按名解析是 V31-02 的既定修复 | 按名解析 ✔ |
+| `x.foo(...)` 而 `x: UnknownType` | **有**（类型不在索引里） | 接收者类型已知但不在本仓（外部类型） | **dynamic**（ADR-0002：不猜） |
+
+第二种今天会落到"按名全局找 `foo`"——**用一个同名方法把外部类型的调用绑成真边**。
+
+**先量（新探针 `.scratch/probe-t21.ts`，三仓真索引）**：
+
+| 样本 | 有类型的调用 | 类型不在索引 | 其中此前被按名绑成边 |
+|---|---|---|---|
+| self | 1164 | 754 | **438** |
+| lazygit | 9372 | 922 | **575** |
+| petclinic | 130 | 20 | **1** |
+
+典型假边：`Error.constructor → HarnessRegistry.constructor`（self，**356 条**）、`T.Run → IntegrationTest.Run`（lazygit，**206 条**）、
+`strings.Builder.WriteString → gocui.View.WriteString`、`Database.close → FakeEventSource.close`（跨端绑到 web 端测试替身）、
+`ReactiveCircuitBreakerFactory.create → VisitResource.create`。
+
+**排除"真缺口"**：逐条核对"类型名在本仓有符号、只是 kind 不在 `TYPE_KINDS`（class/interface/route/service/repository）"——
+self 25（全是票 19 造出的**假方法名** `http_json`/`_mcp_roundtrip`/`last_json`）、lazygit 248（全是**同名巧合**：仓里有个叫
+`Mutex`/`Set` 的*方法*，接收者却是标准库类型）、petclinic **0**。**无一条是真的"已声明但未登记"**，故修复方向成立。
+
+**修法**：`if (!call.dynamic && !call.receiverType)`；并加"裸调用按名解析 + `this.foo()` 走类型路径"的回归钉。
+**修后复量三仓**：该类边 **0 / 0 / 0**。
+
+### 13.1 孤儿桶因此变大 —— 代理指标方向与真实质量方向相反（口径记录）
+
+| 样本 | 孤儿（前 → 后） |
+|---|---|
+| petclinic | 13 → **13** |
+| self | 237 → **246**（+9） |
+| lazygit | 1807 → **1828**（+21） |
+
+去掉假边 → 那些**只靠假边"被调用"**的符号现在真的零调用者 → 进入孤儿桶。**这是假阴性一侧变得可见**：
+桶声称的是"零静态调用者"这个**事实**；此前这些符号因一条猜出来的边而**不出现**（假阴性），现在出现得**正确**。
+故"孤儿数上升"是**精度提高的信号**，而**调用链正确性（产品核心）大幅改善**（1014 条假边消失）。棘轮是天花板（17.1%），
+self 12.0% 仍在界内，未动 `--ratchet-update`。**判据纪律**：这张表是代理指标，本增量的正负号与它相反，必须以"假边条数"读进度。
+
+**顺带**：`module-evolution-engine.test.ts` 两处 fixture 此前**依赖被修掉的回退**（只声明方法、未声明 owning type
+`DateUtil`/`DayMath`/`CheckInPayloads`）——真实管线不会这样（类符号与方法总是同源，否则 TS/Java 编译不过），已补类型声明。
+
+**门禁**：控制面 718、web 364、bridge 26、e2e 71/0、97 题 eval 九桶 Recall@5 全 100%。
 
 

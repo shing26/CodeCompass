@@ -648,7 +648,17 @@ function resolveCall(
 
   // No statically bound receiver type: dynamic / RPC / external dispatch, or a
   // legacy call without receiver info (fall back to name-based resolution).
-  if (!call.dynamic) {
+  //
+  // Issue 21 — `!call.receiverType` is part of the condition, and it is the whole
+  // point: it separates "the adapter had no receiver information" (a bare call or
+  // a legacy row — name-based resolution is the V31-02 capability) from "the
+  // adapter DID declare a receiver type but the index does not know that type"
+  // (an external type: `Error`, `strings.Builder`, a third-party factory). The
+  // second used to land here too and bind by method name, which is a guess —
+  // measured before the fix: self 438, lazygit 575, petclinic 1 such edges, e.g.
+  // `Error.constructor → HarnessRegistry.constructor` (356×) and
+  // `T.Run → IntegrationTest.Run` (206×). ADR-0002 keeps those dynamic.
+  if (!call.dynamic && !call.receiverType) {
     const byFile = index.methodsByFile.get(call.file);
     const sameFile = byFile?.get(call.method);
     if (sameFile && sameFile.length > 0) {

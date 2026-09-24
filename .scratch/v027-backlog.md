@@ -49,4 +49,6 @@
 
 | V31-3 | **接口→实现表打通（票 20，已落地）**：**票面前提被实测推翻**——`implsOfInterface` 早已存在且映射正确（`QueryStreamLike → [QueryStream]`），真缺口是**调用点接收者未定型**，三处静默失效：① 回调注解形参无人采集（`useCallback((stream: QueryStreamLike) => …)` 的箭头是实参）；② 缺**方法返回类型**（`const stream = client.evolveStream(…)`，表加 `methods`）；③ **具名接口分支吞注解**（空 Map 也是真值，而 `QueryStreamLike` 是方法型契约 → 零绑定且不再走普通类型分支）。**实测**：self 孤儿 **246 → 237**、流订阅族**整族离榜**（12 个流调用点全部定型）；lazygit 1807 / petclinic 13 逐字节不变（**Go 无 `implements`，不变是预期**）；普查守恒 `658 = 237 + 421`；棘轮 11.6%。顺带修：方法返回注解被 `{` 截断（`typeTextBeforeBody`）、**TS 表改为只取生产文件**（实测两次被自己的 fixture 污染）。派生**票 21**（按名回退假边口子）。门禁 cp 716 / web 364 / bridge 26 / e2e 71-0 / eval 97 全绿 | 2026-09-24 继续任务 | 精度 |
 
+| V31-4 | **按名回退假边口子收口（票 21，已落地）**：`resolveCall` 的按名解析条件 `!call.dynamic` 把"无接收者信息"与"声明了类型但索引不认识"混为一谈，后者**用同名方法猜边**（ADR-0002 禁止）。**先量三仓 1014 条**（self 438 / lazygit 575 / petclinic 1：`Error.constructor→HarnessRegistry.constructor` 356、`T.Run→IntegrationTest.Run` 206、`strings.Builder.WriteString→gocui.View.WriteString`），并排除"真缺口"（self 25 全是票 19 假名、lazygit 248 全是同名巧合、petclinic 0）；修后 **0/0/0**。**⚠ 孤儿桶变大**（self 237→246、lazygit 1807→1828、petclinic 不变）——假阴性变可见，精度提高的信号，非回退；棘轮 12.0% < 17.1% 未动。门禁 cp 718 / web 364 / bridge 26 / e2e 71-0 / eval 97 全绿 | 2026-09-24 继续任务 | 精度 |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

@@ -64,10 +64,26 @@ const SHARED_DTO = moduleSymbol({
   name: 'CheckInDto',
   filePath: 'src/main/java/com/shop/common/CheckInDto.java'
 });
+/* Issue 21 — the owning TYPE must be declared for a typed receiver to resolve.
+   `dateUtil.formatCheckInDate()` carries `receiverType: 'DateUtil'`, and the
+   resolver now refuses to fall back to name-based binding when a receiver type is
+   declared but absent from the index (that fallback used to make these edges exist
+   by guessing at the method name). A real Java/TS/Go class always yields both the
+   type symbol and its methods, so this pair is the realistic modelling. */
+const DATE_UTIL_TYPE = moduleSymbol({
+  kind: 'class',
+  name: 'DateUtil',
+  filePath: 'src/main/java/com/shop/common/DateUtil.java'
+});
 const SHARED_HELPER = moduleSymbol({
   name: 'formatCheckInDate',
   filePath: 'src/main/java/com/shop/common/DateUtil.java',
   parentType: 'DateUtil'
+});
+const DAY_MATH_TYPE = moduleSymbol({
+  kind: 'class',
+  name: 'DayMath',
+  filePath: 'src/main/java/com/shop/common/DayMath.java'
 });
 /* Helper used only by SHARED_HELPER → cascaded orphan (reminder #2). */
 const CASCADED_HELPER = moduleSymbol({
@@ -112,13 +128,16 @@ const SYMBOLS: RepoSymbol[] = [
   LEGACY_MAPPER,
   LEGACY_CONFIG,
   // The legacy service's method uses the shared helpers (module → common edges).
+  // The owning types are declared so the typed receivers resolve (issue 21).
   { ...SHARED_DTO, calls: [] },
+  DATE_UTIL_TYPE,
   {
     ...SHARED_HELPER,
     calls: [
       { file: SHARED_HELPER.filePath, method: 'padDay', line: 3, receiver: 'dayMath', receiverType: 'DayMath' }
     ]
   },
+  DAY_MATH_TYPE,
   CASCADED_HELPER,
   ACTIVE_SERVICE,
   ACTIVE_METHOD,
@@ -766,6 +785,14 @@ describe('runModuleEvolution EXTEND conventions (Issue 24.3)', () => {
   it('cascades a private DTO helper whose only caller sits in the deprecated module', () => {
     // The DTO's used member (its payload mapper method) is the call-graph node
     // carrying in-degree; class symbols carry no call in-degree in this model.
+    // Issue 21 — the DTO class must still be declared, or the typed receiver
+    // `checkInPayloads: CheckInPayloads` has no type to resolve through (the old
+    // name-based fallback is gone by design).
+    const dtoType = moduleSymbol({
+      kind: 'class',
+      name: 'CheckInPayloads',
+      filePath: 'src/main/java/com/shop/common/CheckInPayloads.java'
+    });
     const dtoMapper = moduleSymbol({
       name: 'toCheckInPayload',
       filePath: 'src/main/java/com/shop/common/CheckInPayloads.java',
@@ -782,7 +809,7 @@ describe('runModuleEvolution EXTEND conventions (Issue 24.3)', () => {
           }
         : symbol
     );
-    symbols.push(dtoMapper);
+    symbols.push(dtoType, dtoMapper);
     const result = runModuleEvolution({
       repoId: 'r1',
       intentType: 'DEPRECATE',

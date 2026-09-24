@@ -114,7 +114,7 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 17 TS/JS 仓的 Tour 锚点族（V27-17 升级票） | ⬜ 未开工（本仓 `get_tours` 仍返回 `[]`） |
 | 19 多行模板串未掩码 → 幻影声明 | ⬜ **已立项（2026-09-24，票 18 实测派生）**——掩码器必须两阶段（先注释/引号、后模板），一行加宽 backtick 分支会自伤 |
 | 20 接口→实现关系表（ADR-0018 `deferred` 的 A′ step 2） | ✅ **已落地（2026-09-24）**——**票面前提被实测推翻**：`implsOfInterface` 早已存在且映射正确，真缺口是**调用点接收者未定型**（三处静默失效：回调注解形参无人采集 / 缺方法返回类型 / 具名接口分支吞注解）。self 流订阅族整族离榜、孤儿 **246 → 237**；lazygit/petclinic 逐字节不变（**Go 无 `implements`，不变是预期，非"没生效"**） |
-| 21 按名回退假边口子（`dynamic:false` + 未知接收者类型） | ⬜ **已立项（2026-09-24，票 20 派生）**——`resolveCall` 收尾仍退回按名解析（同文件/全局方法名）；**先量再改**，且须保住裸调用/`this.foo()` 的既有能力 |
+| 21 按名回退假边口子（`dynamic:false` + 未知接收者类型） | ✅ **已落地（2026-09-24）**——先量出三仓 **1014 条**假边（self 438 / lazygit 575 / petclinic 1：`Error.constructor → HarnessRegistry.constructor` 356、`T.Run → IntegrationTest.Run` 206…），修后 **0/0/0**；**孤儿桶因此变大**（self 237→246、lazygit 1807→1828）——假阴性变可见，是精度提高的信号，不是回退 |
 
 **仍开放（非本批，按性质）**：
 

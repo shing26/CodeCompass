@@ -11,6 +11,7 @@ import {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
   resolveCallChain,
+  resolveCallEdge,
   applyImplicitInterfaces
 } from './repoqa-callchain';
 
@@ -941,5 +942,115 @@ describe('v0.7 — applyModuleScopes (Module Scope)', () => {
     applyModuleScopes(single);
     expect(single[0].moduleName).toBeUndefined();
     expect(single[0].qualifiedName).toBeUndefined();
+  });
+});
+
+/**
+ * Issue 21 — a declared receiver type that the index does not know must NOT fall
+ * back to name-based resolution.
+ *
+ * Measurement (2026-09-24, real indexes): self 438, lazygit 575, petclinic 1 calls
+ * were binding this way — `Error.constructor → HarnessRegistry.constructor` (356×),
+ * `T.Run → IntegrationTest.Run` (206×), `strings.Builder.WriteString → gocui.View.WriteString`.
+ * All of them are guesses by method name, which is exactly what ADR-0002 forbids.
+ */
+describe('resolveCall — declared receiver type absent from the index stays dynamic (issue 21)', () => {
+  const symbols: RepoSymbol[] = [
+    {
+      repoId: 'r',
+      kind: 'class',
+      name: 'HarnessRegistry',
+      filePath: 'src/harness-registry.ts',
+      lineStart: 1,
+      lineEnd: 6
+    },
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'constructor',
+      filePath: 'src/harness-registry.ts',
+      lineStart: 2,
+      lineEnd: 3,
+      parentType: 'HarnessRegistry'
+    },
+    {
+      repoId: 'r',
+      kind: 'class',
+      name: 'Caller',
+      filePath: 'src/caller.ts',
+      lineStart: 10,
+      lineEnd: 20
+    },
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'publish',
+      filePath: 'src/caller.ts',
+      lineStart: 12,
+      lineEnd: 18,
+      parentType: 'Caller',
+      calls: []
+    },
+    // The class's own method: what `this.flush()` must resolve to through the TYPE
+    // path (the name path is for calls that carry no receiver at all).
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'flush',
+      filePath: 'src/caller.ts',
+      lineStart: 19,
+      lineEnd: 21,
+      parentType: 'Caller',
+      calls: []
+    },
+    // A bare module-level function with the same name as the method the external
+    // call uses: the name-based fallback would happily bind it.
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'flush',
+      filePath: 'src/helpers.ts',
+      lineStart: 22,
+      lineEnd: 24,
+      calls: []
+    }
+  ];
+
+  it('does not bind an external type receiver to a same-named method anywhere in the repo', () => {
+    const index = buildCallIndex(symbols);
+    const caller = symbols.find((symbol) => symbol.name === 'publish')!;
+    // `things.flush()` where `things: ThingsUnknownToTheIndex` (e.g. `Error`, `strings.Builder`).
+    const external: RepoSymbol['calls'] = [
+      { file: 'src/caller.ts', method: 'flush', line: 14, receiver: 'things', receiverType: 'ExternalType', dynamic: false }
+    ];
+    const resolved = resolveCallEdge(index, caller, { ...external![0] });
+    expect('target' in resolved).toBe(false);
+    expect('reason' in resolved && resolved.reason).toBe(STATIC_ANALYSIS_BREAK_DYNAMIC);
+  });
+
+  it('still resolves a bare call and a `this.` call by name (the V31-02 capability)', () => {
+    const index = buildCallIndex(symbols);
+    const caller = symbols.find((symbol) => symbol.name === 'publish')!;
+
+    // Bare call: no receiver at all — the name-based path is the point.
+    const bare = resolveCallEdge(index, caller, {
+      file: 'src/caller.ts',
+      method: 'flush',
+      line: 15,
+      dynamic: false
+    });
+    expect('target' in bare && bare.target.name).toBe('flush');
+
+    // `this.flush()`: the adapter types the receiver from the enclosing class, and
+    // that class IS in the index — the type path resolves it, not the name path.
+    const typed = resolveCallEdge(index, caller, {
+      file: 'src/caller.ts',
+      method: 'flush',
+      line: 16,
+      receiver: 'this',
+      receiverType: 'Caller',
+      dynamic: false
+    });
+    expect('target' in typed && typed.target.parentType).toBe('Caller');
   });
 });
