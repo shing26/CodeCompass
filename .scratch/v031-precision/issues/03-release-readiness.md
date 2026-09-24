@@ -100,6 +100,18 @@ npx @codecompass/cli mcp <某仓库路径>
 勾 bypass 2FA，再 `npm config set //registry.npmjs.org/:_authToken=<令牌>` 后 `npm publish --access public`。
 但按 npm 官方公告，bypass-2FA 令牌正在收紧，OTP 路线更长久。）
 
+**2026-09-25 续报（scope 已建、2FA 已生效）**：
+
+- `npm org ls codecompass` → `shing426 - owner` ✔（scope 问题已解）。
+- `npm profile enable-2fa auth-and-writes` 的 CLI 流程末尾报 `403 POST /-/npm/v1/user - unauthorized`，**但 `npm profile get` 显示
+  `two-factor auth: auth-and-writes` 已生效**（updated 时间戳在报错之后）——即 CLI 的那次 403 是收尾调用被拒，状态实际已写入。
+  **教训：CLI 改账号配置报 403 时，先 `npm profile get` 核实终态，别按报错当成"没开成"**；网站侧（npmjs.com → Account →
+  Two-Factor Authentication）是绕开该端口的可靠途径。
+- 故发布一步为：`npm publish --access public`（npm ≥9 会交互提示 `Enter OTP:`，输验证器 6 位码；也可 `--otp=<码>` 预置）。
+  若仍 403：`npm logout` + `npm login` 刷新令牌后重试；再不行走上方 Granular Access Token 备选。
+- 发布成功判据：`npm view @codecompass/cli version` 返回 `0.31.0`；干净目录 `npx @codecompass/cli mcp <path>` 完成 stdio 握手
+  （M4=1，本票验收全勾）。
+
 **`files` 字段核验口径（2026-09-18 实测，2026-09-24 复检同结论）**：`files` 只声明三项（`bin/`、`services/control-plane/dist/`、`apps/repoqa-web/dist/`），
 **包能成立靠三件事，发布前需逐条确认**：
 
