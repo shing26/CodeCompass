@@ -51,4 +51,6 @@
 
 | V31-4 | **按名回退假边口子收口（票 21，已落地）**：`resolveCall` 的按名解析条件 `!call.dynamic` 把"无接收者信息"与"声明了类型但索引不认识"混为一谈，后者**用同名方法猜边**（ADR-0002 禁止）。**先量三仓 1014 条**（self 438 / lazygit 575 / petclinic 1：`Error.constructor→HarnessRegistry.constructor` 356、`T.Run→IntegrationTest.Run` 206、`strings.Builder.WriteString→gocui.View.WriteString`），并排除"真缺口"（self 25 全是票 19 假名、lazygit 248 全是同名巧合、petclinic 0）；修后 **0/0/0**。**⚠ 孤儿桶变大**（self 237→246、lazygit 1807→1828、petclinic 不变）——假阴性变可见，精度提高的信号，非回退；棘轮 12.0% < 17.1% 未动。门禁 cp 718 / web 364 / bridge 26 / e2e 71-0 / eval 97 全绿 | 2026-09-24 继续任务 | 精度 |
 
+| V31-5 | **掩码器改单趟状态机（票 19，已落地）**：`maskLiteralsAndComments` 按行掩码 → 多行模板串内容被当源码 → **幻影符号**；两天内咬两次（票 18/20 的 fixture 与真声明同名异内容，症状都是"改了没用"）。**一行加宽 backtick 会自伤**（注释里的反引号与远处配对，真注释反而不被掩码，本仓当场自伤）→ 改状态机（六类字面量、模板跨行 + `${…}` 插值 + 嵌套、正则靠前导字符判定）。**同树对照**：self 符号 2045→2030（幻影 15）、孤儿 246→246 未上升、hubs 1631→1637；lazygit/petclinic 逐字节不变；棘轮复算 12.1% < 17.1% 未动 baseline。门禁 cp 722 / web 364 / bridge 26 / e2e 71-0 / eval 97 全绿 | 2026-09-24 继续任务 | 精度 |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

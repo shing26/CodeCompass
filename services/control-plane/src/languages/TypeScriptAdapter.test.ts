@@ -913,6 +913,75 @@ export function oneParam(fetch: (client: RepoQAClient) => Promise<void>) { retur
  * call site, in two shapes the adapter dropped. Both are local: neither needs
  * cross-file knowledge beyond the declaration table it already has.
  */
+/**
+ * Issue 19 — the masker must not treat the CONTENTS of a literal as source.
+ *
+ * It used to mask `'`/`"` only up to the first newline, so a multi-line template
+ * literal was scanned as code: a test fixture holding `interface RepoContextValue`
+ * produced a phantom interface and made the real one ambiguous in the declaration
+ * table (measured twice on 2026-09-24). Widening the template branch alone is
+ * worse — a backtick inside a comment or a regex literal then pairs with a distant
+ * one and leaves real comment text unmasked (TypeScriptAdapter.ts did that to
+ * itself), which is why the fix is a one-pass scanner rather than a wider regex.
+ */
+describe('TypeScriptAdapter — literal masking (issue 19)', () => {
+  it('does not read declarations out of a multi-line template literal', () => {
+    const source = [
+      'const prompt = `',
+      'interface Phantom { client: RepoQAClient }',
+      'export function usePhantom(): Phantom { return x; }',
+      '`;',
+      'export interface Real { id: string }'
+    ].join('\n');
+    const symbols = parseTypeScriptSource(source, 'src/prompt.ts', 'repo');
+    expect(symbols.some((symbol) => symbol.name === 'Phantom')).toBe(false);
+    expect(symbols.some((symbol) => symbol.name === 'usePhantom')).toBe(false);
+    expect(symbols.some((symbol) => symbol.name === 'Real')).toBe(true);
+
+    const declarations = buildTypeScriptDeclarations([{ relativePath: 'src/prompt.ts', source }]);
+    expect(declarations.interfaces.has('Phantom')).toBe(false);
+    expect(declarations.returns.has('usePhantom')).toBe(false);
+    expect(declarations.interfaces.has('Real')).toBe(true);
+  });
+
+  it('keeps masking correct when a comment or a regex literal contains a backtick', () => {
+    // The regression pin for the naive fix: a backtick in a comment used to pair
+    // with one far away, leaving the text between them scanned as source.
+    const source = [
+      '// a comment mentioning `inline code` and a lone backtick: `',
+      'export interface First { id: string }',
+      'const templatePattern = /`[^`]*`/;',
+      '// another comment with `two` backticks `',
+      'export interface Second { id: string }'
+    ].join('\n');
+    const symbols = parseTypeScriptSource(source, 'src/backticks.ts', 'repo');
+    expect(symbols.some((symbol) => symbol.name === 'First')).toBe(true);
+    expect(symbols.some((symbol) => symbol.name === 'Second')).toBe(true);
+  });
+
+  it('does not read declarations out of a regex literal', () => {
+    const source = [
+      'const pattern = /interface PhantomTwo {/;',
+      'export interface RealTwo { id: string }'
+    ].join('\n');
+    const symbols = parseTypeScriptSource(source, 'src/regex.ts', 'repo');
+    expect(symbols.some((symbol) => symbol.name === 'PhantomTwo')).toBe(false);
+    expect(symbols.some((symbol) => symbol.name === 'RealTwo')).toBe(true);
+  });
+
+  it('still masks single-line and nested templates', () => {
+    const source = [
+      'const a = `interface PhantomThree { }`;',
+      'const b = `outer ${`interface PhantomFour { }`} tail`;',
+      'export interface RealThree { id: string }'
+    ].join('\n');
+    const symbols = parseTypeScriptSource(source, 'src/nested.ts', 'repo');
+    expect(symbols.some((symbol) => symbol.name === 'PhantomThree')).toBe(false);
+    expect(symbols.some((symbol) => symbol.name === 'PhantomFour')).toBe(false);
+    expect(symbols.some((symbol) => symbol.name === 'RealThree')).toBe(true);
+  });
+});
+
 describe('TypeScriptAdapter — receiver typing for interface-typed streams (issue 20)', () => {
   it('a callback parameter annotated in the argument list binds (useCallback((stream: X) => …))', () => {
     // useChat.ts:180 shape. The arrow is an argument of useCallback, so it is not

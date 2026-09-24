@@ -794,22 +794,179 @@ function httpCallDescriptor(
   return { method: property.toUpperCase(), url: joinHttpUrl(client?.baseURL, path) };
 }
 
-/** Mask string literals and comments with same-length spaces (offsets stable).
+/** Mask string literals, template literals, regex literals and comments with
+ * same-length spaces (offsets stable — every consumer slices from this view and
+ * reads the raw text at the same offsets).
  *
- * KNOWN GAP (2026-09-24, registered — not fixed here): the `'`/`"` branch is
- * line-bounded, so a MULTI-LINE template literal is only masked up to its first
- * newline and its contents are then scanned as source. A test fixture holding
- * `interface X { … }` therefore produced a phantom interface symbol, and the
- * issue 18(f)2 declaration table dropped the real `X` as ambiguous. Widening the
- * backtick branch to span newlines fixes that but breaks worse: a backtick inside
- * a COMMENT (or a regex literal) then pairs with one far away and leaves real
- * comment text unmasked — this file did exactly that to itself. A correct fix is
- * two-phase masking (comments and quotes first, then templates over the result),
- * which needs its own measurement, so it stays a separate ticket. */
+ * Issue 19 — one pass with a scanner, not a regex. The regex predecessor masked
+ * `'`/`"` only up to the first newline, so the CONTENTS of a multi-line template
+ * literal were scanned as source: a test fixture holding `interface X { … }`
+ * produced a phantom interface symbol and made the real `X` ambiguous in the
+ * declaration table (measured twice on 2026-09-24, both times as a bewildering
+ * "the binding does not work"). Just widening the template branch is worse: a
+ * backtick inside a COMMENT or a regex literal then pairs with one far away and
+ * leaves real code unmasked — this file did exactly that to itself, because its own
+ * regex literals contain backticks. Pairing can only be trusted once comments are
+ * out of the way, which is a state machine, not a lookahead.
+ *
+ * Known boundary (deliberately conservative): a `/` after `)` or `]` is treated as
+ * division, so a regex statement directly after a parenthesised expression
+ * (`if (x) /re/.test(y)`) is not masked. Both errors are possible in that spot and
+ * under-masking only risks a phantom, while over-masking would hide real code. */
 function maskLiteralsAndComments(source: string): string {
-  return source.replace(
-    /(["'`])(?:\\.|(?!\1)[^\\\n])*\1|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
-    (match) => match.replace(/[^\n]/g, ' ')
+  const out = source.split('');
+  const blank = (from: number, to: number): void => {
+    for (let index = from; index < to && index < out.length; index += 1) {
+      if (out[index] !== '\n' && out[index] !== '\r') out[index] = ' ';
+    }
+  };
+  let index = 0;
+  // Last character kept as CODE, plus the trailing identifier: together they decide
+  // whether a `/` opens a regex literal or is a division operator.
+  let lastSignificant = '';
+  let lastWord = '';
+  while (index < source.length) {
+    const ch = source[index];
+    if (ch === '/' && source[index + 1] === '/') {
+      const stop = endOfLine(source, index);
+      blank(index, stop);
+      index = stop;
+      continue;
+    }
+    if (ch === '/' && source[index + 1] === '*') {
+      const close = source.indexOf('*/', index + 2);
+      const stop = close < 0 ? source.length : close + 2;
+      blank(index, stop);
+      index = stop;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const stop = endOfQuoted(source, index, ch);
+      blank(index, stop);
+      index = stop;
+      lastSignificant = ch;
+      lastWord = '';
+      continue;
+    }
+    if (ch === '`') {
+      const stop = endOfTemplate(source, index);
+      blank(index, stop);
+      index = stop;
+      lastSignificant = ch;
+      lastWord = '';
+      continue;
+    }
+    if (ch === '/' && regexAllowed(lastSignificant, lastWord)) {
+      const stop = endOfRegex(source, index);
+      if (stop > index) {
+        blank(index, stop);
+        index = stop;
+        lastSignificant = '/';
+        lastWord = '';
+        continue;
+      }
+    }
+    if (/\s/.test(ch)) {
+      index += 1;
+      continue;
+    }
+    if (/[A-Za-z0-9_$]/.test(ch)) lastWord += ch;
+    else lastWord = '';
+    lastSignificant = ch;
+    index += 1;
+  }
+  return out.join('');
+}
+
+/** End of the line starting at `from` (the newline is left in place). */
+function endOfLine(source: string, from: number): number {
+  const stop = source.indexOf('\n', from);
+  return stop < 0 ? source.length : stop;
+}
+
+/** End of a `'…'`/`"…"` literal (exclusive), honoring backslash escapes. Such a
+ * literal cannot span lines, so an unterminated one ends at the newline. */
+function endOfQuoted(source: string, from: number, quote: string): number {
+  for (let index = from + 1; index < source.length; index += 1) {
+    const ch = source[index];
+    if (ch === '\\') {
+      index += 1;
+      continue;
+    }
+    if (ch === quote) return index + 1;
+    if (ch === '\n') return index;
+  }
+  return source.length;
+}
+
+/** End of a template literal (exclusive). Honors escapes, `${ … }` interpolations
+ * and a nested template inside an interpolation. An unterminated template swallows
+ * the rest of the file — the same thing a real parser would report as a syntax
+ * error, and fail-closed in the sense that nothing inside is read as a declaration. */
+function endOfTemplate(source: string, from: number): number {
+  let index = from + 1;
+  let depth = 0;
+  while (index < source.length) {
+    const ch = source[index];
+    if (ch === '\\') {
+      index += 2;
+      continue;
+    }
+    if (depth === 0 && ch === '`') return index + 1;
+    if (ch === '$' && source[index + 1] === '{') {
+      depth += 1;
+      index += 2;
+      continue;
+    }
+    if (depth > 0) {
+      if (ch === '`') {
+        index = endOfTemplate(source, index);
+        continue;
+      }
+      if (ch === '{') depth += 1;
+      else if (ch === '}') depth -= 1;
+    }
+    index += 1;
+  }
+  return source.length;
+}
+
+/** End of a regex literal (exclusive), or -1 when this `/` is division. A character
+ * class keeps a `/` from closing the literal, and a newline proves it was not a
+ * regex after all (regex literals cannot span lines). */
+function endOfRegex(source: string, from: number): number {
+  let inClass = false;
+  for (let index = from + 1; index < source.length; index += 1) {
+    const ch = source[index];
+    if (ch === '\\') {
+      index += 1;
+      continue;
+    }
+    if (ch === '\n') return -1;
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      continue;
+    }
+    if (ch === '/') {
+      let end = index + 1;
+      while (/[a-z]/i.test(source[end] ?? '')) end += 1;
+      return end;
+    }
+  }
+  return -1;
+}
+
+/** A `/` opens a regex literal only where a value cannot precede it: after an
+ * operator, an opening delimiter, or one of the keywords that stand alone. */
+function regexAllowed(lastSignificant: string, lastWord: string): boolean {
+  if (lastSignificant === '') return true;
+  if ('(,=:[!&|?{};+-*%~^<>'.includes(lastSignificant)) return true;
+  return /^(return|typeof|instanceof|in|of|new|delete|void|case|do|else|yield|await)$/.test(
+    lastWord
   );
 }
 
