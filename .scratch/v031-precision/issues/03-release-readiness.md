@@ -68,6 +68,38 @@ git tag v0.31.0 && git push origin v0.31.0
 npx @codecompass/cli mcp <某仓库路径>     # 完成 stdio 握手并返回 list_repos
 ```
 
+**⚠ 2026-09-24 首次实跑的两个拦路（均已定位，改用下方修正版）**：
+
+1. **npm 403**：`Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.`
+   ——npm 现行政策（登录时的 notice 即预告：`gh.io/npm-gat-bypass2fa-deprecation`）要求发布必须"账号 2FA"或"bypass-2FA 的细粒度令牌"；
+   网页登录拿到的会话令牌不含发布授权。**另查明 `@codecompass` scope 尚不存在**（`npm org ls codecompass` → Scope not found，
+   账号 `shing426`），npm 不会在 publish 时自动建 org。故发布前要先做两件网站/账号操作。
+2. **`git tag v0.31.0 && git push origin v0.31.0` 在 Windows PowerShell 5.1 下整条不执行**（`&&` 不是有效语句分隔符）——
+   实测该命令根本没跑。**而且 tag `v0.31.0` 早在 2026-09-21 13:57 就已存在并推送**（指向 `ba00138`，票 07–16 批），
+   GitHub Release v0.31.0 也已生成；master 现已领先 6 个提交（票 20/21/19/17/03），按 spec"两锚点"与"tag 重指"预案，
+   **由 agent 侧把 tag 重指到收口提交并 force-push**（v0.27.0 同款三轮实战先例），用户无需再执行第 3 步。
+
+**修正版用户步骤（PowerShell 安全，逐行执行）**：
+
+```powershell
+# ① 建 scope（若 npmjs.com 上还没有 codecompass 这个 org）：浏览器打开
+#    https://www.npmjs.com/org/create  → org 名 codecompass（免费档可发公共包），建完默认自己是 owner
+npm org ls codecompass          # 直到列出 shing426 (owner) 为止
+
+# ② 给账号开 2FA（若尚未开；验证器 App 扫码）
+npm profile enable-2fa auth-and-writes
+
+# ③ 发布：带 OTP（prepublishOnly 自动全量构建）
+npm publish --access public --otp=<6位验证码>
+
+# ④ 发布后按 M4 验收：干净目录一行命令
+npx @codecompass/cli mcp <某仓库路径>
+```
+
+（备选：npmjs.com → Access Tokens → **Granular Access Token**，Packages: Read and write、scope 选 `codecompass`、
+勾 bypass 2FA，再 `npm config set //registry.npmjs.org/:_authToken=<令牌>` 后 `npm publish --access public`。
+但按 npm 官方公告，bypass-2FA 令牌正在收紧，OTP 路线更长久。）
+
 **`files` 字段核验口径（2026-09-18 实测，2026-09-24 复检同结论）**：`files` 只声明三项（`bin/`、`services/control-plane/dist/`、`apps/repoqa-web/dist/`），
 **包能成立靠三件事，发布前需逐条确认**：
 
