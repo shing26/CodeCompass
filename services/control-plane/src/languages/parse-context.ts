@@ -46,6 +46,11 @@ export interface TypeScriptDeclarations {
   returns: ReadonlyMap<string, string>;
   /** function name → per-position RAW parameter type text ('' = untyped). */
   params: ReadonlyMap<string, readonly string[]>;
+  /** `Type.method` → RAW return-type annotation text (issue 20). A factory method
+   * (`client.evolveStream(...)`) is how a stream object reaches its call site, and
+   * without this the const holding it stays untyped — the interface-typed call on
+   * it then never reaches the implementation table. */
+  methods: ReadonlyMap<string, string>;
 }
 
 /**

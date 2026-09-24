@@ -302,6 +302,72 @@ self 孤儿 248 不变属预期，不是"改了没用"。
 `RepoQAClient.*` 压到 1 条后，top-10 的新面孔是**流订阅族**：`QueryStream.*`（`onEvent`/`onError`/`onDone`/`connect`）
 与 `EvolveStream.*`。机制与三族都不同——调用点是 `stream.onEvent(...)`，而 `stream` 的类型是**接口**
 （`QueryStreamLike` / `EvolveStreamLike`），实现是 `QueryStream` **类**：需要**接口→实现关系表**，
-正是 ADR-0018 显式 `deferred` 的 A′ step 2（lazygit 620 条同源）。立为**票 20**。
+正是 ADR-0018 显式 `deferred` 的 A′ step 2。立为**票 20**（该票**随后推翻了这条归因**，见 §12）。
+
+## 12. 第七增量（票 20：接口→实现表打通，2026-09-24）
+
+**§11.2 的归因被实测推翻**：`implsOfInterface` **早已存在且映射正确**——
+
+```
+QueryStreamLike → [QueryStream]；EvolveStreamLike → [EvolveStream]
+QueryStream kind=class interfaces=[QueryStreamLike] methods=15
+```
+
+`buildCallIndex` 从 `symbol.interfaces` 建表，TS 适配器的 `ClassDeclaration` 分支一直在填 `implements`。
+**缺的不是表，是调用点的接收者类型**——表在了，没人拿它去查。故本增量 `implsOfInterface` / `resolveCall` 一行未动，
+只把接收者定型。
+
+**三处真缺陷（都是静默失效型：无报错，只是精度不动）**：
+
+| # | 缺陷 | 症状 | 修法 |
+|---|---|---|---|
+| ① | 回调注解形参无人采集：`useCallback((stream: QueryStreamLike) => …)` 的箭头是**实参**，既不是 `const x = (…) =>` 声明也不是方法，`collectParams` 从没被调用 | 注解写在文件里却从未生效；`useChat.ts` 四条流调用全 dynamic | `callbackScopeFor`：箭头/函数表达式一律取自己的**已注解形参**（无注解且无被调方签名则不推作用域，窄规则保持） |
+| ② | 缺**方法返回类型**：`const stream = client.evolveStream(…)` 只能靠 `RepoQAClient.evolveStream(…): EvolveStreamLike` 定型 | `useEvolutionSession.ts` 四条 evolve 流调用 dynamic | 表加 `methods`（`Type.method` → 原文返回注解），按接收者类型 + Pick 允许集查表 |
+| ③ | **具名接口分支吞注解**：`memberLookup(raw)` 对**空 Map 也是真值**，而 `QueryStreamLike` 是方法型契约（`parseInterfaceMembers` 只收 `name: type`，方法签名一条不收 → 成员表为空） | 走成员绑定分支 → 零绑定 → **且不再走普通类型分支** → 参数彻底未定型。**这是"表在却打不通"的直接原因** | 只在 `members.size > 0` 时走成员绑定；否则按普通接收者类型处理（且只绑裸标识符形参，解构模式不是查找键） |
+
+**三仓复测（同源可复跑）**：
+
+| 样本 | 孤儿（前 → 后） | 说明 |
+|---|---|---|
+| self | **246 → 237**（−9） | 流订阅族**整族离榜**；12 个流调用点全部定型（`useEvolutionSession` 8、`useChat` 4） |
+| lazygit | **1807 → 1807** | 逐字节不变 |
+| petclinic | **13 → 13** | 逐字节不变 |
+
+普查守恒 `658 = 237 + 421`；棘轮 237/2045 = 11.6%（天花板 17.1%）；控制面 716、web 364、bridge 26、e2e 71/0、97 题 eval 全阈值。
+
+### 12.1 票面错误更正：lazygit 的 620 条**不与 TS 同源**
+
+§11.2 把 lazygit 的 620 条 `interface-implementation` 写成"同源"，**这是错的**，而"lazygit 逐字节不变"正是证据：
+
+- `implsOfInterface` 只能从**显式** `implements` 建（Java / TS）。**Go 没有 `implements`**——接口满足是隐式的（方法集匹配），
+  要绑定它得先有一套 Go 方法集推断表。
+- 更要紧的是 **ADR-0018 已裁决过这 620 条**："Go 接口多实现时 ADR-0002 要求保持 dynamic"——它们本就**该**留在桶里
+  作为结构性噪声登记，而不是被"修掉"。
+
+**结论**：lazygit / petclinic 不变是本增量的**预期结果**，不是"没生效"；ADR-0018 的 `deferred` 说明与 census 断言无需改动。
+日后若要动 Go 隐式接口，须先过 ADR-0018 的口径。
+
+### 12.2 顺带修的两处（都在本增量触发路径上）
+
+1. **方法返回注解被 `{` 截断**：`pickFolder(): Promise<{ canceled: boolean }>` 用 `indexOf('{')` 取到 `Promise<`
+   （对象类型的花括号被当成方法体）。新增 `typeTextBeforeBody`：只有**角度/圆/方括号都闭合**时的 `{` 才算方法体，
+   故 `Promise<{ … }>` 能走到真正的方法体花括号；直接返回对象类型（`(): { a: string } {`）读作空注解 → 跳过（那类本来也解析不出接收者）。
+2. **TS 声明表改为只取生产文件**（`isTestPath` 过滤；Go 表原样不动）：测试文件里的 `class X { … }` 是**测试替身**，
+   不是生产调用要用的类型。实测**两次**被自己新加的 fixture 污染——票 18 的 `RepoContextValue`、本票的
+   `RepoQAClient.queryRepo`（后者导致 `queryRepo` 被歧义规则从表里丢弃，症状是"incident 路径四条流调用仍然 dynamic"，
+   看起来像 Fix B 没生效）。**与票 19 是两个独立问题**：本过滤挡"测试文件里的真声明"，票 19 管"模板串里的假声明"。
+
+### 12.3 复测后 top-10 的新面孔（都不是本增量缺陷）
+
+- `EvolveStream.close` —— 接收者是**成员链** `streamRef.current.stream`（`useEvolutionSession.ts:278`）；前缀链解析是新机制。
+- `ChatMergeClient.listSessions/createSession/messages/switchModel/modelInfo`（5 条）—— **真阳性**：生产零调用，
+  只在 `App.test.tsx` / `ChatView.test.tsx` 的**替身对象字面量**里出现（`listSessions: vi.fn()` 不是调用），
+  所以既无真调用者也无 `testOnly` 标记。属 Web 面的死 API，与 `RepoQAClient.getRepo` 同类——**桶在做它该做的事**。
+
+### 12.4 派生票
+
+- **票 21**：`resolveCall` 在 `dynamic === false` 但 `receiverType` 不在索引里时，仍退回**按名解析**（同文件/全局方法名）
+  → **假边**方向的口子；本增量的定型面把它暴露得更宽（`(c: SomethingUnresolvable) => c.pickFolder()` 在真仓里会绑到 `RepoQAClient.pickFolder`）。
+- **成员链接收者**（`a.b.c()`）：本增量未支持，登记在票 20 §5。
 
 

@@ -113,6 +113,25 @@
 - **新立两票**：票 19（多行模板串未掩码 → 幻影声明）、票 20（接口→实现关系表 = ADR-0018 `deferred` 的 A′ step 2；票 18 复测后新露面的 `QueryStream.*` / `EvolveStream.*` 属此族）。
 - **门禁**：控制面 **698 → 711**、web 364、bridge 26、e2e **71/0**、97 题 eval 全阈值（Recall@5 100%、幻觉 0%）、四包 `tsc --noEmit` 净。
 
+### 接口→实现表打通：接收者定型三处缺陷（2026-09-24，票 20）
+
+**票面前提被实测推翻**：`implsOfInterface` **早已存在且映射正确**（`QueryStreamLike → [QueryStream]`、`EvolveStreamLike → [EvolveStream]`，由 `buildCallIndex` 从 `symbol.interfaces` 建，TS 适配器一直在填 `implements`）。打不通的是**调用点的接收者没有类型**——表在了，没人拿它去查。于是本票执行内容从"建表"改为"把接收者定型"，`implsOfInterface` / `resolveCall` **一行未动**。
+
+三处真缺陷（都是静默失效型，逐条先红后绿）：
+
+| # | 缺陷 | 修法 |
+|---|---|---|
+| ① | `useCallback((stream: QueryStreamLike) => …)` 的箭头是**实参**，既不是 `const x = (…) =>` 声明也不是方法，`collectParams` 从没被调用——注解写在文件里却从未生效 | `callbackScopeFor`：箭头/函数表达式一律取自己的**已注解形参**（无注解且无被调方签名则不推作用域，窄规则保持） |
+| ② | 缺**方法返回类型**：`const stream = client.evolveStream(…)` 只能靠 `RepoQAClient.evolveStream(…): EvolveStreamLike` 定型 | 表加 `methods`（`Type.method` → 原文返回注解），按接收者类型 + Pick 允许集查表 |
+| ③ | **具名接口分支吞注解**：`memberLookup(raw)` 对**空 Map 也是真值**，而 `QueryStreamLike` 是方法型契约（成员表为空）→ 走成员绑定分支、零绑定、**且不再走普通类型分支** | 只在 `members.size > 0` 时走成员绑定；否则按普通接收者类型处理（且只绑裸标识符形参） |
+
+- **实测（三仓同源复跑）**：self 孤儿 **246 → 237（−9）**，流订阅族**整族离榜**（12 个流调用点全部定型：`useEvolutionSession` 8 处、`useChat` 4 处）；lazygit **1807** / petclinic **13** 逐字节不变；普查守恒 `658 = 237 + 421`；棘轮 11.6%（天花板 17.1%）。
+- **票面错误更正**：原文把 lazygit 的 620 条 `interface-implementation` 写成"同源"——**错的**。`implsOfInterface` 只能从**显式** `implements` 建（Java/TS），**Go 没有 `implements`**（接口满足是隐式的），且 ADR-0018 已裁决那 620 条"Go 接口多实现按 ADR-0002 保持 dynamic"。**所以 lazygit 不变是预期结果，ADR-0018 的 `deferred` 说明与 census 断言无需改动**。
+- **顺带修两处**：① 方法返回注解被 `{` 截断（`pickFolder(): Promise<{ canceled: boolean }>` 曾记成 `Promise<`）→ 新增 `typeTextBeforeBody`（只有角度/圆/方括号都闭合的 `{` 才算方法体）；② **TS 声明表改为只取生产文件**（`isTestPath` 过滤，Go 表原样不动）——测试文件里的 `class X { … }` 是测试替身，实测**两次**被自己新加的 fixture 污染（票 18 的 `RepoContextValue`、本票的 `RepoQAClient.queryRepo`）。
+- **复测后 top-10 新面孔**：`EvolveStream.close`（接收者是**成员链** `streamRef.current.stream`，新机制，登记后续）；`ChatMergeClient.*` 5 条是**真阳性**（生产零调用，仅测试替身对象字面量出现）——桶在做它该做的事。
+- **新立票 21**：`resolveCall` 在 `dynamic === false` 但 `receiverType` 不在索引里时仍退回**按名解析**（同文件/全局方法名）→ **假边**方向的口子，票 20 的定型面把它暴露得更宽（`(c: SomethingUnresolvable) => c.pickFolder()` 在真仓里会绑到 `RepoQAClient.pickFolder`）。
+- **门禁**：控制面 **711 → 716**、web 364、bridge 26、e2e **71/0**、97 题 eval 全阈值、四包 `tsc --noEmit` 净。
+
 ### 质量门（续批后基线，取代本节上方旧数值）
 
 - 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。

@@ -576,14 +576,14 @@ export function WorkbenchShell() {
       {
         relativePath: 'src/context/RepoContext.tsx',
         source: `
-interface FixtureContextValue { client: RepoQAClient }
+interface FixtureContextValue { client: FixtureClient }
 export function useFixtureContext(): FixtureContextValue { return value; }
 `
       },
       {
-        relativePath: 'src/client/RepoQAClient.ts',
+        relativePath: 'src/client/FixtureClient.ts',
         source: `
-export class RepoQAClient {
+export class FixtureClient {
   async getSubgraphContext(repoId: string, query: string) { return {}; }
 }
 `
@@ -607,7 +607,7 @@ export function InspectorProvider({ children }) {
     // The const arrow is its own symbol (InspectorContext.tsx:69 shape).
     const handler = symbols.find((symbol) => symbol.name === 'handleCopy');
     const call = handler?.calls?.find((entry) => entry.method === 'getSubgraphContext');
-    expect(call?.receiverType).toBe('RepoQAClient');
+    expect(call?.receiverType).toBe('FixtureClient');
     expect(call?.dynamic).toBe(false);
   });
 
@@ -846,8 +846,11 @@ export function consumer() {
   });
 
   it('e anti-override: a callback parameter with its own annotation is never replaced', () => {
-    // Even an annotation that does NOT resolve must win — falling back to the
-    // callee signature would silently contradict what the file says.
+    // The file's own annotation wins over the callee's signature — even when it
+    // does not resolve to anything the repo knows. Since issue 20 the annotation
+    // DOES bind (consistent with every other parameter binding in this adapter),
+    // so the invariant is asserted directly: the receiver type is the one written
+    // in the file, not the one from the callee's declared signature.
     const context = contextOf([
       {
         relativePath: 'src/hooks/useThing.ts',
@@ -869,8 +872,8 @@ export function consumer() {
     const call = symbols
       .find((symbol) => symbol.name === 'consumer')
       ?.calls?.find((entry) => entry.method === 'pickFolder');
-    expect(call?.receiverType).toBeUndefined();
-    expect(call?.dynamic).toBe(true);
+    expect(call?.receiverType).toBe('SomethingUnresolvable');
+    expect(call?.receiverType).not.toBe('RepoQAClient');
   });
 
   it('e fail-closed: a non-signature parameter type, an unknown callee and arity mismatch bind nothing', () => {
@@ -901,5 +904,176 @@ export function oneParam(fetch: (client: RepoQAClient) => Promise<void>) { retur
     expect(
       receiverOf(parse(`export function consumer() { return oneParam((c, extra) => c.pickFolder()); }`))
     ).toBeUndefined();
+  });
+});
+
+/**
+ * Issue 20 — the interface→implementation table (`implsOfInterface`) already
+ * existed; what the stream family actually lacked was a TYPED RECEIVER at the
+ * call site, in two shapes the adapter dropped. Both are local: neither needs
+ * cross-file knowledge beyond the declaration table it already has.
+ */
+describe('TypeScriptAdapter — receiver typing for interface-typed streams (issue 20)', () => {
+  it('a callback parameter annotated in the argument list binds (useCallback((stream: X) => …))', () => {
+    // useChat.ts:180 shape. The arrow is an argument of useCallback, so it is not
+    // a `const x = (…) => …` declaration and its ParamList used to be collected by
+    // nobody: the annotation was right there in the file and still went unused.
+    const source = `
+export function useChat(client: FixtureClient) {
+  const attachStream = useCallback((stream: QueryStreamLike) => {
+    stream.onEvent((event) => event);
+    stream.connect();
+  }, []);
+  return attachStream;
+}
+`;
+    const symbols = parseTypeScriptSource(source, 'src/hooks/useChat.ts', 'repo');
+    const hook = symbols.find((symbol) => symbol.name === 'useChat');
+    const onEvent = hook?.calls?.find((entry) => entry.method === 'onEvent');
+    const connect = hook?.calls?.find((entry) => entry.method === 'connect');
+    expect(onEvent?.receiverType).toBe('QueryStreamLike');
+    expect(onEvent?.dynamic).toBe(false);
+    expect(connect?.receiverType).toBe('QueryStreamLike');
+  });
+
+  it('a const bound to a method call takes the method return type from the table', () => {
+    // useEvolutionSession.ts:335 shape: `const stream = client.evolveStream(…)`,
+    // with `evolveStream(…): EvolveStreamLike` declared in another file.
+    const context = contextOf([
+      {
+        relativePath: 'src/client/FixtureClient.ts',
+        source: `
+export class FixtureClient {
+  evolveStream(repoId: string, intent: string): EvolveStreamLike {
+    return new EvolveStream();
+  }
+  private helper() { return 1; }
+}
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function useEvolutionSession(client: FixtureClient) {
+  const stream = client.evolveStream(current.id, text);
+  stream.onEvent((event) => event);
+  stream.connect();
+  return stream;
+}
+`,
+      'src/hooks/useEvolutionSession.ts',
+      'repo',
+      context
+    );
+    const hook = symbols.find((symbol) => symbol.name === 'useEvolutionSession');
+    expect(hook?.calls?.find((entry) => entry.method === 'onEvent')?.receiverType).toBe('EvolveStreamLike');
+    expect(hook?.calls?.find((entry) => entry.method === 'connect')?.receiverType).toBe('EvolveStreamLike');
+  });
+
+  it('table: method return annotations are recorded per owning type', () => {
+    const declarations = buildTypeScriptDeclarations([
+      {
+        relativePath: 'a.ts',
+        source: `
+export class FixtureClient {
+  evolveStream(repoId: string): EvolveStreamLike { return x; }
+  async queryRepo<T>(q: string): Promise<QueryStreamLike> { return y; }
+  noAnnotation(a: string) { return z; }
+  private count = makeCounter(1);
+}
+`
+      }
+    ]);
+    expect(declarations.methods.get('FixtureClient.evolveStream')).toBe('EvolveStreamLike');
+    // `Promise<…>` is not a plain/Pick type, so it resolves to nothing later —
+    // recording it raw is what keeps that decision in one place.
+    expect(declarations.methods.get('FixtureClient.queryRepo')).toBe('Promise<QueryStreamLike>');
+    // No annotation, and a field initializer's call is not a method.
+    expect(declarations.methods.has('FixtureClient.noAnnotation')).toBe(false);
+    expect(declarations.methods.has('FixtureClient.makeCounter')).toBe(false);
+  });
+
+  it('anti-false-edge: a method whose return type is not a receiver type binds nothing', () => {
+    const context = contextOf([
+      {
+        relativePath: 'src/client/FixtureClient.ts',
+        source: `
+export class FixtureClient {
+  queryRepo(q: string): Promise<QueryStreamLike> { return y; }
+  static from(a: string): FixtureClient | null { return null; }
+}
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function useChat(client: FixtureClient) {
+  const a = client.queryRepo('q');
+  const b = FixtureClient.from('x');
+  a.onEvent((event) => event);
+  b.onEvent((event) => event);
+  return a;
+}
+`,
+      'src/hooks/useChat.ts',
+      'repo',
+      context
+    );
+    const hook = symbols.find((symbol) => symbol.name === 'useChat');
+    const calls = (hook?.calls ?? []).filter((entry) => entry.method === 'onEvent');
+    // Both receivers stay dynamic: `Promise<…>` is not a receiver type, and the
+    // union return of a static factory is not one either.
+    expect(calls.length).toBe(2);
+    for (const call of calls) {
+      expect(call.receiverType).toBeUndefined();
+      expect(call.dynamic).toBe(true);
+    }
+  });
+
+  it('end to end: a unique implementation binds the interface-typed call, two do not', () => {
+    const parse = (source: string): ReturnType<typeof parseTypeScriptSource> =>
+      parseTypeScriptSource(source, 'src/hooks/useChat.ts', 'repo');
+
+    // Unique implementation: the call lands on the class method.
+    const single = [
+      ...parse(`
+export interface QueryStreamLike { onEvent(fn: () => void): void }
+export class QueryStream implements QueryStreamLike {
+  onEvent(fn: () => void) { return fn; }
+}
+`),
+      ...parse(`
+export function useChat(stream: QueryStreamLike) {
+  return stream.onEvent(() => undefined);
+}
+`)
+    ];
+    const index = buildCallIndex(single);
+    const hook = single.find((symbol) => symbol.name === 'useChat')!;
+    const call = hook.calls!.find((entry) => entry.method === 'onEvent')!;
+    const resolved = resolveCallEdge(index, hook, call);
+    expect('target' in resolved && resolved.target.parentType).toBe('QueryStream');
+
+    // Two implementations: nothing is deterministic, so it must NOT bind.
+    const ambiguous = [
+      ...parse(`
+export interface QueryStreamLike { onEvent(fn: () => void): void }
+export class QueryStream implements QueryStreamLike {
+  onEvent(fn: () => void) { return fn; }
+}
+export class OtherStream implements QueryStreamLike {
+  onEvent(fn: () => void) { return fn; }
+}
+`),
+      ...parse(`
+export function useChat(stream: QueryStreamLike) {
+  return stream.onEvent(() => undefined);
+}
+`)
+    ];
+    const ambiguousIndex = buildCallIndex(ambiguous);
+    const ambiguousHook = ambiguous.find((symbol) => symbol.name === 'useChat')!;
+    const ambiguousCall = ambiguousHook.calls!.find((entry) => entry.method === 'onEvent')!;
+    expect('target' in resolveCallEdge(ambiguousIndex, ambiguousHook, ambiguousCall)).toBe(false);
   });
 });

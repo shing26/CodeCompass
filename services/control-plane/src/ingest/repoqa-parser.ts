@@ -4,6 +4,7 @@ import type { RepoSymbol } from './repoqa-repos';
 import type { LanguageDeclarations, ParseContext } from '../languages/parse-context';
 import { GoAdapter, buildGoPackageTable } from '../languages/GoAdapter';
 import { TypeScriptAdapter, buildTypeScriptDeclarations } from '../languages/TypeScriptAdapter';
+import { isTestPath } from '../engine/repoqa-callchain';
 // Issue 09: the adapter list moved to languages/registry.ts (single wiring
 // table); this module forwards the historical `adapterFor` API for callers
 // that predate the registry.
@@ -46,6 +47,14 @@ export async function parseSourceFile(
  * The TS table is scanned, not parsed a second time — see
  * `buildTypeScriptDeclarations` for why.
  *
+ * The TS table is built from PRODUCTION files only (issue 20). A test file's
+ * declarations are test doubles, not the type production code calls: a fixture
+ * `class RepoQAClient { … }` in a `.test.ts` was measured twice (2026-09-24) to
+ * shadow the real class in this very repo and silently drop its methods from the
+ * table, which then showed up as "the binding does not work" in a re-measurement.
+ * Go keeps its own scope unchanged — its table is package-scoped and a package's
+ * `_test.go` files legitimately belong to it.
+ *
  * Returns undefined when the repo has neither language, so other repos pay nothing.
  */
 export async function buildParseContext(
@@ -58,7 +67,9 @@ export async function buildParseContext(
     const sources = await readSources(root, goFiles);
     if (sources.length > 0) languages.go = buildGoPackageTable(sources);
   }
-  const tsFiles = files.filter((filePath) => TypeScriptAdapter.canParse(filePath));
+  const tsFiles = files.filter(
+    (filePath) => TypeScriptAdapter.canParse(filePath) && !isTestPath(filePath)
+  );
   if (tsFiles.length > 0) {
     const sources = await readSources(root, tsFiles);
     if (sources.length > 0) {
