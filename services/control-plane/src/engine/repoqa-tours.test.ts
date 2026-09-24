@@ -461,3 +461,148 @@ public class OnlyRepo {
     );
   });
 });
+
+/**
+ * Issue 17 — TS/JS anchor families. The Java tours above are unchanged; these
+ * cover the two families a TS repo actually has: the middleware chain
+ * (`app.use(name)`) and the mount chain (the module that renders the root
+ * component, recorded as a `module` node by the adapter).
+ */
+describe('buildTours — TS middleware chain and mount chain (issue 17)', () => {
+  const SAMPLE_TS: RepoSymbol[] = [
+    {
+      repoId: 'r',
+      kind: 'route',
+      name: 'USE *',
+      filePath: 'services/api/src/http.ts',
+      lineStart: 42,
+      lineEnd: 42,
+      calls: [
+        { file: 'services/api/src/http.ts', method: 'requestIdMiddleware', line: 42, dynamic: false }
+      ]
+    },
+    {
+      repoId: 'r',
+      kind: 'route',
+      name: 'USE /api',
+      filePath: 'services/api/src/http.ts',
+      lineStart: 130,
+      lineEnd: 130,
+      displayPath: '/api'
+    },
+    {
+      repoId: 'r',
+      kind: 'route',
+      name: 'GET /api/orders',
+      filePath: 'services/api/src/orders.ts',
+      lineStart: 12,
+      lineEnd: 12,
+      displayPath: '/api/orders',
+      calls: [
+        { file: 'services/api/src/orders.ts', method: 'listOrders', line: 12, dynamic: false }
+      ]
+    },
+    // A middleware registration inside a test fixture must not enter the tour.
+    {
+      repoId: 'r',
+      kind: 'route',
+      name: 'USE *',
+      filePath: 'services/api/src/http.test.ts',
+      lineStart: 24,
+      lineEnd: 24,
+      calls: [
+        { file: 'services/api/src/http.test.ts', method: 'fakeMiddleware', line: 24, dynamic: false }
+      ]
+    },
+    {
+      repoId: 'r',
+      kind: 'module',
+      name: 'main',
+      filePath: 'apps/web/src/main.tsx',
+      lineStart: 1,
+      lineEnd: 1,
+      // `render(<StrictMode><App /></StrictMode>)`: the library wrapper is listed
+      // first and has no declaration here, so the walk must skip it.
+      calls: [
+        { file: 'apps/web/src/main.tsx', method: 'StrictMode', line: 9, dynamic: false },
+        { file: 'apps/web/src/main.tsx', method: 'App', line: 10, dynamic: false }
+      ]
+    },
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'App',
+      filePath: 'apps/web/src/App.tsx',
+      lineStart: 34,
+      lineEnd: 49,
+      calls: [
+        { file: 'apps/web/src/App.tsx', method: 'RepoProvider', line: 42, dynamic: false },
+        { file: 'apps/web/src/App.tsx', method: 'WorkbenchShell', line: 45, dynamic: false }
+      ]
+    },
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'RepoProvider',
+      filePath: 'apps/web/src/RepoContext.tsx',
+      lineStart: 87,
+      lineEnd: 100,
+      calls: [
+        { file: 'apps/web/src/RepoContext.tsx', method: 'WorkbenchShell', line: 95, dynamic: false }
+      ]
+    },
+    {
+      repoId: 'r',
+      kind: 'method',
+      name: 'WorkbenchShell',
+      filePath: 'apps/web/src/App.tsx',
+      lineStart: 52,
+      lineEnd: 60,
+      calls: []
+    }
+  ];
+
+  it('builds the middleware chain in source order and filters test paths', () => {
+    const tours = buildTours({ repoId: 'r', symbols: SAMPLE_TS });
+    const auth = tours.find((tour) => tour.id === 'auth-chain')!;
+    expect(auth.title).toBe('鉴权与中间件链');
+    const files = auth.steps.map((step) => step.filePath);
+    expect(files).not.toContain('services/api/src/http.test.ts');
+    expect(auth.steps[0].filePath).toBe('services/api/src/http.ts');
+    expect(auth.steps[0].step).toContain('requestIdMiddleware');
+    // The endpoint is a real HTTP route, never the mount module.
+    const last = auth.steps[auth.steps.length - 1];
+    expect(last.step).toContain('GET /api/orders');
+    expect(last.kind).toBe('route');
+  });
+
+  it('walks the mount chain through the root component and skips library wrappers', () => {
+    const tours = buildTours({ repoId: 'r', symbols: SAMPLE_TS });
+    const main = tours.find((tour) => tour.id === 'main-flow')!;
+    expect(main.title).toBe('挂载链');
+    const names = main.steps.map((step) => step.symbol);
+    expect(names[0]).toBe('main');
+    expect(names).toContain('App');
+    // StrictMode has no declaration in this repo: the walk takes the first
+    // RESOLVING call instead of breaking the chain on it.
+    expect(names).not.toContain('StrictMode');
+    // Every step carries a physical anchor, and mermaid ids stay identifier-like
+    // even though TS route symbols are named `USE *` / `GET /api/orders`.
+    for (const step of main.steps) {
+      expect(step.lineNumber).toBeGreaterThan(0);
+      expect(step.filePath).toBeTruthy();
+    }
+    expect(main.mermaid).toContain('click ');
+  });
+
+  it('leaves a Java repo on the Java families', async () => {
+    const symbols = await parseTree(SAMPLE_JAVA);
+    const tours = buildTours({ repoId: 'r', symbols });
+    const auth = tours.find((tour) => tour.id === 'auth-chain')!;
+    expect(auth.title).toBe('鉴权与拦截链');
+    expect(auth.steps.every((step) => !step.step.includes('中间件注册'))).toBe(true);
+    const main = tours.find((tour) => tour.id === 'main-flow')!;
+    expect(main.title).toBe('核心主业务流');
+    expect(main.steps[0].step).toContain('（入口接口）');
+  });
+});

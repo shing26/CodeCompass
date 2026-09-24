@@ -410,6 +410,10 @@ function effectiveStart(
 ): RepoSymbol | undefined {
   if (start.kind === 'method') return start;
   if (start.kind === 'route' && (start.calls?.length ?? 0) > 0) return start;
+  // Issue 17 — a module node carries the file's module-level edges (`main.tsx`'s
+  // `render(<App />)`), so a chain may start there exactly like a route. Without
+  // this it fell through to the arbitrary "first method in the repo" default.
+  if (start.kind === 'module' && (start.calls?.length ?? 0) > 0) return start;
   if (TYPE_KINDS.has(start.kind)) {
     const info = index.types.get(start.name);
     if (info) {

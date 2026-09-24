@@ -1478,6 +1478,45 @@ export function parseTypeScriptSource(
   const typeStack: TypeRecord[] = [];
   const methodStack: RepoSymbol[] = [];
   const scopeStack: MethodScope[] = [];
+  let moduleSymbol: RepoSymbol | undefined;
+  /**
+   * Issue 17 — who owns an edge that appears OUTSIDE every function.
+   *
+   * Only the JSX case gets a module node. `main.tsx`'s
+   * `createRoot(…).render(<App />)` is a module-level reference to the component
+   * the whole app is mounted from, and with no enclosing symbol the edge was
+   * dropped, so `App` (and everything reachable only through it) read as dead
+   * code. The owner is a per-file **module node**: a symbol of kind `module` named
+   * after the file, carrying those edges. It is deliberately NOT a graph node
+   * (`PRODUCTION_KINDS` does not list the kind), so it never becomes an orphan
+   * candidate itself — it exists to be a caller.
+   *
+   * Module-level CALLS are still dropped, as they were before: registering them is
+   * a separate, much wider change (it would attach a caller to every
+   * `const x = buildSomething()` at module scope across the repo), and that belongs
+   * with its own measurement rather than as a rider on this ticket.
+   */
+  const moduleNode = (line: number): RepoSymbol => {
+    if (!moduleSymbol) {
+      const base = relativePath.slice(relativePath.lastIndexOf('/') + 1);
+      const name = base.replace(/\.[^.]+$/, '') || base;
+      moduleSymbol = {
+        repoId,
+        kind: 'module',
+        name,
+        filePath: relativePath,
+        // Anchored at the first module-level edge, not line 1: a tour step that
+        // jumps to the file's first import is not verifiable, one that jumps to
+        // `render(<App />)` is.
+        lineStart: line,
+        lineEnd: line,
+        signature: relativePath,
+        calls: []
+      };
+      symbols.push(moduleSymbol);
+    }
+    return moduleSymbol;
+  };
   const moduleArrowPushed: boolean[] = [];
   // Issue 18(e) — one entry per arrow/function-expression entered, so `leave` can
   // pop exactly the scopes this pass pushed (parallel to moduleArrowPushed).
@@ -1704,17 +1743,20 @@ export function parseTypeScriptSource(
 
       // V31-02 — `<BrandMark />` is how a React component gets *used*; without
       // this edge every component (and every helper only referenced from JSX)
-      // looked like dead code. Attributed to the enclosing function, exactly
-      // like a call expression.
+      // looked like dead code. Attributed to the enclosing function, or to the
+      // module node when the JSX sits at module level (issue 17 — `main.tsx`'s
+      // `render(<App />)`; the mount target is how the app is entered).
       if (node.name === 'JSXOpenTag' || node.name === 'JSXSelfClosingTag') {
         const tag = jsxTagName(node, source);
-        if (!tag || methodStack.length === 0) return;
-        const current = methodStack[methodStack.length - 1];
+        if (!tag) return;
+        // Issue 17 — a module-level JSX edge belongs to the module node.
         const line = lineAt(source, node.from);
-        const calls = current.calls ?? [];
+        const owner =
+          methodStack.length > 0 ? methodStack[methodStack.length - 1] : moduleNode(line);
+        const calls = owner.calls ?? [];
         if (!calls.some((existing) => existing.method === tag && existing.line === line)) {
           calls.push({ file: relativePath, method: tag, line, dynamic: false });
-          current.calls = calls;
+          owner.calls = calls;
         }
         return;
       }
@@ -1761,39 +1803,57 @@ export function parseTypeScriptSource(
           isRouterReceiver(shape.base)
         ) {
           const routePath = firstStringArg(node, source);
-          if (routePath) {
-            const routeName = `${shape.property.toUpperCase()} ${routePath}`;
-            const duplicate = symbols.some(
-              (symbol) =>
-                symbol.kind === 'route' &&
-                symbol.name === routeName &&
-                symbol.lineStart === line
-            );
-            if (!duplicate) {
-              const handlerName = argumentNodes(node)[1]?.name === 'VariableName'
-                ? textOf(argumentNodes(node)[1], source)
-                : undefined;
-              symbols.push({
-                repoId,
-                kind: 'route',
-                name: routeName,
-                filePath: relativePath,
-                lineStart: line,
-                lineEnd: line,
-                signature: textOf(node, source).split(/\r?\n/, 1)[0],
-                displayPath: routePath,
-                annotations: [`@${shape.base}.${shape.property}("${routePath}")`],
-                calls: handlerName
-                  ? [{ file: relativePath, method: handlerName, line, dynamic: false }]
-                  : []
-              });
-            }
+          // Issue 17 — a middleware registration has no path string
+          // (`app.use(authMiddleware)`), so the old branch dropped it entirely:
+          // no anchor for the middleware chain, and the middleware itself read as
+          // dead code. Only a NAMED middleware is registered: an inline function
+          // has no name to anchor a tour step to and would only add anonymous
+          // `USE *` noise to the route list, and a library factory call
+          // (`app.use(express.json())`) is not middleware this engine can anchor.
+          const firstArg = argumentNodes(node)[0];
+          const middlewareName =
+            firstArg?.name === 'VariableName' ? textOf(firstArg, source) : undefined;
+          if (!routePath && !middlewareName) return;
+          const routeName = routePath ? `${shape.property.toUpperCase()} ${routePath}` : 'USE *';
+          const duplicate = symbols.some(
+            (symbol) =>
+              symbol.kind === 'route' &&
+              symbol.name === routeName &&
+              symbol.lineStart === line
+          );
+          if (!duplicate) {
+            const secondArg = argumentNodes(node)[1];
+            const handlerName = routePath
+              ? secondArg?.name === 'VariableName'
+                ? textOf(secondArg, source)
+                : undefined
+              : middlewareName;
+            symbols.push({
+              repoId,
+              kind: 'route',
+              name: routeName,
+              filePath: relativePath,
+              lineStart: line,
+              lineEnd: line,
+              signature: textOf(node, source).split(/\r?\n/, 1)[0],
+              displayPath: routePath,
+              annotations: [
+                routePath
+                  ? `@${shape.base}.${shape.property}("${routePath}")`
+                  : `@${shape.base}.${shape.property}(${middlewareName ?? 'fn'})`
+              ],
+              calls: handlerName
+                ? [{ file: relativePath, method: handlerName, line, dynamic: false }]
+                : []
+            });
           }
           return;
         }
 
+        // Module-level calls carry no owner (see `moduleNode`): only the JSX
+        // mount gets one, so this stays the pre-issue-17 behaviour.
         if (methodStack.length === 0) return;
-        const current = methodStack[methodStack.length - 1];
+        const owner = methodStack[methodStack.length - 1];
         const scope = scopeStack[scopeStack.length - 1];
         const http = httpCallDescriptor(shape, node, source, scope, typeStack, httpClients);
 
@@ -1807,10 +1867,10 @@ export function parseTypeScriptSource(
             dynamic: true,
             http
           };
-          const calls = current.calls ?? [];
+          const calls = owner.calls ?? [];
           if (!calls.some((existing) => existing.method === call.method && existing.receiver === call.receiver)) {
             calls.push(call);
-            current.calls = calls;
+            owner.calls = calls;
           }
           return;
         }
@@ -1829,10 +1889,10 @@ export function parseTypeScriptSource(
             line,
             dynamic: false
           };
-          const calls = current.calls ?? [];
+          const calls = owner.calls ?? [];
           if (!calls.some((existing) => existing.method === call.method && existing.line === call.line)) {
             calls.push(call);
-            current.calls = calls;
+            owner.calls = calls;
           }
           return;
         }
@@ -1855,7 +1915,7 @@ export function parseTypeScriptSource(
           receiverType: exposes ? receiverType!.name : undefined,
           dynamic: !exposes
         };
-        const calls = current.calls ?? [];
+        const calls = owner.calls ?? [];
         if (
           !calls.some(
             (existing) =>
@@ -1865,7 +1925,7 @@ export function parseTypeScriptSource(
           )
         ) {
           calls.push(call);
-          current.calls = calls;
+          owner.calls = calls;
         }
       }
     },

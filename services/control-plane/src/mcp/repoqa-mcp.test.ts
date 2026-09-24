@@ -838,7 +838,10 @@ describe('Issue 20 MCP protocol (JSON-RPC over in-memory transport)', () => {
       });
       const toursBody = JSON.parse(toursText) as { tours: unknown[]; note?: string };
       expect(toursBody.tours).toEqual([]);
-      expect(toursBody.note).toContain('tours currently cover');
+      // Issue 17 — the note names what each tour needs, per repo shape, instead of
+      // claiming the feature is Java-only (a TS repo now gets middleware/mount tours).
+      expect(toursBody.note).toContain('No entry patterns detected');
+      expect(toursBody.note).toContain('app.use(fn)');
     } finally {
       await server.close();
     }

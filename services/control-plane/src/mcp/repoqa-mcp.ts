@@ -596,15 +596,21 @@ export function mcpGetConfigEvidence(
 export function mcpGetTours(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const { symbols } = deps.worker.getSymbolGraph(repo.id);
-  // Honest degradation (v0.18): tours are Java/Spring-shaped; empty-step shells
-  // on non-Java repos would mislead agents. Mirror the HTTP layer's filtering
-  // (http.ts GET /tours) and explain the boundary when nothing survives.
+  // Honest degradation (v0.18): empty-step shells would mislead agents, so tours
+  // with no steps are dropped and the boundary is explained instead. Mirror the
+  // HTTP layer's filtering (http.ts GET /tours).
+  //
+  // Issue 17 — the boundary is no longer "Java only": `auth-chain` is also built
+  // for a TS/JS repo's middleware registrations (`app.use(name)`) and `main-flow`
+  // for its mount chain (the module that renders the root component), so the note
+  // names what is actually missing per repo shape rather than claiming the feature
+  // is Java-only.
   const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols }).filter(
     (tour) => tour.steps.length > 0
   );
   const note =
     tours.length === 0
-      ? 'No routes detected in this repo — tours currently cover Java/Spring REST projects (auth-chain / main-flow / error-handling).'
+      ? 'No entry patterns detected in this repo: auth-chain needs a servlet filter/interceptor (Java) or a named middleware registration (`app.use(fn)`, TS/JS), main-flow needs a REST route method or a module that renders a root component, error-handling needs a @RestControllerAdvice class. Nothing matched, so no tour is reported rather than an empty shell.'
       : undefined;
   return { tours, ...(note ? { note } : {}) } as unknown as Record<string, unknown>;
 }

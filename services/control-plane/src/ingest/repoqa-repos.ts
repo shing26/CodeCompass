@@ -189,7 +189,15 @@ export interface RepoSymbol {
     | 'field'
     | 'mapper'
     | 'sql'
-    | 'dependency';
+    | 'dependency'
+    /**
+     * Issue 17 — a per-file MODULE node, emitted only when a file has edges that
+     * belong to no function (`main.tsx`'s `render(<App />)`). It carries those
+     * edges so their targets have a caller; it is deliberately not in
+     * `PRODUCTION_KINDS`, so it never becomes a graph node, a bucket candidate, a
+     * type, or a symbol-tree entry.
+     */
+    | 'module';
   name: string;
   filePath: string;
   lineStart?: number;

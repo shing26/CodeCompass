@@ -924,6 +924,84 @@ export function oneParam(fetch: (client: RepoQAClient) => Promise<void>) { retur
  * one and leaves real comment text unmasked (TypeScriptAdapter.ts did that to
  * itself), which is why the fix is a one-pass scanner rather than a wider regex.
  */
+/**
+ * Issue 17 — the TS/JS entry families. A TS repo has no filter class and no route
+ * *method*: its request path is a middleware chain and its mount point is a
+ * module-level `render(<App />)`. Both were dropped by the adapter, so the tours
+ * had no anchor to build from and the mounted component read as dead code.
+ */
+describe('TypeScriptAdapter — TS entry families (issue 17)', () => {
+  it('records a named middleware registration as an edge-bearing route symbol', () => {
+    const symbols = parseTypeScriptSource(
+      `
+import express from 'express';
+const app = express();
+app.use(requestIdMiddleware);
+app.use(express.json());
+app.use('/api', apiRouter);
+app.get('/api/orders', listOrders);
+`,
+      'src/http.ts',
+      'repo'
+    );
+    // Named middleware: registered, with an edge to the middleware function.
+    const middleware = symbols.find(
+      (symbol) => symbol.kind === 'route' && symbol.name === 'USE *'
+    );
+    expect(middleware?.calls?.[0]?.method).toBe('requestIdMiddleware');
+    expect(middleware?.lineStart).toBe(4);
+    // A library factory call is not a middleware we can anchor: no symbol.
+    expect(symbols.some((symbol) => symbol.kind === 'route' && symbol.lineStart === 5)).toBe(false);
+    // The path-bearing form keeps its existing shape (path + handler edge).
+    expect(
+      symbols.some((symbol) => symbol.kind === 'route' && symbol.name === 'USE /api')
+    ).toBe(true);
+    const route = symbols.find((symbol) => symbol.name === 'GET /api/orders');
+    expect(route?.calls?.[0]?.method).toBe('listOrders');
+  });
+
+  it('attaches a module-level JSX edge to a module node instead of dropping it', () => {
+    // main.tsx shape: the mount reference is how the root component is entered.
+    const mount = parseTypeScriptSource(
+      `
+import { createRoot } from 'react-dom/client';
+import { App } from './App';
+createRoot(document.getElementById('root')!).render(<App />);
+`,
+      'apps/web/src/main.tsx',
+      'repo'
+    );
+    const moduleNode = mount.find((symbol) => symbol.kind === 'module');
+    expect(moduleNode?.name).toBe('main');
+    expect(moduleNode?.filePath).toBe('apps/web/src/main.tsx');
+    expect(moduleNode?.calls?.some((call) => call.method === 'App')).toBe(true);
+
+    // A function-level JSX edge still belongs to the function, not the module.
+    const component = parseTypeScriptSource(
+      `
+export function Shell() {
+  return <TopBar />;
+}
+`,
+      'apps/web/src/Shell.tsx',
+      'repo'
+    );
+    expect(component.some((symbol) => symbol.kind === 'module')).toBe(false);
+    expect(component.find((symbol) => symbol.name === 'Shell')?.calls?.[0]?.method).toBe('TopBar');
+
+    // Module-level CALLS are still dropped (unchanged behaviour — registering them
+    // is a separate, repo-wide change with its own measurement).
+    const moduleLevelCall = parseTypeScriptSource(
+      `
+const db = openDb(':memory:');
+`,
+      'src/db.ts',
+      'repo'
+    );
+    expect(moduleLevelCall.some((symbol) => symbol.kind === 'module')).toBe(false);
+  });
+});
+
 describe('TypeScriptAdapter — literal masking (issue 19)', () => {
   it('does not read declarations out of a multi-line template literal', () => {
     const source = [

@@ -1,6 +1,7 @@
 import type { RepoSymbol } from '../ingest/repoqa-repos';
 import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
-import { resolveCallChain } from './repoqa-callchain';
+import { buildCallIndex, isTestPath, resolveCallChain, resolveCallEdge } from './repoqa-callchain';
+import type { SymbolIndex } from './repoqa-callchain';
 
 /**
  * Issue 11 — AST 启发式 Onboarding Tours（Phase 2 方案 A：Onboarding 驾驶舱）。
@@ -113,6 +114,66 @@ function routeClasses(symbols: RepoSymbol[]): RepoSymbol[] {
   return symbols.filter((symbol) => symbol.kind === 'route').sort(byLocation);
 }
 
+/**
+ * Issue 17 — the TS/JS anchor families, mirroring the Java ones.
+ *
+ * A TS repo has no Servlet Filter and no `@Controller` class: its request path is
+ * a middleware chain registered with `app.use(…)`, and its entry point is the
+ * module that mounts the root component. Both are facts the adapter records
+ * (`USE *` route symbols for named middleware registrations, a `module` node for
+ * module-level JSX edges), so these tours are built from physical anchors without
+ * inventing anything.
+ *
+ * Test paths are filtered out of the TS families: a fixture that spins up an
+ * Express app with `app.use(requestIdMiddleware)` is a test double, not this
+ * repo's middleware chain (measured on this repo — the first version listed
+ * `http-error.test.ts` registrations ahead of the real `http.ts` ones). The Java
+ * families above keep their original behaviour, which is what keeps the Java
+ * tours byte-identical.
+ */
+const MIDDLEWARE_PREFIX = 'USE ';
+
+/** Middleware registrations, in source order. Registration order is execution
+ * order *within a file*; across files it is file order, which the tour description
+ * discloses rather than claims. */
+function middlewareRegistrations(symbols: RepoSymbol[]): RepoSymbol[] {
+  return symbols
+    .filter(
+      (symbol) =>
+        symbol.kind === 'route' &&
+        symbol.name.startsWith(MIDDLEWARE_PREFIX) &&
+        !isTestPath(symbol.filePath)
+    )
+    .sort(byLocation);
+}
+
+/** HTTP routes a request can actually reach (`app.get('/x', …)`, NestJS routes) —
+ * the middleware-chain counterpart of `routeMethods`, which is Java-only. */
+function httpRouteSymbols(symbols: RepoSymbol[]): RepoSymbol[] {
+  return symbols
+    .filter(
+      (symbol) =>
+        symbol.kind === 'route' &&
+        !symbol.name.startsWith(MIDDLEWARE_PREFIX) &&
+        !isTestPath(symbol.filePath) &&
+        (symbol.displayPath !== undefined || symbol.calls !== undefined)
+    )
+    .sort(byLocation);
+}
+
+/** Module nodes that carry module-level JSX edges (`main.tsx`'s `render(<App />)`).
+ * The adapter emits one only when such an edge exists. */
+function moduleNodes(symbols: RepoSymbol[]): RepoSymbol[] {
+  return symbols
+    .filter(
+      (symbol) =>
+        symbol.kind === 'module' &&
+        (symbol.calls?.length ?? 0) > 0 &&
+        !isTestPath(symbol.filePath)
+    )
+    .sort(byLocation);
+}
+
 /** Methods declared inside a route class. */
 function routeMethods(symbols: RepoSymbol[]): RepoSymbol[] {
   const routeNames = new Set(routeClasses(symbols).map((symbol) => symbol.name));
@@ -127,25 +188,60 @@ function resolvedDepth(trace: RepoQaTraceHop[]): number {
   return trace.filter((hop) => !hop.break).length;
 }
 
+/** Mermaid node IDs must be identifier-like; TS route symbols are named
+ * `GET /owners` and `USE *`, so the label is sanitised while the physical
+ * `file:line` anchor (and therefore the `code://` click binding) is unchanged. */
+function nodeLabel(name: string): string {
+  const safe = name.replace(/[^A-Za-z0-9_]/g, '_');
+  return /^[0-9]/.test(safe) ? `n${safe}` : safe;
+}
+
+interface MainFlowPick {
+  symbol: RepoSymbol;
+  /** Step-1 label. Java keeps `${parentType}.${name}（入口接口）` unchanged. */
+  label: string;
+  trace: RepoQaTraceHop[];
+}
+
 /**
- * 主业务流：对每个 @RestController 方法解析静态调用链，选出“深度最深”的
- * 接口。同深度时按 文件 → 行号 → 方法名 字典序取首个（确定性平局规则）。
+ * 主业务流：对每个入口解析静态调用链，选出“深度最深”的那条。
+ * 同深度时按 文件 → 行号 → 方法名 字典序取首个（确定性平局规则）。
+ *
+ * Issue 17 — Java entries are `@RestController` methods. A TS repo has no such
+ * methods, so its entries are the module node that mounts the root component
+ * (`main.tsx`) and the registered HTTP routes. Java wins when both exist: that is
+ * the only ordering that keeps the Java output byte-identical.
  */
-function pickMainFlow(
-  symbols: RepoSymbol[],
-  maxDepth: number
-): { method: RepoSymbol; trace: RepoQaTraceHop[] } | undefined {
-  let best: { method: RepoSymbol; trace: RepoQaTraceHop[] } | undefined;
-  for (const method of routeMethods(symbols)) {
-    const trace = resolveCallChain(symbols, method, maxDepth);
-    const depth = resolvedDepth(trace);
+function pickMainFlow(symbols: RepoSymbol[], maxDepth: number): MainFlowPick | undefined {
+  const javaMethods = routeMethods(symbols);
+  const entries: MainFlowPick[] = javaMethods.map((method) => ({
+    symbol: method,
+    label: `${method.parentType}.${method.name}（入口接口）`,
+    trace: []
+  }));
+  // Issue 17 — the TS/JS counterpart is the MOUNT chain: the module that renders
+  // the root component. Registered routes are deliberately not used as a fallback
+  // entry: a route whose chain does not resolve is a one-step "main flow", and a
+  // tour that claims a flow it cannot show is worse than an honest empty state.
+  if (entries.length === 0) {
+    for (const node of moduleNodes(symbols)) {
+      entries.push({
+        symbol: node,
+        label: `${node.name}（模块入口：挂载根组件）`,
+        trace: []
+      });
+    }
+  }
+
+  let best: MainFlowPick | undefined;
+  for (const entry of entries) {
+    const trace = resolveCallChain(symbols, entry.symbol, maxDepth);
+    const candidate: MainFlowPick = { ...entry, trace };
     const better =
       !best ||
-      depth > resolvedDepth(best.trace) ||
-      (depth === resolvedDepth(best.trace) && byLocation(method, best.method) < 0);
-    if (better) {
-      best = { method, trace };
-    }
+      resolvedDepth(trace) > resolvedDepth(best.trace) ||
+      (resolvedDepth(trace) === resolvedDepth(best.trace) && byLocation(entry.symbol, best.symbol) < 0);
+    if (better) best = candidate;
   }
   return best;
 }
@@ -219,13 +315,20 @@ function stepAt(
 /* Tour builders                                                       */
 /* ------------------------------------------------------------------ */
 
-function buildAuthChainTour(
-  symbols: RepoSymbol[],
-  main: { method: RepoSymbol; trace: RepoQaTraceHop[] } | undefined
-): RepoQaTour {
+function buildAuthChainTour(symbols: RepoSymbol[], main: MainFlowPick | undefined): RepoQaTour {
   const filters = filterClasses(symbols);
   const interceptors = interceptorClasses(symbols);
-  const endpoint = main?.method ?? routeMethods(symbols)[0];
+  // Issue 17 — the TS/JS counterpart of the filter chain is the middleware chain.
+  // Only used when the Java families are absent, so Java repos are untouched.
+  const middleware =
+    filters.length === 0 && interceptors.length === 0 ? middlewareRegistrations(symbols) : [];
+  // The endpoint is a Java route method when there is one; for a TS middleware
+  // chain it is the first registered HTTP route. No fallback when neither exists:
+  // a lone route is not an auth chain, and claiming one would be a fabricated step.
+  const javaEndpoint = routeMethods(symbols)[0];
+  const endpoint =
+    javaEndpoint ??
+    (middleware.length > 0 ? httpRouteSymbols(symbols)[0] : undefined);
 
   const nodes: MermaidNode[] = [];
   const steps: RepoQaTourStep[] = [];
@@ -246,40 +349,100 @@ function buildAuthChainTour(
       stepAt(steps.length, entry, `${interceptor.name}.${entry.name}（拦截器）`)
     );
   }
+  for (const registration of middleware) {
+    const handler = registration.calls?.[0]?.method;
+    const label = `${registration.name}${handler ? ` → ${handler}` : ''}（中间件注册）`;
+    nodes.push({ label: nodeLabel(registration.name), file: registration.filePath, line: registration.lineStart });
+    steps.push(stepAt(steps.length, registration, label));
+  }
   if (endpoint) {
-    nodes.push({ label: endpoint.name, file: endpoint.filePath, line: endpoint.lineStart });
+    nodes.push({
+      label: nodeLabel(endpoint.name),
+      file: endpoint.filePath,
+      line: endpoint.lineStart
+    });
     steps.push(
-      stepAt(steps.length, endpoint, `${endpoint.parentType}.${endpoint.name}（受保护端点）`)
+      stepAt(
+        steps.length,
+        endpoint,
+        endpoint.kind === 'route'
+          ? `${endpoint.name}（${middleware.length > 0 ? '中间件后的首个路由' : '注册路由'}）`
+          : `${endpoint.parentType}.${endpoint.name}（受保护端点）`
+      )
     );
   }
 
   return {
     id: 'auth-chain',
-    title: '鉴权与拦截链',
+    title: middleware.length > 0 ? '鉴权与中间件链' : '鉴权与拦截链',
     description:
-      '从 HTTP 过滤器到拦截器再到受保护业务端点，理解请求如何经过每一道鉴权关卡。',
+      middleware.length > 0
+        ? '按源码顺序列出注册的中间件——注册顺序即执行顺序（跨文件注册时顺序按文件路径排序，静态无法确定的部分不作宣称）——再指向其后的首个路由。'
+        : '从 HTTP 过滤器到拦截器再到受保护业务端点，理解请求如何经过每一道鉴权关卡。',
     steps,
     mermaid: chainMermaid(nodes)
   };
 }
 
-function buildMainFlowTour(
+/**
+ * Issue 17 — the mount chain: walk module-level JSX edges down through the
+ * component tree.
+ *
+ * `resolveCallChain` is not used here on purpose. A module's calls include library
+ * wrappers (`render(<StrictMode><App /></StrictMode>)` lists `StrictMode` first),
+ * and the shared chain resolver stops at the first hop it cannot bind — so the
+ * mount chain died on `StrictMode` after two steps. This walk takes the first call
+ * that RESOLVES, in source order, which is deterministic and skips the wrappers:
+ * module(main.tsx) → App → RepoProvider → … up to `maxDepth`.
+ */
+function walkMountChain(
   symbols: RepoSymbol[],
+  start: RepoSymbol,
+  index: SymbolIndex,
   maxDepth: number
-): RepoQaTour {
+): RepoQaTraceHop[] {
+  const hops: RepoQaTraceHop[] = [
+    { file: start.filePath, method: start.name, line: start.lineStart ?? 1 }
+  ];
+  let current = start;
+  const seen = new Set<string>([start.filePath + '#' + start.name]);
+  for (let depth = 0; depth < maxDepth; depth += 1) {
+    let next: RepoSymbol | undefined;
+    let nextLine: number | undefined;
+    for (const call of current.calls ?? []) {
+      if (call.dynamic) continue;
+      const resolved = resolveCallEdge(index, current, call);
+      if (!('target' in resolved)) continue;
+      const key = resolved.target.filePath + '#' + resolved.target.name;
+      if (seen.has(key)) continue;
+      next = resolved.target;
+      nextLine = call.line;
+      break;
+    }
+    if (!next) break;
+    seen.add(next.filePath + '#' + next.name);
+    hops.push({ file: next.filePath, method: next.name, line: next.lineStart ?? 1, callLine: nextLine });
+    current = next;
+  }
+  return hops;
+}
+
+function buildMainFlowTour(symbols: RepoSymbol[], maxDepth: number): RepoQaTour {
   const main = pickMainFlow(symbols, maxDepth);
+  const isMountChain = main?.symbol.kind === 'module';
 
   const steps: RepoQaTourStep[] = [];
   const nodes: MermaidNode[] = [];
   let breakReason: string | undefined;
 
   if (main) {
-    const start = main.method;
-    nodes.push({ label: start.name, file: start.filePath, line: start.lineStart });
-    steps.push(
-      stepAt(steps.length, start, `${start.parentType}.${start.name}（入口接口）`)
-    );
-    for (const hop of main.trace.slice(1)) {
+    const start = main.symbol;
+    nodes.push({ label: nodeLabel(start.name), file: start.filePath, line: start.lineStart });
+    steps.push(stepAt(steps.length, start, main.label));
+    const trace = isMountChain
+      ? walkMountChain(symbols, start, buildCallIndex(symbols), maxDepth)
+      : main.trace;
+    for (const hop of trace.slice(1)) {
       const line = hop.break ? (hop.callLine ?? hop.line) : hop.line;
       if (hop.break) {
         breakReason = hop.reason ?? 'Static Analysis Break';
@@ -287,7 +450,7 @@ function buildMainFlowTour(
           stepAt(steps.length, { ...start, filePath: hop.file, lineStart: line, name: hop.method }, `${hop.method}（${breakReason}）`),
         );
       } else {
-        nodes.push({ label: hop.method, file: hop.file, line: hop.line });
+        nodes.push({ label: nodeLabel(hop.method), file: hop.file, line: hop.line });
         steps.push(stepAt(steps.length, symbolFromHop(symbols, hop), `${hop.method}`));
       }
     }
@@ -295,9 +458,10 @@ function buildMainFlowTour(
 
   return {
     id: 'main-flow',
-    title: '核心主业务流',
-    description:
-      '从调用深度最深的 REST 端点出发，沿静态可解析调用链逐层下钻到服务与数据层。',
+    title: isMountChain ? '挂载链' : '核心主业务流',
+    description: isMountChain
+      ? '从挂载根组件的模块入口出发，沿静态可解析的调用与组件边逐层下钻（取每处首个可解析的边；库包装如 `<StrictMode>` 不参与，因为它在本仓没有声明）。'
+      : '从调用深度最深的 REST 端点出发，沿静态可解析调用链逐层下钻到服务与数据层。',
     steps,
     mermaid: chainMermaid(nodes, breakReason)
   };

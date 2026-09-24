@@ -447,4 +447,52 @@ self 12.0% 仍在界内，未动 `--ratchet-update`。**判据纪律**：这张�
 
 **单测 4 条**：多行模板 / 正则字面量 / 嵌套模板（实现前 3 条红）+ "注释里的反引号"（新实现的回归钉，挡"一行加宽"那类改法）。
 
+## 15. 第十增量（票 17：TS/JS 入口族边 + Tour 锚点族，2026-09-24）
+
+**起点**：本仓 `codecompass_get_tours` 返回 `[]`，note 自陈"tours currently cover Java/Spring REST projects"。根因不是 tour 构建器缺逻辑，而是
+**TS 的两个入口族**根本没进符号图：
+
+| 入口族 | 观测 | 机制缺口 |
+|---|---|---|
+| 中间件注册 `app.use(name)` | `http.ts` 的 `requestIdMiddleware` / `errorMiddleware` 零调用者 | Express 分支要求**字符串首参**（路由路径），`app.use(fn)` 取不到 → 整条注册被丢弃：既没有锚点，中间件自己也读成死代码 |
+| 模块级挂载 `createRoot(...).render(<App />)` | `App`（`App.tsx:34`）靠 `testOnly` 标注兜着 | 无 enclosing symbol → JSX 边被丢弃 → 被挂载的根组件读成死代码（报告 §5 P1 已登记的同类缺口） |
+
+**落地**：① `app.use(name)` 登记为 `route` 符号 `USE *` + 指向中间件的调用边（**只收命名中间件**：内联箭头无可锚定的名字、
+`express.json()` 这类库工厂不是本引擎能锚定的中间件，都不登记）；② 模块级 JSX 边挂到**每文件模块节点**（新 kind `module`，
+锚在该文件第一条模块级边那一行）；③ `effectiveStart` 接受带边的模块节点（否则落到"仓里第一个 method"的兜底）；
+④ `PRODUCTION_KINDS` 增 `module`——**边的 in-degree 只有起点是图节点时才计**，不加这条 `App` 仍会因"挂载不算调用者"留桶（实测加了才离榜）；
+⑤ tour 构建器加 TS 家族：`auth-chain` = 中间件链 + 其后首个 HTTP 路由，`main-flow` = **挂载链**（逐跳取"首个可解析的边"，
+不走共享链解析器——它会在 `StrictMode` 这类库包装上两步就断）。
+
+**结果（本仓，锚点可逐条核对）**：
+
+```
+auth-chain 鉴权与中间件链（4 steps）
+  1. USE * → requestIdMiddleware（中间件注册）  [services/control-plane/src/http.ts:42]
+  2. USE /api（中间件注册）                      [services/control-plane/src/http.ts:130]
+  3. USE * → errorMiddleware（中间件注册）       [services/control-plane/src/http.ts:162]
+  4. GET /api/chat/status（中间件后的首个路由）  [services/control-plane/src/chat/routes.ts:27]
+main-flow  挂载链（5 steps）
+  1. main（模块入口：挂载根组件）  [apps/repoqa-web/src/main.tsx:9 = createRoot(...).render(]
+  2. App → 3. constructor → 4. fetchWithTimeout → 5. constructor
+```
+
+**三仓复测**：
+
+| 样本 | 符号 | 孤儿（前 → 后） | 说明 |
+|---|---|---|---|
+| self | 2030 → **2066** | **246 → 243** | +23 模块节点 + 命名中间件符号；`App` **离榜**且不再 `testOnly`；deepChains 48 → 50 |
+| lazygit | 10523 → 10523 | 1828 → **1828** | 逐字节不变（Go 无 JSX/Express） |
+| petclinic | 595 → 595 | 13 → **13** | 逐字节不变（Java tour 输出不变） |
+
+普查守恒 `666 = 243 + 423`；棘轮 11.8%；控制面 727、web 364、bridge 26、e2e 71/0、eval 九桶全 100%。
+
+**两条"不编步骤"的纪律**：没有中间件就**不**拿单个路由凑"鉴权链"，没有挂载点就**不**拿路由凑"主业务流"——两条都退回诚实空态
+（这条被 `repoqa-mcp.test.ts` 的"无路由仓诚实降级"用例当场抓住一次，当时的实现正是拿路由凑的）。**TS 家族过滤测试路径**：
+第一版把 `http-error.test.ts` 里的 fixture 注册排在了真 `http.ts` 前面——测试替身不是本仓的中间件链。
+
+**已知边界**：挂载链取"首个可解析的边"而非组件树遍历（要区分 JSX 边与普通调用边需给边加标记，属契约面变更，另议）；
+`error-handling` 对 TS 仍空（Express 四参错误中间件 `(err, req, res, next)` 是确定性信号，需要把实参个数记进符号，未做）；
+跨文件中间件顺序按文件路径排序（tour 描述里已披露，不宣称）。
+
 

@@ -155,6 +155,24 @@
 - **单测 4 条**：多行模板 / 正则字面量 / 嵌套模板（实现前 3 条红）+ "注释里的反引号"（新实现的回归钉，用来挡"一行加宽"那类改法）。
 - **门禁**：控制面 **718 → 722**、web 364、bridge 26、e2e **71/0**、97 题 eval 九桶 Recall@5 全 100%、四包 `tsc --noEmit` 净。
 
+### TS/JS 仓的 Tour 锚点族 + 两个被丢掉的入口边（2026-09-24，票 17）
+
+**本仓 `codecompass_get_tours` 从 `[]` 变为两条真实路线**（`2026-09-21` 现场实测曾是 `{"tours": [], "note": "…tours currently cover Java/Spring REST projects"}`）：
+
+```
+auth-chain 鉴权与中间件链（4 steps）：USE * → requestIdMiddleware [http.ts:42] → USE /api [http.ts:130]
+                                    → USE * → errorMiddleware [http.ts:162] → GET /api/chat/status [chat/routes.ts:27]
+main-flow  挂载链（5 steps）：main [main.tsx:9 = createRoot(...).render(] → App [App.tsx:34] → …
+```
+
+- **两个被丢掉的入口族（适配器）**：① `app.use(name)` 因"取不到字符串首参"整条被丢弃 → 中间件既无锚点、自己又读成死代码；现在登记为 `route` 符号 `USE *` 并记调用边（**只收命名中间件**：内联箭头无可锚定的名字、`app.use(express.json())` 这类库工厂不是本引擎能锚定的中间件，都不登记）。② `main.tsx` 的 `render(<App />)` 在**任何函数之外**，无 enclosing symbol → 边被丢弃 → 被挂载的根组件读成死代码；现在挂到**每文件模块节点**（新 kind `module`，锚在该文件第一条模块级边那一行）。模块级**调用**仍按原样丢弃（另一件全仓范围的事，需自己的度量）。
+- **`PRODUCTION_KINDS` 增 `module`，`effectiveStart` 接受带边的模块节点**：边的 in-degree 只有在起点是图节点时才计——不加这条，`App` 仍会因"挂载不算调用者"留在孤儿桶（实测加了才离榜）。模块节点本身无调用者，落在既有 type-declaration 排除里，普查守恒。
+- **Tour 构建器加 TS 锚点族**：`auth-chain` = 中间件链 + 其后首个 HTTP 路由；`main-flow` = **挂载链**（逐跳取"首个可解析的边"，跳过库包装——共享链解析器会在 `StrictMode` 上两步就断）。**Java 的 filter/interceptor 家族非空时完全不启用**，故 petclinic 输出逐字节不变。
+- **不编步骤**：没有中间件就不拿单个路由凑"鉴权链"，没有挂载点就不拿路由凑"主业务流"——两条都退回诚实空态（这条被 `repoqa-mcp.test.ts` 的"无路由仓诚实降级"用例当场抓住一次）。**TS 家族过滤测试路径**：第一版把 `http-error.test.ts` 里的 fixture 注册排在了真 `http.ts` 前面。**MCP 空态 note 改口**：逐类说明各 tour 需要什么，不再自称 Java-only。
+- **实测（三仓同源复跑）**：self 符号 2030 → **2066**（+23 模块节点 + 命名中间件符号）、孤儿 **246 → 243**、**`App` 离榜且不再带 `testOnly`**、deepChains 48 → 50；lazygit **10523/1828**、petclinic **595/13** 逐字节不变；普查守恒 `666 = 243 + 423`；棘轮 11.8%。
+- **门禁**：控制面 **722 → 727**、web 364、bridge 26、e2e **71/0**、97 题 eval 九桶全 100%、四包 `tsc --noEmit` 净。
+- **已知边界**：挂载链取"首个可解析的边"而非组件树遍历（需给边加 JSX 标记才能走纯组件树，契约面变更另议）；`error-handling` 对 TS 仍空（Express 四参错误中间件是确定性信号，未做）；跨文件中间件顺序按文件路径排序（tour 描述已披露）。
+
 ### 质量门（续批后基线，取代本节上方旧数值）
 
 - 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。

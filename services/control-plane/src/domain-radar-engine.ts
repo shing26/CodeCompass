@@ -55,7 +55,14 @@ const PRODUCTION_KINDS = new Set([
   'interface',
   // Mapper XML SQL nodes participate as sinks so PageRank sees them.
   'sql',
-  'mapper'
+  'mapper',
+  // Issue 17 — a module node carries a file's module-level edges (`main.tsx`'s
+  // `render(<App />)`), and an edge only counts towards in-degree when its source
+  // is a graph node. Without this the mounted root component kept reading as an
+  // orphan even though the mount is exactly what keeps it alive. The node itself
+  // has no callers by construction and lands in the existing non-callable
+  // exclusion (CALLABLE_KINDS is `method`-only), so the census conserves.
+  'module'
 ]);
 
 /** Resolve every call edge once (routes and HTTP bridges included). */
