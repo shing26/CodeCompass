@@ -75,8 +75,16 @@ export async function buildParseContext(
     if (sources.length > 0) {
       const typescript = buildTypeScriptDeclarations(sources);
       // An all-empty table is not worth carrying: it would make every TS file
-      // pay a lookup that can never hit.
-      if (typescript.interfaces.size > 0 || typescript.returns.size > 0) {
+      // pay a lookup that can never hit. ALL four maps count — a repo whose only
+      // cross-file facts are method return types (issue 20's `methods`) or
+      // function parameter types (issue 18(e)'s `params`) must still get its
+      // table, or those two mechanisms silently die there.
+      const nonEmpty =
+        typescript.interfaces.size > 0 ||
+        typescript.returns.size > 0 ||
+        typescript.params.size > 0 ||
+        typescript.methods.size > 0;
+      if (nonEmpty) {
         languages.typescript = typescript;
       }
     }

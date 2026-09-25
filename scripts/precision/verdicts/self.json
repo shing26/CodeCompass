@@ -1,58 +1,58 @@
 {
   "_meta": {
-    "sample": "self (CodeCompass working tree @ 5700bbd + v0.31 uncommitted batch), top-10 of orphanedPublic",
-    "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md §9",
-    "measured": "2026-09-20",
-    "note": "Re-judged after ADR-0018 (bucket scope narrowed to callable symbols) and ticket 11 (TS receiver typing). The previous list described the pre-narrowing bucket; 4 keys survive with sharper classes, 6 are new entries the narrower scope surfaced."
-  },
-  "apps/repoqa-web/src/App.tsx:34": {
-    "verdict": "false-positive",
-    "class": "module-level-jsx",
-    "reason": "App is rendered by main.tsx via createRoot(...).render(<StrictMode><App /></StrictMode>) and by App.test.tsx. Module-level JSX has no enclosing symbol to carry the edge (report §5 P1) — hence testOnly=true: only the test-file renders resolve."
+    "sample": "self (CodeCompass working tree @ 9db6624, v0.31 closeout: tickets 18/20/21/19/17/03 landed), top-10 of orphanedPublic (total 243, symbols 2066)",
+    "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md §16",
+    "measured": "2026-09-25",
+    "note": "Re-judged after tickets 18/20/21/19/17 (receiver typing + cross-file declaration table + masking + module nodes). Only 3 keys survive from the 2026-09-20 list (onKeyDown, brandColor, getRepo); the 7 RepoQAClient.* receiver-typing entries left the bucket and 7 new entries surfaced, 5 of them true positives (dead ChatMergeClient API). M1 (top-10 false-positive rate) = 4/10 = 40% — down from 90% (9/10) on 2026-09-20."
   },
   "apps/repoqa-web/src/App.tsx:129": {
     "verdict": "false-positive",
     "class": "value-reference",
-    "reason": "onKeyDown is passed as a JSX attribute value ({onKeyDown}) — an identifier reference, not a call expression; no call edge can exist."
+    "reason": "onKeyDown is passed to window.addEventListener('keydown', onKeyDown) at App.tsx:135 — an identifier VALUE reference, not a call expression; the adapter records no edge for it (report §5 P1: DOM 事件绑定 gap)."
   },
   "apps/repoqa-web/src/brand-marks.ts:182": {
     "verdict": "false-positive",
     "class": "test-only-export",
-    "reason": "brandColor has no production caller, but brand-marks.test.ts imports and calls it. Not dead code — an exported utility whose only consumer is its own test (test-only API smell, the class census.testOnly is meant to expose)."
+    "reason": "brandColor has no production caller, but brand-marks.test.ts imports and calls it. Not dead code — an exported utility whose only consumer is its own test (unchanged verdict from 2026-09-20)."
   },
   "apps/repoqa-web/src/client/RepoQAClient.ts:73": {
     "verdict": "true-positive",
     "class": "unreferenced-client-method",
-    "reason": "RepoQAClient.getRepo has ZERO callers: `grep -rn '\\.getRepo(' apps/repoqa-web/src` outside this file returns 0 hits; the only other occurrences are vi.fn() stubs in five test doubles (App/useInspector/useRepoCatalog/useDashboard/useTours tests) that exist for interface-shape completeness, plus the unrelated server-side RepoQARepos.getRepo (a different class). Dead frontend API — removal candidate."
+    "reason": "getRepo has no production caller and no test caller — genuinely unreferenced (removal candidate; unchanged verdict from 2026-09-20)."
   },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:213": {
+  "apps/repoqa-web/src/client/RepoQAClient.ts:681": {
     "verdict": "false-positive",
-    "class": "factory-return-receiver",
-    "reason": "pickFolder is called at App.tsx:156, but App's `client` comes from useMemo(() => clientProp ?? new RepoQAClient(...)) — the deep-NewExpression case (family f) stays dynamic, so the edge is not counted."
+    "class": "member-chain-receiver",
+    "reason": "QueryStream.close is called at useChat.ts:151 as streamRef.current?.close() — the receiver is a member chain off an untyped useRef local, which the adapter cannot type; the call site is real production code (registered as a follow-up mechanism, ticket 20 §5)."
   },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:237": {
+  "apps/repoqa-web/src/client/RepoQAClient.ts:830": {
     "verdict": "false-positive",
-    "class": "callback-param-aliasing",
-    "reason": "listReverseDeps is called at useReverseDeps.ts:18 as `(c, repoId_, name) => c.listReverseDeps(...)` — the callback parameter `c` is typed by the callee's signature (family e), which the adapter does not infer."
+    "class": "member-chain-receiver",
+    "reason": "EvolveStream.close is called at useEvolutionSession.ts:278 and :298 as streamRef.current?.stream.close() — same member-chain receiver gap (ticket 20 §5)."
   },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:299": {
-    "verdict": "false-positive",
-    "class": "utility-type-props",
-    "reason": "radar is called at EvolutionView.tsx:397 and CommandPalette.tsx:98; the receiver is typed `Pick<RepoQAClient, 'radar'>` (family g) — a utility-type annotation the adapter does not expand."
+  "apps/repoqa-web/src/client/RepoQAClient.ts:904": {
+    "verdict": "true-positive",
+    "class": "dead-api",
+    "reason": "ChatMergeClient.listSessions has no production call site; it appears only in App.test.tsx/ChatView.test.tsx as a TEST DOUBLE's object literal (listSessions: vi.fn()), which is not a call. Zero static callers is a true statement — dead API in the Web surface (same class as getRepo)."
   },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:312": {
-    "verdict": "false-positive",
-    "class": "utility-type-props",
-    "reason": "getArchitectureDelta is called at ArchitectureDeltaView.tsx:71 with the receiver typed `Pick<RepoQAClient, 'getArchitectureDelta'>` (family g)."
+  "apps/repoqa-web/src/client/RepoQAClient.ts:910": {
+    "verdict": "true-positive",
+    "class": "dead-api",
+    "reason": "ChatMergeClient.createSession — same evidence as :904 (test doubles only, no production call site)."
   },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:359": {
-    "verdict": "false-positive",
-    "class": "utility-type-props",
-    "reason": "runGate is called at CiGateView.tsx:237 with the receiver typed `Pick<RepoQAClient, 'runGate' | 'listGateRuns'>` (family g)."
+  "apps/repoqa-web/src/client/RepoQAClient.ts:928": {
+    "verdict": "true-positive",
+    "class": "dead-api",
+    "reason": "ChatMergeClient.messages — same evidence as :904."
   },
-  "apps/repoqa-web/src/client/RepoQAClient.ts:398": {
-    "verdict": "false-positive",
-    "class": "utility-type-props",
-    "reason": "listGateRuns is called at CiGateView.tsx:159, same `Pick<...>` receiver (family g)."
+  "apps/repoqa-web/src/client/RepoQAClient.ts:947": {
+    "verdict": "true-positive",
+    "class": "dead-api",
+    "reason": "ChatMergeClient.switchModel — same evidence as :904."
+  },
+  "apps/repoqa-web/src/client/RepoQAClient.ts:963": {
+    "verdict": "true-positive",
+    "class": "dead-api",
+    "reason": "ChatMergeClient.modelInfo — same evidence as :904."
   }
 }

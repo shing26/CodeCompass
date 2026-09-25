@@ -495,4 +495,25 @@ main-flow  挂载链（5 steps）
 `error-handling` 对 TS 仍空（Express 四参错误中间件 `(err, req, res, next)` 是确定性信号，需要把实参个数记进符号，未做）；
 跨文件中间件顺序按文件路径排序（tour 描述里已披露，不宣称）。
 
+## 16. M1 重判（票 17/18/20/21 之后，2026-09-25）
+
+v0.31 收口批的五张精度票把 self 的孤儿桶连刷四轮，top-10 **十席全部换血**（仅 3 席从 09-20 旧榜存活）。
+按"逐条人工核验、判定入档"的口径重判 `scripts/precision/verdicts/self.json`（10 条，样本 = 9db6624 工作树，孤儿 243 / 符号 2066）：
+
+| top-10（当前） | 判定 | 依据 |
+|---|---|---|
+| `onKeyDown`（App.tsx:129） | 假阳性 · value-reference | `window.addEventListener('keydown', onKeyDown)`（:135）——标识符**值引用**，不是调用表达式，本就不该有调用边（报告 §5 P1 DOM 绑定缺口） |
+| `brandColor`（brand-marks.ts:182） | 假阳性 · test-only-export | 生产零调用、自有测试在用（旧榜存活，判定不变） |
+| `RepoQAClient.getRepo`（:73） | **真阳性** · unreferenced-client-method | 生产与测试均无调用者（移除候选；旧榜存活） |
+| `QueryStream.close`（:681） | 假阳性 · member-chain-receiver | `streamRef.current?.close()`（useChat.ts:151）——成员链接收者（票 20 §5 已登记的新机制缺口） |
+| `EvolveStream.close`（:830） | 假阳性 · member-chain-receiver | `streamRef.current?.stream.close()`（useEvolutionSession.ts:278/298）——同上 |
+| `ChatMergeClient.listSessions/createSession/messages/switchModel/modelInfo`（:904/:910/:928/:947/:963） | **真阳性 ×5** · dead-api | 生产零调用；仅 `App.test.tsx` / `ChatView.test.tsx` 里**替身对象字面量**（`listSessions: vi.fn()` 不是调用）——Web 面死 API |
+
+**M1（top-10 假阳性率）= 4/10 = 40%**（`npm run precision -- --score self` 可复算，判定覆盖守卫不再标 ⚠）。
+对照史：2026-09-16 三仓 100% → 2026-09-20 self 90%（9/10 假）→ **今日 40%**。仍距 <5% 甚远，不宣称达标；
+剩余假阳性两族（值引用、成员链）均有票面登记，真阳性 6 条是 Web 面死 API 的**可执行清理清单**（与 `RepoQAClient.getRepo` 同批处置即可再降水位）。
+
+lazygit / petclinic 的判定文件仍覆盖其旧榜（其桶在 09-24 票 21 变动 +21 条后 top-10 未换血，`--score` 覆盖守卫未标 ⚠），M1 不变 100%/100%——
+lazygit 的 100% 已由 ADR-0018 解释（类型声明 + Go 接口语义，属"桶语义问题非精度问题"）。
+
 

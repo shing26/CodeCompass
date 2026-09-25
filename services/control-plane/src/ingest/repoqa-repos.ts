@@ -193,9 +193,12 @@ export interface RepoSymbol {
     /**
      * Issue 17 — a per-file MODULE node, emitted only when a file has edges that
      * belong to no function (`main.tsx`'s `render(<App />)`). It carries those
-     * edges so their targets have a caller; it is deliberately not in
-     * `PRODUCTION_KINDS`, so it never becomes a graph node, a bucket candidate, a
-     * type, or a symbol-tree entry.
+     * edges so their targets have a caller. It IS a graph node
+     * (`PRODUCTION_KINDS` lists the kind — an edge only counts towards in-degree
+     * when its source is one, and without that the mounted root component kept
+     * reading as an orphan), but it is not callable (`CALLABLE_KINDS` is
+     * `method`-only, so it lands in the existing type-declaration exclusion), not
+     * a type (`TYPE_KINDS` omits it), and not a symbol-tree entry.
      */
     | 'module';
   name: string;

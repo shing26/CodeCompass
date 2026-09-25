@@ -95,6 +95,8 @@ try {
 
 console.log(JSON.stringify(result, null, 2));
 if (result.toolCount !== 17) {
+  // 17 = the frozen v1 tool surface (repoqa-mcp.ts MCP_TOOLS); closeout_gate.py
+  // is the single enforcement point for that count — keep all three in step.
   console.error(`FAIL: expected 17 tools, got ${result.toolCount}`);
   process.exit(1);
 }

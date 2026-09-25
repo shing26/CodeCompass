@@ -1047,8 +1047,7 @@ function splitTopLevel(text: string, separator: string): string[] {
  *   `X | undefined`           → same as `X`  (optional members are common)
  *   anything else (unions of objects, arrays, functions, inline literals) → undefined
  */
-function resolveTypeRef(raw: string, depth = 0): ReceiverType | undefined {
-  if (depth > 4) return undefined;
+function resolveTypeRef(raw: string): ReceiverType | undefined {
   let text = raw.trim();
   if (!text) return undefined;
   // `T | undefined` / `T | null` — an optional member still types the receiver.
@@ -1487,9 +1486,11 @@ export function parseTypeScriptSource(
    * the whole app is mounted from, and with no enclosing symbol the edge was
    * dropped, so `App` (and everything reachable only through it) read as dead
    * code. The owner is a per-file **module node**: a symbol of kind `module` named
-   * after the file, carrying those edges. It is deliberately NOT a graph node
-   * (`PRODUCTION_KINDS` does not list the kind), so it never becomes an orphan
-   * candidate itself — it exists to be a caller.
+   * after the file, carrying those edges. It IS a graph node (`PRODUCTION_KINDS`
+   * lists the kind — an edge only counts towards in-degree when its source is one,
+   * and without that the mounted root component kept reading as an orphan), but it
+   * is not callable (`CALLABLE_KINDS` is `method`-only, so it lands in the existing
+   * type-declaration exclusion) — it exists to be a caller, never a candidate.
    *
    * Module-level CALLS are still dropped, as they were before: registering them is
    * a separate, much wider change (it would attach a caller to every
