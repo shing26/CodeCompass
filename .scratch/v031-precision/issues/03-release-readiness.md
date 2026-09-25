@@ -112,6 +112,17 @@ npx @codecompass/cli mcp <某仓库路径>
 - 发布成功判据：`npm view @codecompass/cli version` 返回 `0.31.0`；干净目录 `npx @codecompass/cli mcp <path>` 完成 stdio 握手
   （M4=1，本票验收全勾）。
 
+**⚠ 诚实注记（2026-09-25 双轴评审后）**：npm 上的 `@codecompass/cli@0.31.0` tarball（shasum `70b1806…`）构建于评审修复
+（`142fbb6`：两处注释对齐、`buildParseContext` 空表判据补 params/methods、`resolveTypeRef` 死参清理）**之前**的用户工作树
+——即已发布包**不含**这三处评审修复（引擎源码级小改，含一个 fail-closed 判据的放宽）。处理：tag/Release 已重指到评审后的
+`142fbb6`（源码锚点=批终态），三处修复**随 v1.0.0 首发**进入 npm（spec"两锚点"纪律，不在 0.31.0 上重发/补丁）；
+发布物与源码锚点的这一处差异在此留痕。
+
+**双轴评审（2026-09-25，`docs/reports/code-review-2026-09-25.md`）**：范围 `76e2b21...142fbb6`（本批 5 个引擎提交 + 收口文档），
+11 条发现逐条处置：3 处当场修（两处 module 注释对齐、空表判据补 params/methods、死参清理）、1 项补做（**M1 重判 90%→40%**，
+verdicts/self.json 十席全换血 + 报告 §16）、1 项 spec 回写、6 项 judgement call 登记不改。门禁复跑全绿（cp 727 / web 364 /
+bridge 26 / e2e 71-0）。**至此本批发布前评审义务闭环。**
+
 **`files` 字段核验口径（2026-09-18 实测，2026-09-24 复检同结论）**：`files` 只声明三项（`bin/`、`services/control-plane/dist/`、`apps/repoqa-web/dist/`），
 **包能成立靠三件事，发布前需逐条确认**：
 
