@@ -66,7 +66,7 @@
 | M1 | **真实仓库假阳性率** | 三样本（lazygit Go / spring-petclinic-microservices Java / 本仓 TS），scan 孤儿桶取 top-N 候选（与 v0.21 取证同口径，n=10）逐条人工核验 | lazygit 31.3%（修复后）/ petclinic 31%、本仓 83%（**修复前**，待重测） | **< 5%** |
 | M2 | 桶污染率 | vendor / 测试夹具符号进入 hubs、oversized、oversizedFiles 榜单的条数 | 未测 | **0** |
 | M3 | 合成回归护栏 | `npm run eval`：97 题、Recall@5 ≥85%、幻觉率 ≤2%（incident 0%） | 全阈值通过 | 不回退 |
-| M4 | 发布可用性 | 干净机器照 README 抄一行命令完成 MCP 握手并返回 `list_repos` | 0（npm 404） | 1 |
+| M4 | 发布可用性 | 干净机器照 README 抄一行命令完成 MCP 握手并返回 `list_repos` | **1（2026-09-25 达成：npm 首发 + 干净目录实测）** | 1 ✔ |
 | M5 | 工程资产 | 公开可验证物：npm 发布物 / 技术文 / 可复现 benchmark / 公开精度报告 | 0 | ≥3 |
 
 **度量纪律**：M1 的采样与判定脚本必须可复跑（票 01），数字入 `docs/reports/` 留档；**不允许按目标倒推口径**——若 <5% 不可达，诚实写出可达下限与代价。
@@ -79,7 +79,7 @@
 |---|---|---|---|
 | [01](issues/01-precision-baseline.md) | 精度复测基线（度量先行） | — | 一条命令产出三仓五桶 + 抽样清单；人工核验后出 before/after 对照表 |
 | [02](issues/02-residual-precision.md) | 残余精度攻坚 | 01 | M1 三仓 <5%；不可达则给可达下限与根因清单 |
-| [03](issues/03-release-readiness.md) | 发布就绪（npm 首发 + 文档一致性）——**agent 侧全完成并重核（2026-09-24）**，仅剩用户侧 `npm login`/`publish`/`tag` | 01 | M4=1；包内容干净 + **打包产物端到端握手 17 工具**；README/benchmark/协作文档/CONTEXT 四处与实现一致 |
+| [03](issues/03-release-readiness.md) | 发布就绪（npm 首发 + 文档一致性）—— **✅ 已发布（2026-09-25，M4=1）**：`@codecompass/cli@0.31.0` 上 npm，干净目录实测握手 17 工具 | 01 | M4=1 ✔；包内容干净 + 打包产物端到端握手；README/benchmark/协作文档/CONTEXT 四处与实现一致；发布拦路（scope/2FA/PowerShell `&&`）与解法入档 |
 | [04](issues/04-impact-delivery.md) | 影响力兑付（v1.0.0 + 技术文 + 公开评测） | 02、03 | M5 ≥3；tag 双绿；benchmark 数字可由命令复现 |
 | [05](issues/05-web-convergence.md) | Web 收敛 6→3（**条件票**，D 目标可裁剪） | — | 一级导航 3 项；深链全可达；web 单测全绿且净减 |
 | [06](issues/06-freeze-guardrails.md) | 冻结护栏与 V27 余账归位 | — | 三文档口径一致；六项 V27 余账处置留痕 |

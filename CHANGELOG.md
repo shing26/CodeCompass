@@ -187,6 +187,19 @@ main-flow  挂载链（5 steps）：main [main.tsx:9 = createRoot(...).render(] 
   改为「多语言代码**事实层**，主轴是 **MCP**」并写明消费面主次；`CONTEXT.md` 身份词条与 HANDOFF §1 同步，HANDOFF 记录"Web 界面确实长期搁置"这一事实。
 - **用户本机余下三步**：`npm login` → `npm publish --access public` → `git tag v0.31.0 && git push origin v0.31.0`（发布后按 M4 命令实测 `npx @codecompass/cli mcp <path>`）。
 
+### 发布完成：npm 首发 + M4 实测达成（2026-09-25，票 03 收口）
+
+- **`@codecompass/cli@0.31.0` 已上 npm**（用户本机 `npm publish --access public`；tarball shasum 与 agent 侧 `npm pack` 核验**逐字节一致**：`70b1806…`）。
+- **M4=1**：干净目录（`D:\zcode-tmp\m4-check`，非工作树）`npm install @codecompass/cli` 后，从安装包解析 `bin` 起服务、
+  stdio JSON-RPC 走 `initialize` / `tools/list` / `tools/call list_repos`——`serverVersion=0.31.0`、`instructions` 非空、
+  **`tools/list` 17 个 `codecompass_*` 工具**、`list_repos` 正常应答；人工粘贴版（README 一行命令 + 控制台逐行 JSON-RPC）同验。
+- **发布拦路与解法（全入档票 03）**：① `@codecompass` scope 需先在 npmjs.com 建 org（publish 不会自动建）；② npm 现行政策要求
+  "账号 2FA 或 bypass-2FA 细粒度令牌"，网页登录的会话令牌不含发布授权——开 2FA 后 `npm publish` 交互输 OTP 即可；
+  ③ CLI `profile enable-2fa` 末尾报 403 但状态实际已写入（**改账号配置报错时先 `npm profile get` 核实终态**）；
+  ④ Windows PowerShell 5.1 不支持 `&&`，给用户的命令一律逐行。
+- **v0.31 批收口判据全部达成**（spec §8）：M1 = 诚实下限（可达下限 + 剩余噪声可解释性，三仓 top-10 逐条判定在档）+ **M4 = 1** + **M5 = 3**
+  （npm 发布物 / 可复现 benchmark / 公开精度报告）。
+
 ### 质量门（续批后基线，取代本节上方旧数值）
 
 - 控制面 **666 → 686**、web **363 → 364**、e2e **63 → 69/69**（新增 5 条 MCP/文档断言 + 1 条精度棘轮）；`tsc --noEmit` 四包净。

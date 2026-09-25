@@ -38,7 +38,7 @@ M4 = 1：**陌生人照 README 抄一行命令即可接入 Cursor**；同时消�
 
 ## 验收
 
-- [ ] `npm view @codecompass/cli version` 有值；干净目录一行命令跑通 MCP 握手（含截图/日志留档）—— **待用户执行发布**（agent 无凭证；发布前核验已完成，见下）
+- [x] `npm view @codecompass/cli version` 有值；干净目录一行命令跑通 MCP 握手 —— **✅ 2026-09-25 达成（M4=1）**：用户完成 npm publish（`@codecompass/cli@0.31.0`，tarball shasum 与 agent 侧核验逐字节一致）后，干净目录按上方两种方式实测通过；scope/2FA 两个拦路及解法见下方续报
 - [x] README 工具数、安装段、Node/ABI 提示与实现一致 —— `cb15585`（工具数 15 → 17；安装段随发布后复核）；**2026-09-24 增补：首句定位改为「多语言代码事实层，主轴 MCP」**（原文自称"工作台"，与"Web 只减不增"的裁决矛盾，用户当场指出）
 - [x] benchmark 文档 bucket 数与题数与 `npm run eval` 实际输出一致 —— `cb15585` 刷到 97 题 / 10 bucket，并加真实仓库段交叉引用；版本标签随 v0.31.0 推进更新为 2026-09-17
 - [x] 协作文档与 CONTEXT 词条无「六处/8 工具」等过时表述（grep 留证）—— `cb15585`（版本五处 + 17 工具）
