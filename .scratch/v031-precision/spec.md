@@ -81,7 +81,7 @@
 | [02](issues/02-residual-precision.md) | 残余精度攻坚 | 01 | M1 三仓 <5%；不可达则给可达下限与根因清单 |
 | [03](issues/03-release-readiness.md) | 发布就绪（npm 首发 + 文档一致性）—— **✅ 已发布（2026-09-25，M4=1）**：`@codecompass/cli@0.31.0` 上 npm，干净目录实测握手 17 工具 | 01 | M4=1 ✔；包内容干净 + 打包产物端到端握手；README/benchmark/协作文档/CONTEXT 四处与实现一致；发布拦路（scope/2FA/PowerShell `&&`）与解法入档 |
 | [04](issues/04-impact-delivery.md) | 影响力兑付（v1.0.0 + 技术文 + 公开评测）—— **✅ 落地（2026-09-27，tag/Release 双绿）**；文章平台发布 + npm v1.0.0 publish 为用户侧 | 02、03 | M5=4（npm 包/文章/benchmark/精度报告）；技术文含 6 组真实数字 + 6 组失败面；benchmark 数字可由命令复现 |
-| [05](issues/05-web-convergence.md) | Web 收敛 6→3（**条件票**，D 目标可裁剪） | — | 一级导航 3 项；深链全可达；web 单测全绿且净减 |
+| [05](issues/05-web-convergence.md) | Web 收敛 6→3（**✅ 落地 2026-09-27**） | — | 一级导航 3 项（chat/gate/delta）；topo/metrics/evolve 深链可达（`?mode=` 增量）；test-only 组件出库、净减 −454 行；web 347 全绿 |
 | [06](issues/06-freeze-guardrails.md) | 冻结护栏与 V27 余账归位 | — | 三文档口径一致；六项 V27 余账处置留痕 |
 | [07](issues/07-mcp-contract-closeout.md) | MCP 契约正确性收口（**2026-09-18 裁决批准，附两项硬条件**） | — | `instructions` 非空；`maxTokens` 三类非法输入被拒；`textResult` 掩码有独立单测；README 工具表由脚本生成且受双向 gate 断言 |
 | [08](issues/08-bucket-semantics.md) | 孤儿桶语义收窄（**ADR-0018**，2026-09-18 裁决 A / A→A′ / B） | 02 | lazygit 孤儿 2805 → 1807；排除计数守恒且可解释；接口实现项以 `deferred` 显式登记；M1 复算留档（允许仍 100%） |

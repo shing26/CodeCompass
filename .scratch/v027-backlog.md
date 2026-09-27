@@ -59,4 +59,6 @@
 
 | V31-8 | **值引用边 + 类型流（票 22，已落地）**：M1 重判后的两族假阳性收口。机制 A：裸标识符实参与 JSX 属性值记 `reference: true` 边（callers 索引计入、trace/挂载链跳过）；机制 B：`useRef<T>()` 显式类型实参定型 local + `.current` 解引用；机制 C 类型流：内联字面量参数绑参数名 `{members}`、段走（`resolveReceiverChain`：`.current` 解引用/内联 members/跨文件字段表）、解构自类型变量、类扫描器扩展属性声明（`fields` 表）。**实测**：self 孤儿 **243→170（−73，−30%）**、孤儿/符号比 **8.2%**；top-10 十席换血全为已知类（test-only 组件/导出 ×7、遗留层 ×2、联合歧义 ×1、同名遮蔽 ×1）；lazygit/petclinic 逐字节不变；普查守恒 `593=170+423`；棘轮 8.2%。门禁 cp 733 / web 364 / bridge 26 / e2e 71-0 | 2026-09-27 继续任务 | 精度 |
 
+| V31-9 | **Web 收敛 6→3（票 05，已落地）**：一级导航收敛为 chat/gate/delta 三项；topo/metrics/evolve 降为深链页（`viewFromMode` + URL 同步 effect 增量识别 `mode=metrics/evolve`——**实测发现：不同步保留则选库前深链被 else 分支抹掉**）；test-only 组件/导出出库（EvidenceCard/Markdown/SourceTraceDrawer/StackTraceInput 四组件三测试 + brandColor/escapeMermaidLabel）。**净减 −454 行**；深链可达有 App.test 用例留证（URL-as-truth 落点断言）；EvolutionView 头部承接「要方案」定位句（copy-guard 封条随迁）。门禁 web 347 / cp 733 / e2e 71-0 / 棘轮 8.2% | 2026-09-27 定票05 | Web |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。
