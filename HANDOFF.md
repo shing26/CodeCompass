@@ -118,16 +118,15 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 
 **仍开放（非本批，按性质）**：
 
-1. **V27-17 buildTours 对 TS 仓零锚点**（已升级为 A 线精度候选，**票 17 已立**）——空 tours = agent 拿到空事实。
-2. ~~精度残余三族~~ **已闭（票 18 三族全落地，2026-09-24）**；派生票 19（待开工）/ 20（已落地）/ 21（待开工）见上表。
+1. ~~V27-17 buildTours 对 TS 仓零锚点~~ **已闭（票 17 落地，2026-09-24）**。
+2. ~~精度残余三族~~ **已闭（票 18 三族全落地）**；派生票 19/20/21 亦全部落地（09-24），spec/报告已回写。
 3. **ADR-0018 `deferred`：接口实现方法**（lazygit 620）——**票 20 已落地的是显式 `implements` 那半（Java/TS）**；**Go 隐式接口不在其内**（无 `implements`，需方法集推断，且 ADR-0018 已裁决这 620 条按 ADR-0002 保持 dynamic）。若要动 Go，另立票并先过 ADR-0018 口径。
-4. **`RepoQAClient.getRepo` 死码** + **`ChatMergeClient.*` 五条死 API**（票 20 复测后的真阳性：生产零调用、仅测试替身出现，移除候选）。
-5. **成员链接收者**（`streamRef.current.stream.close()`）——前缀链解析或泛型 API（`useRef<T>()`）定型，票 20 §5 已登记。
-5. **Go 适配器每轮解析两次**（评审 judgement call）——**待测量**后再决定是否开票（"先有度量，再有战役"）。
-6. **V29-1** import/evolve 韧性后半（POST 202 + WS 进度流化，需独立 spec）。
-7. **V30-10** repoqa 旧命名族迁移（含对外契约：SSE 事件名/环境变量/包路径，需破坏面清单）。
-8. **V30-12** branch protection 必过检查名失配（**需用户本机**改 Settings，见 §2.3-8）。
-9. **多行模板串未掩码 → 幻影声明**（票 19）——**任何**含多行模板串的仓库都受影响（本仓 `chat/agent.ts` 提示词、`engine/repoqa-export.ts` 导出模板同样暴露）；修法必须两阶段，别用一行正则。
+4. **`RepoQAClient.getRepo` 死码** + **`ChatMergeClient.*` 五条死 API**（M1 重判后的 6 条真阳性：生产零调用、仅测试替身出现，移除候选——verdicts/self.json 与报告 §16）。
+5. **两族剩余假阳性**（M1 重判后 self 40% 的构成）：**值引用**（`window.addEventListener('keydown', onKeyDown)`，报告 §5 P1 DOM 绑定缺口）与**成员链接收者**（`streamRef.current?.stream.close()`，票 20 §5 登记）——各需一种新边机制，未立票。
+6. **Go 适配器每轮解析两次**（评审 judgement call）——**待测量**后再决定是否开票（"先有度量，再有战役"）。
+7. **V29-1** import/evolve 韧性后半（POST 202 + WS 进度流化，需独立 spec）。
+8. **V30-10** repoqa 旧命名族迁移（含对外契约：SSE 事件名/环境变量/包路径，需破坏面清单）。
+9. **V30-12** branch protection 必过检查名失配（**需用户本机**改 Settings，见 §2.3-8）。
 
 ## 5. Suggested skills
 
