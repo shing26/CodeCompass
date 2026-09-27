@@ -722,7 +722,7 @@ export function resolveCallChain(
   let current = started;
 
   for (let step = 1; step <= depth; step += 1) {
-    const calls = current.calls ?? [];
+    const calls = (current.calls ?? []).filter((call) => !call.reference);
     if (calls.length === 0) return trace;
 
     let progressed = false;

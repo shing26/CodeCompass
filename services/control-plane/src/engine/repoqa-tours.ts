@@ -410,7 +410,7 @@ function walkMountChain(
     let next: RepoSymbol | undefined;
     let nextLine: number | undefined;
     for (const call of current.calls ?? []) {
-      if (call.dynamic) continue;
+      if (call.dynamic || call.reference) continue;
       const resolved = resolveCallEdge(index, current, call);
       if (!('target' in resolved)) continue;
       const key = resolved.target.filePath + '#' + resolved.target.name;

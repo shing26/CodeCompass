@@ -51,6 +51,10 @@ export interface TypeScriptDeclarations {
    * without this the const holding it stays untyped — the interface-typed call on
    * it then never reaches the implementation table. */
   methods: ReadonlyMap<string, string>;
+  /** `Type.field` → RAW declared-type text (issue 22). A client threaded through
+   * a component as a field access (`client.chat`) needs the owning class's field
+   * types, or every method on the field's object reads as dead code. */
+  fields: ReadonlyMap<string, string>;
 }
 
 /**

@@ -172,6 +172,13 @@ export interface RepoSymbolCall {
    * unique package function with that name whose directory bears the package
    * name; ambiguous matches stay unresolved (never guessed). */
   pkg?: string;
+  /** Issue 22 — a VALUE reference, not a call: the identifier is passed as an
+   * argument or attached as a JSX attribute value (`addEventListener('keydown',
+   * onKeyDown)`, `onPick={handlePick}`), so the framework — not this call site —
+   * will invoke it. Counted towards in-degree (the referenced symbol is alive),
+   * but skipped by call-chain traces: a trace is a sequence of calls, and "was
+   * passed as a value" is not a call. */
+  reference?: true;
 }
 
 export interface RepoSymbol {

@@ -1002,6 +1002,185 @@ const db = openDb(':memory:');
   });
 });
 
+/**
+ * Issue 22 — the two remaining false-positive families (M1 重判后 self 40% 的构成):
+ * 值引用（函数作为实参/JSX 属性值传递，本就不是调用，但没有边 = agent 看到"死代码"）
+ * 与成员链/类型流（client 穿过 props、解构、字段访问后接收者失去类型）。
+ */
+describe('TypeScriptAdapter — value references and type flow (issue 22)', () => {
+  it('A: an identifier argument records a value-reference edge', () => {
+    const symbols = parseTypeScriptSource(
+      `
+export function App() {
+  const onKeyDown = (ev: KeyboardEvent) => ev;
+  window.addEventListener('keydown', onKeyDown);
+  window.removeEventListener('keydown', onKeyDown);
+  return null;
+}
+`,
+      'src/App.tsx',
+      'repo'
+    );
+    const app = symbols.find((symbol) => symbol.name === 'App');
+    const refs = (app?.calls ?? []).filter((entry) => entry.reference);
+    // Both registration and cleanup reference the same handler.
+    expect(refs.length).toBe(2);
+    for (const ref of refs) expect(ref.method).toBe('onKeyDown');
+  });
+
+  it('A: a JSX attribute value records a value-reference edge', () => {
+    const symbols = parseTypeScriptSource(
+      `
+export function Palette({ handleSelect }: { handleSelect: (s: string) => void }) {
+  return <input onKeyDown={handleSelect} />;
+}
+`,
+      'src/Palette.tsx',
+      'repo'
+    );
+    const palette = symbols.find((symbol) => symbol.name === 'Palette');
+    const refs = (palette?.calls ?? []).filter((entry) => entry.reference);
+    expect(refs.some((entry) => entry.method === 'handleSelect')).toBe(true);
+  });
+
+  it('B: a useRef local types .current and reaches the implementation table', () => {
+    const context = contextOf([
+      {
+        relativePath: 'src/client/RepoQAClient.ts',
+        source: `
+export interface QueryStreamLike {
+  close(): void;
+}
+export class QueryStream implements QueryStreamLike {
+  close() { return; }
+}
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function useChat() {
+  const streamRef = useRef<QueryStreamLike | null>(null);
+  streamRef.current?.close();
+  return streamRef;
+}
+`,
+      'src/hooks/useChat.ts',
+      'repo',
+      context
+    );
+    const hook = symbols.find((symbol) => symbol.name === 'useChat');
+    const call = hook?.calls?.find((entry) => entry.method === 'close');
+    expect(call?.receiverType).toBe('QueryStreamLike');
+    expect(call?.dynamic).toBe(false);
+  });
+
+  it('B fail-closed: an untyped useRef binds nothing', () => {
+    const symbols = parseTypeScriptSource(
+      `
+export function useThing() {
+  const ref = useRef();
+  ref.current?.close();
+  return ref;
+}
+`,
+      'src/hooks/useThing.ts',
+      'repo'
+    );
+    const call = symbols
+      .find((symbol) => symbol.name === 'useThing')
+      ?.calls?.find((entry) => entry.method === 'close');
+    expect(call?.receiverType).toBeUndefined();
+    expect(call?.dynamic).toBe(true);
+  });
+
+  it('C: the indexed-access param type + typed-variable destructure type-flow', () => {
+    // ModelSelect.tsx shape: `props: { chatClient: RepoQAClient['chat'] }` — the
+    // indexed access names a cross-file class FIELD, and the destructure reads it
+    // off the props binding.
+    const context = contextOf([
+      {
+        relativePath: 'src/client/RepoQAClient.ts',
+        source: `
+export class RepoQAClient {
+  readonly chat: ChatMergeClient;
+  constructor(chat: ChatMergeClient) { this.chat = chat; }
+}
+export class ChatMergeClient {
+  modelInfo() { return null; }
+  switchModel(name: string) { return; }
+}
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
+  const { chatClient } = props;
+  chatClient.modelInfo();
+  chatClient.switchModel('default');
+  return null;
+}
+`,
+      'src/ModelSelect.tsx',
+      'repo',
+      context
+    );
+    const select = symbols.find((symbol) => symbol.name === 'ModelSelect');
+    expect(select?.calls?.find((entry) => entry.method === 'modelInfo')?.receiverType).toBe('ChatMergeClient');
+    expect(select?.calls?.find((entry) => entry.method === 'switchModel')?.receiverType).toBe('ChatMergeClient');
+  });
+
+  it('C: client flows through props → destructure → field access → methods', () => {
+    // ChatView.tsx shape: `props: { client: RepoQAClient }`, destructured, then
+    // `const chatClient = client.chat`, then five methods called on it.
+    const context = contextOf([
+      {
+        relativePath: 'src/client/RepoQAClient.ts',
+        source: `
+export class RepoQAClient {
+  readonly chat: ChatMergeClient;
+  constructor(chat: ChatMergeClient) { this.chat = chat; }
+}
+export class ChatMergeClient {
+  listSessions() { return []; }
+  createSession(repoId: string) { return {}; }
+  messages(id: string) { return []; }
+}
+`
+      }
+    ]);
+    const symbols = parseTypeScriptSource(
+      `
+export function ChatView(props: { client: RepoQAClient }) {
+  const { client } = props;
+  const chatClient = client.chat;
+  const refresh = useCallback(() => {
+    chatClient.listSessions();
+    return null;
+  }, [chatClient]);
+  const open = async (id: string) => {
+    await chatClient.messages(id);
+    await chatClient.createSession('repo-1');
+    return null;
+  };
+  return refresh;
+}
+`,
+      'src/ChatView.tsx',
+      'repo',
+      context
+    );
+    // The calls live on whatever symbol encloses them (ChatView for the top-level
+    // destructure, the `open` arrow for the session work), so count across symbols.
+    const typed = symbols.flatMap((symbol) => symbol.calls ?? []).filter(
+      (entry) => entry.reference !== true && entry.receiverType === 'ChatMergeClient'
+    );
+    expect(typed.length).toBe(3);
+    for (const call of typed) expect(call.dynamic).toBe(false);
+  });
+});
+
 describe('TypeScriptAdapter — literal masking (issue 19)', () => {
   it('does not read declarations out of a multi-line template literal', () => {
     const source = [

@@ -64,6 +64,14 @@ interface MethodScope {
 interface ReceiverType {
   name: string;
   allowed?: ReadonlySet<string>;
+  /** Issue 22 — the binding came from `useRef<T>(…)`, so `x.current` dereferences
+   * to `T` (React's ref contract, same determinism class as a framework
+   * annotation). Cleared on deref. */
+  ref?: true;
+  /** Issue 22 — an INLINE type-literal parameter (`props: { client: X }`) keeps
+   * its resolved member types here, so member access (`props.client`) and
+   * destructuring (`const { client } = props`) can type-flow through it. */
+  members?: ReadonlyMap<string, ReceiverType>;
 }
 
 /**
@@ -335,7 +343,8 @@ function isRouterReceiver(receiver: string | undefined): boolean {
 function collectParams(
   node: SyntaxNode,
   source: string,
-  memberLookup: MemberLookup
+  memberLookup: MemberLookup,
+  crossFile: TypeScriptDeclarations | undefined
 ): MethodScope {
   const params = new Map<string, ReceiverType>();
   const declared = new Set<string>();
@@ -378,9 +387,25 @@ function collectParams(
         // Destructured props (`{ client, children }: { client: X; … }`) bind
         // member-wise from the explicit literal — still deterministic, and
         // untyped/complex members stay unbound (fail-closed).
+        const memberTypes = new Map<string, ReceiverType>();
         for (const [member, memberType] of typeLiteralMembers(child, source)) {
-          const resolved = resolveTypeRef(memberType);
-          if (resolved) params.set(member, resolved);
+          // Issue 22 — an indexed-access member (`RepoQAClient['chat']`) names a
+          // cross-file class field; resolve it through the field table.
+          const indexed = /^([A-Za-z_$][\w$]*)\['([^']+)'\]$/.exec(memberType);
+          const resolved = indexed
+            ? resolveTypeRef(crossFile?.fields.get(`${indexed[1]}.${indexed[2]}`) ?? '')
+            : resolveTypeRef(memberType);
+          if (resolved) {
+            params.set(member, resolved);
+            memberTypes.set(member, resolved);
+          }
+        }
+        // Issue 22 — ALSO bind the parameter NAME with its member map, so
+        // `const { chatClient } = props` (destructuring from a typed variable)
+        // can type-flow. Without this the flattened members are reachable but
+        // the variable they came from is not.
+        if (pendingParam && /^[A-Za-z_$][\w$]*$/.test(pendingParam) && memberTypes.size > 0) {
+          params.set(pendingParam, { name: pendingParam, members: memberTypes });
         }
       } else if (namedMembers && namedMembers.size > 0) {
         // Issue 18(g) — a NAMED props interface (`{ client }: EvolutionViewProps`):
@@ -491,7 +516,7 @@ function callbackScopeFor(
 ): MethodScope | undefined {
   const list = node.getChild('ParamList');
   if (!list) return undefined;
-  const scope = collectParams(node, source, memberLookup);
+  const scope = collectParams(node, source, memberLookup, crossFile);
   let bound = scope.params.size > 0;
 
   const declaredParamTypes = declaredCallbackParamTypes(node, source, crossFile);
@@ -598,7 +623,9 @@ function declaredReturnType(
   if (!parts || parts.length < 2) return undefined;
   const method = parts[parts.length - 1];
   const receiver = parts.length === 2 ? parts[0] : parts.slice(0, -1).join('.');
-  const receiverType = receiverTypeOf(receiver, scope, typeStack);
+  const receiverType =
+    receiverTypeOf(receiver, scope, typeStack) ??
+    resolveReceiverChain(receiver, scope, crossFile);
   if (!receiverType || !receiverExposes(receiverType, method)) return undefined;
   const declared = crossFile.methods.get(`${receiverType.name}.${method}`);
   return declared ? resolveTypeRef(declared) : undefined;
@@ -634,7 +661,25 @@ function bindDestructuredFromCall(
 ): void {
   const members = (() => {
     const returned = declaredReturnType(initCall, source, scope, typeStack, crossFile);
-    return returned ? memberLookup(returned.name) : undefined;
+    if (returned) {
+      // Normalize: the hook's member table holds RAW type text — resolve each
+      // member here so both sources below yield resolved ReceiverTypes.
+      const raw = memberLookup(returned.name);
+      if (!raw) return undefined;
+      const resolvedMembers = new Map<string, ReceiverType>();
+      for (const [member, memberType] of raw) {
+        const resolved = resolveTypeRef(memberType);
+        if (resolved) resolvedMembers.set(member, resolved);
+      }
+      return resolvedMembers;
+    }
+    // Issue 22 — destructuring from a TYPED VARIABLE (`const { chatClient } =
+    // props`, where `props: { chatClient: ChatMergeClient }`): the initializer is
+    // a plain identifier whose binding carries the inline member map.
+    const declaration = pattern.parent;
+    const initId = declaration?.getChildren('VariableName')[0];
+    if (!initId) return undefined;
+    return lookupLocalReceiver(textOf(initId, source), scope)?.members;
   })();
   for (const property of pattern.getChildren('PatternProperty')) {
     const nameNode = property.getChild('PropertyName');
@@ -653,17 +698,18 @@ function bindDestructuredFromCall(
       continue;
     }
     scope.declared.add(memberName);
-    const raw = members?.get(memberName);
-    if (!raw) continue;
-    const resolved = resolveTypeRef(raw);
-    if (resolved) scope.locals.set(memberName, resolved);
+    const resolved = members?.get(memberName);
+    if (!resolved) continue;
+    scope.locals.set(memberName, resolved);
   }
 }
 
 function receiverTypeOf(
   receiver: string | undefined,
   scope: MethodScope | undefined,
-  typeStack: TypeRecord[]
+  typeStack: TypeRecord[],
+  memberLookup?: MemberLookup,
+  crossFile?: TypeScriptDeclarations
 ): ReceiverType | undefined {
   if (!receiver) return undefined;
   if (receiver === 'this') {
@@ -681,6 +727,65 @@ function receiverTypeOf(
   for (let index = typeStack.length - 1; index >= 0; index -= 1) {
     const field = typeStack[index].fields.get(receiver);
     if (field) return { name: field };
+  }
+  // Issue 22 — a receiver the whole-string lookups cannot resolve may still be a
+  // chain of resolvable segments (`props.chatClient`, `streamRef.current`).
+  return resolveReceiverChain(receiver, scope, crossFile);
+}
+
+/**
+ * Issue 22 — walk a dotted receiver segment by segment.
+ *
+ * The first segment resolves through the same closure-chain lookup as above; each
+ * further segment must resolve through exactly one of: a `.current` dereference
+ * on a `useRef` binding (React's ref contract), an inline type-literal member
+ * (`props: { chatClient: X }`), or a cross-file class field
+ * (`RepoQAClient.chat`). A segment that resolves none of these fails the whole
+ * walk — a partially-resolved receiver is a guess (ADR-0002).
+ */
+function resolveReceiverChain(
+  receiver: string,
+  scope: MethodScope | undefined,
+  crossFile: TypeScriptDeclarations | undefined
+): ReceiverType | undefined {
+  if (!receiver.includes('.')) return undefined;
+  const segments = receiver.split('.');
+  let current: ReceiverType | undefined = lookupLocalReceiver(segments[0], scope);
+  if (!current) return undefined;
+  for (let index = 1; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (current.ref && segment === 'current') {
+      current = { name: current.name, ...(current.allowed ? { allowed: current.allowed } : {}) };
+      continue;
+    }
+    const inline: ReceiverType | undefined = current.members?.get(segment);
+    if (inline) {
+      current = inline;
+      continue;
+    }
+    const fieldRaw = crossFile?.fields.get(`${current.name}.${segment}`);
+    if (fieldRaw) {
+      const resolved = resolveTypeRef(fieldRaw);
+      if (resolved) {
+        current = resolved;
+        continue;
+      }
+    }
+    return undefined;
+  }
+  return current;
+}
+
+/** The nearest binding for a single name, walking the closure chain outward with
+ * the same fence the whole-receiver lookup uses. */
+function lookupLocalReceiver(
+  name: string,
+  scope: MethodScope | undefined
+): ReceiverType | undefined {
+  for (let current = scope; current; current = current.parent) {
+    if (current.declared.has(name)) {
+      return current.locals.get(name) ?? current.params.get(name);
+    }
   }
   return undefined;
 }
@@ -1047,6 +1152,26 @@ function splitTopLevel(text: string, separator: string): string[] {
  *   `X | undefined`           → same as `X`  (optional members are common)
  *   anything else (unions of objects, arrays, functions, inline literals) → undefined
  */
+/** Issue 22 — the explicit type argument of a `useRef<T>(…)` initializer, or
+ * undefined when the initializer is not a typed useRef call. */
+function useRefTypeArgument(
+  initCall: SyntaxNode | null | undefined,
+  source: string
+): string | undefined {
+  if (!initCall) return undefined;
+  // `useRef<T>(x)` parses as CallExpression > InstantiationExpression >
+  // [VariableName `useRef`, TypeArgList], with the ArgList a sibling of the
+  // instantiation — hence the type args are read off the INSTANTIATION, not the
+  // call.
+  const instantiation = initCall.getChild('InstantiationExpression');
+  if (!instantiation) return undefined;
+  const callee = instantiation.getChild('VariableName');
+  if (!callee || textOf(callee, source) !== 'useRef') return undefined;
+  const typeArgs = instantiation.getChild('TypeArgList');
+  if (!typeArgs) return undefined;
+  return source.slice(typeArgs.from + 1, typeArgs.to - 1).trim();
+}
+
 function resolveTypeRef(raw: string): ReceiverType | undefined {
   let text = raw.trim();
   if (!text) return undefined;
@@ -1157,6 +1282,7 @@ export function buildTypeScriptDeclarations(
   const returns = new Map<string, string>();
   const params = new Map<string, readonly string[]>();
   const methods = new Map<string, string>();
+  const fields = new Map<string, string>();
   const ambiguous = new Set<string>();
 
   const keep = <T>(
@@ -1204,12 +1330,16 @@ export function buildTypeScriptDeclarations(
         params.delete(signature.name);
       }
     }
-    for (const method of scanMethodSignatures(masked, source)) {
-      keep(methods, method.key, method.returnType, (a, b) => a === b);
+    for (const member of scanClassMembers(masked, source)) {
+      if (member.kind === 'method') {
+        keep(methods, member.key, member.returnType, (a, b) => a === b);
+      } else {
+        keep(fields, member.key, member.returnType, (a, b) => a === b);
+      }
     }
   }
 
-  return { interfaces, returns, params, methods };
+  return { interfaces, returns, params, methods, fields };
 }
 
 /**
@@ -1312,11 +1442,11 @@ const NON_METHOD_WORDS = new Set([
  * (`private count = makeCounter(1)`) out of the table — it ends in `;`, not `: … {`.
  * Anything else is skipped rather than approximated.
  */
-function scanMethodSignatures(
+function scanClassMembers(
   masked: string,
   source: string
-): Array<{ key: string; returnType: string }> {
-  const out: Array<{ key: string; returnType: string }> = [];
+): Array<{ key: string; returnType: string; kind: 'method' | 'field' }> {
+  const out: Array<{ key: string; returnType: string; kind: 'method' | 'field' }> = [];
   const classRe = /\bclass\s+([A-Za-z_$][\w$]*)/g;
   let match: RegExpExecArray | null;
   while ((match = classRe.exec(masked)) !== null) {
@@ -1353,23 +1483,69 @@ function scanMethodSignatures(
         index = angle + 1;
         while (/\s/.test(masked[index] ?? '')) index += 1;
       }
-      if (masked[index] !== '(') continue;
-      const closeParen = matchParen(masked, index);
-      if (closeParen < 0) continue;
-      index = closeParen + 1;
-      let cursor = index;
-      while (/\s/.test(masked[cursor] ?? '')) cursor += 1;
-      if (masked[cursor] !== ':') continue;
-      // RAW text, same reason as the function scanner: a `Pick<X, 'a'>` return
-      // type must keep its quotes (the masked view blanks string literals).
-      const annotation = typeTextBeforeBody(masked, source, cursor + 1);
-      if (!annotation || !annotation.text) continue;
-      const declared = annotation.text;
-      if (declared.includes(';') || declared.includes('=>')) continue;
-      out.push({ key: `${typeName}.${name}`, returnType: declared });
+      if (masked[index] === '(') {
+        const closeParen = matchParen(masked, index);
+        if (closeParen < 0) continue;
+        index = closeParen + 1;
+        let cursor = index;
+        while (/\s/.test(masked[cursor] ?? '')) cursor += 1;
+        if (masked[cursor] !== ':') continue;
+        // RAW text, same reason as the function scanner: a `Pick<X, 'a'>` return
+        // type must keep its quotes (the masked view blanks string literals).
+        const annotation = typeTextBeforeBody(masked, source, cursor + 1);
+        if (!annotation || !annotation.text) continue;
+        const declared = annotation.text;
+        if (declared.includes(';') || declared.includes('=>')) continue;
+        out.push({ key: `${typeName}.${name}`, returnType: declared, kind: 'method' });
+        continue;
+      }
+      // Issue 22 — a property declaration (`readonly chat: ChatMergeClient;`):
+      // the type text runs to the top-level `;`. Recorded so a field access
+      // (`client.chat`) can type-flow across files. Initializers whose value
+      // opens a top-level `{` (object literals) are skipped rather than guessed.
+      if (masked[index] === ':') {
+        const field = typeTextBeforeSemicolon(masked, source, index + 1);
+        if (!field || !field.text) continue;
+        if (field.text.includes('=>')) continue;
+        out.push({ key: `${typeName}.${name}`, returnType: field.text, kind: 'field' });
+        index = field.stop + 1;
+        continue;
+      }
     }
   }
   return out;
+}
+
+/** The type text between a `:` and the top-level `;` that ends a property
+ * declaration. Undefined when a top-level `{` appears first (an initializer
+ * object literal — not a plain type). */
+function typeTextBeforeSemicolon(
+  masked: string,
+  source: string,
+  from: number
+): { text: string; stop: number } | undefined {
+  let angle = 0;
+  let round = 0;
+  let square = 0;
+  let brace = 0;
+  for (let index = from; index < masked.length; index += 1) {
+    const ch = masked[index];
+    if (ch === '>' && masked[index - 1] === '=') continue; // `=>` is an arrow
+    if (ch === '<') angle += 1;
+    else if (ch === '>') angle -= 1;
+    else if (ch === '(') round += 1;
+    else if (ch === ')') round -= 1;
+    else if (ch === '[') square += 1;
+    else if (ch === ']') square -= 1;
+    else if (ch === '{') {
+      if (angle === 0 && round === 0 && square === 0 && brace === 0) return undefined;
+      brace += 1;
+    } else if (ch === '}') brace -= 1;
+    else if (ch === ';' && angle === 0 && round === 0 && square === 0 && brace === 0) {
+      return { text: source.slice(from, index).trim(), stop: index };
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -1639,7 +1815,7 @@ export function parseTypeScriptSource(
         }
         symbols.push(symbol);
         methodStack.push(symbol);
-        pushScope(scopeStack, collectParams(node, source, memberLookup));
+        pushScope(scopeStack, collectParams(node, source, memberLookup, crossFile));
         return;
       }
 
@@ -1658,7 +1834,7 @@ export function parseTypeScriptSource(
         };
         symbols.push(symbol);
         methodStack.push(symbol);
-        pushScope(scopeStack, collectParams(node, source, memberLookup));
+        pushScope(scopeStack, collectParams(node, source, memberLookup, crossFile));
         return;
       }
 
@@ -1690,10 +1866,43 @@ export function parseTypeScriptSource(
           const fromAnnotation = resolveTypeRef(rawTypeAnnotationText(node, source) ?? '');
           const fromMemo = memoFactoryClass(node, source);
           const fromReturn = declaredReturnType(initCall, source, scope, typeStack, crossFile);
+          // Issue 22 — `const streamRef = useRef<QueryStreamLike | null>(null)`
+          // types the local as the ref's stored type (`.current` dereferences to
+          // it). Only an explicit type argument qualifies: `useRef()` untyped
+          // binds nothing.
+          const fromUseRef = (() => {
+            const typeArgument = useRefTypeArgument(initCall, source);
+            const resolved = typeArgument ? resolveTypeRef(typeArgument) : undefined;
+            return resolved ? { ...resolved, ref: true as const } : undefined;
+          })();
+          // Issue 22 — `const chatClient = client.chat`: a member access off a
+          // typed receiver, resolved through the cross-file field table. Without
+          // this the threaded client reads as dead code at every hop past the
+          // first.
+          const fromFieldAccess = (() => {
+            const member = node.getChild('MemberExpression');
+            if (!member) return undefined;
+            const parts = memberParts(member, source);
+            if (parts.length < 2) return undefined;
+            // Two steps: resolve the RECEIVER (`client` — possibly itself a
+            // chain), then look the FINAL segment up in the field table. The
+            // chain walker rejects single-segment receivers by design.
+            const receiver = parts.slice(0, -1).join('.');
+            const fieldName = parts[parts.length - 1];
+            const receiverType =
+              receiverTypeOf(receiver, scope, typeStack) ??
+              resolveReceiverChain(receiver, scope, crossFile);
+            const fieldRaw = receiverType
+              ? crossFile?.fields.get(`${receiverType.name}.${fieldName}`)
+              : undefined;
+            return fieldRaw ? resolveTypeRef(fieldRaw) : undefined;
+          })();
           const resolved =
             fromAnnotation ??
             (fromMemo ? { name: fromMemo } : undefined) ??
             fromReturn ??
+            fromUseRef ??
+            fromFieldAccess ??
             (constructed ? { name: constructed } : undefined);
           if (resolved) scope.locals.set(name, resolved);
         }
@@ -1734,7 +1943,7 @@ export function parseTypeScriptSource(
           };
           symbols.push(symbol);
           methodStack.push(symbol);
-          pushScope(scopeStack, collectParams(fn, source, memberLookup));
+          pushScope(scopeStack, collectParams(fn, source, memberLookup, crossFile));
           moduleArrowPushed.push(true);
         } else {
           moduleArrowPushed.push(false);
@@ -1757,6 +1966,30 @@ export function parseTypeScriptSource(
         const calls = owner.calls ?? [];
         if (!calls.some((existing) => existing.method === tag && existing.line === line)) {
           calls.push({ file: relativePath, method: tag, line, dynamic: false });
+          owner.calls = calls;
+        }
+        return;
+      }
+
+      // Issue 22 — a JSX attribute/child whose value is a bare identifier
+      // (`onPick={handlePick}`) is a VALUE reference to that identifier: the
+      // component will invoke it. Without this edge every callback prop read as
+      // dead code. Only the bare-identifier shape is a reference — an inline
+      // arrow is a fresh function (its own body is walked), an object/call is
+      // not a reference to a repo symbol.
+      if (node.name === 'JSXEscape') {
+        const inner = node.getChild('VariableName');
+        if (!inner || methodStack.length === 0) return;
+        const name = textOf(inner, source);
+        const line = lineAt(source, node.from);
+        const owner = methodStack[methodStack.length - 1];
+        const calls = owner.calls ?? [];
+        if (
+          !calls.some(
+            (existing) => existing.method === name && existing.line === line && existing.reference
+          )
+        ) {
+          calls.push({ file: relativePath, method: name, line, dynamic: false, reference: true });
           owner.calls = calls;
         }
         return;
@@ -1856,6 +2089,38 @@ export function parseTypeScriptSource(
         if (methodStack.length === 0) return;
         const owner = methodStack[methodStack.length - 1];
         const scope = scopeStack[scopeStack.length - 1];
+
+        // Issue 22 — a bare identifier ARGUMENT is a value reference
+        // (`window.addEventListener('keydown', onKeyDown)`): the callee receives
+        // the function and will invoke it, so the referenced symbol is alive even
+        // though no call edge can exist. Only the bare-identifier shape qualifies;
+        // member expressions and inline functions are not references to a repo
+        // symbol, and `this` is not one either.
+        for (const argument of argumentNodes(node)) {
+          if (argument.name !== 'VariableName') continue;
+          const name = textOf(argument, source);
+          if (name === 'this' || name === 'undefined') continue;
+          const call: RepoSymbolCall = {
+            file: relativePath,
+            method: name,
+            line,
+            dynamic: false,
+            reference: true
+          };
+          const calls = owner.calls ?? [];
+          if (
+            !calls.some(
+              (existing) =>
+                existing.method === call.method &&
+                existing.line === call.line &&
+                existing.reference
+            )
+          ) {
+            calls.push(call);
+            owner.calls = calls;
+          }
+        }
+
         const http = httpCallDescriptor(shape, node, source, scope, typeStack, httpClients);
 
         if (http) {
@@ -1904,7 +2169,9 @@ export function parseTypeScriptSource(
             : parts.length === 2
               ? parts[0]
               : parts.slice(0, -1).join('.');
-        const receiverType = receiverTypeOf(receiver, scope, typeStack);
+        const receiverType =
+          receiverTypeOf(receiver, scope, typeStack) ??
+          resolveReceiverChain(receiver, scope, crossFile);
         const method = parts[parts.length - 1];
         // Issue 18(g): a restricted receiver (`Pick<T, K>`) only exposes K.
         const exposes = receiverType !== undefined && receiverExposes(receiverType, method);

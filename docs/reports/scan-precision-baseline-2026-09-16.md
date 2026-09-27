@@ -516,4 +516,26 @@ v0.31 收口批的五张精度票把 self 的孤儿桶连刷四轮，top-10 **�
 lazygit / petclinic 的判定文件仍覆盖其旧榜（其桶在 09-24 票 21 变动 +21 条后 top-10 未换血，`--score` 覆盖守卫未标 ⚠），M1 不变 100%/100%——
 lazygit 的 100% 已由 ADR-0018 解释（类型声明 + Go 接口语义，属"桶语义问题非精度问题"）。
 
+## 17. 第十一增量（票 22：值引用边 + 类型流，2026-09-27）
 
+§16 重判后的两族假阳性（值引用 1 + 成员链/类型流 7，覆盖 top-10 的 8/10）由三个机制收口：
+
+- **机制 A 值引用边**：`RepoSymbolCall.reference`——裸标识符实参（`addEventListener('keydown', onKeyDown)`）与 JSX 属性值/子级裸标识符（`onPick={handlePick}`）记 `reference: true` 边；**callers 索引计入**（in-degree），**trace 与挂载链跳过**（"被当值传递"不是调用）。
+- **机制 B useRef 定型 + `.current` 解引用**：显式类型实参（经 `InstantiationExpression` 读）定型 local，`ref` 标记后 `.current` 段解引用回 `T`；`QueryStream.close` 由此经唯一实现表绑定。
+- **机制 C 类型流**：内联字面量参数绑定参数名 `{members}`、解构自类型变量、段走（`resolveReceiverChain`：闭包链首段 → `.current` 解引用 / 内联 members / 跨文件字段表，任一段落空即整体失败）、类扫描器扩展属性声明（`fields` 表 `Type.field` → 原文类型）。`client.chat` 与 `RepoQAClient['chat']` 都经字段表解析。
+
+**实测（三仓同源复跑）**：
+
+| 样本 | 符号 | 孤儿（前 → 后） | 说明 |
+|---|---|---|---|
+| self | 2066 → **2072** | **243 → 170（−73，−30%）** | 孤儿/符号比 11.8% → **8.2%** |
+| lazygit | 10523 → 10523 | 1828 → **1828** | 逐字节不变（机制 A–C 仅 TS） |
+| petclinic | 595 → 595 | 13 → **13** | 逐字节不变 |
+
+普查守恒 `593 = 170 + 423`；控制面 733、web 364、bridge 26、e2e 71/0；verdicts/self.json 十席重判（每条附 grep 证据），`--score` 覆盖守卫不再标 ⚠。
+
+**M1 读数的构成敏感性（第三次显形）**：新 top-10 **10/10 均为已知类**——test-only 组件 ×4（EvidenceCard/Markdown/SourceTraceDrawer/StackTraceInput，死 UI 移除候选）、test-only 导出 ×2（brandColor/escapeMermaidLabel）、遗留层 ×2（BrowserAdapter，bridge-adapters 遗留层）、联合歧义 ×1（EvolveStream.close，登记）、同名遮蔽 ×1（handleExport 双定义，按名解析取 earliest）。**机制类假阳性清零**；读数 100% 是"每条都有具名处置"的 100%，与 09-16 那个"真机制失败、根因未知"的 100% 不可同日而语。
+
+**新增真阳性清理清单（test-only 组件/导出，Web 面只减不增）**：EvidenceCard / Markdown / SourceTraceDrawer / StackTraceInput / brandColor / escapeMermaidLabel / BrowserAdapter 连接对——处置是删或接，均非引擎问题。
+
+**已知边界**：EvolveStream.close 的判别联合收窄超出静态范围；值引用按名解析的同名遮蔽（handleExport 双定义取 earliest）；引用边全量记边会放大符号负载（实测可接受）。
