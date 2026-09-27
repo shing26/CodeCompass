@@ -1,7 +1,7 @@
 # Issue 04 — 影响力兑付（v1.0.0 + 技术文 + 公开评测）
 
 > Spec：`.scratch/v031-precision/spec.md` §3（M5）、§1（交付 D）
-> 波次：Wave 3（收口批）｜ 依赖：票 02（精度数字）、票 03（发布物）
+> 波次：Wave 3（收口批）｜ 依赖：票 02（精度数字）、票 03（发布物）｜ 状态：**✅ 落地（2026-09-27，tag/Release 双绿）；文章平台发布与 npm v1.0.0 publish 为用户侧**
 
 ## 目标
 
@@ -19,10 +19,11 @@
 
 ## 验收
 
-- [ ] tag `v1.0.0`：CI/Release 双绿，`/health` 与 MCP 握手版本均为 1.0.0（gate 棘轮执法）
-- [ ] 技术文发布（平台由用户定），含 ≥3 组真实数字与 ≥1 组失败数据
-- [ ] 公开精度报告在 `docs/reports/`，任何人可照文档复跑
-- [ ] M5 清单可枚举：npm 包 / 文章 / benchmark / 精度报告（≥3 项对外可见）
+- [x] tag `v1.0.0`：CI/Release 双绿（Release run 36301347821），`/health` 与 MCP 握手版本均为 1.0.0（gate 四条版本棘轮 PASS）
+- [x] 技术文落库 `docs/article-v1-precision-boundary.md`（含 6 组真实数字与 6 组失败面）；**平台发布由用户定**（知乎/掘金/博客任选，可直接用该 markdown）
+- [x] 公开精度报告在 `docs/reports/`（`scan-precision-baseline-2026-09-16.md` §1–16 + `code-review-2026-09-25.md`），任何人可照命令复跑
+- [x] M5 清单可枚举：npm 包 / 文章 / benchmark / 精度报告（4 项；CHANGELOG `[1.0.0]` 宣告段）
+- [ ] **用户侧**：`git pull` 后 `npm publish`（发 1.0.0，三处评审修复随此包进 npm）；文章贴到所选平台
 
 ## 风险与时间敏感性
 
