@@ -13,7 +13,7 @@ import type { Anchor, EvidenceItem, EvidenceStatus } from '../types';
  *   - `- server.port @ src/main/resources/application.yml:3` (config key)
  *
  * parseEvidenceFromAnswer restructures those lines into EvidenceItem rows for
- * the EvidenceCard component. It is a deterministic text parse — it never
+ * the evidence row UI. It is a deterministic text parse — it never
  * invents an assertion: lines without a grounded file:line are ignored, so
  * the narrative summary stays unstructured (and unbadged) by design.
  */

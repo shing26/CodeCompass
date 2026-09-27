@@ -26,6 +26,10 @@ export type MainView = WorkbenchTab | 'tour';
 function viewFromMode(mode: string | null | undefined): MainView {
   if (mode === 'diff') return 'delta';
   if (mode === 'incident' || mode === 'chat') return 'chat';
+  // 票 05 — 降级页面的深链入口：`?mode=metrics` / `?mode=evolve`。既有 mode
+  // 语义零改，纯增量。
+  if (mode === 'metrics') return 'metrics';
+  if (mode === 'evolve') return 'evolve';
   return 'topo';
 }
 
@@ -305,13 +309,17 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
 
   // v0.8 — keep the URL's mode param in step with the workbench tab so a
   // refreshed deep link lands on the same view (delta ↔ mode=diff,
-  // incident ↔ mode=incident).
+  // incident ↔ mode=incident). 票 05 — the demoted metrics/evolve pages gain the
+  // same round-trip: `?mode=metrics` / `?mode=evolve` must SURVIVE while the repo
+  // is being selected, or the pending deep link is wiped before it can apply.
   useEffect(() => {
     if (view === 'tour') return;
     try {
       const url = new URL(window.location.href);
       if (view === 'delta') url.searchParams.set('mode', 'diff');
       else if (view === 'chat') url.searchParams.set('mode', 'incident');
+      else if (view === 'metrics') url.searchParams.set('mode', 'metrics');
+      else if (view === 'evolve') url.searchParams.set('mode', 'evolve');
       else url.searchParams.delete('mode');
       window.history.replaceState(null, '', url.toString());
     } catch {

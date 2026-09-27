@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   edgeAnnotationsForTrace,
-  escapeMermaidLabel,
   trimMermaidGraph,
   type TraceHopView
 } from './mermaidGraph';
@@ -42,17 +41,6 @@ describe('trimMermaidGraph (v0.7)', () => {
     expect(result.code).toContain('click n1');
     expect(result.code).not.toContain('click n119');
     expect(result.stats.collapsedEdges).toBeGreaterThan(0);
-  });
-});
-
-describe('escapeMermaidLabel (v0.10 Stage 1)', () => {
-  it('neutralizes bracket and quote characters that terminate mermaid labels', () => {
-    expect(escapeMermaidLabel('OwnerController')).toBe('OwnerController');
-    expect(escapeMermaidLabel('PostController#like')).toBe('PostController#like');
-    expect(escapeMermaidLabel('find(owner)')).toBe('find(owner)');
-    expect(escapeMermaidLabel('a[b]')).toBe('a(b)');
-    expect(escapeMermaidLabel('a"b')).toBe("a'b");
-    expect(escapeMermaidLabel('中文路径')).toBe('中文路径');
   });
 });
 

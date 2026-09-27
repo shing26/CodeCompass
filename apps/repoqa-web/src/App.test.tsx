@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
 import { RepoQAClient } from './client/RepoQAClient';
@@ -387,10 +387,14 @@ describe('v0.27-UI ticket 02: AskDock global bar (问现状入口)', () => {
     // 未选库：无可问对象，dock 不渲染
     expect(screen.queryByTestId('ask-dock')).not.toBeInTheDocument();
 
-    await selectRepo(user);
+    // 票 05 — metrics 降为深链：`?mode=metrics` 挂载即入，dock 依旧存活。
+    // （selectRepo 等 topo 落地——mode 挂起时落点不同，须内联选择；重挂载前必须 cleanup。）
+    window.history.replaceState(null, '', '/?mode=metrics');
+    cleanup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
     await waitFor(() => expect(screen.getByTestId('ask-dock')).toBeInTheDocument());
-    await user.click(screen.getByTestId('tab-metrics'));
-    expect(screen.getByTestId('ask-dock')).toBeInTheDocument();
   });
 });
 
@@ -509,24 +513,48 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 
-  it('switches to the metrics dashboard and the CI gate via the TopBar tabs', async () => {
+  it('switches to the CI gate via the TopBar tab (票 05: 一级导航 3 项)', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
 
-    await user.click(screen.getByTestId('tab-metrics'));
-    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
-    expect(screen.getByTestId('highlight-badge')).toHaveTextContent('Spring Boot');
-
     await user.click(screen.getByTestId('tab-gate'));
     await waitFor(() => expect(screen.getByTestId('ci-gate')).toBeInTheDocument());
 
-    await user.click(screen.getByTestId('tab-topo'));
-    await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
-    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
+    // topo 降为深链/默认视图：着陆即拓扑（offline-hint），无一级页签但可达。
+    await user.click(screen.getByTestId('tab-delta'));
+    await waitFor(() => expect(screen.getByTestId('architecture-delta')).toBeInTheDocument());
   });
 
-  it('opens the evolution workbench from the TopBar tab and Sidebar entry (Ticket 04)', async () => {
+  it('DEBUG mode=evolve dump', async () => {
+    window.history.replaceState(null, '', '/?mode=evolve');
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => {
+      const present = ['evolution-view', 'canvas', 'dashboard', 'ci-gate', 'architecture-delta'].filter(
+        (id) => screen.queryByTestId(id)
+      );
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG] present:', JSON.stringify(present), 'url:', window.location.search);
+      expect(present.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('reaches the metrics dashboard via the deep link (票 05: 降级页面深链可达)', async () => {
+    // URL-as-truth（Ticket 16）：pending ?mode= 在选库时生效 → 落在 metrics。
+    // 不走 selectRepo（它等 topo 落地），按各自落点断言。
+    window.history.replaceState(null, '', '/?mode=metrics');
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    expect(screen.getByTestId('highlight-badge')).toHaveTextContent('Spring Boot');
+  });
+
+  it('opens the evolution workbench from the Sidebar entry and the deep link (票 05)', async () => {
     const user = userEvent.setup();
     const evolveStream = vi.fn(() => ({
       onEvent: () => () => undefined,
@@ -538,14 +566,19 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     render(<App client={makeClient({ evolveStream })} />);
     await selectRepo(user);
 
-    await user.click(screen.getByTestId('tab-evolve'));
+    // Sidebar entry reaches the same view.
+    await user.click(screen.getByTestId('sidebar-evolution'));
     await waitFor(() => expect(screen.getByTestId('evolution-view')).toBeInTheDocument());
     expect(screen.getByTestId('evolve-intent')).toBeInTheDocument();
     expect(evolveStream).not.toHaveBeenCalled();
 
-    // Sidebar entry reaches the same view.
-    await user.click(screen.getByTestId('tab-topo'));
-    await user.click(screen.getByTestId('sidebar-evolution'));
+    // 深链 `?mode=evolve` 直达（重新挂载以走 viewFromMode）。
+    window.history.replaceState(null, '', '/?mode=evolve');
+    cleanup();
+    const user2 = userEvent.setup();
+    render(<App client={makeClient({ evolveStream })} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user2.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
     await waitFor(() => expect(screen.getByTestId('evolution-view')).toBeInTheDocument());
   });
 
@@ -579,12 +612,14 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
   });
 
   it('starts a call-chain trace when a top API entry is clicked', async () => {
+    // 票 05 — dashboard 降为深链：`?mode=metrics` 挂载即入（URL-as-truth）。
+    // （selectRepo 等 topo 落地——mode 挂起时落点不同，须内联选择。）
+    window.history.replaceState(null, '', '/?mode=metrics');
     const client = makeClient();
     const user = userEvent.setup();
     render(<App client={client} />);
-    await selectRepo(user);
-
-    await user.click(screen.getByTestId('tab-metrics'));
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
     await waitFor(() => expect(screen.getByTestId('api-entry')).toBeInTheDocument());
     await user.click(screen.getByTestId('api-entry'));
     // Issue 25 / Ticket 01 — the call-chain trace lands on the topology canvas
@@ -601,11 +636,13 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
   });
 
   it('switches to the topology workbench from the dashboard 查调用链 button (v0.26-A ticket 01 改名)', async () => {
+    // 票 05 — dashboard 降为深链：`?mode=metrics` 挂载即入（URL-as-truth）。
+    // （selectRepo 等 topo 落地——mode 挂起时落点不同，须内联选择。）
+    window.history.replaceState(null, '', '/?mode=metrics');
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
-    await selectRepo(user);
-
-    await user.click(screen.getByTestId('tab-metrics'));
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
     await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
     await user.click(screen.getByTestId('open-chat'));
     await waitFor(() => expect(screen.getByTestId('canvas')).toBeInTheDocument());
@@ -1111,7 +1148,8 @@ describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () 
 
     // Ticket 16 (QA-07): highlight must match content — topo, not delta.
     expect(screen.getByTestId('empty-state')).toBeInTheDocument();
-    expect(screen.getByTestId('tab-topo')).toHaveAttribute('aria-pressed', 'true');
+    // 票 05 — topo 不在一级导航：无页签高亮（内容仍是 topo/引导）。
+    expect(screen.queryByTestId('tab-topo')).not.toBeInTheDocument();
     expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'false');
     // URL keeps the mode param (no error, no silent drop before a repo exists).
     expect(window.location.search).toContain('mode=diff');

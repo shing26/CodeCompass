@@ -185,7 +185,7 @@ export interface QueryStart {
 /** Zero-Hallucination Contract evidence status for one assertion. */
 export type EvidenceStatus = 'VERIFIED' | 'BREAK' | 'SUSPECT';
 
-/** One grounded assertion rendered as an EvidenceCard row. */
+/** One grounded assertion in the evidence plane (rendered as a citation row). */
 export interface EvidenceItem {
   status: EvidenceStatus;
   /** Assertion text, e.g. the symbol name or the raw unresolvable frame. */

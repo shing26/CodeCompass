@@ -48,10 +48,6 @@ export interface MermaidEdgeView {
  * double quotes must be neutralized so a label never terminates the node
  * declaration early (RISK-2).
  */
-export function escapeMermaidLabel(label: string): string {
-  return label.replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
-}
-
 /**
  * v0.10 — derive edge semantics from an ordered trace. Edge `i` connects hop
  * `i` to hop `i+1`; its attributes come from the target hop (`i+1`), matching

@@ -1,7 +1,7 @@
 # Issue 05 — Web 收敛 6 → 3（**条件票**）
 
 > Spec：`.scratch/v031-precision/spec.md` §1.2（冻结面）、§1.3（待裁决项）
-> 波次：视裁决择机 ｜ 依赖：无 ｜ **可整票裁剪**：若 §1.3 裁决为「只做工程资产」则关闭本票
+> 波次：视裁决择机 ｜ 依赖：无 ｜ 状态：**✅ 落地（2026-09-27）**
 
 ## 目标
 
@@ -29,10 +29,11 @@
 
 ## 验收
 
-- [ ] 一级导航 3 项（`TABS` 长度 = 3，grep 留证）
-- [ ] 三个降级页面经深链全部可达（逐条实测留档：每页一条深链 + 截图）
-- [ ] `npx vitest run` 全绿；删除的组件在 `src/` 零残留（grep 留证）
-- [ ] 无新增 UI 特性、无新文案战役（diff 面自查）
+- [x] 一级导航 3 项（页签组件内 `TABS` 长度 = 3，`grep -c "id: '"` 留证；chat/gate/delta）
+- [x] 三个降级页面深链可达：topo = `?repo=X&focus=Y`（默认视图 + 证据卡/侧栏进入）；metrics = `?mode=metrics`；evolve = `?mode=evolve`（侧栏入口保留）。**App.test 两条深链用例留证**（URL-as-truth 选库后落点断言）
+- [x] web 单测全绿（347）；**净减 −454 行**（含 4 个 test-only 组件 + 其测试出库：EvidenceCard/Markdown/SourceTraceDrawer/StackTraceInput，verdicts 移除候选兑现）；grep 零残留
+- [x] 无新增 UI 特性、无新文案战役（diff 面自查；EvolutionView 头部仅**搬迁**既有「要方案」定位句——页签降级后句子的新锚点，copy-guard 封条同步）
+- 补充：`viewFromMode` 与 URL 同步 effect 增量识别 `mode=metrics` / `mode=evolve`（纯增量，既有 mode 语义零改）——否则降级页签的深链在选库前被 URL 同步 effect 抹掉（实测发现，正是"深链契约零改"要防的那类暗坑）
 
 ## 备注
 

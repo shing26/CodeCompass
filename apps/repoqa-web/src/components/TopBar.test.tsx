@@ -53,7 +53,7 @@ function baseProps(overrides: Partial<Parameters<typeof TopBar>[0]> = {}) {
     sidebarOpen: false,
     importingRepo: null,
     llmMode: 'none' as const,
-    activeView: 'topo' as const,
+    activeView: 'chat' as const,
     onSelectView: vi.fn(),
     onCopyAgentContext: vi.fn(),
     canCopyAgentContext: false,
@@ -222,14 +222,12 @@ describe('TopBar workbench header (Issue 31)', () => {
     expect(screen.getByTestId('masked-badge')).toHaveTextContent('13 条规则已脱敏');
   });
 
-  it('switches the active segmented tab', async () => {
+  it('switches the active segmented tab (票 05: 一级导航 3 项)', async () => {
     const user = userEvent.setup();
     const onSelectView = vi.fn();
     render(<TopBar {...baseProps({ currentRepo: readyRepo, onSelectView })} />);
-    expect(screen.getByTestId('tab-topo')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('tab-chat')).toHaveAttribute('aria-pressed', 'true');
 
-    await user.click(screen.getByTestId('tab-metrics'));
-    expect(onSelectView).toHaveBeenCalledWith('metrics');
     await user.click(screen.getByTestId('tab-gate'));
     expect(onSelectView).toHaveBeenCalledWith('gate');
     await user.click(screen.getByTestId('tab-delta'));
@@ -304,34 +302,20 @@ describe('TopBar tab tooltips (v0.26-A ticket 01, 问现状/要方案)', () => {
       'title',
       '问现状：架构、链路、风险都基于代码事实，结论可逐条按证据查证'
     );
-    expect(screen.getByTestId('tab-evolve')).toHaveAttribute(
-      'title',
-      '要方案：给改动意图，产出落地建议与风险清单；引擎只读，改动由你执行'
-    );
     // 内部语言与已退场词禁入用户可见 tooltip（分写构造=copy-guard 封条自豁免）
-    for (const tab of ['tab-chat', 'tab-evolve']) {
+    for (const tab of ['tab-chat', 'tab-gate', 'tab-delta']) {
       const title = screen.getByTestId(tab).getAttribute('title') ?? '';
       expect(title).not.toMatch(new RegExp(['读' + '侧', '写' + '侧', '推演' + '卡', '约定' + '冲突', '落' + '位'].join('|')));
     }
     // gate tooltip 随 B02 已升级（工作台内运行+运行史），不再只提复制命令
     expect(screen.getByTestId('tab-gate').getAttribute('title')).toContain('运行史');
-    // title 接线让 topo/metrics 两条死配置复活——措辞按组件现状立哨（review P1-1/2：
-    // Canvas 无 Mermaid、仪表盘无大文件设施，失实宣称一旦回流即红）
-    expect(screen.getByTestId('tab-topo')).toHaveAttribute(
-      'title',
-      '点击左侧路由或类，逐步走查确定性调用链路（Caller→Target→Callee）'
-    );
-    expect(screen.getByTestId('tab-metrics')).toHaveAttribute(
-      'title',
-      '一眼查看全仓技术栈、配置拓扑、代码规模与 Top Core API 入口'
-    );
   });
 
   it('every tab button exposes its positioning sentence as a native tooltip (wiring, was dead config)', () => {
     render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
-    // A01 实拍发现：TABS.title 字段自 8ac9bea 起从未挂 DOM——本票补接线后
-    // 六条 title 必须全部可达 hover 层。
-    for (const id of ['topo', 'metrics', 'chat', 'gate', 'delta', 'evolve']) {
+    // 票 05 收敛后三条一级页签的 title 仍全部可达 hover 层（topo/metrics/evolve
+    // 的 tooltip 随页签降级移除——视图本身经深链保留）。
+    for (const id of ['chat', 'gate', 'delta']) {
       expect(screen.getByTestId(`tab-${id}`).getAttribute('title')).toBeTruthy();
     }
   });

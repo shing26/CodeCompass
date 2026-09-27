@@ -439,6 +439,9 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
       <div className="mx-auto max-w-4xl space-y-4">
         <header>
           <h2 className="text-base font-semibold text-ink">规范演进</h2>
+          <p className="mt-0.5 text-xs text-muted">
+            要方案：给改动意图，产出落地建议与风险清单；引擎只读，改动由你执行
+          </p>
           <p className="mt-0.5 truncate text-xs text-muted">
             {repo.name}
             {repo.commit ? ` · @ ${repo.commit}` : ''}

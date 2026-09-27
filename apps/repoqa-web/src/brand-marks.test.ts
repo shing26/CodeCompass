@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   badgesEnabledFromUrl,
-  brandColor,
   brandLabel,
   brandMarkSVG,
   inferBrand
@@ -74,7 +73,6 @@ describe('brand mark helpers (v0.11 Stage 2)', () => {
   it('exposes stable labels and colors', () => {
     expect(brandLabel('spring')).toBe('Spring');
     expect(brandLabel('unknown')).toBe('Unknown');
-    expect(brandColor('spring')).toMatch(/^#[0-9A-F]{6}$/i);
   });
 });
 

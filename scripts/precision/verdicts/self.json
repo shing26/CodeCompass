@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "sample": "self (CodeCompass working tree @ issue-22 batch: dead-API cleanup + value-reference/type-flow mechanisms), top-10 of orphanedPublic (total 170, symbols 2072)",
+    "sample": "self (CodeCompass working tree @ ticket-05 batch: 6→3 tabs + test-only UI removal), top-10 of orphanedPublic (total 164, symbols 2055)",
     "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md §17",
     "measured": "2026-09-27",
     "note": "Top-10 fully reshuffled by the issue-22 mechanisms (value-reference edges, useRef deref, type flow): every receiver-typing false positive left the bucket. What floated up is a DIFFERENT population: test-only components/exports (Web 面只减不增的死 UI) and two registered mechanism gaps. M1 (top-10 false-positive rate) = 10/10 = 100% — the read looks worse while the composition is strictly better understood; every entry is a known class with a disposition. Composition shift, not regression."
@@ -20,31 +20,6 @@
     "class": "test-only-export",
     "reason": "escapeMermaidLabel has no production caller; only mermaidGraph.test.ts consumes it. An exported utility kept for its test."
   },
-  "apps/repoqa-web/src/components/EvidenceCard.tsx:30": {
-    "verdict": "false-positive",
-    "class": "test-only-component",
-    "reason": "EvidenceCard is rendered by no production component (only EvidenceCard.test.tsx). Dead UI surface — a Web 面只减不增 removal candidate."
-  },
-  "apps/repoqa-web/src/components/Markdown.tsx:5": {
-    "verdict": "false-positive",
-    "class": "test-only-component",
-    "reason": "The local Markdown wrapper is rendered by no production component (ChatView uses ReactMarkdown directly). Dead UI surface — removal candidate."
-  },
-  "apps/repoqa-web/src/components/SourceTraceDrawer.tsx:13": {
-    "verdict": "false-positive",
-    "class": "test-only-component",
-    "reason": "Rendered only by SourceTraceDrawer.test.tsx; no production render site. Dead UI surface — removal candidate."
-  },
-  "apps/repoqa-web/src/components/StackTraceInput.tsx:18": {
-    "verdict": "false-positive",
-    "class": "test-only-component",
-    "reason": "Rendered only by StackTraceInput.test.tsx; no production render site. Dead UI surface — removal candidate."
-  },
-  "apps/repoqa-web/src/context/RepoContext.tsx:375": {
-    "verdict": "false-positive",
-    "class": "value-reference-name-collision",
-    "reason": "RepoContext's handleExport IS used: App.tsx:150 passes onExport={handleExport} as a value reference. But TWO same-named functions exist (RepoContext.tsx:375 and TopBar.tsx:138) and the name-based resolution deterministically binds the earlier one (TopBar), leaving RepoContext's uncounted. Both are alive in reality; the collision is a known limit of name-based reference resolution."
-  },
   "packages/bridge-adapters/src/browser.ts:9": {
     "verdict": "false-positive",
     "class": "legacy-layer-test-only",
@@ -54,5 +29,40 @@
     "verdict": "false-positive",
     "class": "legacy-layer-test-only",
     "reason": "Same as :9 — the legacy bridge-adapters layer's only consumer is its own test."
+  },
+  "apps/repoqa-web/src/context/RepoContext.tsx:383": {
+    "verdict": "false-positive",
+    "class": "value-reference-name-collision",
+    "reason": "RepoContext's handleExport IS used: App.tsx:150 passes onExport={handleExport} as a value reference. But TWO same-named functions exist (RepoContext.tsx:375 and TopBar.tsx:138) and the name-based resolution deterministically binds the earlier one (TopBar), leaving RepoContext's uncounted. Both are alive in reality; the collision is a known limit of name-based reference resolution."
+  },
+  "packages/bridge-adapters/src/browser.ts:25": {
+    "verdict": "false-positive",
+    "class": "legacy-layer-test-only",
+    "reason": "BrowserAdapter.submit belongs to packages/bridge-adapters — the early Harness orchestration layer registered as 遗留 (structure review §12). Its only consumer is adapters.test.ts; no production code path instantiates or invokes these adapters."
+  },
+  "packages/bridge-adapters/src/coding.ts:9": {
+    "verdict": "false-positive",
+    "class": "legacy-layer-test-only",
+    "reason": "CodingAdapter.connect belongs to packages/bridge-adapters — the early Harness orchestration layer registered as 遗留 (structure review §12). Its only consumer is adapters.test.ts; no production code path instantiates or invokes these adapters."
+  },
+  "packages/bridge-adapters/src/coding.ts:13": {
+    "verdict": "false-positive",
+    "class": "legacy-layer-test-only",
+    "reason": "CodingAdapter.disconnect belongs to packages/bridge-adapters — the early Harness orchestration layer registered as 遗留 (structure review §12). Its only consumer is adapters.test.ts; no production code path instantiates or invokes these adapters."
+  },
+  "packages/bridge-adapters/src/coding.ts:17": {
+    "verdict": "false-positive",
+    "class": "legacy-layer-test-only",
+    "reason": "CodingAdapter.status belongs to packages/bridge-adapters — the early Harness orchestration layer registered as 遗留 (structure review §12). Its only consumer is adapters.test.ts; no production code path instantiates or invokes these adapters."
+  },
+  "packages/bridge-adapters/src/coding.ts:21": {
+    "verdict": "false-positive",
+    "class": "legacy-layer-test-only",
+    "reason": "CodingAdapter.cancel belongs to packages/bridge-adapters — the early Harness orchestration layer registered as 遗留 (structure review §12). Its only consumer is adapters.test.ts; no production code path instantiates or invokes these adapters."
+  },
+  "packages/bridge-adapters/src/coding.ts:25": {
+    "verdict": "false-positive",
+    "class": "legacy-layer-test-only",
+    "reason": "CodingAdapter.submit belongs to packages/bridge-adapters — the early Harness orchestration layer registered as 遗留 (structure review §12). Its only consumer is adapters.test.ts; no production code path instantiates or invokes these adapters."
   }
 }

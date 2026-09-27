@@ -179,10 +179,6 @@ export function brandLabel(brand: BrandId): string {
   return BRAND_LABELS[brand] ?? brand;
 }
 
-export function brandColor(brand: BrandId): string {
-  return BRAND_COLORS[brand] ?? BRAND_COLORS.unknown;
-}
-
 /**
  * Check whether query-string badges are enabled (`?badges=0` disables them).
  */
