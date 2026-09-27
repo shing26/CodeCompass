@@ -132,7 +132,6 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
     deleteRepo: vi.fn().mockResolvedValue(undefined),
     reindexRepo: vi.fn().mockResolvedValue(readyRepo),
     cloneRepo: vi.fn().mockResolvedValue(readyRepo),
-    getRepo: vi.fn(),
     listSymbols: vi.fn().mockResolvedValue([]),
     getFileRaw: vi.fn(),
     queryRepo: vi.fn().mockReturnValue(noopStream),

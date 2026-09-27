@@ -7,7 +7,6 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   return {
     listRepos: vi.fn(),
     importRepo: vi.fn(),
-    getRepo: vi.fn(),
     listSymbols: vi.fn(),
     getFileRaw: vi.fn(),
     queryRepo: vi.fn(),

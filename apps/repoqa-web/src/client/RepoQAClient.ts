@@ -70,16 +70,6 @@ export class RepoQAClient {
     return (await res.json()) as RuntimeInfo;
   }
 
-  async getRepo(id: string): Promise<Repo | null> {
-    const res = await this.fetcher(`${this.baseUrl}/api/repos/${encodeURIComponent(id)}`);
-    if (!res.ok) {
-      if (res.status === 404) return null;
-      throw new Error(`getRepo failed: ${res.status}`);
-    }
-    const body = (await res.json()) as { repo?: Repo };
-    return body.repo ?? null;
-  }
-
   async importRepo(input: ImportRepoInput): Promise<Repo> {
     // R2: this endpoint blocks until the whole index completes (the catalog
     // only flips to ready in the response) — big repos need the relaxed budget.
