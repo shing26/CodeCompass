@@ -318,6 +318,17 @@ function sanitizePaging(
   return Math.min(value, max);
 }
 
+/**
+ * Issue 01 (v1.1) — escape SQLite LIKE metacharacters so user input matches
+ * literally. Backslash must be escaped first: the insertions for `%`/`_` use
+ * backslashes themselves, and escaping after them would double those. Pair
+ * with `ESCAPE '\'` on the statement, and keep the caller's own wrapping
+ * wildcards outside this function.
+ */
+export function escapeLikePattern(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&');
+}
+
 /** Map a repo_symbols row (incl. Issue 21 annotation columns) to a RepoSymbol. */
 function mapSymbolRow(row: any): RepoSymbol {
   return {
@@ -1027,8 +1038,8 @@ export class RepoQARepos {
 
   searchChunks(repoId: string, query: string, limit = 20): RepoChunk[] {
     const rows = this.db
-      .prepare(`SELECT * FROM repo_chunks WHERE repo_id = ? AND content LIKE ? LIMIT ?`)
-      .all(repoId, `%${query.replace(/%/g, '%%')}%`, limit) as any[];
+      .prepare(`SELECT * FROM repo_chunks WHERE repo_id = ? AND content LIKE ? ESCAPE '\\' LIMIT ?`)
+      .all(repoId, `%${escapeLikePattern(query)}%`, limit) as any[];
     return rows.map((row) => ({
       id: row.id,
       repoId: row.repo_id,
