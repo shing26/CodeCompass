@@ -1,5 +1,7 @@
 {
-  "note": "Frozen precision ratchet baseline (V31-05). ratioCeiling = ratio * (1 + 0.25) + 0.02. Raise it only with an explicit `--ratchet-update` and a reason in the commit message.",
+  "note": "Frozen precision ratchet baseline (V31-05). ratioCeiling = ratio * (1 + 0.25) + 0.02. Raise it only with an explicit `--ratchet-update` and a reason in the commit message. metric_direction=inverse: a rise can be an improvement (false edges fixed make orphans visible) — read progress from the false-edge count; sampling=top-n: ranked list, never extrapolated to a whole-repo rate (ticket 06 reads this same field).",
+  "metric_direction": "inverse",
+  "sampling": "top-n",
   "samples": {
     "self": {
       "commit": "5700bbd",

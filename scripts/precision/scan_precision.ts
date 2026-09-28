@@ -419,6 +419,13 @@ async function score(): Promise<void> {
  * The baseline is frozen on purpose: it never self-updates. Raising it is an
  * explicit `--ratchet-update` (a deliberate, reviewable act), because a ratchet
  * that follows the code defends nothing.
+ *
+ * The baseline also records the metric's READING DISCIPLINE (ticket 12, v1.1),
+ * because the orphan ratio moves INVERSELY to quality: fixing false edges and
+ * false negatives makes orphans visible, so the ratio rising can be an
+ * improvement. `metric_direction` (`inverse` here, `forward` reserved) and
+ * `sampling` (`top-n` — a ranked list, never extrapolated to a whole-repo rate)
+ * only rewrite the failure hint; the formula and thresholds are untouched.
  */
 const RATCHET_BASELINE = path.join(process.cwd(), 'scripts/precision/ratchet-baseline.json');
 /** Ceiling = frozen ratio * (1 + SLACK) + FLOOR — headroom for small-sample noise. */
@@ -435,6 +442,10 @@ interface RatchetBaselineEntry {
 
 interface RatchetBaseline {
   note: string;
+  /** `inverse` — a rise can be an improvement; `forward` — a fall is a regression. */
+  metric_direction?: 'inverse' | 'forward';
+  /** Evidence scope, e.g. `top-n` (ranked list, not a random sample). */
+  sampling?: string;
   samples: Record<string, RatchetBaselineEntry>;
 }
 
@@ -446,13 +457,26 @@ async function ratchet(names: string[], update: boolean): Promise<void> {
     baseline = {
       note:
         'Frozen precision ratchet baseline (V31-05). ratioCeiling = ratio * (1 + 0.25) + 0.02. ' +
-        'Raise it only with an explicit `--ratchet-update` and a reason in the commit message.',
+        'Raise it only with an explicit `--ratchet-update` and a reason in the commit message. ' +
+        'metric_direction=inverse: a rise can be an improvement (false edges fixed make orphans ' +
+        'visible) — read progress from the false-edge count; sampling=top-n: ranked list, never ' +
+        'extrapolated to a whole-repo rate.',
+      metric_direction: 'inverse',
+      sampling: 'top-n',
       samples: {}
     };
   }
 
+  // Ticket 12 (v1.1) — absent fields fall back to this metric's known nature
+  // (orphan ratio = inverse, evidence = top-N list). Only an explicit `forward`
+  // switches the wording: a typo must not silently produce the weaker "回退"
+  // advice for a metric whose direction is documented.
+  const direction = baseline.metric_direction === 'forward' ? 'forward' : 'inverse';
+  const sampling = baseline.sampling ?? 'top-n';
+
   const failures: string[] = [];
   const rows: string[] = [];
+  let ceilingExceeded = false;
 
   for (const name of names) {
     const sample = SAMPLES.find((s) => s.name === name);
@@ -542,6 +566,7 @@ async function ratchet(names: string[], update: boolean): Promise<void> {
     const ceiling = entry.ratio * (1 + RATCHET_SLACK) + RATCHET_FLOOR;
     const ok = ratio <= ceiling;
     if (!ok) {
+      ceilingExceeded = true;
       failures.push(
         `${name}: orphan ratio ${(ratio * 100).toFixed(1)}% exceeds ceiling ${(ceiling * 100).toFixed(1)}% ` +
           `(frozen baseline ${(entry.ratio * 100).toFixed(1)}% @ ${entry.commit})`
@@ -560,12 +585,21 @@ async function ratchet(names: string[], update: boolean): Promise<void> {
     await fs.writeFile(RATCHET_BASELINE, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
   }
 
+  console.log(`[precision] metric=orphan-ratio direction=${direction} sampling=${sampling}`);
   console.log('| 样本 | 孤儿/符号 | 比值 | 棘轮 |');
   console.log('|---|---|---|---|');
   console.log(rows.join('\n'));
   if (failures.length > 0) {
     console.error('[precision] RATCHET FAILED:');
     for (const failure of failures) console.error(`  - ${failure}`);
+    if (ceilingExceeded) {
+      console.error(
+        direction === 'inverse'
+          ? '[precision] 指标方向相反（inverse）：孤儿比升高可能是改进——假边/假阴性被修掉后孤儿变可见，' +
+            '请以「假边条数」读进度；若确认为改进，用 --ratchet-update 并附证据。'
+          : '[precision] 指标方向=forward：数值回退即质量回退，不得放宽；确需放宽须附证据（--ratchet-update + 理由）。'
+      );
+    }
     throw new Error(`${failures.length} ratchet invariant(s) violated`);
   }
   console.error(`[precision] ratchet ok (${names.join(', ')})`);

@@ -497,6 +497,46 @@ def check_doc_surface() -> None:
     )
 
 
+def _precision_ratchet_discipline() -> str:
+    """Ticket 12 (v1.1) — the frozen baseline declares the metric's reading discipline.
+
+    `metric_direction` (inverse/forward) and `sampling` (top-n) annotate a FAILURE
+    (ticket §2.2): the verdict stays `proc.returncode == 0`, and a missing or
+    malformed baseline degrades to a shorter suffix — never a new failure mode.
+    """
+    try:
+        baseline = json.loads(
+            (ROOT / "scripts/precision/ratchet-baseline.json").read_text(encoding="utf-8")
+        )
+        direction = str(baseline.get("metric_direction", ""))
+        sampling = str(baseline.get("sampling", ""))
+    except Exception:  # noqa: BLE001 — annotation only, must never fail the check
+        return ""
+    return " ".join(
+        part
+        for part in (
+            f"direction={direction}" if direction else "",
+            f"sampling={sampling}" if sampling else "",
+        )
+        if part
+    )
+
+
+def _precision_ratchet_hint(proc: subprocess.CompletedProcess) -> str:
+    """Ticket 12 (v1.1) — lift the harness's direction-aware ceiling hint.
+
+    The harness prints the hint as its last `[precision]` line; the raw stderr
+    tail is dominated by the thrown stack trace, and restating the wording here
+    would give the same sentence two homes (`scan_precision.ts` owns it).
+    """
+    lines = [
+        line
+        for line in (proc.stderr or "").splitlines()
+        if line.startswith("[precision]") and "RATCHET FAILED" not in line
+    ]
+    return lines[-1] if lines else ""
+
+
 def check_precision_ratchet(node: str) -> None:
     """V31-05 — precision regressions had no gate at all.
 
@@ -516,10 +556,22 @@ def check_precision_ratchet(node: str) -> None:
         [node, "--max-old-space-size=4096", str(tsx), str(ratchet), "--ratchet", "self"],
         cwd=ROOT, capture_output=True, text=True, timeout=600,
     )
+    if proc.returncode == 0:
+        detail = (proc.stdout or "").strip().splitlines()[-1] if proc.stdout else "ok"
+    else:
+        detail = " | ".join(
+            part
+            for part in (
+                _precision_ratchet_hint(proc),
+                _precision_ratchet_discipline(),
+                _tail(proc),
+            )
+            if part
+        )
     record(
         "precision-ratchet (self): invariants + frozen ratio ceiling",
         proc.returncode == 0,
-        _tail(proc) if proc.returncode != 0 else (proc.stdout or "").strip().splitlines()[-1] if proc.stdout else "ok",
+        detail,
     )
 
 

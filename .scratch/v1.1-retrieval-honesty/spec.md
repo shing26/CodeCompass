@@ -149,7 +149,7 @@
 ## 6. 验收判据与纪律
 
 1. **每票自带机器可验证判据**，写在票内 §验收；不接受"看起来对了"。
-2. **棘轮纪律按指标方向区分**（票 12 落地后）：
+2. **棘轮纪律按指标方向区分**（票 12 已落地：`scripts/precision/ratchet-baseline.json` 带 `metric_direction`/`sampling` 字段，harness 与 `check_precision_ratchet` 按方向改写失败提示；票 06 **须**读同一 `sampling` 字段）：
    - **正向指标**（如检索 recallAtK）：只允许"收紧需理由"——提升阈值须 `--ratchet-update` + commit message 写明理由；
    - **反向指标**（孤儿比）：**放宽**才需理由（那可能是改进被看见），但必须附"假边条数"作为可读进度；
    - 任何阈值放宽都须在本 spec 追加记录。
