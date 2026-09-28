@@ -112,6 +112,14 @@ CREATE TABLE IF NOT EXISTS repo_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_repo_chunks_repo ON repo_chunks(repo_id, chunk_type);
 
+-- Ticket 03 (v1.1) — FTS5 mirror of repo_chunks (trigram tokenizer). Standalone
+-- (not an external-content table) on purpose: no delete-before-content ordering
+-- hazard, and the duplicated text is negligible at this scale (chunk counts are
+-- in the hundreds). Every mutation goes through RepoQARepos.insertChunkRows /
+-- deleteChunkRows (the only two writers); the rowid is repo_chunks.id, which is
+-- what the MATCH join uses.
+CREATE VIRTUAL TABLE IF NOT EXISTS repo_chunks_fts USING fts5(content, tokenize='trigram');
+
 CREATE TABLE IF NOT EXISTS repo_files (
   repo_id TEXT NOT NULL,
   path TEXT NOT NULL,
@@ -307,6 +315,18 @@ export function openDb(dbPath: string): Database.Database {
     if (!symbolColumns.some((existing) => existing.name === column)) {
       db.exec(ddl);
     }
+  }
+  // Ticket 03 (v1.1) — pre-v1.1.0 databases were indexed without the FTS mirror,
+  // so the SCHEMA above creates an empty one. Rebuild it whenever the two counts
+  // disagree: that converges an old index on open and also heals any drift a
+  // crashed writer left behind. The rebuild is cheap at chunk scale (hundreds).
+  const count = (table: string): number =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+  if (count('repo_chunks') !== count('repo_chunks_fts')) {
+    db.exec(
+      `DELETE FROM repo_chunks_fts;
+       INSERT INTO repo_chunks_fts(rowid, content) SELECT id, content FROM repo_chunks;`
+    );
   }
   return db;
 }

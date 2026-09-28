@@ -329,6 +329,33 @@ export function escapeLikePattern(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/[%_]/g, '\\$&');
 }
 
+/**
+ * Ticket 03 (v1.1) — wrap a query as an FTS5 phrase for the trigram mirror.
+ * The phrase is what keeps LIKE semantics: each trigram token must appear
+ * adjacent, so a bare MATCH (implicit AND of trigrams) can never match
+ * non-contiguous text. `"` is escaped by doubling, per FTS5 query syntax;
+ * everything else inside the quotes (% _ * NEAR AND OR ...) is literal.
+ */
+export function ftsPhrase(query: string): string {
+  return `"${query.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Ticket 03 (v1.1) — the two searchChunks data paths. Both share the
+ * `file_path, line_start, id` sort key: the pre-v1.1 query had no ORDER BY, so
+ * result order was undefined and "both paths agree" was undecidable. Exported
+ * for test-only EXPLAIN QUERY PLAN assertions (验收②).
+ */
+export const SEARCH_CHUNKS_LIKE_SQL = `SELECT * FROM repo_chunks
+WHERE repo_id = ? AND content LIKE ? ESCAPE '\\'
+ORDER BY file_path, line_start, id
+LIMIT ?`;
+export const SEARCH_CHUNKS_FTS_SQL = `SELECT rc.* FROM repo_chunks_fts
+JOIN repo_chunks rc ON rc.id = repo_chunks_fts.rowid
+WHERE repo_chunks_fts MATCH ? AND rc.repo_id = ?
+ORDER BY rc.file_path, rc.line_start, rc.id
+LIMIT ?`;
+
 /** Map a repo_symbols row (incl. Issue 21 annotation columns) to a RepoSymbol. */
 function mapSymbolRow(row: any): RepoSymbol {
   return {
@@ -541,7 +568,7 @@ export class RepoQARepos {
   clearRepoData(repoId: string): void {
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
-      this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?').run(repoId);
+      this.deleteChunkRows(repoId);
       this.db.prepare('DELETE FROM repo_files WHERE repo_id = ?').run(repoId);
     });
     tx();
@@ -554,7 +581,7 @@ export class RepoQARepos {
       // MCP codecompass_remove_repo both funnel through this transaction).
       this.db.prepare('DELETE FROM workbench_cards WHERE repo_id = ?').run(repoId);
       this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
-      this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?').run(repoId);
+      this.deleteChunkRows(repoId);
       this.db.prepare('DELETE FROM repo_files WHERE repo_id = ?').run(repoId);
       this.db.prepare('DELETE FROM repos WHERE id = ?').run(repoId);
     });
@@ -1002,9 +1029,8 @@ export class RepoQARepos {
 
   upsertChunks(chunks: RepoChunk[]): void {
     if (chunks.length === 0) return;
-    const del = this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?');
     const tx = this.db.transaction(() => {
-      del.run(chunks[0].repoId);
+      this.deleteChunkRows(chunks[0].repoId);
       this.insertChunkRows(chunks);
     });
     tx();
@@ -1020,26 +1046,68 @@ export class RepoQARepos {
   }
 
   deleteChunksForFile(repoId: string, filePath: string): void {
-    this.db
-      .prepare('DELETE FROM repo_chunks WHERE repo_id = ? AND file_path = ?')
-      .run(repoId, filePath);
+    this.deleteChunkRows(repoId, filePath);
   }
 
+  /**
+   * Ticket 03 (v1.1) — the ONLY deleter of repo_chunks. The FTS mirror is
+   * pruned in the same statement scope via a rowid subselect, so a purged
+   * chunk can never leave a ghost trigram behind. `filePath === undefined`
+   * purges the whole repo (clearRepoData / deleteRepo / upsertChunks).
+   */
+  private deleteChunkRows(repoId: string, filePath?: string): void {
+    if (filePath === undefined) {
+      this.db
+        .prepare(
+          'DELETE FROM repo_chunks_fts WHERE rowid IN (SELECT id FROM repo_chunks WHERE repo_id = ?)'
+        )
+        .run(repoId);
+      this.db.prepare('DELETE FROM repo_chunks WHERE repo_id = ?').run(repoId);
+    } else {
+      this.db
+        .prepare(
+          'DELETE FROM repo_chunks_fts WHERE rowid IN (SELECT id FROM repo_chunks WHERE repo_id = ? AND file_path = ?)'
+        )
+        .run(repoId, filePath);
+      this.db
+        .prepare('DELETE FROM repo_chunks WHERE repo_id = ? AND file_path = ?')
+        .run(repoId, filePath);
+    }
+  }
+
+  /**
+   * Ticket 03 (v1.1) — the ONLY inserter of repo_chunks; every row lands in
+   * the trigram mirror under the same rowid. Together with `deleteChunkRows`
+   * these two helpers are the whole FTS sync surface (openDb's count-mismatch
+   * rebuild is the crash-recovery net, not a write path).
+   */
   private insertChunkRows(chunks: RepoChunk[]): void {
     if (chunks.length === 0) return;
     const insert = this.db.prepare(
       `INSERT INTO repo_chunks (repo_id, chunk_type, content, file_path, line_start)
        VALUES (?, ?, ?, ?, ?)`
     );
+    const insertFts = this.db.prepare('INSERT INTO repo_chunks_fts (rowid, content) VALUES (?, ?)');
     for (const c of chunks) {
-      insert.run(c.repoId, c.chunkType, c.content, c.filePath ?? null, c.lineStart ?? null);
+      const info = insert.run(c.repoId, c.chunkType, c.content, c.filePath ?? null, c.lineStart ?? null);
+      insertFts.run(Number(info.lastInsertRowid), c.content);
     }
   }
 
+  /**
+   * Ticket 03 (v1.1) — ≥3 code points route to the FTS5(trigram) mirror
+   * (shorter trigram tokens silently match nothing, so <3 must stay on LIKE).
+   * Both paths share the pinned sort key, so one dataset yields one order.
+   */
   searchChunks(repoId: string, query: string, limit = 20): RepoChunk[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM repo_chunks WHERE repo_id = ? AND content LIKE ? ESCAPE '\\' LIMIT ?`)
-      .all(repoId, `%${escapeLikePattern(query)}%`, limit) as any[];
+    const useFts = Array.from(query).length >= 3;
+    const rows = (
+      useFts
+        ? this.db.prepare(SEARCH_CHUNKS_FTS_SQL).all(ftsPhrase(query), repoId, limit)
+        : this.db
+            .prepare(SEARCH_CHUNKS_LIKE_SQL)
+            .all(repoId, `%${escapeLikePattern(query)}%`, limit)
+    ) as any[];
     return rows.map((row) => ({
       id: row.id,
       repoId: row.repo_id,
