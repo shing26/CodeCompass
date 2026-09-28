@@ -86,6 +86,14 @@ interface EvalQuestion {
   stack?: string;
   /** Issue 23 incident: frames that must surface as BREAK, never guessed. */
   expectedUnresolved?: string[];
+  /**
+   * Ticket 02 (v1.1) — xfail-shaped exemption: the question counts in its
+   * bucket's question total but none of its metrics reach the thresholds, and
+   * its measured hit rate is reported separately (`bucket.exempt`) so the gap
+   * stays visible on every run while master stays green. Ticket 04 removes the
+   * flag in the same commit that makes these questions pass.
+   */
+  exempt?: boolean;
 }
 
 export type EvalBucketName =
@@ -111,6 +119,12 @@ export type EvalReport = {
       hallucinationRate: number;
       anchorValidity: number;
       avgLatencyMs: number;
+      /**
+       * Ticket 02 (v1.1) — exempt (xfail) questions inside this bucket, when it
+       * has any: `total` is their question count, `recallAtK` their measured hit
+       * rate. They are excluded from every threshold via `recallAtK` above.
+       */
+      exempt?: { total: number; recallAtK: number };
     }
   >;
   failureTaxonomy: {
@@ -177,6 +191,51 @@ const repoD: EvalFixture = {
       'const api = axios.create({ baseURL: "/api" });',
       'export function handleLike(id: number) {',
       '  return api.post("/posts/" + id + "/like");',
+      '}',
+      ''
+    ].join('\n'),
+    // v1.1 ticket 02 — fixture expansion so the non-Java questions are mutually
+    // independent (one file carries at most two questions). These comments are
+    // the only place their Chinese phrases live: before ticket 04 chunks TS/TSX
+    // comments they are invisible to retrieval, so the four questions measure 0
+    // until the coverage lands (that measurement IS the evidence this ticket
+    // exists to produce). Do not reword them without re-running the eval.
+    'web/src/LikeButton.tsx': [
+      "import axios from 'axios';",
+      'const api = axios.create({ baseURL: "/api" });',
+      '',
+      '/**',
+      ' * 点赞按钮的乐观更新：点击后先把本地爱心点亮，再请求后端确认，失败则回滚。',
+      ' */',
+      'export function LikeButton(id: number) {',
+      '  return api.post("/posts/" + id + "/like");',
+      '}',
+      '',
+      '/**',
+      ' * 连续点击的防抖：300ms 内的重复点击只保留一次请求。',
+      ' */',
+      'export function throttleLike(id: number) {',
+      '  return LikeButton(id);',
+      '}',
+      ''
+    ].join('\n'),
+    'web/src/CommentBox.tsx': [
+      "import axios from 'axios';",
+      'const api = axios.create({ baseURL: "/api" });',
+      '',
+      '/**',
+      ' * 评论草稿自动保存：输入停顿两秒后把草稿写入浏览器本地存储。',
+      ' */',
+      'export function autosaveDraft(text: string) {',
+      "  localStorage.setItem('comment-draft', text);",
+      '  return text;',
+      '}',
+      '',
+      '/**',
+      ' * 评论提交前的敏感词过滤：命中词表时阻止提交并提示原因。',
+      ' */',
+      'export function filterComment(text: string) {',
+      "  return api.post('/comments', { text });",
       '}',
       ''
     ].join('\n'),
@@ -371,13 +430,23 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
     { id: 'intent-2', query: 'doLike', expected: ['doLike'] },
     { id: 'intent-3', query: 'likePost', expected: ['likePost'] },
     { id: 'intent-4', query: 'transfer', expected: ['transfer'] },
-    { id: 'intent-5', query: 'legacyPing', expected: ['legacyPing'] }
-  ].map((item) => ({
+    { id: 'intent-5', query: 'legacyPing', expected: ['legacyPing'] },
+    // v1.1 ticket 02 — non-Java natural-language questions whose answers live
+    // in TSX comments: before ticket 04 chunks those comments they measure 0
+    // (exempt), after it they become formal questions. Queries are chosen to
+    // share no identifier with the fixture, so only the doc-chunk bridge can
+    // resolve them — which is exactly the coverage under test.
+    { id: 'intent-6', query: '点赞按钮的乐观更新', expected: ['LikeButton'], exempt: true },
+    { id: 'intent-7', query: '连续点击的防抖', expected: ['throttleLike'], exempt: true },
+    { id: 'intent-8', query: '评论草稿自动保存', expected: ['autosaveDraft'], exempt: true },
+    { id: 'intent-9', query: '评论提交前的敏感词过滤', expected: ['filterComment'], exempt: true }
+  ].map((item: { id: string; query: string; expected: string[]; exempt?: boolean }) => ({
     id: item.id,
     fixture: 'repo-d',
     mode: 'intent-anchor' as const,
     question: item.query,
-    expected: item.expected
+    expected: item.expected,
+    ...(item.exempt ? { exempt: true } : {})
   })),
   ...[
     {
@@ -665,16 +734,31 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     repoqaByFixture.set(fixture.name, repoqa);
   }
 
+  // Ticket 02 (v1.1) — one metrics shape per bucket; the exempt* fields carry
+  // the xfail questions' own tallies so they can be reported without ever
+  // reaching the thresholds. Single factory keeps the nine inits in lockstep.
+  const newBucketMetrics = () => ({
+    matched: 0,
+    expected: 0,
+    anchors: 0,
+    invalid: 0,
+    hallucinated: 0,
+    latency: 0,
+    total: 0,
+    exemptTotal: 0,
+    exemptMatched: 0,
+    exemptExpected: 0
+  });
   const metrics = {
-    'route-chain': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    config: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    architecture: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    'intent-anchor': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    'diagnose-chain': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    evolution: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    incident: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    'evolve-intent': { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 },
-    convention: { matched: 0, expected: 0, anchors: 0, invalid: 0, hallucinated: 0, latency: 0, total: 0 }
+    'route-chain': newBucketMetrics(),
+    config: newBucketMetrics(),
+    architecture: newBucketMetrics(),
+    'intent-anchor': newBucketMetrics(),
+    'diagnose-chain': newBucketMetrics(),
+    evolution: newBucketMetrics(),
+    incident: newBucketMetrics(),
+    'evolve-intent': newBucketMetrics(),
+    convention: newBucketMetrics()
   };
   // Issue 23: physical file set per fixture — incident anchors are valid only
   // when their symbol table file actually exists in the frozen fixture.
@@ -686,6 +770,11 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     const symbols = symbolsByFixture.get(question.fixture) ?? [];
     const bucket = metrics[question.mode];
     bucket.total += 1;
+    if (question.exempt) bucket.exemptTotal += 1;
+    // Snapshot the WHOLE bucket (all-number shape) so every threshold input —
+    // including fields added by future branches — is rolled back for an exempt
+    // question; only the exempt* tallies survive the restore below.
+    const beforeExempt = question.exempt ? { ...bucket } : null;
     const start = Date.now();
 
     if (question.mode === 'route-chain') {
@@ -931,6 +1020,18 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
     }
 
     bucket.latency += Date.now() - start;
+
+    // Ticket 02 (v1.1) — an exempt question rolls its metric inputs back out of
+    // the bucket (they were tallied above by the shared per-mode branches) and
+    // into the exempt counters instead: counted in `total`, invisible to every
+    // threshold, still measured and reported (`bucket.exempt`).
+    if (beforeExempt) {
+      bucket.exemptMatched += bucket.matched - beforeExempt.matched;
+      bucket.exemptExpected += bucket.expected - beforeExempt.expected;
+      for (const key of Object.keys(beforeExempt) as Array<keyof typeof bucket>) {
+        if (!key.startsWith('exempt')) bucket[key] = beforeExempt[key];
+      }
+    }
   }
 
   const buckets = Object.fromEntries(
@@ -941,13 +1042,29 @@ export async function runGoldenEval(recordTo?: RepoQARepos): Promise<EvalReport>
         bucket.anchors > 0 ? (bucket.hallucinated / bucket.anchors) * 100 : 0;
       const anchorValidity =
         bucket.anchors > 0 ? ((bucket.anchors - bucket.invalid) / bucket.anchors) * 100 : 100;
-      const avgLatencyMs = bucket.total > 0 ? bucket.latency / bucket.total : 0;
+      // Exempt questions count in `total` but their latency is rolled back, so
+      // the average is taken over the questions it actually measured.
+      const timedQuestions = bucket.total - bucket.exemptTotal;
+      const avgLatencyMs = timedQuestions > 0 ? bucket.latency / timedQuestions : 0;
+      // Ticket 02 (v1.1) — the exempt questions' own reading, kept out of every
+      // threshold above (that is the whole point of the xfail shape).
+      const exempt =
+        bucket.exemptTotal > 0
+          ? {
+              total: bucket.exemptTotal,
+              recallAtK:
+                bucket.exemptExpected > 0
+                  ? (bucket.exemptMatched / bucket.exemptExpected) * 100
+                  : 100
+            }
+          : undefined;
       return [name, {
         total: bucket.total,
         recallAtK,
         hallucinationRate,
         anchorValidity,
-        avgLatencyMs
+        avgLatencyMs,
+        ...(exempt ? { exempt } : {})
       }];
     })
   ) as EvalReport['buckets'];
@@ -1024,7 +1141,10 @@ export function recordEvalReport(repoqa: RepoQARepos, report: EvalReport): void 
         recallAtK: bucket.recallAtK,
         hallucinationRate: bucket.hallucinationRate,
         anchorValidity: bucket.anchorValidity,
-        avgLatencyMs: bucket.avgLatencyMs
+        avgLatencyMs: bucket.avgLatencyMs,
+        // Ticket 02 (v1.1) — carry the exempt tally onto the evidence plane too,
+        // so the visible-red reading survives outside the console report.
+        ...(bucket.exempt ? { exempt: bucket.exempt } : {})
       }),
       failureClass: bucketPasses(mode, bucket) ? undefined : 'threshold-miss'
     });

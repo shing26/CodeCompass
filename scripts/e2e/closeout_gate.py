@@ -2073,8 +2073,85 @@ def check_chat_merge(node: str, base: str, repo_id: str) -> None:
         record("chat messages persist user+assistant (two-table isolation)", False, str(exc))
 
 
+def _retrieval_ratchet_failures(baseline: dict, buckets: dict) -> list[str]:
+    """Ticket 02 (v1.1) — the retrieval ratchet, frozen in a committed baseline.
+
+    Fail-closed on a PARTIAL baseline too: every bucket the report scored must be
+    frozen (a new bucket needs a deliberate freeze), the ceiling map and the
+    intent-anchor block must exist, and an exemption count frozen above zero must
+    be readable from the report. `metric_direction: forward` (spec §6.2) means a
+    value below the frozen one is a regression that may not be loosened without a
+    recorded reason.
+    """
+    failures: list[str] = []
+    frozen_recall = baseline.get("recallAtK")
+    if not isinstance(frozen_recall, dict) or not frozen_recall:
+        failures.append("baseline is missing the recallAtK map")
+        frozen_recall = {}
+    for name in buckets:
+        if name not in frozen_recall:
+            failures.append(f"{name}: scored but not frozen in the baseline")
+    for name, frozen in frozen_recall.items():
+        got = buckets.get(name, {}).get("recallAtK")
+        if got is None:
+            failures.append(f"{name}: frozen in the baseline but missing from the report")
+        elif got < frozen:
+            failures.append(f"{name}: recallAtK {got:.0f}% < frozen {frozen:.0f}%")
+    ceilings = baseline.get("hallucinationRateMax")
+    if not isinstance(ceilings, dict) or not ceilings:
+        failures.append("baseline is missing the hallucinationRateMax map")
+        ceilings = {}
+    for name, ceiling in ceilings.items():
+        got = buckets.get(name, {}).get("hallucinationRate")
+        if got is None:
+            failures.append(f"{name}: frozen ceiling but missing from the report")
+        elif got > ceiling:
+            failures.append(f"{name}: hallucinationRate {got:.1f}% > frozen {ceiling:.1f}%")
+    anchor = baseline.get("intentAnchor")
+    if not isinstance(anchor, dict) or anchor.get("questions") is None or anchor.get("exempt") is None:
+        failures.append("baseline is missing intentAnchor.questions/exempt")
+        return failures
+    anchor_bucket = buckets.get("intent-anchor", {})
+    got_questions = anchor_bucket.get("total")
+    if got_questions is None:
+        failures.append("intent-anchor: missing from the report")
+    elif got_questions < anchor["questions"]:
+        failures.append(
+            f"intent-anchor: {got_questions} questions < frozen {anchor['questions']} (append-only)"
+        )
+    exempt_tally = anchor_bucket.get("exempt")
+    if exempt_tally is None and anchor["exempt"] > 0:
+        failures.append(
+            f"intent-anchor: baseline freezes {anchor['exempt']} exemptions but the report "
+            "carries no exempt tally (did the report field vanish?)"
+        )
+    got_exempt = (exempt_tally or {}).get("total", 0)
+    if got_exempt > anchor["exempt"]:
+        failures.append(
+            f"intent-anchor: {got_exempt} exempt > frozen {anchor['exempt']} (shrink-only)"
+        )
+    return failures
+
+
 def check_eval_smoke(node: str, cwd: Path) -> None:
-    """v0.13: the golden eval must run end-to-end and pass every threshold."""
+    """v0.13: the golden eval must run end-to-end and pass every threshold.
+
+    v1.1 ticket 02: additionally held against the committed retrieval ratchet
+    (`scripts/eval/retrieval-baseline.json`) — frozen per-bucket recall, the
+    zero-hallucination ceilings, and the intent-anchor question/exemption counts.
+    The baseline is read before the eval runs, so an unreadable baseline reports
+    as such instead of borrowing the eval's failure text.
+    """
+    ratchet_name = (
+        "golden eval passes every threshold (incident/evolve-intent/convention hallucination 0%)"
+    )
+    try:
+        baseline = json.loads(
+            (ROOT / "scripts/eval/retrieval-baseline.json").read_text(encoding="utf-8")
+        )
+    except Exception as exc:  # noqa: BLE001 — fail closed with its own reason
+        record(ratchet_name, False, f"retrieval baseline unreadable: {exc}")
+        return
     tsx = ROOT / "services/control-plane/node_modules/tsx/dist/cli.mjs"
     eval_ts = ROOT / "services/control-plane/src/eval/repoqa-eval.ts"
     run = subprocess.run(
@@ -2084,17 +2161,20 @@ def check_eval_smoke(node: str, cwd: Path) -> None:
     try:
         report = json.loads(run.stdout)
         buckets = report.get("buckets", {})
-        zero_hallucination = ("incident", "evolve-intent", "convention")
+        # The baseline owns the ceiling set too — no second copy of the tuple here.
+        zero_hallucination = tuple(baseline.get("hallucinationRateMax", {}))
+        ratchet = _retrieval_ratchet_failures(baseline, buckets)
         ok = (
             run.returncode == 0
             and report.get("passed") is True
-            and report.get("totalQuestions", 0) >= 97
+            and report.get("totalQuestions", 0) >= baseline.get("questions", 0)
             and all(bucket["recallAtK"] >= 85 for bucket in buckets.values())
             and all(
                 buckets[name].get("hallucinationRate", 0.0) == 0.0
                 for name in zero_hallucination
                 if name in buckets
             )
+            and not ratchet
         )
         detail = " ".join(
             f"{name}={bucket['recallAtK']:.0f}%" for name, bucket in buckets.items()
@@ -2103,13 +2183,25 @@ def check_eval_smoke(node: str, cwd: Path) -> None:
             for name in zero_hallucination
             if name in buckets
         )
+        anchor_bucket = buckets.get("intent-anchor", {})
+        exempt = (anchor_bucket.get("exempt") or {}).get("total", 0)
+        if ratchet:
+            direction = baseline.get("metric_direction", "")
+            hint = (
+                "（forward 指标：低于冻结值即回退，须修复；放宽须在 spec 追加记录）"
+                if direction == "forward"
+                else ""
+            )
+            ratchet_text = "; ".join(ratchet) + hint
+        else:
+            ratchet_text = "ok"
+        detail += (
+            f" | ratchet={ratchet_text}"
+            f" | intent-anchor={anchor_bucket.get('total', '?')}q/{exempt}exempt"
+        )
     except Exception as exc:  # noqa: BLE001
         ok, detail = False, f"{exc}: {run.stdout[-200:]} {run.stderr[-200:]}"
-    record(
-        "golden eval passes every threshold (97 questions, incident/evolve-intent/convention hallucination 0%)",
-        ok,
-        detail,
-    )
+    record(ratchet_name, ok, detail)
 
 
 # ----------------------------------------------------------------------- main
