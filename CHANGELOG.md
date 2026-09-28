@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0] - 2026-09-29
+
+### 检索取证与证据诚实批（`searchChunks` 真 bug → 检索棘轮 → 覆盖扩张 → FTS5 索引）
+
+**一句话**：检索层（审计判定的最弱维度）的问题"不是弱，而是从未被问过"——本批先修真 bug，再把缺口变成会红的门（豁免位 + 9 桶棘轮），然后才扩覆盖，最后才动索引；证据面"恒绿/已死/指针悬空"清零。决策与实测记录见 `.scratch/v1.1-retrieval-honesty/spec.md`（含 6 条审计勘误 + 2 条新发现）。
+
+- **票 01（P0 真 bug）**：`searchChunks` 的 LIKE 转义修复——`_`/`%`/`\` 按字面量匹配（`ESCAPE` 子句），11 处调用点受益（`99c2105`）。
+- **票 02（P0 缺口可测，先红）**：`intent-anchor` 桶补 4 道非 Java 自然语言题（**0/4 先红留档**）+ per-question 豁免位 + **9 桶检索棘轮**（`scripts/eval/retrieval-baseline.json`，recallAtK 全冻 + 三桶零幻觉上限 + exempt 只减不增，fail-closed 入 e2e）（`e015cbe`）。
+- **票 03（索引升级）**：`LIKE` → **FTS5(trigram)** 双路径——≥3 码点走 FTS phrase（`ftsPhrase` 包引号，非相邻 trigram 不命中 = LIKE 等价）、<3 保留 LIKE；**排序键 `file_path, line_start, id` 两路径共用**（pre-v1.1 无 ORDER BY 的不可判定状态终结）；`repo_chunks` 写路径 5 散点收口 2 帮手（镜像同 rowid 同步 + rowid 子查询防幻影）；开库行数不一致即重建（v1.0.0 老库升级 + 崩溃自愈同路）；EXPLAIN 留档 `SCAN repo_chunks_fts VIRTUAL TABLE INDEX 0:M1`（`f8232ce`）。
+- **票 04+05（覆盖扩张，同 commit 一次冻结）**：新模块 `ingest/repoqa-chunker.ts`（纯函数，增量=全量逐字节一致由构造保证）——**TS/TSX/JS 注释与文件头 + Python module/def/class docstring** 入库（Java Javadoc 字节级保持；**Go 显式不做**，边界表述见票 07）；**`.md` 不再 `slice(0,4000)` 静默截断**——ATX 标题切节 + `[h1 > h2]` breadcrumb 前缀 + fenced code 防误切 + 超长按行续切。self 仓 chunk **73 → 3389**（markdown 2049 + docstring 1340）。**票 02 的 4 道豁免题经 TSX docstring 检索转正：0/4 → 100%，exempt 4→0，`intent-anchor` 9/9 全正式计分**（收口硬条件达成）（`c88a206`）。
+- **票 07（边界表述）**：`domain_radar` 描述补「keyword/substring, no semantic retrieval (ADR-0002)」+ chunk 语言清单（含 **Go is not covered** 触发线）；「语义检索」禁词在 README/MCP 面 0 命中；17 工具签名零变化（随票 04 同 commit）。
+- **票 08（决策链可整段取出）**：`turnId`（`sessionId:seq`，per-agent 单调）落三处——JSONL `tool_result`/`agent_turn` 行、`Citation` 元素、SSE `done` 载荷；`tool_result` 行补 args（**掩码前置**，`maskArgs`：此前 citations args 未掩码直出三面的补课）与结果摘要；`agent_turn` 行显式 `notAudited` 计数（ADR-0019 空洞非静默）；`log.ts::auditTurnRecords` 账实检查 + 断链用例在档。零 MCP/零前端（`ce9567c`）。
+- **票 06（真仓 top-10 假阳性门）**：harness 新增 `--freeze`（显式动作）→ `scripts/precision/frozen/` 三仓冻结摘要入库（键白名单、零易变字段、票 12 方向/口径字段随行）；e2e 新检查「**真仓 top-10 假阳性门（账实一致，零 clone，不得外推全仓率）**」——frozen↔verdicts 双向键相等 + 逐值相等，会红三态证明在案；**M1 口径修正**（CHANGELOG/HANDOFF）：M1 是样本相关读数，40% 旧人群已随票 22+`54ae70b` 消失、三仓现值皆 100%、进度以假边条数读；**发版前人工复测入收口清单**（复测实测：三仓 10/10 全命中、与 frozen 零差异）（`1078db7`）。
+- **票 10（探针重跑，deferred）**：重跑尝试 17/20 次调用全部 HTTP 402（provider 额度耗尽）——402 记录不构成有效测量、不入库当证据；报告悬空指针诚实化 + 重跑尝试日志（§八）；**触发线=额度恢复**，解冻后产物入库 + 按实测更新正文（`1b36bbd`）。
+- **票 09/11/12/13（证据诚实与安装器，波 1）**：`deriveAutoApprove` test-only 豁免登记（`b503db5`）；安装器默认 allowlist 去掉 `remove_repo`（16 工具默认 + `--auto-approve-all` 显式全量）（`daf008e`）；棘轮指标方向（inverse/forward）与抽样口径（top-n）入基线（`bb8f9ab`）；`getCallChain` 零调用点死码移除（`d462b32`）。
+- **门禁基线**：控制面 **770**（739+31）、web 347、bridge 26、e2e **72/0**（+真仓 top-10 假阳性门）；eval 101 题 9 桶 recallAtK 全 100%（棘轮 `ratchet=ok`、`intent-anchor=9q/0exempt`）；typecheck 净。**MCP 17 工具签名与数量零变化**（双轨制 MCP 侧冻结不动）。
+
 ## [1.0.0] - 2026-09-25
 
 ### 宣告：第一个稳定锚点（v0.31 批收口）
