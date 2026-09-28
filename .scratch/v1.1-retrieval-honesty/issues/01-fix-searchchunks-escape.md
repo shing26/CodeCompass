@@ -56,4 +56,5 @@ Status: done
 - 2026-09-27 立项：外部审计 v2 未发现本项（其 D4 段只提"chunk 覆盖窄"），属本次双专家线复核的**新发现**。`_` 未转义的实测形态：`LIKE '%get_user_id%'` 命中含 `getXuserXbyXid` 的内容（`_` 各匹配一个任意字符）。
   - 2026-09-28 更正：上句第二半的示例串不成立（见「验收实测」⚠️），`_` 未转义的实测形态应为命中 `getXuserXid` 一类内容。
 - 2026-09-28 实现：`escapeLikePattern`（先 `\`，再 `%`/`_`）+ 语句 `content LIKE ? ESCAPE '\'`，`LIMIT 20` 与 LIKE 大小写不敏感语义不动，11 处调用点同时受益。文件面：`ingest/repoqa-repos.ts` + 新测试 `ingest/repoqa-repos.test.ts`（仅控制面，无共享区）。双轴 review 后采纳两条 standards 修正（helper 移出类型簇、用例头精简至 4 行）；spec 轴无缺项、无越界。
-- 2026-09-28 派生候选（**本票未做，待裁决归属**）：同文件 `getCallChain` 的递归步 `json_extract(s.calls, '$') LIKE '%"' || c.method || '"%'`（`repoqa-repos.ts:1078`）是同类未转义 LIKE——实测 `'["getXuserXid"]' LIKE '%"get_user_id"%'` → 1，即含 `_` 的 symbol 名会多出**假调用边**（与 v0.31 票 21「假边」同族）。修法与 `searchChunks` 不同源（SQL 侧字符串拼接、非绑定参数），建议单开派生票或并入票 06 的口径。
+- 2026-09-28 派生候选（**已结清**）：同文件 `getCallChain` 的递归步 `json_extract(s.calls, '$') LIKE '%"' || c.method || '"%'` 是同类未转义 LIKE——实测 `'["getXuserXid"]' LIKE '%"get_user_id"%'` → 1，即含 `_` 的 symbol 名会多出**假调用边**（与 v0.31 票 21「假边」同族）。
+  - **2026-09-28 结清**：复核发现 `getCallChain` **零调用点**（全仓 tracked 文件穷举 grep；活的调用链面是 `engine/repoqa-callchain.ts` 内存引擎），且 npm 发布面（`bin`-only）不可达 → 裁决从「修」改为「移除」，落**票 13**（`issues/13-getcallchain-removal.md`，spec §7.1 追加裁决）。本条不再悬空。

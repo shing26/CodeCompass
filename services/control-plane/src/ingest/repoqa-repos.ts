@@ -1059,30 +1059,6 @@ export class RepoQARepos {
     }
     return this.db.prepare(sql).all(...params).map(mapSymbolRow);
   }
-
-  getCallChain(
-    repoId: string,
-    filePath: string,
-    methodName: string,
-    depth = 3
-  ): Array<{ file: string; method: string; line: number }> {
-    const sql = `
-      WITH RECURSIVE chain(file, method, line, depth) AS (
-        SELECT file_path, name, line_start, 1
-        FROM repo_symbols
-        WHERE repo_id = ? AND file_path = ? AND name = ?
-        UNION ALL
-        SELECT s.file_path, s.name, s.line_start, c.depth + 1
-        FROM chain c
-        JOIN repo_symbols s ON s.repo_id = ? AND s.kind = 'method'
-          AND json_extract(s.calls, '$') LIKE '%"' || c.method || '"%'
-        WHERE c.depth < ?
-      )
-      SELECT file, method, line FROM chain
-    `;
-    const rows = this.db.prepare(sql).all(repoId, filePath, methodName, repoId, depth) as any[];
-    return rows.map((row) => ({ file: row.file, method: row.method, line: row.line }));
-  }
 }
 
 
