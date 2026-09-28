@@ -409,12 +409,14 @@ async function main() {
       step('reindex 服务端落定 ready', ready);
     }
     // 步 3 把视图切到了审计面——canvas 属拓扑视图，先切回再验可交互。
-    await page.click('[data-testid="tab-topo"]');
+    // v0.31 票 05 把 topo 降为深链页（tab-topo 测试 id 随一级导航收敛移除），
+    // 切回走 URL-as-truth 契约：?repo= 自动选库、viewFromMode 缺省即 topo。
+    await page.goto(`${base}/?repo=${repoId}&mode=topo`, { waitUntil: 'domcontentloaded' });
     const interactive = await page
       .waitForSelector('[data-testid="canvas"]', { state: 'visible', timeout: 15000 })
       .then(() => true)
       .catch(() => false);
-    step('重启后工作台仍可交互（切回拓扑）', interactive);
+    step('重启后工作台仍可交互（深链切回拓扑）', interactive);
   } catch (err) {
     step('冒烟脚本自身异常', false, String(err && err.stack ? err.stack.split('\n')[0] : err));
   } finally {
