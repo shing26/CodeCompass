@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ReActAgent,
@@ -73,6 +75,12 @@ describe('deriveAutoApprove', () => {
         { name: 'codecompass_diagnose' },
       ]),
     ).toEqual(['codecompass_diagnose', 'codecompass_list_repos', 'codecompass_scan']);
+
+    // v1.1 ticket 09 — no in-repo production caller by design (the consumer is
+    // the separate agent-line repo), so the retention marker is asserted here:
+    // a future dead-code sweep must not delete this function as unreferenced.
+    const source = readFileSync(join(process.cwd(), 'src', 'chat', 'approve.ts'), 'utf8');
+    expect(source).toContain('test-only by design: reserved for the agent-line MCP client');
   });
 });
 

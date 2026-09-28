@@ -1,3 +1,7 @@
+// test-only by design: reserved for the agent-line MCP client's live tools/list
+// derivation (docs/agents/agent-line-handoff.md:64); this repo's production path
+// (installer.ts) injects its allowlist from the tool registry instead. See
+// .scratch/v1.1-retrieval-honesty/issues/09-retain-approve-for-agent-line.md
 export interface ChatToolInfo {
   name: string;
   description?: string;
