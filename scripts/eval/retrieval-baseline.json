@@ -1,5 +1,5 @@
 {
-  "note": "Frozen retrieval ratchet baseline (v1.1 ticket 02). Freezes all nine golden-eval buckets' recallAtK and the three zero-hallucination buckets' ceiling. recallAtK is a FORWARD metric: tighten only — loosening a frozen value needs a recorded reason in .scratch/v1.1-retrieval-honesty/spec.md plus this file edited in the same commit. `intentAnchor.questions` may only grow and `intentAnchor.exempt` may only shrink; closeout of v1.1.0 requires exempt: 0 (ticket 04 converts the four xfail questions and re-freezes the bucket's measured value). `questions` is the global golden-dataset size the gate enforces as a floor.",
+  "note": "Frozen retrieval ratchet baseline (v1.1 ticket 02). Freezes all nine golden-eval buckets' recallAtK and the three zero-hallucination buckets' ceiling. recallAtK is a FORWARD metric: tighten only — loosening a frozen value needs a recorded reason in .scratch/v1.1-retrieval-honesty/spec.md plus this file edited in the same commit. `intentAnchor.questions` may only grow and `intentAnchor.exempt` may only shrink. Ticket 04 (2026-09-28) converted the four xfail questions on landing — TS/TSX comment chunk coverage measured them at 100%, exempt 4 -> 0 and the bucket's frozen 100 re-confirmed in that same commit. `questions` is the global golden-dataset size the gate enforces as a floor.",
   "metric_direction": "forward",
   "questions": 101,
   "recallAtK": {
@@ -20,6 +20,6 @@
   },
   "intentAnchor": {
     "questions": 9,
-    "exempt": 4
+    "exempt": 0
   }
 }

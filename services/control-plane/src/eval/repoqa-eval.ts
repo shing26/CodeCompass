@@ -436,10 +436,15 @@ export const GOLDEN_DATASET: EvalQuestion[] = [
     // (exempt), after it they become formal questions. Queries are chosen to
     // share no identifier with the fixture, so only the doc-chunk bridge can
     // resolve them — which is exactly the coverage under test.
-    { id: 'intent-6', query: '点赞按钮的乐观更新', expected: ['LikeButton'], exempt: true },
-    { id: 'intent-7', query: '连续点击的防抖', expected: ['throttleLike'], exempt: true },
-    { id: 'intent-8', query: '评论草稿自动保存', expected: ['autosaveDraft'], exempt: true },
-    { id: 'intent-9', query: '评论提交前的敏感词过滤', expected: ['filterComment'], exempt: true }
+    // v1.1 ticket 04 — converted from xfail to regular scoring: the TS/TSX
+    // comment chunk coverage landed, all four natural-language questions
+    // retrieve through the LikeButton/CommentBox docstrings (measured 100% on
+    // the day of the coverage landing). Baseline intentAnchor.exempt went
+    // 4 → 0 in the same commit.
+    { id: 'intent-6', query: '点赞按钮的乐观更新', expected: ['LikeButton'] },
+    { id: 'intent-7', query: '连续点击的防抖', expected: ['throttleLike'] },
+    { id: 'intent-8', query: '评论草稿自动保存', expected: ['autosaveDraft'] },
+    { id: 'intent-9', query: '评论提交前的敏感词过滤', expected: ['filterComment'] }
   ].map((item: { id: string; query: string; expected: string[]; exempt?: boolean }) => ({
     id: item.id,
     fixture: 'repo-d',

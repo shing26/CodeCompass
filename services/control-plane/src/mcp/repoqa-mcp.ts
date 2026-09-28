@@ -271,8 +271,11 @@ export const MCP_TOOLS: McpToolMeta[] = [
     description:
       'Domain panorama over the symbol graph (deterministic, zero-LLM): hub nodes by degree and ' +
       'deterministic PageRank (damping 0.85, sink mass redistributed), top external APIs, the ' +
-      'persistence layer, and — with a natural-language intent — the top-3 anchor symbols blended ' +
-      'from identifier fuzzy matching, doc-chunk evidence and graph rank. No embeddings.',
+      'persistence layer, and — with a natural-language query — the top-3 anchor symbols blended ' +
+      'from identifier fuzzy matching, doc-chunk evidence and graph rank. Matching is keyword/' +
+      'substring over indexed chunks — no embeddings, no semantic retrieval (ADR-0002). Chunk ' +
+      'language coverage: .md/readme* (structured by heading), *.java Javadoc, TS/TSX/JS/PY ' +
+      'comments and docstrings; Go is not covered (v1.1 spec §1.3 trigger line).',
     inputSchema: {
       type: 'object',
       properties: {

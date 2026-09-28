@@ -38,7 +38,7 @@ const BUCKET_TOTALS: Record<
 };
 
 describe('RepoPulse golden eval dataset (Issue 09)', () => {
-  it('freezes 101 golden questions: 75 frozen + 22 workbench + 4 exempt (v1.1 ticket 02)', () => {
+  it('freezes 101 golden questions: 75 frozen + 22 workbench, none exempt (v1.1 tickets 02+04)', () => {
     expect(GOLDEN_DATASET).toHaveLength(101);
     const byMode: Record<string, number> = {
       'route-chain': 0,
@@ -72,12 +72,13 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
     }
     expect(byMode).toEqual(BUCKET_TOTALS);
     expect(ids.size).toBe(101);
-    // Ticket 02 (v1.1) — the exemption list is frozen too: exactly the four
-    // non-Java intent questions, converted by ticket 04. A silent growth of
-    // this list (or a stray flag elsewhere) must fail here.
+    // Ticket 02 (v1.1) froze the exemption list at four non-Java intent
+    // questions; ticket 04 converted them when the TS/TSX comment chunk
+    // coverage landed. The mechanism stays, the list must stay empty — a
+    // stray exempt flag anywhere fails here.
     expect(
       GOLDEN_DATASET.filter((question) => question.exempt).map((question) => question.id)
-    ).toEqual(['intent-6', 'intent-7', 'intent-8', 'intent-9']);
+    ).toEqual([]);
   });
 
   it('materializes and commits fixtures deterministically', async () => {
@@ -120,12 +121,13 @@ describe('RepoPulse golden eval dataset (Issue 09)', () => {
       expect(report.buckets.config.total).toBe(15);
       expect(report.buckets.architecture.total).toBe(15);
       expect(report.buckets['intent-anchor'].total).toBe(9);
-      // Ticket 02 (v1.1) — the four non-Java questions are xfail-shaped: they
-      // sit inside `total`, never move the bucket thresholds (recall stays 100
-      // over the five formal questions), and their own 0/4 reading is reported
-      // separately — the gap stays visible on every run.
+      // Ticket 02 (v1.1) froze the four non-Java questions as xfail-shaped
+      // (inside `total`, below the thresholds, 0/4 reported separately).
+      // Ticket 04 converted them when chunk coverage landed: all nine score
+      // in-bucket at 100 and the exempt payload is gone entirely — its return
+      // would mean a regression regrew an exemption.
       expect(report.buckets['intent-anchor'].recallAtK).toBe(100);
-      expect(report.buckets['intent-anchor'].exempt).toEqual({ total: 4, recallAtK: 0 });
+      expect(report.buckets['intent-anchor'].exempt).toBeUndefined();
       expect(report.buckets['diagnose-chain'].total).toBe(5);
       expect(report.buckets.evolution.total).toBe(5);
       expect(report.buckets.incident.total).toBe(10);

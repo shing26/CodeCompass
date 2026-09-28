@@ -86,9 +86,13 @@ import {
   annotateTraceHttpMethods,
   deterministicIntentParse,
   findFuzzyStartSymbol,
-  fuzzyMatchScore,
-  lineNumberAt
+  fuzzyMatchScore
 } from './worker-helpers';
+import {
+  extractCommentBlocks,
+  MAX_CHUNK_CHARS,
+  splitMarkdownSections
+} from './repoqa-chunker';
 import type {
   DiagramSession,
   FileRefreshResult,
@@ -2056,32 +2060,34 @@ export class RepoQAWorker {
         const content = await fs.readFile(filePath, 'utf8').catch(() => '');
         const maskedContent = maskSensitiveText(content);
         if (maskedContent !== content) masked = true;
-        if (maskedContent.trim()) {
+        // Ticket 05 (v1.1) — structured sections with breadcrumbs instead of
+        // one truncated slice; chunkType stays 'readme' for downstream filters.
+        for (const section of splitMarkdownSections(maskedContent)) {
           chunks.push({
             repoId,
             chunkType: 'readme',
-            content: maskedContent.slice(0, 4000),
+            content: section.content,
             filePath: relativePath,
-            lineStart: 1
+            lineStart: section.lineStart
           });
         }
         continue;
       }
 
-      if (filePath.endsWith('.java')) {
-        const content = await fs.readFile(filePath, 'utf8').catch(() => '');
-        const javadoc = content.match(/\/\*\*[\s\S]*?\*\//g) ?? [];
-        for (const block of javadoc) {
-          const maskedBlock = maskSensitiveText(block);
-          if (maskedBlock !== block) masked = true;
-          chunks.push({
-            repoId,
-            chunkType: 'docstring',
-            content: maskedBlock.slice(0, 4000),
-            filePath: relativePath,
-            lineStart: lineNumberAt(content, content.indexOf(block))
-          });
-        }
+      // Ticket 04 (v1.1) — declaration-level comments/docstrings for Java
+      // (unchanged), TS/TSX/JS and Python. Masking stays pre-insert, exactly
+      // like the md branch above (ADR-0003).
+      const content = await fs.readFile(filePath, 'utf8').catch(() => '');
+      for (const block of extractCommentBlocks(filePath, content)) {
+        const maskedBlock = maskSensitiveText(block.content);
+        if (maskedBlock !== block.content) masked = true;
+        chunks.push({
+          repoId,
+          chunkType: 'docstring',
+          content: maskedBlock.slice(0, MAX_CHUNK_CHARS),
+          filePath: relativePath,
+          lineStart: block.lineStart
+        });
       }
     }
     if (masked) {
