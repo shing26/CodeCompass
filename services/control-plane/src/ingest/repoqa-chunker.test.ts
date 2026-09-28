@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
+import { join } from 'path';
 import { openDb } from '../db';
 import { RepoQARepos } from './repoqa-repos';
 import { extractCommentBlocks, splitMarkdownSections } from './repoqa-chunker';
@@ -164,7 +165,9 @@ describe('ticket 04/05 wiring', () => {
   });
 
   it('Go stays out of scope (ticket 07 owns the boundary wording)', () => {
-    const source = readFileSync(new URL('./repoqa-chunker.ts', import.meta.url), 'utf8');
+    // 本包构建 CJS，import.meta 不可用（typecheck 红线，见 copy-guard.server.test.ts）；
+    // 测试一律从包根执行，按 process.cwd() 读源码。
+    const source = readFileSync(join(process.cwd(), 'src', 'ingest', 'repoqa-chunker.ts'), 'utf8');
     expect(source).not.toContain("endsWith('.go')");
     expect(source).not.toContain('endsWith(".go")');
   });
