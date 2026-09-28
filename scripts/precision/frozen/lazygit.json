@@ -1,0 +1,78 @@
+{
+  "name": "lazygit",
+  "commit": "c07f4d3",
+  "sampling": "top-n",
+  "metric_direction": "inverse",
+  "top": [
+    {
+      "filePath": "pkg/app/app.go",
+      "line": 290,
+      "symbol": "App.Close",
+      "verdict": "false-positive",
+      "class": "exported-api"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 123,
+      "symbol": "deserializeInstruction",
+      "verdict": "false-positive",
+      "class": "value-reference"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 142,
+      "symbol": "ExitImmediatelyInstruction.Kind",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 146,
+      "symbol": "ExitImmediatelyInstruction.SerializedInstructions",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 150,
+      "symbol": "ExitImmediatelyInstruction.run",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 160,
+      "symbol": "RemoveUpdateRefsForCopiedBranchInstruction.Kind",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 164,
+      "symbol": "RemoveUpdateRefsForCopiedBranchInstruction.SerializedInstructions",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 168,
+      "symbol": "RemoveUpdateRefsForCopiedBranchInstruction.run",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 188,
+      "symbol": "ChangeTodoActionsInstruction.Kind",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    },
+    {
+      "filePath": "pkg/app/daemon/daemon.go",
+      "line": 192,
+      "symbol": "ChangeTodoActionsInstruction.SerializedInstructions",
+      "verdict": "false-positive",
+      "class": "interface-dispatch-impl"
+    }
+  ]
+}

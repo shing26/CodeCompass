@@ -1,0 +1,78 @@
+{
+  "name": "petclinic",
+  "commit": "3858f9c",
+  "sampling": "top-n",
+  "metric_direction": "inverse",
+  "top": [
+    {
+      "filePath": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java",
+      "line": 54,
+      "symbol": "OwnerDetailsBuilder.anOwnerDetails",
+      "verdict": "false-positive",
+      "class": "fluent-chain"
+    },
+    {
+      "filePath": "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java",
+      "line": 93,
+      "symbol": "OwnerDetailsBuilder.build",
+      "verdict": "false-positive",
+      "class": "fluent-chain"
+    },
+    {
+      "filePath": "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js",
+      "line": 16,
+      "symbol": "toggleChatbox",
+      "verdict": "false-positive",
+      "class": "dom-event-wiring"
+    },
+    {
+      "filePath": "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js",
+      "line": 61,
+      "symbol": "handleKeyPress",
+      "verdict": "false-positive",
+      "class": "dom-event-wiring"
+    },
+    {
+      "filePath": "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js",
+      "line": 69,
+      "symbol": "saveChatMessages",
+      "verdict": "false-positive",
+      "class": "dom-event-wiring"
+    },
+    {
+      "filePath": "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js",
+      "line": 75,
+      "symbol": "loadChatMessages",
+      "verdict": "false-positive",
+      "class": "dom-event-wiring"
+    },
+    {
+      "filePath": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Owner.java",
+      "line": 88,
+      "symbol": "Owner.toString",
+      "verdict": "false-positive",
+      "class": "object-protocol-override"
+    },
+    {
+      "filePath": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Pet.java",
+      "line": 58,
+      "symbol": "Pet.toString",
+      "verdict": "false-positive",
+      "class": "object-protocol-override"
+    },
+    {
+      "filePath": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Pet.java",
+      "line": 110,
+      "symbol": "Pet.equals",
+      "verdict": "false-positive",
+      "class": "object-protocol-override"
+    },
+    {
+      "filePath": "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Pet.java",
+      "line": 121,
+      "symbol": "Pet.hashCode",
+      "verdict": "false-positive",
+      "class": "object-protocol-override"
+    }
+  ]
+}

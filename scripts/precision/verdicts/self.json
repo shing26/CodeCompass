@@ -3,22 +3,12 @@
     "sample": "self (CodeCompass working tree @ ticket-05 batch: 6→3 tabs + test-only UI removal), top-10 of orphanedPublic (total 164, symbols 2055)",
     "method": "external-reference grep over the working tree (excluding .mimosa snapshots, node_modules, dist) + structural judgement; see docs/reports/scan-precision-baseline-2026-09-16.md §17",
     "measured": "2026-09-27",
-    "note": "Top-10 fully reshuffled by the issue-22 mechanisms (value-reference edges, useRef deref, type flow): every receiver-typing false positive left the bucket. What floated up is a DIFFERENT population: test-only components/exports (Web 面只减不增的死 UI) and two registered mechanism gaps. M1 (top-10 false-positive rate) = 10/10 = 100% — the read looks worse while the composition is strictly better understood; every entry is a known class with a disposition. Composition shift, not regression."
-  },
-  "apps/repoqa-web/src/brand-marks.ts:182": {
-    "verdict": "false-positive",
-    "class": "test-only-export",
-    "reason": "brandColor has no production caller; only brand-marks.test.ts consumes it. Unchanged verdict from 2026-09-20."
+    "note": "Top-10 fully reshuffled by the issue-22 mechanisms (value-reference edges, useRef deref, type flow): every receiver-typing false positive left the bucket. What floated up is a DIFFERENT population: test-only components/exports (Web 面只减不增的死 UI) and two registered mechanism gaps. M1 (top-10 false-positive rate) = 10/10 = 100% — the read looks worse while the composition is strictly better understood; every entry is a known class with a disposition. Composition shift, not regression. | Ticket 06 (2026-09-29): 2 residual keys removed (symbols left the top-10 population; judgement history in git) — verdict keys must equal the frozen top-10 exactly."
   },
   "apps/repoqa-web/src/client/RepoQAClient.ts:820": {
     "verdict": "false-positive",
     "class": "member-chain-union-ambiguity",
     "reason": "EvolveStream.close is called at useEvolutionSession.ts:278/:298 as streamRef.current?.stream.close() — streamRef's type is a UNION of two object literals whose .stream members differ (EvolveStreamLike vs QueryStreamLike), so the dispatch target is genuinely ambiguous and stays dynamic by ADR-0002. Discriminated-union narrowing is beyond this engine's scope (registered)."
-  },
-  "apps/repoqa-web/src/client/mermaidGraph.ts:51": {
-    "verdict": "false-positive",
-    "class": "test-only-export",
-    "reason": "escapeMermaidLabel has no production caller; only mermaidGraph.test.ts consumes it. An exported utility kept for its test."
   },
   "packages/bridge-adapters/src/browser.ts:9": {
     "verdict": "false-positive",

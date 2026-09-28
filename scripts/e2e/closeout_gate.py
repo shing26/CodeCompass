@@ -575,6 +575,80 @@ def check_precision_ratchet(node: str) -> None:
     )
 
 
+def check_precision_frozen() -> None:
+    """v1.1 ticket 06 — 真仓 top-10 假阳性门（账实一致，零 clone）。
+
+    The frozen summaries (`scripts/precision/frozen/*.json`, written only by an
+    explicit `scan_precision.ts --freeze` on a clone-capable machine) are the账;
+    the committed verdict files (`scripts/precision/verdicts/*.json`) are the实.
+    CI compares them without any clone:
+
+    1. frozen keys == verdict keys, both directions (extra verdict keys are
+       named — residue like self's two pre-ticket-06 strays gets flagged);
+    2. every frozen entry carries a verdict (a coverage hole = denominator
+       shrink = the exact stale-file trap V31-05's score() already guards);
+    3. verdict VALUES match the frozen truth (an edited judgement drifts the
+      账 and goes red);
+    4. the frozen file carries no volatile fields (key whitelist).
+
+    HONEST BOUNDARY (must stay visible): CI has no clones, so the engine never
+    runs here — this gate cannot catch a real-repo engine regression. It catches
+    editing/consistency drift of the judged truth. Engine regression detection
+    is the pre-release manual re-score (v1.1 closeout checklist, spec §6.1).
+    top-N sampling: never extrapolate these rates to a whole-repo false-positive
+    rate (ratchet-baseline.json `sampling`, ticket 12).
+    """
+    frozen_dir = ROOT / "scripts/precision/frozen"
+    verdict_dir = ROOT / "scripts/precision/verdicts"
+    gate_name = "真仓 top-10 假阳性门（账实一致，零 clone，不得外推全仓率）"
+    if not frozen_dir.exists():
+        record(gate_name, False, "scripts/precision/frozen/ missing — run scan_precision.ts --freeze once")
+        return
+    problems: list[str] = []
+    summary_bits: list[str] = []
+    for frozen_path in sorted(frozen_dir.glob("*.json")):
+        try:
+            frozen = json.loads(frozen_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 — fail closed with its own reason
+            problems.append(f"{frozen_path.name}: unreadable ({exc})")
+            continue
+        unexpected_keys = set(frozen) - {"name", "commit", "sampling", "metric_direction", "top"}
+        if unexpected_keys:
+            problems.append(f"{frozen_path.name}: volatile/unknown fields {sorted(unexpected_keys)}")
+        verdict_path = verdict_dir / frozen_path.name
+        if not verdict_path.exists():
+            problems.append(f"{frozen_path.name}: verdicts/{frozen_path.name} missing")
+            continue
+        verdicts = json.loads(verdict_path.read_text(encoding="utf-8"))
+        verdict_keys = {k for k in verdicts if k != "_meta"}
+        frozen_keys = {f"{e['filePath']}:{e['line']}" for e in frozen.get("top", [])}
+        extra = sorted(verdict_keys - frozen_keys)
+        missing = sorted(frozen_keys - verdict_keys)
+        if extra:
+            problems.append(f"{frozen_path.name}: {len(extra)} verdict key(s) beyond the frozen top-10: {extra}")
+        if missing:
+            problems.append(f"{frozen_path.name}: {len(missing)} frozen key(s) unjudged: {missing}")
+        drift: list[str] = []
+        for entry in frozen.get("top", []):
+            key = f"{entry['filePath']}:{entry['line']}"
+            actual = verdicts.get(key, {}).get("verdict")
+            if not entry.get("verdict") or actual != entry["verdict"]:
+                drift.append(f"{key} frozen={entry['verdict']} verdicts={actual}")
+        if drift:
+            problems.append(f"{frozen_path.name}: verdict drift — {'; '.join(drift)}")
+        fps = sum(1 for e in frozen.get("top", []) if e.get("verdict") == "false-positive")
+        summary_bits.append(
+            f"{frozen.get('name', frozen_path.stem)}@{frozen.get('commit', '?')}"
+            f" top-10 fp={fps}/{len(frozen.get('top', []))}"
+            f" (sampling={frozen.get('sampling')}, direction={frozen.get('metric_direction')})"
+        )
+    record(
+        gate_name,
+        not problems,
+        "; ".join(problems) if problems else " | ".join(summary_bits),
+    )
+
+
 def check_mcp_conformance(node: str, cli: Path, repo_path: Path, data_dir: Path) -> None:
     """Issue 14 (评估维 E-M10) — the portable protocol suite, both directions.
 
@@ -2252,6 +2326,8 @@ def main() -> int:
     check_doc_surface()
     # V31-05: precision ratchet (no server; indexes the working tree itself).
     check_precision_ratchet(args.node)
+    # v1.1 ticket 06: real-repo top-10 false-positive gate (zero clone).
+    check_precision_frozen()
 
     # V30-9 — keep the gate HERMETIC. The chat/incident checks must exercise the
     # deterministic degrade path, not a remote LLM: a live provider made red flags

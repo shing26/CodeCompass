@@ -30,7 +30,7 @@
 | 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
 | 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线（2026-09-28，v1.1 波 1 中期） | 控制面 **739**、web **347**、bridge **26**、e2e **71/0**（含 mcp-handshake-version 棘轮与 V31-05 精度棘轮）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| 门禁基线（2026-09-29，v1.1 波 2/3 中期） | 控制面 **770**、web **347**、bridge **26**、e2e **72/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
 | MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言。installer 的 autoApprove **默认派生自注册表但会过滤掉破坏性工具**（v1.1 票 11 的 `NON_AUTO_APPROVED_TOOLS`，现只列 `codecompass_remove_repo`）——**新增破坏性工具时必须把名字加进这张清单，否则默认安装会重新自动批准它**；`--auto-approve-all` 可写全量 |
 
 ### 2.2 架构不变量（违反即返工）
@@ -116,6 +116,8 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 20 接口→实现关系表（ADR-0018 `deferred` 的 A′ step 2） | ✅ **已落地（2026-09-24）**——**票面前提被实测推翻**：`implsOfInterface` 早已存在且映射正确，真缺口是**调用点接收者未定型**（三处静默失效：回调注解形参无人采集 / 缺方法返回类型 / 具名接口分支吞注解）。self 流订阅族整族离榜、孤儿 **246 → 237**；lazygit/petclinic 逐字节不变（**Go 无 `implements`，不变是预期，非"没生效"**） |
 | 21 按名回退假边口子（`dynamic:false` + 未知接收者类型） | ✅ **已落地（2026-09-24）**——先量出三仓 **1014 条**假边（self 438 / lazygit 575 / petclinic 1：`Error.constructor → HarnessRegistry.constructor` 356、`T.Run → IntegrationTest.Run` 206…），修后 **0/0/0**；**孤儿桶因此变大**（self 237→246、lazygit 1807→1828）——假阴性变可见，是精度提高的信号，不是回退 |
 | 22 值引用边 + 类型流（两族假阳性的新边机制） | ✅ **落地（2026-09-27）**——机制 A 值引用边（`reference: true`，callers 计入、trace 跳过）、机制 B `useRef<T>()` 定型 + `.current` 解引用、机制 C 类型流（内联字面量 members/段走/解构/跨文件字段表）。self 孤儿 **243→170（−30%）**、孤儿/符号比 **8.2%**；top-10 十席换血后全为已知类（test-only 组件/导出 ×7、遗留层 ×2、联合歧义 ×1、同名遮蔽 ×1——每条有具名处置）；lazygit/petclinic 逐字节不变 |
+
+> **M1 口径注（v1.1 票 06，2026-09-29）**：M1 = top-10 假阳性率，是**样本相关读数**——top-10 整榜随引擎机制换人（票 22 落地 + `54ae70b` 死码清理后，09-25 的「40%」人群已消失），跨重排的数字不可连成趋势读；三仓现值皆 **100%（`--score` 复算）**，进度判读以**假边条数**为准。门禁新增「**真仓 top-10 假阳性门**」（`scripts/precision/frozen/` ↔ `verdicts/` 账实一致，**零 clone**，**不得外推全仓率**）；它抓不到引擎回归——引擎回归靠**发版前在有 clone 的机器上人工复跑 `--score`**（v1.1 收口清单新增项，spec §6.1）。
 
 **仍开放（非本批，按性质）**：
 

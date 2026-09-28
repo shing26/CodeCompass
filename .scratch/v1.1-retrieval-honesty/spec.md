@@ -165,6 +165,7 @@
 > **v1.1.0 = 波 1 + 波 2 全部落地且门禁全绿，且票 06、08、10、11、12、13 已落地或显式登记为 `deferred`。**
 > 任一票若因新证据被 `deferred`，须在本 spec 追加"deferred 理由 + 触发线"，方可发版；**主命题（票 01–05、07）不得 deferred** —— 若它们无法完成，则本批不发 v1.1.0，改为记录未完成项。
 > **票 04 转正的收口硬条件（票 02 落地时补）**：`scripts/eval/retrieval-baseline.json` 的 `intentAnchor.exempt` 必须为 **0**（4 道豁免题转为正式题），且 `intent-anchor.recallAtK` 按转正后实测值**重冻**（放宽冻结值须按 §6.2 追加记录）。CI 只强制"只减不增"；`exempt: 0` 与重冻由收口人按本条执行。
+> **发版前人工复测（票 06 增补，2026-09-29）**：在有 lazygit/petclinic clone 的机器上复跑 `npm run precision -- --score`，三仓结果与 `scripts/precision/frozen/` 摘要的差异必须为空或有书面解释（差异非空即 top-10 换人 → 重新判定并 `--freeze` 重钉，理由入票面 Comments）——这是唯一能触及真仓引擎回归的环节（票 06 的门是零 clone 账实一致，抓不到引擎回归）。
 > 收口仪式（照 v0.31 惯例）：版本五处推进 + CHANGELOG `[1.1.0]` 段 + 双轴 review + 全量门禁。
 
 ---

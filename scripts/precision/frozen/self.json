@@ -1,0 +1,78 @@
+{
+  "name": "self",
+  "commit": "c88a206",
+  "sampling": "top-n",
+  "metric_direction": "inverse",
+  "top": [
+    {
+      "filePath": "apps/repoqa-web/src/client/RepoQAClient.ts",
+      "line": 820,
+      "symbol": "EvolveStream.close",
+      "verdict": "false-positive",
+      "class": "member-chain-union-ambiguity"
+    },
+    {
+      "filePath": "apps/repoqa-web/src/context/RepoContext.tsx",
+      "line": 383,
+      "symbol": "handleExport",
+      "verdict": "false-positive",
+      "class": "value-reference-name-collision"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/browser.ts",
+      "line": 9,
+      "symbol": "BrowserAdapter.connect",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/browser.ts",
+      "line": 13,
+      "symbol": "BrowserAdapter.disconnect",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/browser.ts",
+      "line": 25,
+      "symbol": "BrowserAdapter.submit",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/coding.ts",
+      "line": 9,
+      "symbol": "CodingAdapter.connect",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/coding.ts",
+      "line": 13,
+      "symbol": "CodingAdapter.disconnect",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/coding.ts",
+      "line": 17,
+      "symbol": "CodingAdapter.status",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/coding.ts",
+      "line": 21,
+      "symbol": "CodingAdapter.cancel",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    },
+    {
+      "filePath": "packages/bridge-adapters/src/coding.ts",
+      "line": 25,
+      "symbol": "CodingAdapter.submit",
+      "verdict": "false-positive",
+      "class": "legacy-layer-test-only"
+    }
+  ]
+}

@@ -66,6 +66,7 @@ const SAMPLES: SampleRef[] = [
 
 const OUT_DIR = path.join(process.cwd(), 'scripts/precision/out');
 const VERDICT_DIR = path.join(process.cwd(), 'scripts/precision/verdicts');
+const FROZEN_DIR = path.join(process.cwd(), 'scripts/precision/frozen');
 const CLONE_DIR = process.env.PRECISION_DIR ?? path.join(os.tmpdir(), 'cc-precision');
 
 /** Deterministic PRNG (mulberry32) — the sample must be identical across runs.
@@ -399,6 +400,63 @@ async function score(): Promise<void> {
 }
 
 /**
+ * Ticket 06 (v1.1) — freeze the judged top-10 truth into
+ * `scripts/precision/frozen/{name}.json`, the账 that the zero-clone CI gate
+ * (closeout_gate.py check_precision_frozen) checks against the committed
+ * verdicts (the实). Explicit act only: needs the gitignored dumps (commit +
+ * symbols), so it runs on a clone-capable machine, never in CI. Nothing
+ * volatile is written (no measuredAt/elapsedMs/fileCount/metrics); sampling
+ * and metric_direction are copied from the ratchet baseline (ticket 12
+ * fields). Verdict keys that are not in the dump's top-10 are named loudly —
+ * they are residue and must be cleaned or re-judged before the gate can pass.
+ */
+async function freeze(): Promise<void> {
+  const baseline = JSON.parse(
+    await fs.readFile(path.join(process.cwd(), 'scripts/precision/ratchet-baseline.json'), 'utf8')
+  ) as { metric_direction?: string; sampling?: string };
+  const files = (await fs.readdir(OUT_DIR).catch(() => [] as string[])).filter((f) => f.endsWith('.json'));
+  if (!files.length) {
+    throw new Error('no dumps in scripts/precision/out — run a measurement first (needs clones)');
+  }
+  for (const file of files) {
+    const dump = JSON.parse(await fs.readFile(path.join(OUT_DIR, file), 'utf8')) as {
+      name: string;
+      commit: string;
+      samples: { top: Array<{ filePath: string; line: number; symbol: string }> };
+    };
+    const verdicts = JSON.parse(await fs.readFile(path.join(VERDICT_DIR, file), 'utf8')) as Record<
+      string,
+      { verdict?: string; class?: string } | undefined
+    >;
+    const residual = Object.keys(verdicts)
+      .filter((k) => k !== '_meta')
+      .filter((k) => !dump.samples.top.some((c) => `${c.filePath}:${c.line}` === k));
+    if (residual.length) {
+      console.error(
+        `[precision] ${dump.name}: ${residual.length} verdict key(s) not in the dump top-10 ` +
+          `(clean or re-judge): ${residual.join(', ')}`
+      );
+    }
+    const frozen = {
+      name: dump.name,
+      commit: dump.commit,
+      sampling: baseline.sampling ?? 'top-n',
+      metric_direction: baseline.metric_direction ?? 'inverse',
+      top: dump.samples.top.map((c) => ({
+        filePath: c.filePath,
+        line: c.line,
+        symbol: c.symbol,
+        verdict: verdicts[`${c.filePath}:${c.line}`]?.verdict ?? null,
+        class: verdicts[`${c.filePath}:${c.line}`]?.class ?? null,
+      })),
+    };
+    await fs.mkdir(FROZEN_DIR, { recursive: true });
+    await fs.writeFile(path.join(FROZEN_DIR, file), `${JSON.stringify(frozen, null, 2)}\n`);
+    console.log(`[precision] froze ${frozen.name}@${frozen.commit} (${frozen.top.length} entries)`);
+  }
+}
+
+/**
  * V31-05 — the precision RATCHET (ticket 08/11 closeout, user-approved
  * 2026-09-19): precision regressions had no gate at all, so the numbers won a
  * hard fight for and then nothing defended them.
@@ -616,6 +674,8 @@ async function main(): Promise<void> {
     const name = args[args.indexOf('--edges') + 1];
     if (!name) throw new Error('--edges needs a sample name');
     await edges(name);
+  } else if (args.includes('--freeze')) {
+    await freeze();
   } else if (args.includes('--all') || args.length === 0) {
     for (const sample of SAMPLES) await measure(sample);
   } else {
