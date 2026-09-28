@@ -1160,6 +1160,7 @@ describe('Issue 20 MCP CLI wiring', () => {
         noWatch: false,
         doctorJson: false,
         dryRun: false,
+        autoApproveAll: false,
         failOnBreak: false,
         failOnAuthImpact: false,
         help: false,

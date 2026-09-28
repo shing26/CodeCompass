@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   codecompassToolNames,
+  defaultAutoApproveTools,
   installIdeConfig,
   mergeCodecompassEntry,
   renderServerEntry,
@@ -40,10 +41,29 @@ describe('renderServerEntry', () => {
     });
     const cursor = entryFor('cursor') as { command?: string; autoApprove?: string[] };
     expect(cursor.command).toBe(NODE);
-    expect(cursor.autoApprove).toEqual(codecompassToolNames());
-    expect(cursor.autoApprove).toEqual(MCP_TOOLS.map((tool) => tool.name));
+    expect(cursor.autoApprove).toEqual(defaultAutoApproveTools());
+    expect(cursor.autoApprove).toEqual(
+      MCP_TOOLS.map((tool) => tool.name).filter((name) => name !== 'codecompass_remove_repo')
+    );
     const claude = entryFor('claude') as Record<string, unknown>;
     expect(Object.keys(claude).sort()).toEqual(['args', 'command']);
+  });
+
+  it('omits destructive tools from the default allowlist', () => {
+    const entry = entryFor('cursor') as { autoApprove?: string[] };
+    expect(entry.autoApprove).toHaveLength(MCP_TOOLS.length - 1);
+    expect(entry.autoApprove).toContain('codecompass_index_repo');
+    expect(entry.autoApprove).not.toContain('codecompass_remove_repo');
+  });
+
+  it('--auto-approve-all restores the full registry in the allowlist', () => {
+    const entry = renderServerEntry(
+      'cursor',
+      { command: NODE, args: [CLI, 'mcp', REPO_ABS] },
+      { autoApproveAll: true }
+    ) as { autoApprove?: string[] };
+    expect(entry.autoApprove).toEqual(codecompassToolNames());
+    expect(entry.autoApprove).toContain('codecompass_remove_repo');
   });
 });
 
@@ -142,7 +162,7 @@ describe('installIdeConfig', () => {
 
       const written = JSON.parse(await fs.readFile(configPath, 'utf8'));
       expect(Object.keys(written.mcpServers).sort()).toEqual(['codecompass', 'other']);
-      expect(written.mcpServers.codecompass.autoApprove).toEqual(codecompassToolNames());
+      expect(written.mcpServers.codecompass.autoApprove).toEqual(defaultAutoApproveTools());
     } finally {
       await fs.rm(home, { recursive: true, force: true });
     }
@@ -191,7 +211,7 @@ describe('installIdeConfig', () => {
         expect(entry.command).toBe(NODE);
         // Cline/Roo support the allowlist; Windsurf has no such schema field.
         if (ide === 'cline' || ide === 'roo') {
-          expect(entry.autoApprove).toEqual(codecompassToolNames());
+          expect(entry.autoApprove).toEqual(defaultAutoApproveTools());
         } else {
           expect(entry.autoApprove).toBeUndefined();
         }

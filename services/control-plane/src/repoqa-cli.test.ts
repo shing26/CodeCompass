@@ -24,6 +24,7 @@ describe('Issue 16 CLI arg parsing', () => {
         noWatch: false,
         doctorJson: false,
         dryRun: false,
+        autoApproveAll: false,
         failOnBreak: false,
         failOnAuthImpact: false,
         help: false,

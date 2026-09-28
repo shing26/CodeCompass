@@ -87,22 +87,44 @@ export function resolveIdeSpecs(home: string, appData?: string): Record<IdeId, I
   };
 }
 
+/**
+ * v1.1 ticket 11 — tools the installer does NOT auto-approve by default.
+ * `remove_repo` cascades a delete across a repo's index data (symbols, chunks,
+ * files, events) and is not idempotent, so writing it into a host allowlist
+ * means an agent can drop an index with no confirmation prompt. `index_repo`
+ * stays: it is every new repo's first step and dropping it would add real
+ * friction for AFK agents. Approval remains the host's capability — this only
+ * fixes the DEFAULT written at install time; `--auto-approve-all` restores the
+ * full registry.
+ */
+const NON_AUTO_APPROVED_TOOLS: readonly string[] = ['codecompass_remove_repo'];
+
 /** Deterministic allowlist derived from the registered MCP tool registry. */
 export function codecompassToolNames(): string[] {
   return MCP_TOOLS.map((tool) => tool.name);
 }
 
+/** Default allowlist written into host configs: the registry minus destructive tools. */
+export function defaultAutoApproveTools(): string[] {
+  return codecompassToolNames().filter((name) => !NON_AUTO_APPROVED_TOOLS.includes(name));
+}
+
 /** The MCP server entry written into every IDE config (shape per IDE). */
 export function renderServerEntry(
   ide: IdeId,
-  entry: { command: string; args: string[] }
+  entry: { command: string; args: string[] },
+  options: { autoApproveAll?: boolean } = {}
 ): Record<string, unknown> {
   if (ide === 'zcode') {
     return { type: 'stdio', command: entry.command, args: entry.args };
   }
   if (ide === 'cursor' || ide === 'cline' || ide === 'roo') {
     // Cursor/Cline/Roo share the autoApprove allowlist concept.
-    return { command: entry.command, args: entry.args, autoApprove: codecompassToolNames() };
+    return {
+      command: entry.command,
+      args: entry.args,
+      autoApprove: options.autoApproveAll ? codecompassToolNames() : defaultAutoApproveTools()
+    };
   }
   return { command: entry.command, args: entry.args };
 }
@@ -153,6 +175,8 @@ export interface InstallOptions {
   cliPath?: string;
   /** Preview without writing. */
   dryRun?: boolean;
+  /** v1.1 ticket 11: restore the full registry in the allowlist (default omits destructive tools). */
+  autoApproveAll?: boolean;
   /** Write `<config>.bak-<timestamp>` before modifying (default true). */
   backup?: boolean;
   log?: (line: string) => void;
@@ -211,7 +235,7 @@ export async function installIdeConfig(options: InstallOptions): Promise<Install
     }
   }
 
-  const shaped = renderServerEntry(options.ide, entry);
+  const shaped = renderServerEntry(options.ide, entry, { autoApproveAll: options.autoApproveAll });
   const { next, changed } = mergeCodecompassEntry(options.ide, existing, shaped);
 
   const result: InstallResult = {

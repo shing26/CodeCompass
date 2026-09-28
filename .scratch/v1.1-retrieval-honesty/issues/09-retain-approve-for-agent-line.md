@@ -27,6 +27,7 @@ Status: done
    目的：**让下一轮死码清扫不会误删它**（v1.0 后清理批的判据是"无生产调用点即删"，本函数是新判据下的例外）。
 2. 在本票 Comments 登记：**为何不删**（已有明确的下游消费者，跨仓）+ **判据更新**（"无生产调用点即删"须先排除"跨仓预定消费者"）。
 3. **不改** `installer.ts`、**不改**测试、**不改** README。
+   - ⚠️ 2026-09-28 勘误：末半句「不改测试」与验收 1「grep 断言」自相矛盾——断言本身就是测试。实现按**验收 1 为准**：断言**折入既有用例**（`chat/chat.test.ts` 的 `deriveAutoApprove` 用例内，不新增用例、计数不变），未新建哨件；`installer.ts`、README、可用行为**确未改**（见落地记录）。
 
 ## 验收（机器可验证）
 
@@ -39,6 +40,7 @@ Status: done
 - [x] 验收 1：`chat/approve.ts:1` 起为四行豁免说明，首行即机器可读标记 `test-only by design: reserved for the agent-line MCP client`；grep 断言**折入既有用例**（`chat/chat.test.ts` 的 `deriveAutoApprove > follows the live tools/list result, sorted`，不新增用例 → 计数不变），读源文件后 `toContain` 该标记。
   - **门会红**：临时删除标记首行 → 该用例失败（`AssertionError: expected '// RED-PROOF TEMP…' to contain 'test-only by design…'`）→ 复原 → 绿。
 - [x] 验收 2：`installer --dry-run`（cursor/cline/roo，临时 HOME 指向 `D:\zcode-tmp\install-probe`）输出与改动前**逐字节一致**（`cmp` 三连 IDENTICAL；含 `autoApprove` 17 项不变）。
+  - ⚠️ 该一致性的口径**限定在本票提交树（b503db5）**：紧随其后的票 11 按用户决策把默认 `autoApprove` 改成 16 项（去 `remove_repo`），故此后跑不出 17 项的一致——不要把它当批次级门禁复跑。
 - [x] 验收 3：控制面用例数 **737 不变**、全绿（59 文件）；typecheck 干净。
 
 ## Comments

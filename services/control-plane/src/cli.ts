@@ -70,6 +70,8 @@ export interface CliArgs {
   installIde?: string;
   /** `codecompass install --dry-run` — preview without writing. */
   dryRun: boolean;
+  /** `codecompass install --auto-approve-all` — v1.1 ticket 11: default omits destructive tools. */
+  autoApproveAll: boolean;
   /** `codecompass install --repo <path>` — repo the MCP entry indexes. */
   installRepo?: string;
   /** `codecompass refactor-plan --change-type <t>` (default SIGNATURE_CHANGE). */
@@ -108,7 +110,7 @@ Usage:
   codecompass radar [query] [repoPath]
   codecompass evolve --intent <deprecate|extend> --target <module|symbol> [repoPath]
   codecompass doctor [--data-dir <path>] [--json]
-  codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run]
+  codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run] [--auto-approve-all]
 
 Subcommands:
   mcp <path>            Start a Model Context Protocol (MCP) stdio server. The
@@ -167,7 +169,11 @@ Subcommands:
                         Claude Desktop). Merges idempotently, backs up the
                         previous file, and resolves the Node runtime absolute
                         path automatically. "--ide all" configures every
-                        supported IDE.
+                        supported IDE. The allowlist omits destructive tools
+                        (codecompass_remove_repo) by default — pass
+                        --auto-approve-all to write the full registry; hosts
+                        installed before v1.1.0 keep the old allowlist until
+                        install is re-run.
 
 Arguments:
   path                  Local repository directory to import, then open the
@@ -185,6 +191,9 @@ Options:
   --repo <path>         Repository directory for install / diagnose /
                         refactor-plan / export (default: current directory)
   --dry-run             With install: preview the config write without touching disk
+  --auto-approve-all    With install: write the full tool registry into the host
+                        allowlist; the default omits destructive tools
+                        (codecompass_remove_repo)
   --json                With doctor, emit a structured JSON report
   --output <fmt>        Diff report format: markdown | json (default: markdown)
   --file <path>         Write the diff report to a file instead of stdout
@@ -204,6 +213,7 @@ export function parseArgs(argv: string[]): ParseResult {
     noWatch: false,
     doctorJson: false,
     dryRun: false,
+    autoApproveAll: false,
     failOnBreak: false,
     failOnAuthImpact: false,
     help: false,
@@ -302,6 +312,10 @@ export function parseArgs(argv: string[]): ParseResult {
     }
     if (arg === '--dry-run') {
       args.dryRun = true;
+      continue;
+    }
+    if (arg === '--auto-approve-all') {
+      args.autoApproveAll = true;
       continue;
     }
 
@@ -928,6 +942,7 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         ide: target,
         repoPath,
         dryRun: args.dryRun,
+        autoApproveAll: args.autoApproveAll,
         log
       });
     }

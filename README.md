@@ -67,9 +67,9 @@ TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.po
 
 ### 10. Zero-Config 安装器（v0.8）
 ```bash
-codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run]
+codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run] [--auto-approve-all]
 ```
-把 stdio MCP 入口写入各 IDE 自有配置（Cursor `~/.cursor/mcp.json` 并注入工具 autoApprove 白名单、ZCode `~/.zcode/cli/config.json`、Claude Desktop），自动解析 Node 运行时绝对路径；幂等合并、写前自动备份、`--dry-run` 预览。
+把 stdio MCP 入口写入各 IDE 自有配置（Cursor `~/.cursor/mcp.json` 并注入工具 autoApprove 白名单、ZCode `~/.zcode/cli/config.json`、Claude Desktop），自动解析 Node 运行时绝对路径；幂等合并、写前自动备份、`--dry-run` 预览。**默认不自动批准破坏性工具**：白名单为 17 个工具里去掉 `codecompass_remove_repo`（级联删除索引数据）的 16 个；需要全量时加 `--auto-approve-all`。
 
 ## 快速上手
 
@@ -158,6 +158,8 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 ```
 
 支持一键写入的 IDE：Cursor、ZCode、Claude Desktop、Windsurf、Cline (VS Code)、Roo Code (VS Code)。
+
+写入 Cursor / Cline / Roo 配置时，`autoApprove` 允许列表**默认不含破坏性工具**（`codecompass_remove_repo`，级联删除索引数据）；需要恢复全量 17 个工具时加 `--auto-approve-all`。**早前装过的环境不会自动变安全**——重跑一次 `codecompass install` 刷新允许列表。
 
 ## MCP 工具接入
 
