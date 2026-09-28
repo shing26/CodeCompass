@@ -146,6 +146,9 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
           log: chat.log,
           onDelta: () => {},
           fetchImpl: chat.fetchImpl,
+          // Ticket 08 (v1.1) — the turnId prefix; per-session agents keep the
+          // per-agent seq monotonic within one session.
+          sessionId,
         });
         chat.agents.set(sessionId, agent);
       }
@@ -175,7 +178,14 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
       assistantSaved = true;
       send('citations', { citations: turn.citations });
       send('plan', { planCards: turn.planCards ?? [] });
-      send('done', { answer: turn.answer, steps: turn.steps, fallback: turn.fallback });
+      // Ticket 08 (v1.1) — done carries the turnId so a replay can join the
+      // SSE turn with its JSONL tool_result/agent_turn rows as one unit.
+      send('done', {
+        answer: turn.answer,
+        steps: turn.steps,
+        fallback: turn.fallback,
+        turnId: turn.turnId,
+      });
       if (!closed) res.end();
       else try { res.end(); } catch { /* socket already gone */ }
     } catch (err) {

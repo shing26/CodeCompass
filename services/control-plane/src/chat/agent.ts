@@ -33,6 +33,10 @@ export interface Citation {
   tool: string;
   args: Record<string, unknown>;
   ms: number;
+  /** Ticket 08 (v1.1) — per-turn correlation key (`sessionId:seq`) shared by
+   * every citation, the JSONL tool_result/agent_turn rows and the done payload,
+   * so one question's whole tool sequence is retrievable as a unit. */
+  turnId: string;
 }
 
 /** CM-04 卡片化 v2：DEPRECATE 下线清单的结构化卡片（数据来自
@@ -57,6 +61,9 @@ export interface AgentTurn {
   steps: number;
   fallback: boolean;
   planCards?: PlanCard[];
+  /** Ticket 08 (v1.1) — mirrors the turnId on every citation and both JSONL
+   * rows; the done payload carries it so a replay can join all three. */
+  turnId: string;
 }
 
 /** Structural surfaces so tests can stub without spawning processes. The
@@ -78,12 +85,17 @@ export interface AgentDeps {
   onDelta: (text: string) => void;
   /** Test seam — injects a scripted fetch; defaults to global fetch. */
   fetchImpl?: typeof fetch;
+  /** Ticket 08 (v1.1) — the chat session id used as the turnId prefix. The
+   * REPL omits it and turns fall back to the literal `session` prefix. */
+  sessionId?: string;
 }
 
 export class ReActAgent {
   private history: ChatMessage[] = [];
   private sessionRepoId = '';
   private inFlight: Promise<unknown> = Promise.resolve();
+  /** Ticket 08 (v1.1) — per-agent monotonic turn counter for the turnId. */
+  private turnSeq = 0;
 
   constructor(private readonly deps: AgentDeps) {}
 
@@ -116,7 +128,11 @@ export class ReActAgent {
     intent: string,
     opts: { onDelta?: (text: string) => void; onRegenerate?: () => void } = {},
   ): Promise<AgentTurn> {
-    if (!this.deps.llm.configured()) return this.fallback(intent);
+    // Ticket 08 (v1.1) — one correlation key per question: it rides every
+    // citation, both JSONL rows and the done payload, so the whole tool
+    // sequence of a turn is retrievable as a unit by `turnId`.
+    const turnId = `${this.deps.sessionId ?? 'session'}:${++this.turnSeq}`;
+    if (!this.deps.llm.configured()) return this.fallback(intent, turnId);
     const tools = this.deps.mcp.connected ? toToolSpecs(this.deps.mcp.toolsDetail) : [];
     const onDelta = opts.onDelta ?? this.deps.onDelta;
     // QA-03: the session's repo is part of the standing context so 「这个仓库」
@@ -131,6 +147,7 @@ export class ReActAgent {
     ];
     const citations: Citation[] = [];
     const planCards: PlanCard[] = [];
+    let audited = 0;
     let n = 0;
     let steps = 0;
     let answer = '';
@@ -180,9 +197,29 @@ export class ReActAgent {
           );
         }
         n += 1;
-        const citation: Citation = { n, tool: tc.function.name, args, ms: Date.now() - t0 };
+        // R1 egress invariant (ticket 08 验收②): citation args are masked at
+        // the source — stringify→mask→parse, the established parse-safe
+        // masking pattern — so the SSE, DB and JSONL copies all inherit it.
+        const citation: Citation = {
+          n,
+          tool: tc.function.name,
+          args: maskArgs(args),
+          ms: Date.now() - t0,
+          turnId,
+        };
         citations.push(citation);
-        this.deps.log.write('tool_result', { tool: tc.function.name, via: 'react', cite: n, ms: citation.ms });
+        this.deps.log.write('tool_result', {
+          tool: tc.function.name,
+          via: 'react',
+          cite: n,
+          ms: citation.ms,
+          turnId,
+          args: citation.args,
+          // Same masked model-visible content as the tool message, trimmed for
+          // a greppable audit row (full text rides the messages transcript).
+          summary: content.slice(0, 800),
+        });
+        audited += 1;
         messages.push({ role: 'tool', tool_call_id: tc.id, content });
       }
     }
@@ -230,13 +267,25 @@ export class ReActAgent {
       citations,
       fallback: false,
       planCards: planCards.length,
+      turnId,
+      // ADR-0019 boundary made explicit (ticket 08): a citation without a
+      // tool_result row would be a silent audit hole. The loop writes 1:1, so
+      // this stays 0 — if that ever stops being true, the number says so.
+      notAudited: citations.length - audited,
     });
-    return { answer: finalAnswer, citations, steps, fallback: false, planCards: planCards.length ? planCards : undefined };
+    return {
+      answer: finalAnswer,
+      citations,
+      steps,
+      fallback: false,
+      planCards: planCards.length ? planCards : undefined,
+      turnId,
+    };
   }
 
   /** Deterministic degradation when no LLM is configured (reference semantics:
    * fallback:true, never fabricate). Keyword-routes the obvious intents. */
-  private async fallback(intent: string): Promise<AgentTurn> {
+  private async fallback(intent: string, turnId: string): Promise<AgentTurn> {
     const lower = intent.toLowerCase();
     if (!this.deps.mcp.connected) {
       return {
@@ -244,6 +293,7 @@ export class ReActAgent {
         citations: [],
         steps: 0,
         fallback: true,
+        turnId,
       };
     }
     if (/scan|扫|哪里|改动|债务|debt|touch/.test(lower)) {
@@ -252,9 +302,10 @@ export class ReActAgent {
       const outcome = await this.deps.mcp.callTool('codecompass_scan', { repoId });
       return {
         answer: renderScan(outcome.payload),
-        citations: [{ n: 1, tool: 'codecompass_scan', args: { repoId }, ms: outcome.ms }],
+        citations: [{ n: 1, tool: 'codecompass_scan', args: { repoId }, ms: outcome.ms, turnId }],
         steps: 1,
         fallback: true,
+        turnId,
       };
     }
     return {
@@ -263,6 +314,7 @@ export class ReActAgent {
       citations: [],
       steps: 0,
       fallback: true,
+      turnId,
     };
   }
 
@@ -319,6 +371,20 @@ export class ReActAgent {
     } catch {
       return masked.slice(0, TOOL_RESULT_CHAR_CAP);
     }
+  }
+}
+
+/**
+ * Ticket 08 (v1.1) — mask tool-call args at the source. `maskSensitiveText`
+ * replaces text inside JSON string values only, so the stringify→mask→parse
+ * round-trip stays structure-preserving (same pattern as summarizeIfLarge's
+ * masked-scan branch). Non-serializable args degrade to {} rather than leak.
+ */
+export function maskArgs(args: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return JSON.parse(maskSensitiveText(JSON.stringify(args))) as Record<string, unknown>;
+  } catch {
+    return {};
   }
 }
 

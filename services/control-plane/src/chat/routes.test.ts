@@ -114,6 +114,35 @@ describe('chat routes error contract (R3)', () => {
     expect(note?.content).not.toContain(DSN_SECRET);
   });
 
+  it('SSE done frame carries the turn turnId so a replay can join the JSONL rows (ticket 08)', async () => {
+    store.createSession('s2', 'repo-x', '回放会话');
+    agents.set('s2', {
+      setSessionRepo: () => {},
+      seedHistory: () => {},
+      runSerialized: async () => ({
+        answer: '结论',
+        citations: [{ n: 1, tool: 'codecompass_scan', args: {}, ms: 1, turnId: 's2:1' }],
+        steps: 1,
+        fallback: false,
+        turnId: 's2:1',
+      }),
+    } as unknown as ReActAgent);
+
+    const res = await fetch(`${baseUrl}/api/chat/sessions/s2/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: '整段取出这一问' })
+    });
+    expect(res.status).toBe(200);
+    const raw = await res.text();
+    const frame = raw.split('\n\n').find((f) => f.startsWith('event: done'));
+    expect(frame, `no done frame in: ${raw.slice(0, 200)}`).toBeTruthy();
+    const dataLine = frame!.split('\n').find((l) => l.startsWith('data:'));
+    const parsed = JSON.parse(dataLine!.slice(5).trim()) as { turnId?: string; steps: number };
+    expect(parsed.turnId).toBe('s2:1');
+    expect(parsed.steps).toBe(1);
+  });
+
   // R3 review P2-4：三出口的第三个——writeHead 之前炸（seedHistory）→ 500 JSON 分支。
   it('agent failure BEFORE streaming → 500 JSON with chat_run_failed, masked', async () => {
     store.createSession('s3', 'repo-x', '早炸会话');

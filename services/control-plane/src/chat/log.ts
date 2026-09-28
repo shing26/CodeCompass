@@ -40,3 +40,39 @@ export class SessionLogger {
     return this.file;
   }
 }
+
+export interface TurnAudit {
+  turnId: string;
+  /** tool_result rows carrying this turnId. */
+  records: number;
+  /** Expected count (the turn's citations / done payload count). */
+  citations: number;
+  /** tool_result rows in the provided window that carry no turnId at all —
+   * the "broken link" a writer regression would produce. */
+  missingTurnId: number;
+  consistent: boolean;
+}
+
+/**
+ * Ticket 08 (v1.1) — turn-level consistency check over parsed session rows:
+ * the tool_result records linked by one turnId must be exactly as many as the
+ * turn's citations, and no row in the window may silently lack the key. Rows
+ * predating ticket 08 have no turnId; the caller scopes the window so legacy
+ * rows don't false-positive (the missingTurnId count is only meaningful for
+ * rows this-side of the upgrade).
+ */
+export function auditTurnRecords(
+  rows: SessionEvent[],
+  turnId: string,
+  expectedCitations: number,
+): TurnAudit {
+  const records = rows.filter((r) => r.type === 'tool_result' && r.turnId === turnId).length;
+  const missingTurnId = rows.filter((r) => r.type === 'tool_result' && !r.turnId).length;
+  return {
+    turnId,
+    records,
+    citations: expectedCitations,
+    missingTurnId,
+    consistent: records === expectedCitations && missingTurnId === 0,
+  };
+}

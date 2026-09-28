@@ -10,9 +10,23 @@ import {
 } from './agent';
 import { LlmManager, loadDotEnv } from './llm';
 import { ChatStore } from './store';
+import { auditTurnRecords } from './log';
 import { deriveAutoApprove } from './approve';
 
 const noopLog = { write: vi.fn() } as unknown as import('./log').SessionLogger;
+
+/** Ticket 08 — a SessionLogger-shaped capture so tests can assert JSONL rows. */
+function captureLog() {
+  const rows: Array<Record<string, unknown> & { type: string }> = [];
+  return {
+    rows,
+    log: {
+      write: (type: string, fields: Record<string, unknown> = {}) => {
+        rows.push({ type, ...fields });
+      },
+    } as unknown as import('./log').SessionLogger,
+  };
+}
 
 function makeLlm(env: Record<string, string>): LlmManager {
   const llm = new LlmManager('Z:/definitely-missing.json', env);
@@ -206,7 +220,7 @@ describe('ReActAgent fallback (no LLM configured)', () => {
     const turn = await agent.run('这个仓库哪里最值得改？');
     expect(turn.fallback).toBe(true);
     expect(turn.citations).toEqual([
-      { n: 1, tool: 'codecompass_scan', args: { repoId: 'repo-1' }, ms: expect.any(Number) },
+      { n: 1, tool: 'codecompass_scan', args: { repoId: 'repo-1' }, ms: expect.any(Number), turnId: expect.any(String) },
     ]);
     expect(turn.citations[0].tool).toBe('codecompass_scan');
   });
@@ -523,5 +537,119 @@ describe('toToolSpecs', () => {
         function: { name: 'codecompass_scan', description: 'scan a repo', parameters: { type: 'object', properties: {} } },
       },
     ]);
+  });
+});
+
+// ---------- ticket 08: turn correlation ----------
+
+describe('ReActAgent turn correlation (ticket 08)', () => {
+  function twoToolDeps(sessionId?: string) {
+    const secret = 'AKIA' + 'B'.repeat(16); // runtime concat (HANDOFF §2.3-2)
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        return sseResponse([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    { index: 0, id: 'call_1', function: { name: 'codecompass_scan', arguments: '{"repoId":"repo-1"}' } },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    { index: 1, id: 'call_2', function: { name: 'codecompass_scan', arguments: JSON.stringify({ repoId: 'repo-1', note: `token ${secret}` }) } },
+                  ],
+                },
+              },
+            ],
+          },
+        ]);
+      }
+      return sseResponse([{ choices: [{ delta: { content: '结论 [cite: 2]' } }] }]);
+    }) as unknown as typeof fetch;
+    const { log, rows } = captureLog();
+    const deps: AgentDeps = {
+      mcp: makeMcp(),
+      llm: makeLlm(llmEnv),
+      log,
+      onDelta: () => {},
+      fetchImpl,
+      ...(sessionId ? { sessionId } : {}),
+    };
+    return { deps, rows, secret };
+  }
+
+  it('one question, two tools: citations + JSONL rows + turn share one turnId (验收①)', async () => {
+    const { deps, rows } = twoToolDeps('sess-9');
+    const agent = new ReActAgent(deps);
+    const turn = await agent.run('两个工具的问题');
+
+    expect(turn.citations).toHaveLength(2);
+    expect(turn.citations.every((c) => c.turnId === 'sess-9:1')).toBe(true);
+    expect(turn.turnId).toBe('sess-9:1');
+
+    const toolRows = rows.filter((r) => r.type === 'tool_result');
+    expect(toolRows).toHaveLength(2);
+    expect(toolRows.every((r) => r.turnId === 'sess-9:1')).toBe(true);
+    expect(toolRows[0]).toMatchObject({ tool: 'codecompass_scan', cite: 1, args: { repoId: 'repo-1' } });
+    expect(typeof toolRows[0].summary).toBe('string');
+
+    const turnRow = rows.find((r) => r.type === 'agent_turn');
+    expect(turnRow).toMatchObject({ turnId: 'sess-9:1', notAudited: 0 });
+    expect((turnRow!.citations as unknown[]).length).toBe(2);
+
+    // done.payload 的工具计数与记录数一致：auditTurnRecords 判 consistent
+    const audit = auditTurnRecords(rows as never, turn.turnId, turn.citations.length);
+    expect(audit.consistent).toBe(true);
+
+    // 同一 agent 的下一问推进 seq
+    const second = await agent.run('再来一问');
+    expect(second.turnId).toBe('sess-9:2');
+  });
+
+  it('masks citation and audit args at the source (验收②)', async () => {
+    const { deps, rows, secret } = twoToolDeps();
+    const agent = new ReActAgent(deps);
+    const turn = await agent.run('带机密参数的问题');
+
+    expect(JSON.stringify(turn.citations)).not.toContain(secret);
+    expect(turn.citations[1].args).toMatchObject({ note: expect.stringContaining('[REDACTED AWS KEY]') });
+
+    const toolRows = rows.filter((r) => r.type === 'tool_result');
+    expect(JSON.stringify(toolRows)).not.toContain(secret);
+    expect(JSON.stringify(toolRows)).toContain('[REDACTED AWS KEY]');
+  });
+
+  it('auditTurnRecords flags a broken link when a row loses its turnId (验收③)', () => {
+    const broken = auditTurnRecords(
+      [
+        { type: 'tool_result', turnId: 's:1', cite: 1 },
+        { type: 'tool_result', cite: 2 },
+      ] as never,
+      's:1',
+      2,
+    );
+    expect(broken.records).toBe(1);
+    expect(broken.missingTurnId).toBe(1);
+    expect(broken.consistent).toBe(false);
+
+    const healthy = auditTurnRecords(
+      [
+        { type: 'tool_result', turnId: 's:1', cite: 1 },
+        { type: 'tool_result', turnId: 's:1', cite: 2 },
+      ] as never,
+      's:1',
+      2,
+    );
+    expect(healthy.consistent).toBe(true);
   });
 });
