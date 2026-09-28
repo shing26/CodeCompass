@@ -3,7 +3,7 @@
 > 日期：2026-09-21 ｜ 票：`.scratch/v031-precision/issues/16-model-in-the-loop.md`
 > 模型：`.env` 的 `REPOQA_LLM_MODEL` = **`deepseek-v4-flash`**（native tool calling，即宿主真实用法）
 > 调用量：**20/20**（脚本内置上限；另有首轮 20 次因脚本汇总处笔误丢失——见 §4 教训，合计实际消耗约 40 次）
-> 原始记录：`scripts/out/mcp-model-in-the-loop.json` ｜ 复跑：`node …/tsx/dist/cli.mjs scripts/eval/mcp_model_in_loop.ts --budget 20`
+> 原始记录：~~`scripts/out/mcp-model-in-the-loop.json`~~ **该路径是本地未跟踪产物（`.gitignore:53`），会被后续运行覆盖，不是可引用的入库证据**（v1.1 票 10 注）。09-21 那次的原始 JSON 已被 budget-0 运行覆盖而丢失；**入库原始记录待重跑产出**（见 §八）。复跑：`node …/tsx/dist/cli.mjs scripts/eval/mcp_model_in_loop.ts --budget 20`
 > 分档要件（§2.1）：E-M5 3 分 = 有「模型遇错后自愈成功率」数字；E-M2 3 分 = 有描述质量**迭代记录**
 
 ## 一、E-M5 自愈成功率 = **7/7 = 100%**（真失败场景口径）
@@ -93,3 +93,11 @@ node --max-old-space-size=2048 services/control-plane/node_modules/tsx/dist/cli.
 ```
 
 环境要求：`.env` 配置 `REPOQA_LLM_BASE` / `REPOQA_LLM_API_KEY` / `REPOQA_LLM_MODEL`；未配置时脚本**拒绝运行并打印原因**（不伪造数字）。
+
+## 八、2026-09-29 重跑尝试：被 provider 402 阻塞（v1.1 票 10）
+
+- **重跑日期 + 模型**：2026-09-29，`deepseek-v4-flash`（`.env` 配置未变）。
+- **调用量**：17/20（10 次工具选择 + 7 次自愈重试）——**全部 `HTTP 402`**（provider 额度/余额不足，§六 同款状态的延续）。
+- **判定**：本次输出**不构成有效测量**（E-M2/E-M5 的行全是请求失败，不是模型行为），**不入库当证据**；§一/§二的 09-21 数字仍是唯一有效测量。
+- **触发线**：provider 额度恢复后按 §七 命令重跑；产物入库 `docs/reports/`（与报告双向链接），若数字与 §一/§二不一致**按实测更新正文、不得沿用旧数**（v1.1 票 10 硬约束）。
+- 另注：e2e 门禁不受影响——gate 是 hermetic 的（V30-9，进程环境清空 `REPOQA_LLM_*`），「配了 key 但 402」只影响**真实调用方**，不染红门禁。
