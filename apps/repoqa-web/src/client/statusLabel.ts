@@ -31,7 +31,14 @@ export const STATUS_LABEL: Readonly<Record<string, string>> = {
   'injection-cycle': '注入环',
   impl: '实现',
   single: '单文件',
-  interface: '接口'
+  interface: '接口',
+  // v1.2 票 02 — 体检五桶（引擎 title 是英文句子，展示层只用本映射；
+  // 「零静态调用者」是事实陈述，禁「死代码/可安全删除」类语义判断——v0.21 红线）。
+  orphanedPublic: '零静态调用者',
+  hubs: '变更影响枢纽',
+  oversized: '超大方法',
+  deepChains: '深调用链',
+  oversizedFiles: '超大文件'
 };
 
 export function statusLabel(value: string): string {

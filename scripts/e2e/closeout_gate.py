@@ -789,6 +789,26 @@ def check_radar_http(base: str, repo_id: str) -> None:
     record("radar HTTP endpoint returns anchors with graph degrees", ok, detail)
 
 
+def check_scan_http(base: str, repo_id: str) -> None:
+    """v1.2 票 02: GET /api/repos/:id/scan — MCP `codecompass_scan` 的 HTTP twin
+    （体检面数据通道；MCP 面零改动——双轨制）。REST↔引擎逐字段一致性由 cp
+    路由测试（deep-equal runScan 直调 + 缓存计数）把守；此处钉活服务端可执行
+    性与桶形（顺序即契约：五桶固定序）。"""
+    scan = http_json("GET", f"{base}/api/repos/{repo_id}/scan").get("scan", {})
+    buckets = scan.get("buckets", [])
+    ids = [b.get("id") for b in buckets]
+    orphan = next((b for b in buckets if b.get("id") == "orphanedPublic"), None)
+    ok = (
+        scan.get("repoId") == repo_id
+        and ids == ["orphanedPublic", "hubs", "oversized", "deepChains", "oversizedFiles"]
+        and orphan is not None
+        and isinstance(orphan.get("total"), int)
+        and isinstance(orphan.get("items"), list)
+    )
+    detail = f"buckets={[(b.get('id'), b.get('total')) for b in buckets]}"
+    record("scan HTTP twin returns the five candidate buckets", ok, detail)
+
+
 def check_sse_query(base: str, repo_id: str) -> None:
     """Consume the SSE /query stream like the web client does and assert the
     deterministic call-chain produces a mermaid diagram plus anchors."""
@@ -2366,6 +2386,7 @@ def main() -> int:
         check_cross_language_bridge(base, py_repo["id"])
         check_call_chain(base, py_repo["id"])
         check_radar_http(base, py_repo["id"])
+        check_scan_http(base, py_repo["id"])
         check_sse_query(base, py_repo["id"])
         check_incident_sse_query(base, py_repo["id"])
         check_symbols_typed(base, py_repo["id"])

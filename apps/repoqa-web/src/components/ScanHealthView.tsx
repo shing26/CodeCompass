@@ -1,12 +1,18 @@
-import type { Repo } from '../types';
+import { useCallback, useEffect, useState } from 'react';
+import type { Repo, PrecisionSummary, ScanResult } from '../types';
+import type { RepoQAClient } from '../client/RepoQAClient';
+import { statusLabel } from '../client/statusLabel';
+import { Badge } from './ui/Badge';
 
 /**
- * v1.2 票 01 — 体检面骨架（数据面随票 02 接入 `GET /api/repos/:id/scan`）。
- * 本票只落三态骨架与空态文案；扫描引擎（runScan 五桶）尚无 REST 通道。
+ * v1.2 票 02 — 体检面数据面（票 01 骨架转正）：五桶候选 + 检索精度态势。
+ * 数据来自 `GET /api/repos/:id/scan`（MCP `codecompass_scan` 的 HTTP twin，
+ * 引擎只读、服务端按 (repoId, commit) TTL 缓存）与 `GET /api/precision/summary`。
  *
- * 文案红线（v0.21 scan 定位红线 + ADR-0018，票 02 验收继续执法）：候选是
- * 确定性事实（「零静态调用者」），不得出现「可安全删除 / 死代码」类语义
- * 判断——那是 chat 侧 agent 的职责。
+ * 文案红线（v0.21 scan 定位红线 + ADR-0018，组件测试与 copy-guard 双执法）：
+ * 候选是确定性事实（「零静态调用者」），不得出现「可安全删除 / 死代码」类语义
+ * 判断——那是 chat 侧 agent 的职责；testOnly 只标「仅测试调用」，不扩写结论。
+ * 引擎的英文 title/nextAction（面向 agent 的指引）不进 UI，展示层走 statusLabel。
  */
 
 const INDEXING_LABEL: Record<string, string> = {
@@ -16,7 +22,58 @@ const INDEXING_LABEL: Record<string, string> = {
   idle: '待机'
 };
 
-export function ScanHealthView({ repo }: { repo: Repo | null }) {
+const BUCKET_REDLINE =
+  '以上均为静态图谱直读的确定性事实；「零静态调用者」不代表可删除——是否该动、怎么动，交给「架构问答」里的证据分析。';
+
+export function ScanHealthView({
+  repo,
+  client,
+  onNavigate
+}: {
+  repo: Repo | null;
+  client: RepoQAClient;
+  onNavigate: (file: string, line: number) => void;
+}) {
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [precision, setPrecision] = useState<PrecisionSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  const ready = Boolean(repo && repo.status === 'ready');
+
+  useEffect(() => {
+    if (!repo || repo.status !== 'ready') {
+      setScan(null);
+      setPrecision(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      client.getScan(repo.id),
+      client.getPrecisionSummary().catch(() => null)
+    ])
+      .then(([scanResult, precisionResult]) => {
+        if (cancelled) return;
+        setScan(scanResult);
+        setPrecision(precisionResult);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repo?.id, repo?.status, client, attempt]);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
   if (!repo) {
     return (
       <section
@@ -25,22 +82,7 @@ export function ScanHealthView({ repo }: { repo: Repo | null }) {
       >
         <p className="text-sm font-medium text-ink">先在上方选择一个仓库，再运行代码体检。</p>
         <p className="max-w-md text-xs text-muted">
-          体检会列出零调用者候选、枢纽、超大方法/文件等确定性事实，并展示检索精度态势。
-        </p>
-      </section>
-    );
-  }
-
-  if (repo.status === 'ready') {
-    return (
-      <section
-        data-testid="scan-health"
-        className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center"
-      >
-        <p className="text-sm font-medium text-ink">{repo.name} 的体检面即将开放。</p>
-        <p className="max-w-md text-xs text-muted">
-          扫描数据通道随票 02 接入：五类候选（零静态调用者 / 枢纽 / 超大方法 / 深调用链 / 超大文件）
-          与检索精度态势。在此之前，可在「架构问答」里直接问 scan 结论。
+          体检会列出零静态调用者候选、枢纽、超大方法/文件等确定性事实，并展示检索精度态势。
         </p>
       </section>
     );
@@ -58,15 +100,146 @@ export function ScanHealthView({ repo }: { repo: Repo | null }) {
     );
   }
 
+  if (!ready) {
+    return (
+      <section
+        data-testid="scan-health"
+        className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center"
+      >
+        <p className="text-sm font-medium text-ink">
+          {repo.name} {INDEXING_LABEL[repo.status] ?? '处理中'}——索引完成后即可体检。
+        </p>
+        <p className="text-xs text-muted">体检基于索引完成的符号图谱，扫描过程不需要你操作。</p>
+      </section>
+    );
+  }
+
+  const self = precision?.available ? precision.baseline.samples?.self : undefined;
+
   return (
-    <section
-      data-testid="scan-health"
-      className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center"
-    >
-      <p className="text-sm font-medium text-ink">
-        {repo.name} {INDEXING_LABEL[repo.status] ?? '处理中'}——索引完成后即可体检。
-      </p>
-      <p className="text-xs text-muted">体检基于索引完成的符号图谱，扫描过程不需要你操作。</p>
+    <section data-testid="scan-health" className="workbench-grid flex-1 overflow-y-auto p-4">
+      <div className="mx-auto max-w-4xl space-y-4">
+        <header className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-ink">{repo.name} · 代码体检</h2>
+          <button
+            type="button"
+            data-testid="scan-refresh"
+            onClick={retry}
+            disabled={loading}
+            className="shrink-0 rounded-md border border-line bg-subtle px-2 py-1 text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            重新扫描
+          </button>
+        </header>
+
+        {loading && (
+          <p data-testid="scan-loading" className="text-xs text-muted">
+            正在扫描符号图谱…
+          </p>
+        )}
+        {error && (
+          <p data-testid="scan-error" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+            体检失败：{error}——可点「重新扫描」重试。
+          </p>
+        )}
+
+        {scan && !loading && (
+          <>
+            {scan.buckets.map((bucket) => (
+              <section
+                key={bucket.id}
+                data-testid={`scan-bucket-${bucket.id}`}
+                className="rounded-md border border-line bg-surface p-3"
+              >
+                <header className="mb-2 flex flex-wrap items-center gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-accent">
+                    {statusLabel(bucket.id)}
+                  </h3>
+                  <Badge data-testid={`scan-bucket-total-${bucket.id}`}>{bucket.total}</Badge>
+                  {bucket.id === 'orphanedPublic' && bucket.wiredExcluded !== undefined && (
+                    <span data-testid="scan-wired-excluded" className="text-micro text-muted">
+                      另有 {bucket.wiredExcluded} 个零调用符号已按规则排除（外部装配入口，非本桶事实）
+                    </span>
+                  )}
+                </header>
+                {bucket.total === 0 ? (
+                  <p className="text-xs text-muted">本桶无候选。</p>
+                ) : (
+                  <ul className="space-y-0.5 font-mono text-xs">
+                    {bucket.items.map((item) => (
+                      <li
+                        key={`${item.filePath}:${item.line}:${item.symbol}`}
+                        data-testid="scan-item"
+                        className="flex min-w-0 items-center gap-2"
+                      >
+                        <button
+                          type="button"
+                          data-testid="scan-item-node"
+                          onClick={() => onNavigate(item.filePath, item.line)}
+                          title={`${item.filePath}:${item.line}`}
+                          className="min-w-0 truncate text-left text-ink hover:text-accent"
+                        >
+                          {item.symbol}
+                        </button>
+                        <span className="hidden shrink-0 text-muted sm:inline">
+                          {item.filePath}:{item.line}
+                        </span>
+                        {item.testOnly && (
+                          <Badge data-testid="scan-test-only" tone="warning">
+                            仅测试调用
+                          </Badge>
+                        )}
+                        <span className="hidden min-w-0 truncate text-micro text-muted lg:inline">
+                          {item.detail}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ))}
+            <p data-testid="scan-redline" className="text-micro text-muted">
+              {BUCKET_REDLINE}
+            </p>
+          </>
+        )}
+
+        <section data-testid="scan-precision" className="rounded-md border border-line bg-surface p-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">检索精度态势</h3>
+          {precision?.available ? (
+            <>
+              <ul className="space-y-1 text-xs text-ink">
+                <li data-testid="precision-ratio">
+                  自仓孤儿/符号比{' '}
+                  {self?.ratio !== undefined ? `${(self.ratio * 100).toFixed(1)}%` : '—'}
+                  {self?.orphanTotal !== undefined && self?.symbolCount !== undefined
+                    ? `（${self.orphanTotal} / ${self.symbolCount}）`
+                    : ''}
+                </li>
+                <li data-testid="precision-meta" className="text-muted">
+                  指标方向{' '}
+                  {precision.baseline.metric_direction === 'inverse'
+                    ? '反向——孤儿比上升可能是改进被看见，以假边条数读进度'
+                    : (precision.baseline.metric_direction ?? '—')}
+                  {' · '}抽样 {precision.baseline.sampling ?? '—'}（top-N，不外推为全仓率）
+                </li>
+                <li data-testid="precision-commit" className="text-muted">
+                  基线取样 {self?.commit ?? '—'}
+                  {self?.recordedAt ? `（${self.recordedAt.slice(0, 10)}）` : ''}
+                </li>
+              </ul>
+              <p className="mt-2 text-micro text-muted">
+                真仓 top-10 假阳性数字以 <span className="font-mono">docs/reports/</span> 的复测报告为准；
+                CI 无 clone，此区是只读摘要，不替代发版前人工复测。
+              </p>
+            </>
+          ) : (
+            <p data-testid="precision-unavailable" className="text-xs text-muted">
+              {precision?.reason ?? '精度摘要不可用（仅在仓库内运行时可用）。'}
+            </p>
+          )}
+        </section>
+      </div>
     </section>
   );
 }

@@ -1,9 +1,13 @@
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import { requireRepo, type HttpDeps } from './deps';
 import { buildTours } from '../engine/repoqa-tours';
 import { buildDashboard } from '../engine/repoqa-dashboard';
 import { buildOnboardingMarkdown, onboardingExportFileName } from '../engine/repoqa-export';
 import { runDomainRadar } from '../domain-radar-engine';
+import { runScan } from '../scan-engine';
+import { cockpitBaseUrl } from '../config';
 import { extractSubgraphContext } from '../engine/repoqa-graphrag';
 import { asyncHandler } from '../http-error';
 import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
@@ -19,6 +23,13 @@ import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
  * queries hit this cache instead of recomputing PageRank. */
 const RADAR_CACHE_TTL_MS = 60_000;
 const radarCache = new Map<string, { data: unknown; expiresAt: number }>();
+
+/** v1.2 票 02 — per-(repoId, commit) scan cache（radar 同款 TTL Map）。scan 是
+ * 确定性同步纯函数（秒级），但体检面切库/切页会重复请求；commit 变化自然走新
+ * 键失效（索引前进 = 新快照）。不落库：gate-run 落库源于「执行史」诉求
+ * （ADR-0017），体检首版无此诉求，要趋势再立票。 */
+const SCAN_CACHE_TTL_MS = 60_000;
+const scanCache = new Map<string, { data: unknown; expiresAt: number }>();
 
 const SYMBOL_TYPE_BY_KIND: Record<string, string> = {
   class: 'CLASS',
@@ -217,5 +228,61 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
       return;
     }
     res.json({ chunks: maskEventPayload(deps.repoqa.searchChunks(repo.id, query)) });
+  });
+
+  // v1.2 票 02 — 体检面数据通道：MCP `codecompass_scan` 的 HTTP twin（只读自荐）。
+  // REST 属 Web 通道，MCP 17 工具面零改动（双轨制）；与 MCP 面同引擎同输入，
+  // 输出一致性由 cp 测试钉住（deep-equal runScan 直调）。
+  app.get('/api/repos/:id/scan', (req, res) => {
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
+    try {
+      const key = `${repo.id}\u0000${repo.commit ?? 'unversioned'}`;
+      const now = Date.now();
+      const cached = scanCache.get(key);
+      if (cached && cached.expiresAt > now) {
+        res.json({ scan: cached.data });
+        return;
+      }
+      const { symbols, index } = deps.worker.getSymbolGraph(repo.id);
+      const scan = runScan({
+        repoId: repo.id,
+        repoName: repo.name,
+        symbols,
+        index,
+        baseUrl: cockpitBaseUrl()
+      });
+      const maskedScan = maskEventPayload(scan);
+      for (const [k, v] of scanCache) { if (v.expiresAt <= now) scanCache.delete(k); }
+      scanCache.set(key, { data: maskedScan, expiresAt: now + SCAN_CACHE_TTL_MS });
+      res.json({ scan: maskedScan });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  // v1.2 票 02 — 精度态势（仓库无关的只读摘要）。棘轮基线只在「仓库内运行」时
+  // 存在（npm 安装形态的 dist 之外没有 scripts/）——缺失即 available:false，
+  // 不猜路径、不编数；诚实边界随 UI 一并展示（CI 无 clone，真仓数字以报告为准）。
+  // 路径解析：cwd 起向上探两级（仓库根直跑 / 从 services 子目录跑都能命中），
+  // 找不到就诚实降级——不做全盘搜索。
+  app.get('/api/precision/summary', (_req, res) => {
+    const candidates = ['', '..', path.join('..', '..')].map((up) =>
+      path.resolve(process.cwd(), up, 'scripts', 'precision', 'ratchet-baseline.json')
+    );
+    for (const file of candidates) {
+      try {
+        const baseline = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
+        res.json({ available: true, baseline });
+        return;
+      } catch {
+        // try the next candidate; the last failure decides the fallback below
+      }
+    }
+    res.json({
+      available: false,
+      reason: 'ratchet-baseline.json 未在运行目录附近找到（该视图仅在仓库内运行时可用）'
+    });
   });
 }

@@ -16,6 +16,8 @@ import type {
   RepoTour,
   ReverseDepsResult,
   RuntimeInfo,
+  PrecisionSummary,
+  ScanResult,
   SubgraphContextResult,
   SymbolKind,
   WorkbenchCardRow
@@ -263,6 +265,35 @@ export class RepoQAClient {
     }
     const body = (await res.json()) as { dashboard?: RepoDashboard };
     return body.dashboard ?? null;
+  }
+
+  /**
+   * v1.2 票 02 — 体检面数据通道：MCP `codecompass_scan` 的 HTTP twin
+   * （引擎只读、服务端按 (repoId, commit) TTL 缓存）。404（未知仓库）答 null，
+   * 与 getDashboard 同规。
+   */
+  async getScan(repoId: string): Promise<ScanResult | null> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/scan`
+    );
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`getScan failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { scan?: ScanResult };
+    return body.scan ?? null;
+  }
+
+  /**
+   * v1.2 票 02 — 精度态势只读摘要（仓库无关；仓库外运行/文件缺失时
+   * available:false + reason，不猜路径不编数）。
+   */
+  async getPrecisionSummary(): Promise<PrecisionSummary> {
+    const res = await this.fetcher(`${this.baseUrl}/api/precision/summary`);
+    if (!res.ok) {
+      throw new Error(`getPrecisionSummary failed: ${res.status}`);
+    }
+    return (await res.json()) as PrecisionSummary;
   }
 
   /**

@@ -1,6 +1,6 @@
 # Issue 02 — 体检面数据面：scan REST 通道 + 五桶呈现 + 精度态势
 
-> 波次：波 2 ｜ 状态：ready-for-agent ｜ 优先级：P0 ｜ 依赖：票 01（骨架）｜ 依据：spec D3/D5；双轨制自查：零 MCP 改动
+> 波次：波 2 ｜ 状态：**已落地（2026-09-29）** ｜ 优先级：P0 ｜ 依赖：票 01 ✅ ｜ 依据：spec D3/D5；双轨制自查：零 MCP 改动
 
 ## 1. 实测（2026-09-28）
 
@@ -34,3 +34,11 @@
 ## Comments
 
 - 2026-09-28 立项（grill D3；scan REST 通道与不落库设计按 gate-run/radar 先例拍定，落库留触发线：出现「体检历史/趋势」日常诉求再立票）。
+- 2026-09-29 **落地**：
+  - **服务端**（`routes/analysis-graph.ts` 增量）：`GET /api/repos/:id/scan` = MCP `codecompass_scan` 的 HTTP twin（同引擎同输入）；**不落库**，按 `(repoId, commit)` TTL 60s 缓存（radar 同款；commit 变化自然走新键）；响应过 `maskEventPayload`。`GET /api/precision/summary` 直读 `ratchet-baseline.json`——**cwd 起向上探两级**（仓库根直跑或从 services 子目录跑都命中），找不到即 `available:false`+reason，不猜路径不编数。
+  - **服务端验收**（`routes/analysis-scan.test.ts`，桩 deps）：① HTTP twin 与 `runScan` 直调 **deep-equal**（含五桶固定序）；② 缓存以 `getSymbolGraph` 调用计数观测——同键两次请求调用数**零增长**（比原计划的「+1 次」更强：连首查都命中，因为 test1 已填充）；③ commit 前进走新键（调用数 +1）；④ 精度摘要 `deep-equal` 真实文件（逐字段直读）。
+  - **Web**（types/client/statusLabel/ScanHealthView/App）：contracts **单源复用** `ScanResult/ScanBucket/ScanCandidate`（镜像清单 +3，contract-mirror 哨绿）；`PrecisionSummary` 为 web 局部类型（无 MCP 对应物，注明不进镜像）；`getScan`（404→null 同 getDashboard 规）+ `getPrecisionSummary`；**五桶走 statusLabel 展示层映射**（引擎英文 title/nextAction 不进 UI——表 C 纪律）；候选行点击跳 Inspector（`onNavigate(file, line)`，gate 受波及树同款契约）；`wiredExcluded` 披露为「另有 N 个零调用符号已按规则排除（外部装配入口）」；testOnly 徽章「仅测试调用」；**红线**：页面级 statement「零静态调用者不代表可删除」+ 组件测试断言 DOM 无「可安全删除/死代码」。
+  - **精度态势区**：ratio 百分数 + `(orphanTotal / symbolCount)` + 基线 commit/日期 + 方向语义（inverse→「上升可能是改进被看见，以假边条数读进度」）+ 抽样 top-N「不外推全仓率」+ 诚实边界「真仓数字以 docs/reports/ 复测报告为准，不替代发版前人工复测」；不可用时显示 reason。**测试夹具与 ratchet-baseline.json 字段族固定对照**（12.0% / 236 / 1960 / 5700bbd / inverse / top-n）。
+  - **验收**：① cp 路由测 deep-equal + e2e 新检查 `scan HTTP twin returns the five candidate buckets`（活服务，73 项里的真实桶数据 `orphanedPublic=1 hubs=11 deepChains=3`）；② 缓存三态用例（命中/commit 失效）；③ 红线断言 + copy-guard 双哨绿；④ 精度字段固定断言（上）；⑤ **ui_smoke 新增 1b 段**（体检面五桶 + 精度区两步，真 chromium 全过）；e2e 72→**73** + HANDOFF §2.1 同步（cp 775/web 364/e2e 73）。
+  - **搭车项未动**：`saveWorkbenchCard` error 卡 echo 持久化（Round3 `:41`）——本票未触碰 workbench 路由，继续挂 v1.2 台账（票 07 收口时清点）。
+  - 375px 截图走查归票 07 Round4（ui-shots 本地不入库）。

@@ -1,11 +1,14 @@
 /**
- * v1.2 票 01 — 体检面骨架的三态：未选库 / 索引中 / 就绪空态（数据面随票 02）。
- * 文案红线断言顺带钉住：scan 呈现不出现「可安全删除」类语义判断（v0.21 红线）。
+ * v1.2 票 02 — 体检面数据面：五桶渲染 / Inspector 跳转 / testOnly 徽章 /
+ * 红线文案（v0.21：不出现「可安全删除/死代码」）/ 精度态势逐字段固定断言。
+ * 票 01 的四态骨架（未选库 / 索引中 / error / 空态）继续钉住。
  */
-import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ScanHealthView } from './ScanHealthView';
-import type { Repo } from '../types';
+import type { PrecisionSummary, Repo, ScanResult } from '../types';
+import type { RepoQAClient } from '../client/RepoQAClient';
 
 const readyRepo: Repo = {
   id: 'r1',
@@ -19,32 +22,163 @@ const readyRepo: Repo = {
   updatedAt: '2026-09-29T00:00:00Z'
 };
 
-describe('ScanHealthView (v1.2 票 01 骨架)', () => {
+const scanFixture: ScanResult = {
+  schemaVersion: 1,
+  repoId: 'r1',
+  repoName: 'demo',
+  cockpitDeepLink: 'http://127.0.0.1:43110/?repo=r1',
+  buckets: [
+    {
+      id: 'orphanedPublic',
+      title: 'Orphaned public code (zero static callers)',
+      nextAction: 'x',
+      total: 2,
+      wiredExcluded: 5,
+      items: [
+        { symbol: 'lonelyHelper', kind: 'method', filePath: 'src/a.ts', line: 3, detail: 'no static callers' },
+        { symbol: 'testOnlyThing', kind: 'method', filePath: 'src/b.ts', line: 9, detail: 'callers are all tests', testOnly: true }
+      ]
+    },
+    {
+      id: 'hubs',
+      title: 'Change-impact hubs (highest PageRank)',
+      nextAction: 'x',
+      total: 1,
+      items: [{ symbol: 'hubEntry', kind: 'method', filePath: 'src/c.ts', line: 1, detail: 'PageRank 0.42' }]
+    },
+    { id: 'oversized', title: 'Oversized methods (>=150 lines)', nextAction: 'x', total: 0, items: [] },
+    { id: 'deepChains', title: 'Deep call chains', nextAction: 'x', total: 0, items: [] },
+    { id: 'oversizedFiles', title: 'Oversized files (>=600 lines)', nextAction: 'x', total: 0, items: [] }
+  ]
+};
+
+// 与 scripts/precision/ratchet-baseline.json 的字段族固定对照（后端测试另证端点
+// 逐字段直读该文件；此处固定断言渲染层把它们原样展示）。
+const precisionFixture: PrecisionSummary = {
+  available: true,
+  baseline: {
+    metric_direction: 'inverse',
+    sampling: 'top-n',
+    samples: {
+      self: {
+        commit: '5700bbd',
+        symbolCount: 1960,
+        orphanTotal: 236,
+        ratio: 0.12040816326530612,
+        recordedAt: '2026-09-20T05:03:11.011Z'
+      }
+    }
+  }
+};
+
+function makeClient(scan: ScanResult | null, precision: PrecisionSummary = precisionFixture) {
+  return {
+    getScan: vi.fn().mockResolvedValue(scan),
+    getPrecisionSummary: vi.fn().mockResolvedValue(precision)
+  } as unknown as RepoQAClient;
+}
+
+function renderView(
+  repo: Repo | null,
+  scan: ScanResult | null,
+  precision?: PrecisionSummary,
+  onNavigate: (file: string, line: number) => void = () => {}
+) {
+  render(
+    <ScanHealthView
+      repo={repo}
+      client={makeClient(scan, precision)}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+describe('ScanHealthView 骨架四态（v1.2 票 01，票 02 保留）', () => {
   it('no repo → 选库引导态', () => {
-    render(<ScanHealthView repo={null} />);
+    renderView(null, null);
     expect(screen.getByTestId('scan-health')).toHaveTextContent('先在上方选择一个仓库');
   });
 
-  it('ready repo → 空态：数据面随票 02 接入的诚实占位', () => {
-    render(<ScanHealthView repo={readyRepo} />);
-    expect(screen.getByTestId('scan-health')).toHaveTextContent('体检面即将开放');
-    expect(screen.getByTestId('scan-health')).toHaveTextContent('零静态调用者');
-  });
-
   it.each(['indexing', 'cloning', 'parsing'] as const)('%s → 索引进行中态', (status) => {
-    render(<ScanHealthView repo={{ ...readyRepo, status }} />);
+    renderView({ ...readyRepo, status }, null);
     expect(screen.getByTestId('scan-health')).toHaveTextContent('索引完成后即可体检');
   });
 
   it('error repo → 重新索引引导', () => {
-    render(<ScanHealthView repo={{ ...readyRepo, status: 'error' }} />);
+    renderView({ ...readyRepo, status: 'error' }, null);
     expect(screen.getByTestId('scan-health')).toHaveTextContent('索引异常');
     expect(screen.getByTestId('scan-health')).toHaveTextContent('重新索引');
   });
+});
 
-  it('copy red line: scan states never claim deletability (v0.21 红线)', () => {
-    const { container } = render(<ScanHealthView repo={readyRepo} />);
+describe('ScanHealthView 数据面（v1.2 票 02）', () => {
+  it('renders the five buckets with Chinese display labels and totals', async () => {
+    renderView(readyRepo, scanFixture);
+    for (const id of ['orphanedPublic', 'hubs', 'oversized', 'deepChains', 'oversizedFiles']) {
+      expect(await screen.findByTestId(`scan-bucket-${id}`)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId('scan-bucket-orphanedPublic')).toHaveTextContent('零静态调用者');
+    expect(screen.getByTestId('scan-bucket-total-orphanedPublic')).toHaveTextContent('2');
+    expect(screen.getByTestId('scan-bucket-total-oversized')).toHaveTextContent('0');
+    expect(screen.getByTestId('scan-bucket-oversized')).toHaveTextContent('本桶无候选');
+    // 外部装配排除数是事实披露，不是「死代码」结论
+    expect(screen.getByTestId('scan-wired-excluded')).toHaveTextContent('另有 5 个零调用符号已按规则排除');
+  });
+
+  it('clicking a candidate navigates the Inspector with file and line', async () => {
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    renderView(readyRepo, scanFixture, precisionFixture, onNavigate);
+    const nodes = await screen.findAllByTestId('scan-item-node');
+    await user.click(nodes[0]);
+    expect(onNavigate).toHaveBeenCalledWith('src/a.ts', 3);
+  });
+
+  it('marks test-only callers with the dedicated badge', async () => {
+    renderView(readyRepo, scanFixture);
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+    const badge = screen.getByTestId('scan-test-only');
+    expect(badge).toHaveTextContent('仅测试调用');
+    expect(screen.getByText('testOnlyThing')).toBeInTheDocument();
+  });
+
+  it('copy red line: never claims deletability (v0.21 红线)', async () => {
+    const { container } = render(
+      <ScanHealthView repo={readyRepo} client={makeClient(scanFixture)} onNavigate={() => {}} />
+    );
+    await screen.findByTestId('scan-bucket-orphanedPublic');
     expect(container.textContent).not.toContain('可安全删除');
     expect(container.textContent).not.toContain('死代码');
+    expect(screen.getByTestId('scan-redline')).toHaveTextContent('不代表可删除');
+  });
+
+  it('precision block renders baseline fields verbatim (固定断言，同 ratchet-baseline.json 字段)', async () => {
+    renderView(readyRepo, scanFixture);
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+    expect(screen.getByTestId('precision-ratio')).toHaveTextContent('12.0%');
+    expect(screen.getByTestId('precision-ratio')).toHaveTextContent('236 / 1960');
+    expect(screen.getByTestId('precision-commit')).toHaveTextContent('5700bbd');
+    expect(screen.getByTestId('precision-meta')).toHaveTextContent('反向');
+    expect(screen.getByTestId('precision-meta')).toHaveTextContent('top-n');
+  });
+
+  it('precision unavailable degrades honestly with the reason', async () => {
+    renderView(readyRepo, scanFixture, {
+      available: false,
+      reason: 'ratchet-baseline.json 未在运行目录附近找到（该视图仅在仓库内运行时可用）'
+    });
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+    expect(screen.getByTestId('precision-unavailable')).toHaveTextContent('仅在仓库内运行时可用');
+  });
+
+  it('loading state shows while the scan request is in flight', async () => {
+    const client = {
+      getScan: vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(scanFixture), 50))),
+      getPrecisionSummary: vi.fn().mockResolvedValue(precisionFixture)
+    } as unknown as RepoQAClient;
+    render(<ScanHealthView repo={readyRepo} client={client} onNavigate={() => {}} />);
+    expect(screen.getByTestId('scan-loading')).toHaveTextContent('正在扫描符号图谱');
+    await waitFor(() => expect(screen.getByTestId('scan-bucket-orphanedPublic')).toBeInTheDocument());
+    expect(screen.queryByTestId('scan-loading')).not.toBeInTheDocument();
   });
 });

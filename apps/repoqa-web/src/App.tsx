@@ -228,9 +228,9 @@ function WorkbenchShell() {
           )}
           {/* v1.2 票 01 — 体检面自带「未选库」态，故置于 noRepo 兜底之前：
               ?mode=scan 选库前后一致落在体检骨架（深链不再是「inert behind
-              the topo guide」的例外）。 */}
+              the topo guide」的例外）。票 02 接入数据面（scan REST + 精度摘要）。 */}
           {view === 'scan' ? (
-            <ScanHealthView repo={currentRepo} />
+            <ScanHealthView repo={currentRepo} client={client} onNavigate={inspector.openFile} />
           ) : noRepo || view === 'topo' ? (
             <Canvas
               repo={currentRepo}

@@ -261,6 +261,23 @@ async function main() {
     step('侧栏路由项 ≥1', await page.waitForSelector('[data-testid="route-item"]', { timeout: 15000 }).then(() => true).catch(() => false));
     step('AskDock 常驻', await page.waitForSelector('[data-testid="ask-dock"]', { state: 'visible', timeout: 10000 }).then(() => true).catch(() => false));
 
+    console.log('--- 1b. 体检面（v1.2 票 02：scan REST + 五桶） ---');
+    await page.goto(`${base}/?repo=${repoId}&mode=scan`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    step(
+      '体检面五桶渲染（零静态调用者桶可见）',
+      await page
+        .waitForSelector('[data-testid="scan-bucket-orphanedPublic"]', { state: 'visible', timeout: 30000 })
+        .then(() => true)
+        .catch(() => false)
+    );
+    step(
+      '体检面精度态势区渲染',
+      await page
+        .waitForSelector('[data-testid="scan-precision"]', { state: 'visible', timeout: 10000 })
+        .then(() => true)
+        .catch(() => false)
+    );
+
     console.log('--- 2. AskDock → chat → stub 流式回答 ---');
     await page.waitForSelector('[data-testid="ask-dock-input"]', { state: 'visible', timeout: 10000 });
     await page.fill('[data-testid="ask-dock-input"]', '冒烟：这个仓库有什么？');

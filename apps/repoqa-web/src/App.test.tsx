@@ -136,6 +136,9 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
     getFileRaw: vi.fn(),
     queryRepo: vi.fn().mockReturnValue(noopStream),
     getDashboard: vi.fn().mockResolvedValue(roundDashboard),
+    // v1.2 票 02 — 体检面数据面（scan-health 视图在选库/深链后即取数）。
+    getScan: vi.fn().mockResolvedValue(null),
+    getPrecisionSummary: vi.fn().mockResolvedValue({ available: false, reason: '测试环境' }),
     getTours: vi.fn().mockResolvedValue(roundTours),
     getSubgraphContext: vi.fn().mockResolvedValue({
       start: { name: 'listOrders', file: 'src/main/java/OrderController.java', line: 24 },
@@ -541,9 +544,9 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
     expect(screen.getByTestId('scan-health')).toHaveTextContent('先在上方选择一个仓库');
 
-    // 选库时深链生效（Ticket 16 URL-as-truth）→ 体检骨架就绪态。
+    // 选库时深链生效（Ticket 16 URL-as-truth）→ 体检数据面（票 02 起为真实视图）。
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() => expect(screen.getByTestId('scan-health')).toHaveTextContent('体检面即将开放'));
+    await waitFor(() => expect(screen.getByTestId('scan-health')).toHaveTextContent('代码体检'));
 
     // URL 同步：mode=scan 存活，刷新仍落体检。
     expect(window.location.search).toContain('mode=scan');

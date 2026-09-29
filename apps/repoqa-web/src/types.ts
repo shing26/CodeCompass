@@ -34,7 +34,10 @@ import type {
   RepoQaEvolveError,
   RepoQaEvolveStage,
   RepoQaIndexProgress,
-  RepoQaTokenUsage
+  RepoQaTokenUsage,
+  ScanBucket,
+  ScanCandidate,
+  ScanResult
 } from '../../../packages/contracts/src/index';
 
 export type {
@@ -52,7 +55,11 @@ export type {
   ModuleEvolutionResult,
   RepoQaEvolveDone,
   RepoQaEvolveError,
-  RepoQaEvolveStage
+  RepoQaEvolveStage,
+  // v1.2 票 02 — 体检面数据通道复用 contracts 单源（MCP 同款引擎输出）。
+  ScanBucket,
+  ScanCandidate,
+  ScanResult
 };
 // V27-30 (v029/05) alias-pair closure: Anchor was field-identical to the
 // contract; the wire progress type is re-exported under its contract name.
@@ -63,6 +70,34 @@ export type { ExtractedSymbol as ArchitectureDeltaSymbol, CallEdge as Architectu
 /** Derived so the element shape can never drift from the report it feeds. */
 export type ArchitectureDeltaImpactedApi = ArchitectureDeltaReport['impactedApis'][number];
 export type TokenUsage = RepoQaTokenUsage;
+
+/**
+ * v1.2 票 02 — /api/precision/summary 载荷（web 局部契约：该端点属 Web 通道的
+ * 只读展示面、无 MCP 对应物，故不进 contracts 镜像；缺文件时诚实降级不可用）。
+ */
+export interface PrecisionSummaryAvailable {
+  available: true;
+  baseline: {
+    note?: string;
+    metric_direction?: string;
+    sampling?: string;
+    samples?: Record<
+      string,
+      {
+        commit?: string;
+        symbolCount?: number;
+        orphanTotal?: number;
+        ratio?: number;
+        recordedAt?: string;
+      }
+    >;
+  };
+}
+export interface PrecisionSummaryUnavailable {
+  available: false;
+  reason: string;
+}
+export type PrecisionSummary = PrecisionSummaryAvailable | PrecisionSummaryUnavailable;
 
 export type RepoStatus = 'idle' | 'indexing' | 'cloning' | 'parsing' | 'ready' | 'error';
 

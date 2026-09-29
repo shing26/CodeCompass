@@ -32,7 +32,7 @@
 | 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
 | 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线（2026-09-29，v1.1 波 2/3 中期） | 控制面 **770**、web **347**、bridge **26**、e2e **72/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| 门禁基线（2026-09-29，v1.2 波 2 中期） | 控制面 **775**、web **364**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
 | MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言。installer 的 autoApprove **默认派生自注册表但会过滤掉破坏性工具**（v1.1 票 11 的 `NON_AUTO_APPROVED_TOOLS`，现只列 `codecompass_remove_repo`）——**新增破坏性工具时必须把名字加进这张清单，否则默认安装会重新自动批准它**；`--auto-approve-all` 可写全量 |
 
 ### 2.2 架构不变量（违反即返工）
