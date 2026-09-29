@@ -61,4 +61,6 @@
 
 | V31-9 | **Web 收敛 6→3（票 05，已落地）**：一级导航收敛为 chat/gate/delta 三项；topo/metrics/evolve 降为深链页（`viewFromMode` + URL 同步 effect 增量识别 `mode=metrics/evolve`——**实测发现：不同步保留则选库前深链被 else 分支抹掉**）；test-only 组件/导出出库（EvidenceCard/Markdown/SourceTraceDrawer/StackTraceInput 四组件三测试 + brandColor/escapeMermaidLabel）。**净减 −454 行**；深链可达有 App.test 用例留证（URL-as-truth 落点断言）；EvolutionView 头部承接「要方案」定位句（copy-guard 封条随迁）。门禁 web 347 / cp 733 / e2e 71-0 / 棘轮 8.2% | 2026-09-27 定票05 | Web |
 
+| V12-1 | **`saveWorkbenchCard` error 卡 intentEcho 持久化**（Round3 报告 `:41`，P3）：失败卡经刷新 hydrate 回放后丢失「当初解析到了什么目标、匹配度多少」，削弱自诊断能力；修法=error 卡落库时一并持久化 echo。搁置原因：v1.2 票 02/04 均未触碰 workbench 路由；本次补行防静默丢失（此前票面称「留 v1.2 台账」但总账无落点）。 | 双轴评审 2026-09-29（v1.2 收口清点） | UX |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

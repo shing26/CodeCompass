@@ -152,8 +152,8 @@ cd D:/CodeCompass
 git log --oneline -3
 export TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp   # C 盘满对策
 npm run typecheck                        # 全仓零错误
-cd services/control-plane && npm test    # 全绿（711）
-cd ../../apps/repoqa-web && npx vitest run   # 364
-cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 71 项（gate 自带 LLM 环境清空，V30-9）
+cd services/control-plane && npm test    # 全绿（778）
+cd ../../apps/repoqa-web && npx vitest run   # 368
+cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 73 项（gate 自带 LLM 环境清空，V30-9）
 npm run precision && npm run precision:ratchet   # 三仓孤儿数 + 棘轮（self 12.1% < 17.1%）
 ```

@@ -171,6 +171,23 @@ function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
  */
 const LONG_ANSWER_CHARS = 2400;
 
+/**
+ * v1.2 收口（评审 P2）— 折叠切点安全回退：直接 slice 会切半 `[cite: N]`（渲染成
+ * 字面残片）并可能在代理对中间断（UTF-16）。规则：≤limit 原样；否则回退到切点前
+ * 120 字符窗口内最近的换行/空格，并丢弃尾部残缺的 `[cite:` 前缀。
+ */
+function foldAt(content: string, limit: number): string {
+  if (content.length <= limit) return content;
+  let cut = limit;
+  const code = content.charCodeAt(cut);
+  if (code >= 0xdc00 && code <= 0xdfff) cut -= 1;
+  const windowStart = Math.max(0, cut - 120);
+  const window = content.slice(windowStart, cut);
+  const boundary = Math.max(window.lastIndexOf('\n'), window.lastIndexOf(' '));
+  if (boundary > 0) cut = windowStart + boundary;
+  return `${content.slice(0, cut).replace(/\[cite:\s*\d*$/, '')}…`;
+}
+
 function AnswerBody({
   content,
   citations,
@@ -184,7 +201,7 @@ function AnswerBody({
 }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = !streaming && content.length > LONG_ANSWER_CHARS;
-  const shown = isLong && !expanded ? `${content.slice(0, LONG_ANSWER_CHARS)}…` : content;
+  const shown = isLong && !expanded ? foldAt(content, LONG_ANSWER_CHARS) : content;
   return (
     <>
       <MessageBody content={shown} citations={citations} onNavigate={onNavigate} />

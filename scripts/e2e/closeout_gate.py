@@ -620,22 +620,54 @@ def check_precision_frozen() -> None:
         return
     problems: list[str] = []
     summary_bits: list[str] = []
+    # 评审修复（2026-09-29）：文件集合双向相等——整份 frozen 摘要被删（或只留
+    # 非 json 残件）此前静默放行（只遍历现存 frozen 文件）；空目录同样真空通过。
+    frozen_names = {p.name for p in frozen_dir.glob("*.json")}
+    verdict_names = {p.name for p in verdict_dir.glob("*.json")} if verdict_dir.exists() else set()
+    if not frozen_names:
+        problems.append("frozen/ is empty (no *.json summaries)")
+    for name in sorted(verdict_names - frozen_names):
+        problems.append(f"{name}: verdicts present but frozen summary missing")
+    for name in sorted(frozen_names - verdict_names):
+        problems.append(f"{name}: frozen summary present but verdicts file missing")
     for frozen_path in sorted(frozen_dir.glob("*.json")):
         try:
             frozen = json.loads(frozen_path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001 — fail closed with its own reason
             problems.append(f"{frozen_path.name}: unreadable ({exc})")
             continue
+        # 评审修复：结构畸形记账 FAIL 而不是裸抛（裸抛丢门禁输出与其余检查）。
+        if not isinstance(frozen, dict):
+            problems.append(f"{frozen_path.name}: frozen root is not an object")
+            continue
         unexpected_keys = set(frozen) - {"name", "commit", "sampling", "metric_direction", "top"}
         if unexpected_keys:
             problems.append(f"{frozen_path.name}: volatile/unknown fields {sorted(unexpected_keys)}")
+        top = frozen.get("top")
+        if not isinstance(top, list) or not top:
+            problems.append(f"{frozen_path.name}: 'top' must be a non-empty list")
+            continue
+        # 评审修复：entry 级校验——白名单（易变字段不得进 entry）+ 必需键齐备。
+        entry_problems: list[str] = []
+        for idx, entry in enumerate(top):
+            if not isinstance(entry, dict):
+                entry_problems.append(f"top[{idx}] is not an object")
+                continue
+            stray = set(entry) - {"filePath", "line", "symbol", "verdict", "class"}
+            if stray:
+                entry_problems.append(f"top[{idx}] volatile fields {sorted(stray)}")
+            if not isinstance(entry.get("filePath"), str) or not isinstance(entry.get("line"), int):
+                entry_problems.append(f"top[{idx}] missing filePath/line")
+        if entry_problems:
+            problems.append(f"{frozen_path.name}: {'; '.join(entry_problems)}")
+            continue
         verdict_path = verdict_dir / frozen_path.name
         if not verdict_path.exists():
-            problems.append(f"{frozen_path.name}: verdicts/{frozen_path.name} missing")
+            # 已在文件集合比对中点名；这里不再重复，继续下一个摘要。
             continue
         verdicts = json.loads(verdict_path.read_text(encoding="utf-8"))
         verdict_keys = {k for k in verdicts if k != "_meta"}
-        frozen_keys = {f"{e['filePath']}:{e['line']}" for e in frozen.get("top", [])}
+        frozen_keys = {f"{e['filePath']}:{e['line']}" for e in top}
         extra = sorted(verdict_keys - frozen_keys)
         missing = sorted(frozen_keys - verdict_keys)
         if extra:
@@ -643,17 +675,17 @@ def check_precision_frozen() -> None:
         if missing:
             problems.append(f"{frozen_path.name}: {len(missing)} frozen key(s) unjudged: {missing}")
         drift: list[str] = []
-        for entry in frozen.get("top", []):
+        for entry in top:
             key = f"{entry['filePath']}:{entry['line']}"
             actual = verdicts.get(key, {}).get("verdict")
             if not entry.get("verdict") or actual != entry["verdict"]:
                 drift.append(f"{key} frozen={entry['verdict']} verdicts={actual}")
         if drift:
             problems.append(f"{frozen_path.name}: verdict drift — {'; '.join(drift)}")
-        fps = sum(1 for e in frozen.get("top", []) if e.get("verdict") == "false-positive")
+        fps = sum(1 for e in top if e.get("verdict") == "false-positive")
         summary_bits.append(
             f"{frozen.get('name', frozen_path.stem)}@{frozen.get('commit', '?')}"
-            f" top-10 fp={fps}/{len(frozen.get('top', []))}"
+            f" top-10 fp={fps}/{len(top)}"
             f" (sampling={frozen.get('sampling')}, direction={frozen.get('metric_direction')})"
         )
     record(

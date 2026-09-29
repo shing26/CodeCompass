@@ -648,6 +648,9 @@ export class RepoQAWorker {
       return { repo, created: upsert.created };
     } finally {
       this.running.delete(taskId);
+      // v1.2 收口（评审 P3）— 节流表随任务退场：taskId 含 repoId，不清理会在
+      // 长寿命服务里为每个导入过的仓累积一条记录。
+      this.progressEmitAt.delete(taskId);
     }
   }
 

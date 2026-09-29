@@ -1272,4 +1272,32 @@ describe('v0.27-B R2: WS auto-reconnect after backend restart', () => {
     expect(ReconnectableWS.instances.length).toBe(1);
     vi.unstubAllGlobals();
   });
+
+  it('keeps a single socket across repo switches (v1.2 票 03 常连通道：依赖收敛 [baseUrl])', async () => {
+    vi.stubGlobal('WebSocket', ReconnectableWS as unknown as typeof WebSocket);
+    const repo2: Repo = { ...readyRepo, id: 'repo-2', name: 'cc-self' };
+    const client = makeClient({
+      listRepos: vi.fn().mockResolvedValue([readyRepo, repo2])
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+    await waitFor(() => expect(ReconnectableWS.instances.length).toBe(1));
+
+    // 切库：repoId 走 ref 读最新值，effect 依赖只有 baseUrl——socket 不重建。
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toHaveValue('repo-2'));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ReconnectableWS.instances.length).toBe(1);
+
+    // 且切换后 repo_updated 仍按当前仓过滤生效（ref 读到最新 repoId）。
+    const symbolsBefore = (client.listSymbols as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+    ReconnectableWS.instances[0].onmessage?.({
+      data: JSON.stringify({ type: 'repo_updated', payload: { repoId: 'repo-2', files: [], action: 'update', ts: Date.now() } })
+    } as MessageEvent);
+    await waitFor(() =>
+      expect((client.listSymbols as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(symbolsBefore + 1)
+    );
+    vi.unstubAllGlobals();
+  });
 });

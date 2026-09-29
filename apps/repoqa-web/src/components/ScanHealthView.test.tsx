@@ -262,6 +262,18 @@ describe('ScanHealthView 检索分区（v1.2 票 06）', () => {
     expect(await screen.findByTestId('scan-search-empty')).toHaveTextContent('无命中');
   });
 
+  it('a failed search shows a distinct error state, never masquerades as 无命中 (v1.2 收口 评审 P2)', async () => {
+    const searchChunks = vi.fn().mockRejectedValue(new Error('boom'));
+    const user = userEvent.setup();
+    render(
+      <ScanHealthView repo={readyRepo} client={clientWithSearch(searchChunks)} onNavigate={() => {}} />
+    );
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+    await user.type(screen.getByTestId('scan-search-input'), '重试');
+    expect(await screen.findByTestId('scan-search-error')).toHaveTextContent('检索失败');
+    expect(screen.queryByTestId('scan-search-empty')).not.toBeInTheDocument();
+  });
+
   it('copy red line: the retrieval section never says 语义检索 (v1.1 票 07 边界表述)', async () => {
     const { container } = render(
       <ScanHealthView

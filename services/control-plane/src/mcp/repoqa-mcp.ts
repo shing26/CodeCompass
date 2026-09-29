@@ -942,12 +942,19 @@ export async function mcpIndexRepo(
   // on the repo row itself, but its pre-try prologue (fs.stat, upsert) can
   // still reject — swallowing that would leave the row stuck in `indexing`
   // forever (the zombie ADR-0016 §3 forbids). So the catch flips the row to
-  // error with the root cause for list_repos polling.
+  // error with the root cause for list_repos polling; the catch itself is
+  // guarded too — the background tail may land after db.close()
+  // (shutdown/teardown race, v1.2 ticket 03 review P2: symmetric with the
+  // HTTP side's guardIndexFailure).
   void deps.worker
     .indexRepo({ localPath: targetPath, branch: validatedBranch, name: effectiveName })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+      try {
+        deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+      } catch {
+        // db already closed — nothing left to record on
+      }
     });
 
   return {

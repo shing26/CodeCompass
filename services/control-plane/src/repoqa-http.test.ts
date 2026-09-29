@@ -19,6 +19,10 @@ import { Repos } from './repos';
 import { maskSensitiveText } from './engine/repoqa-masking';
 import { runGoldenEval } from './eval/repoqa-eval';
 import { pollRepoReady } from './test-import-poll';
+
+// v1.2 收口（评审 P2）— 导入+索引链路用例本机实测 1.3–2.8s，慢机 2x 即越过
+// vitest 默认 5s（无全局 testTimeout 配置）；本文件整档上调，拆下一颗 CI 抖动雷。
+vi.setConfig({ testTimeout: 15_000 });
 import { capPrompt, completeReAct } from './engine/repoqa-llm';
 
 // The file-limit test previously wrote MAX_FILES + 1 = 12,001 files

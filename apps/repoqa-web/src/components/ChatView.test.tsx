@@ -244,4 +244,32 @@ describe('v1.2 票 05 a11y（V27-15）', () => {
     await waitFor(() => expect(screen.getByText(/结论/)).toBeInTheDocument());
     expect(screen.queryByTestId('chat-expand-answer')).not.toBeInTheDocument();
   });
+
+  it('v1.2 收口：折叠切点不切半 [cite: N]（残片不渲染成字面文本）', async () => {
+    // 第 ~2396 字符处起是一个 cite——暴力 slice 会产出 "[cite: 12" 字面残片。
+    const content = `${'A'.repeat(2395)}[cite: 12] 尾部说明`;
+    renderChat({
+      messages: vi.fn().mockResolvedValue([
+        { id: 1, sessionId: 'chat-s1', role: 'user', content: '长问题', citations: null },
+        {
+          id: 2,
+          sessionId: 'chat-s1',
+          role: 'assistant',
+          content,
+          citations: JSON.stringify([{ n: 12, tool: 'codecompass_scan', args: {}, ms: 1 }])
+        }
+      ])
+    });
+    await waitFor(() => expect(screen.getByText('会话 A')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('会话 A'));
+    const toggle = await screen.findByTestId('chat-expand-answer');
+    // 折叠态：残片被剥掉——既无完整角标文本也无 "[cite: 1" 半截残片
+    expect(screen.getByTestId('chat-messages').textContent).not.toContain('[cite:');
+    fireEvent.click(toggle);
+    // 展开后完整内容里 cite 是可点的角标（不是字面文本）
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-expand-answer')).toHaveAttribute('aria-expanded', 'true')
+    );
+    expect(screen.getByTestId('chat-messages').textContent).not.toContain('[cite:');
+  });
 });

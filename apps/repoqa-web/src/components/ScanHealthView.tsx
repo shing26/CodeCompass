@@ -43,6 +43,7 @@ export function ScanHealthView({
   const [chunkQuery, setChunkQuery] = useState('');
   const [chunkHits, setChunkHits] = useState<RepoChunkRow[] | null>(null);
   const [chunkLoading, setChunkLoading] = useState(false);
+  const [chunkError, setChunkError] = useState<string | null>(null);
 
   const ready = Boolean(repo && repo.status === 'ready');
 
@@ -80,13 +81,17 @@ export function ScanHealthView({
 
   // v1.2 票 06 — 检索防抖（250ms，非逐键打屏）：<2 字符不查（服务端 LIKE/FTS
   // 短查询语义都吃 2+）；仓库/索引态变化即清空命中。
+  // v1.2 收口（评审 P2）：query 变化立即清旧结果（防抖+请求窗内不得显示上一问
+  // 的命中）；失败走独立 error 态，不再伪装成「无命中」。
   useEffect(() => {
     const query = chunkQuery.trim();
+    setChunkError(null);
     if (!repo || repo.status !== 'ready' || query.length < 2) {
       setChunkHits(null);
       setChunkLoading(false);
       return;
     }
+    setChunkHits(null);
     let cancelled = false;
     const timer = setTimeout(() => {
       setChunkLoading(true);
@@ -96,7 +101,7 @@ export function ScanHealthView({
           if (!cancelled && hits) setChunkHits(hits);
         })
         .catch(() => {
-          if (!cancelled) setChunkHits([]);
+          if (!cancelled) setChunkError('检索失败——稍后重试或换个关键词。');
         })
         .finally(() => {
           if (!cancelled) setChunkLoading(false);
@@ -204,6 +209,10 @@ export function ScanHealthView({
                       <li
                         key={`${item.filePath}:${item.line}:${item.symbol}`}
                         data-testid="scan-item"
+                        // v1.2 收口（评审 P2）— 引擎 detail 是英文判据串（"0 static
+                        // callers"/"PageRank 0.43; in 5 / out 3"），不再进正文渲染
+                        //（v0.30 用户可见文案中文纪律），挂 title 悬浮可达。
+                        title={item.detail}
                         className="flex min-w-0 items-center gap-2"
                       >
                         <button
@@ -223,9 +232,6 @@ export function ScanHealthView({
                             仅测试调用
                           </Badge>
                         )}
-                        <span className="hidden min-w-0 truncate text-micro text-muted lg:inline">
-                          {item.detail}
-                        </span>
                       </li>
                     ))}
                   </ul>
@@ -259,6 +265,11 @@ export function ScanHealthView({
             {chunkLoading && (
               <p data-testid="scan-search-loading" className="mt-2 text-xs text-muted">
                 检索中…
+              </p>
+            )}
+            {chunkError && (
+              <p data-testid="scan-search-error" className="mt-2 text-xs text-danger">
+                {chunkError}
               </p>
             )}
             {chunkHits && chunkHits.length === 0 && !chunkLoading && (

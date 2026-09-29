@@ -39,6 +39,24 @@ export function registerReposCatalogRoutes(app: express.Express, deps: HttpDeps)
 
 /** v0.25.0 批次 2：仓库写入/摄取域——POST 导入、preview、dialog、delete、
  * reindex、clone、file-raw。原 786-1006 行连续段。 */
+
+/**
+ * v1.2 票 03 — 僵尸防线的唯一实现：三处 fire-and-forget（POST / reindex /
+ * clone）共用。indexRepo 的 pre-try 序言（fs.stat / upsertByLocalPath）**会
+ * reject**（典型：导入后目录被删/改名/网络盘卸载再点重新索引）——吞掉即行永远
+ * 停在 indexing（ADR-0016 §3 禁止，DELETE/reindex 都会 409，只能重启）。catch
+ * 自身也必须自保：后台索引尾巴可能在 db.close() 之后落地（优雅关闭/测试
+ * teardown 竞态——CI 三平台 unhandled rejection 的根因类）。
+ */
+function guardIndexFailure(deps: HttpDeps, repoId: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  try {
+    deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+  } catch {
+    // db already closed — nothing left to record on
+  }
+}
+
 export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps): void {
   app.post('/api/repos', asyncHandler(async (req, res) => {
     try {
@@ -178,15 +196,15 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     }
     deps.worker.invalidate(repo.id);
     deps.repoqa.updateRepoStatus(repo.id, 'indexing');
+    // v1.2 票 03 修复（评审 P1）——reindex 与 POST 同险：pre-try reject 会留
+    // 永久 indexing 僵尸；统一走僵尸防线（旧实现 `.catch(() => {})` 吞掉一切）。
     deps.worker
       .indexRepo({
         localPath: repo.localPath,
         branch: repo.branch,
         name: repo.name
       })
-      .catch(() => {
-        // indexRepo never rejects — failures are recorded on the repo row.
-      });
+      .catch((error: unknown) => guardIndexFailure(deps, repo.id, error));
     res.status(202).json({ repo: deps.repoqa.getRepo(repo.id)! });
   });
 
@@ -261,10 +279,12 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       // itself; marking indexing here keeps the 202 response consistent with
       // the state the catalog poll will observe.
       deps.repoqa.updateRepoStatus(upsert.repo.id, 'indexing');
-      deps.worker.indexRepo({ localPath: targetDir, branch, name }).catch(() => {
-        // indexRepo never rejects — failures are recorded as status='error'
-        // on the repo. The catch only satisfies no-floating-promises.
-      });
+      // v1.2 票 03 修复（评审 P1）——clone 与 POST 同险，统一走僵尸防线
+      //（旧实现 `.catch(() => {})` 只满足 no-floating-promises，pre-try
+      // reject 会留永久 indexing 僵尸——如克隆目录被清后再点）。
+      deps.worker
+        .indexRepo({ localPath: targetDir, branch, name })
+        .catch((error: unknown) => guardIndexFailure(deps, upsert.repo.id, error));
       res.status(202).json({ repo: deps.repoqa.getRepo(upsert.repo.id)! });
     } catch (error) {
       res.status(400).json({

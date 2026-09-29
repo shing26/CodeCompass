@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDb } from './db';
 import { EventBus } from './events';
 import { createHttpApp } from './http';
@@ -13,6 +13,10 @@ import { RepoQARepos, resolveRepoCommitSync } from './ingest/repoqa-repos';
 import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
 import { pollRepoReady } from './test-import-poll';
+
+// v1.2 收口（评审 P2）— 导入+索引链路用例在慢机上可越过 vitest 默认 5s；
+// 本文件整档上调（同 http/events 两文件的处理）。
+vi.setConfig({ testTimeout: 15_000 });
 
 const tempDirs: string[] = [];
 
