@@ -22,6 +22,7 @@ import { Orchestrator } from './orchestrator';
 import { RepoQARepos } from './ingest/repoqa-repos';
 import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
+import { pollRepoReady } from './test-import-poll';
 
 /* ---------------- shared HTTP registry (evolve.test.ts pattern) ----------- */
 
@@ -183,10 +184,15 @@ async function importReady(baseUrl: string, repoPath: string): Promise<string> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ localPath: repoPath })
   });
-  const body = (await response.json()) as { repo?: { id: string; status: string }; error?: string };
-  expect(response.status).toBe(201);
-  expect(body.repo?.status).toBe('ready');
-  return body.repo!.id;
+  const body = (await response.json()) as {
+    repo?: { id: string; status: string; error?: string };
+    error?: string;
+  };
+  // v1.2 票 03：POST 转 202——轮询到 ready 再返回（旧契约同步 ready）。
+  expect(response.status).toBe(202);
+  const settled = body.repo?.id ? await pollRepoReady(baseUrl, body.repo.id) : null;
+  expect(settled?.status).toBe('ready');
+  return settled!.id;
 }
 
 async function makeOrderRepo(root: string, extraConfig = false): Promise<void> {

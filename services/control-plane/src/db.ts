@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS repos (
   index_parsed INTEGER NOT NULL DEFAULT 0,
   index_total INTEGER NOT NULL DEFAULT 0,
   repo_commit TEXT,
+  suggested_subdirs TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -296,6 +297,11 @@ export function openDb(dbPath: string): Database.Database {
   // Column is `repo_commit`: `commit` is a SQLite reserved word.
   if (!repoColumns.some((column) => column.name === 'repo_commit')) {
     db.exec('ALTER TABLE repos ADD COLUMN repo_commit TEXT');
+  }
+  // v1.2 票 03 — 超限拒绝的「建议子目录」必须落行：导入转 202 后没有同步返回
+  // 值可携带它，Modal 从 catalog 轮询行数据（异步前只在 worker 返回值上，会丢）。
+  if (!repoColumns.some((column) => column.name === 'suggested_subdirs')) {
+    db.exec('ALTER TABLE repos ADD COLUMN suggested_subdirs TEXT');
   }
   // Issue 05: richer symbol metadata for deterministic call chains.
   const symbolColumns = db

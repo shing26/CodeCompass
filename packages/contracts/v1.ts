@@ -94,6 +94,19 @@ export interface RepoQaIndexError {
   error: string;
 }
 
+/**
+ * v1.2 票 03（V29-1 后半）— 克隆瞬断重试的可感知帧：clone 路由在
+ * `isTransientGitFailure` 退避重试前广播（V27-18 的分类器/退避已入册），
+ * 前端在导入/克隆进度区显示「网络瞬断，重试中」。
+ * `reason` 出库前已过 `maskSensitiveText`（git 报错历史上有回显带凭据 URL 的先例）。
+ */
+export interface RepoQaImportCloneRetry {
+  name: string;
+  attempt: number;
+  backoffMs: number;
+  reason: string;
+}
+
 export interface RepoQaAnchor {
   file: string;
   line: number;
@@ -202,6 +215,7 @@ export type ServerEvent =
   | { type: 'repoqa.index.progress'; payload: RepoQaIndexProgress }
   | { type: 'repoqa.index.done'; payload: RepoQaIndexDone }
   | { type: 'repoqa.index.error'; payload: RepoQaIndexError }
+  | { type: 'repoqa.import.clone-retry'; payload: RepoQaImportCloneRetry }
   | { type: 'repoqa.query.token'; payload: RepoQaQueryToken }
   | { type: 'repoqa.query.mermaid'; payload: RepoQaQueryMermaid }
   | { type: 'repoqa.query.anchors'; payload: RepoQaQueryAnchors }

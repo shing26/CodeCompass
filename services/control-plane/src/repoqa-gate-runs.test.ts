@@ -24,6 +24,7 @@ import { Orchestrator } from './orchestrator';
 import { RepoQARepos, type GateRunRow } from './ingest/repoqa-repos';
 import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
+import { pollRepoReady } from './test-import-poll';
 
 /* ---------------- store unit suites ---------------- */
 
@@ -256,8 +257,9 @@ async function importRepo(baseUrl: string, repoPath: string) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ localPath: repoPath })
   });
-  const body = (await response.json()) as { repo?: { id: string; status: string } };
-  return body.repo;
+  const body = (await response.json()) as { repo?: { id: string; status: string; error?: string } };
+  // v1.2 票 03：POST 转 202——轮询到 ready/error 再返回（旧契约同步 ready）。
+  return body.repo?.id ? await pollRepoReady(baseUrl, body.repo.id) : body.repo;
 }
 
 interface GateRunResponse {

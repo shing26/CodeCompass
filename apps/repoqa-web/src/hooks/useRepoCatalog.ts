@@ -96,29 +96,17 @@ export function useRepoCatalog(
   const importRepo = useCallback(
     async (name: string, localPath: string) => {
       setError(null);
-      // Bug-12: while the single POST /api/repos call is in flight (large
-      // imports take tens of seconds) keep refreshing the catalog so the UI
-      // can show live phase feedback from the repo's `indexing` status.
-      let pollTimer: ReturnType<typeof setInterval> | null = null;
+      // v1.2 票 03（V29-1）：202 语义——POST 秒回 indexing 行；Bug-12 时代为
+      // 长挂 POST 手动起的 1200ms 轮询退役，上方常驻状态轮询（仓库 active 即
+      // 1500ms 刷目录）从行落库那刻接管进度。
       try {
-        const repoPromise = client.importRepo({ name, localPath });
-        pollTimer = setInterval(() => {
-          client
-            .listRepos()
-            .then(setRepos)
-            .catch(() => {
-              // transient poll failure — the awaited import will resolve anyway
-            });
-        }, 1200);
-        const repo = await repoPromise;
+        const { repo } = await client.importRepo({ name, localPath });
         setRepos((prev) => [repo, ...prev.filter((r) => r.id !== repo.id)]);
         setCurrentId(repo.id);
         return repo;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
         throw err;
-      } finally {
-        if (pollTimer) clearInterval(pollTimer);
       }
     },
     [client]

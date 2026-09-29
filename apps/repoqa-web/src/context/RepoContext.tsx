@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import { useSymbols } from '../hooks/useSymbols';
@@ -67,6 +67,9 @@ interface RepoContextValue {
   refreshDashboard: () => void;
   view: MainView;
   setView: (v: MainView) => void;
+  /** v1.2 票 03 — 最近一次克隆瞬断重试事件（WS `repoqa.import.clone-retry`），
+   * Modal 在克隆阶段显示「网络瞬断，重试中」；null = 无。 */
+  cloneRetry: { name: string; attempt: number; backoffMs: number } | null;
   activeTour: RepoTour | null;
   handlePlayTour: (tour: RepoTour) => void;
   goTopology: () => void;
@@ -141,8 +144,23 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
   const [view, setView] = useState<MainView>(() => viewFromMode(deepLink.mode));
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   const [indexingProgress, setIndexingProgress] = useState<StepperProgress | null>(null);
+  // v1.2 票 03 — 克隆瞬断重试的近况（Modal 克隆阶段展示；见 WS 分支）。
+  const [cloneRetry, setCloneRetry] = useState<{
+    name: string;
+    attempt: number;
+    backoffMs: number;
+  } | null>(null);
   // Bug-04: narrow viewports (≤ 375px) turn the panes into off-canvas drawers.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // v1.2 票 03 — WS 常驻通道读最新值的 ref（effect 依赖收敛为 [client.baseUrl]，
+  // 选库/切库不再重建 socket；见下方 effect 注释）。
+  const repoIdRef = useRef(repoId);
+  repoIdRef.current = repoId;
+  const refreshSymbolsRef = useRef(refreshSymbolsSilent);
+  refreshSymbolsRef.current = refreshSymbolsSilent;
+  const refreshDashboardRef = useRef(refreshDashboardSilent);
+  refreshDashboardRef.current = refreshDashboardSilent;
 
   // Issue 30: FS watcher hot reload — re-fetch symbols/dashboard on
   // repo_updated without changing the current view or showing loaders.
@@ -153,7 +171,13 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
   // caught up. attempt 0 (initial connect) never refreshes — the caller's
   // own load already did, and existing repo_updated tests rely on that.
   useEffect(() => {
-    if (!repoId || typeof WebSocket === 'undefined') return;
+    // v1.2 票 03 — 门控从「已选库」放宽为常连：克隆/导入的瞬断重试事件
+    // （repoqa.import.clone-retry）与索引进度常发生在**尚未选库**时。消息
+    // 分支自带 repoId 匹配过滤（progress/repo_updated），常连不改变既有语义。
+    // 同时效应依赖收敛为 [client.baseUrl] 一个：repoId 与其派生的 silent
+    // refresh 走 ref 读最新值——选库/切库不再重建 socket（常驻通道语义，
+    // 也消除切库瞬间的重连窗口）。
+    if (typeof WebSocket === 'undefined') return;
     let ws: WebSocket | null = null;
     let cancelled = false;
     let attempt = 0;
@@ -172,9 +196,10 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       const isConnectedRefresh = attempt > 0;
       socket.onopen = () => {
         attempt = 0; // reset backoff after a successful link
-        if (isConnectedRefresh) {
-          void refreshSymbolsSilent();
-          void refreshDashboardSilent();
+        // v1.2 票 03 — 常连后补上 repoId 守卫：未选库时重连不自刷（无仓可刷）。
+        if (isConnectedRefresh && repoIdRef.current) {
+          void refreshSymbolsRef.current();
+          void refreshDashboardRef.current();
         }
       };
       socket.onmessage = (event) => {
@@ -186,16 +211,29 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
           };
           if (message.type === 'repoqa.index.progress') {
             const payload = message.payload as StepperProgress | undefined;
-            if (payload && payload.repoId === repoId) {
+            if (payload && payload.repoId === repoIdRef.current) {
               setIndexingProgress(payload);
               if (payload.phase === 'FINALIZING' && payload.percent === 100) {
-                void refreshSymbolsSilent();
-                void refreshDashboardSilent();
+                void refreshSymbolsRef.current();
+                void refreshDashboardRef.current();
               }
             }
-          } else if (message.type === 'repo_updated' && message.payload?.repoId === repoId) {
-            void refreshSymbolsSilent();
-            void refreshDashboardSilent();
+          } else if (message.type === 'repo_updated' && message.payload?.repoId === repoIdRef.current) {
+            void refreshSymbolsRef.current();
+            void refreshDashboardRef.current();
+          } else if (message.type === 'repoqa.import.clone-retry') {
+            // v1.2 票 03 — 克隆瞬断重试上屏（Modal 克隆阶段显示；无 repoId
+            // 依赖，故常连下即可收到——门控放宽的原因之一）。
+            const payload = message.payload as
+              | { name?: string; attempt?: number; backoffMs?: number }
+              | undefined;
+            if (payload && typeof payload.attempt === 'number') {
+              setCloneRetry({
+                name: payload.name ?? '',
+                attempt: payload.attempt,
+                backoffMs: payload.backoffMs ?? 0
+              });
+            }
           }
         } catch {
           // malformed frame — ignore and keep the connection alive
@@ -227,7 +265,10 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       if (retryTimer) clearTimeout(retryTimer);
       ws?.close();
     };
-  }, [client.baseUrl, repoId, refreshSymbolsSilent, refreshDashboardSilent]);
+    // v1.2 票 03 — 常连后依赖收敛：repoId 与 silent refresh 走 ref 读最新值，
+    // 选库/切库不重建 socket（repoId 仅作为分支过滤的当前值使用）。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client.baseUrl]);
 
   useEffect(() => {
     setIndexingProgress(null);
@@ -331,11 +372,14 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
   }, [view]);
 
   const handleImportLocal = async (name: string, localPath: string): Promise<Repo> => {
+    // v1.2 票 03（V29-1 后半）：202 语义——拿到 indexing 行即返回，收尾与
+    // clone 同款（刷新目录、选中、切拓扑）；索引进度由 WS + catalog 轮询承载，
+    // Modal 在 ready 时自动关（error 由 Modal 从行数据读并显示重试建议）。
     const repo = await importRepo(name, localPath);
-    if (repo.status !== 'error') {
-      setActiveTour(null);
-      setView('topo');
-    }
+    await refresh();
+    selectRepo(repo.id);
+    setActiveTour(null);
+    setView('topo');
     return repo;
   };
 
@@ -412,6 +456,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     refreshDashboard,
     view,
     setView,
+    cloneRetry,
     activeTour,
     handlePlayTour,
     goTopology,

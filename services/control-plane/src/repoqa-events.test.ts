@@ -13,6 +13,7 @@ import { Orchestrator } from './orchestrator';
 import { RepoQARepos } from './ingest/repoqa-repos';
 import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
+import { pollRepoReady } from './test-import-poll';
 
 interface ServerContext {
   baseUrl: string;
@@ -87,6 +88,8 @@ async function importRepo(baseUrl: string, repoPath: string): Promise<string> {
   });
   const body = (await response.json()) as { repo?: { id: string } };
   if (!body.repo) throw new Error('repo import failed');
+  // v1.2 票 03：POST 转 202——等索引落定再返回 id（旧契约同步 ready）。
+  await pollRepoReady(baseUrl, body.repo.id);
   return body.repo.id;
 }
 

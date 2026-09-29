@@ -71,6 +71,7 @@ function WorkbenchShell() {
     refreshDashboard,
     view,
     setView,
+    cloneRetry,
     activeTour,
     handlePlayTour,
     goTopology,
@@ -154,6 +155,7 @@ function WorkbenchShell() {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
+        cloneRetry={cloneRetry}
         onPickFolder={() => client.pickFolder()}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}

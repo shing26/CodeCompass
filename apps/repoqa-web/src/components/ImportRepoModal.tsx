@@ -5,8 +5,9 @@ interface ImportRepoModalProps {
   /** Issue 19: standalone import dialog (was inline in TopBar). */
   open: boolean;
   onClose: () => void;
-  /** Resolves with the created repo; an over-limit reject comes back as a
-   * `status: 'error'` repo carrying `suggestedSubdirs` (v0.5.1 D1). */
+  /** v1.2 票 03（V29-1）：202 语义——resolve 出的是 `indexing` 行（非 ready），
+   * 索引进度由 Modal 的 catalog 收口 effect 接管；超限拒绝也变成行上的异步
+   * error（`suggestedSubdirs` 从行数据读，不再是同步返回值）。 */
   onImportLocal: (name: string, localPath: string) => Promise<Repo | void>;
   /** Round 2 B4: read-only preview of what a local import will index. */
   onPreviewLocal: (localPath: string) => Promise<RepoPreview>;
@@ -21,10 +22,14 @@ interface ImportRepoModalProps {
   /** v0.25.0 批次 1：原生目录选择器（Node 侧拉起系统对话框回传绝对路径）。
    * 未提供时（旧测试/降级）隐藏按钮。 */
   onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
+  /** v1.2 票 03 — 最近一次克隆瞬断重试（WS `repoqa.import.clone-retry`），
+   * 克隆阶段显示「网络瞬断，重试中」。null/undefined = 无。 */
+  cloneRetry?: { attempt: number; backoffMs: number } | null;
 }
 
 type Tab = 'local' | 'remote';
 type RemotePhase = 'idle' | 'cloning' | 'indexing';
+type LocalPhase = 'idle' | 'indexing';
 
 /**
  * Issue 19: repository ingestion hub — local path import and GitHub remote
@@ -43,7 +48,8 @@ export function ImportRepoModal({
   onCloneRemote,
   repos,
   importingRepo,
-  onPickFolder
+  onPickFolder,
+  cloneRetry
 }: ImportRepoModalProps) {
   const [tab, setTab] = useState<Tab>('local');
   // 批次 1 验收：非 Windows 平台隐藏浏览按钮（服务端 supported:false 仍是
@@ -54,6 +60,9 @@ export function ImportRepoModal({
   const [localPath, setLocalPath] = useState('');
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  /** v1.2 票 03 — 本地上传的 202 后台索引阶段（ready/error 由 catalog 收口）。 */
+  const [localPhase, setLocalPhase] = useState<LocalPhase>('idle');
+  const [localImportingRepoId, setLocalImportingRepoId] = useState<string | null>(null);
   /** v0.5.1 (D1): importable subdirs offered after an over-limit reject. */
   const [suggestedSubdirs, setSuggestedSubdirs] = useState<string[]>([]);
   const [preview, setPreview] = useState<RepoPreview | null>(null);
@@ -126,6 +135,8 @@ export function ImportRepoModal({
     setLocalPath('');
     setLocalBusy(false);
     setLocalError(null);
+    setLocalPhase('idle');
+    setLocalImportingRepoId(null);
     setSuggestedSubdirs([]);
     setPreview(null);
     setPreviewLoading(false);
@@ -154,22 +165,36 @@ export function ImportRepoModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repos, remotePhase, clonedRepoId]);
 
+  // v1.2 票 03（V29-1）— 本地导入的 202 收口（与 clone 同款）：catalog 行
+  // ready → 自动关；error → 原地给错误 + 行上的重试建议（suggestedSubdirs）。
+  // 关闭 Modal 不取消索引——行继续走 WS + 轮询，列表里会出现。
+  useEffect(() => {
+    if (localPhase !== 'indexing' || !localImportingRepoId) return;
+    const row = repos.find((r) => r.id === localImportingRepoId);
+    if (!row) return;
+    if (row.status === 'ready') {
+      reset();
+      onClose();
+    } else if (row.status === 'error') {
+      setLocalPhase('idle');
+      setLocalError(row.error ?? '索引失败，请重试');
+      setSuggestedSubdirs(row.suggestedSubdirs ?? []);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repos, localPhase, localImportingRepoId]);
+
   const importLocal = async (nameArg: string, pathArg: string) => {
     setLocalBusy(true);
     setLocalError(null);
     setSuggestedSubdirs([]);
     try {
       const repo = await onImportLocal(nameArg, pathArg);
-      // v0.6 closeout: an over-limit reject resolves (not throws) with an
-      // error-status repo. Keep the dialog open and offer the backend's
-      // suggested subdirectories as one-click re-imports.
-      if (repo && repo.status === 'error') {
-        setLocalError(repo.error ?? '索引失败，请重试');
-        setSuggestedSubdirs(repo.suggestedSubdirs ?? []);
-        return;
+      // v1.2 票 03（V29-1）：202 语义——拿到 indexing 行即进入后台索引阶段，
+      // ready/error 由上方的 catalog 收口 effect 接管（同 clone 流程）。
+      if (repo) {
+        setLocalImportingRepoId(repo.id);
+        setLocalPhase('indexing');
       }
-      reset();
-      onClose();
     } catch (err) {
       setLocalError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -406,7 +431,7 @@ export function ImportRepoModal({
                 </div>
               </div>
             )}
-            {localBusy &&
+            {(localBusy || localPhase === 'indexing') &&
               (importingRepo ? (
                 <div
                   data-testid="import-progress"
@@ -427,6 +452,22 @@ export function ImportRepoModal({
                   正在启动导入…
                 </p>
               ))}
+            {localPhase === 'indexing' && (
+              <p data-testid="import-background-hint" className="mb-2 text-xs text-muted">
+                索引在后台继续——可直接关闭窗口，完成后仓库会出现在左侧列表。
+              </p>
+            )}
+            {localPhase === 'idle' && localError && localImportingRepoId && (
+              <button
+                type="button"
+                data-testid="import-retry"
+                onClick={() => void importLocal(name.trim(), localPath.trim())}
+                disabled={localBusy}
+                className="mb-2 h-7 rounded-md border border-line bg-subtle px-2 text-xs text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+              >
+                重试
+              </button>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -436,12 +477,12 @@ export function ImportRepoModal({
                 }}
                 className="h-8 rounded-md px-3 text-sm text-muted hover:bg-subtle"
               >
-                取消
+                {localPhase === 'indexing' ? '后台继续' : '取消'}
               </button>
               <button
                 type="submit"
                 data-testid="import-submit"
-                disabled={localBusy || !name.trim() || !localPath.trim()}
+                disabled={localBusy || localPhase === 'indexing' || !name.trim() || !localPath.trim()}
                 className="h-8 rounded-md bg-accent px-3 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
               >
                 {localBusy ? '导入中…' : '导入'}
@@ -479,6 +520,13 @@ export function ImportRepoModal({
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                 正在克隆仓库…
               </div>
+            )}
+            {remotePhase === 'cloning' && cloneRetry && (
+              // v1.2 票 03 — V29-1 后半：克隆瞬断重试的可感知化（WS 帧驱动）。
+              <p data-testid="import-clone-retry" className="mb-2 text-xs text-warning">
+                网络瞬断，正在自动重试（第 {cloneRetry.attempt} 次，约{' '}
+                {Math.round(cloneRetry.backoffMs / 1000)} 秒后）
+              </p>
             )}
             {remotePhase === 'indexing' && (
               <div

@@ -3,7 +3,7 @@ import { asyncHandler } from '../http-error';
 import path from 'node:path';
 import express from 'express';
 import { requireRepo, type HttpDeps } from './deps';
-import { resolveDefaultBranchSync } from '../ingest/repoqa-repos';
+import { deriveLocalRepoName, resolveDefaultBranchSync } from '../ingest/repoqa-repos';
 import type { Repo } from '../ingest/repoqa-repos';
 import { maskSensitiveText } from '../engine/repoqa-masking';
 import {
@@ -58,19 +58,48 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
           ? body.branch.trim()
           : undefined;
       // Bug-10: respect the user-supplied display name; empty falls back to
-      // the directory basename inside the worker.
+      // the directory basename.
       const name =
         typeof body.name === 'string' && body.name.trim() !== ''
           ? body.name.trim()
           : undefined;
-      const result = await deps.worker.indexRepo({ localPath, branch, name });
-      // repo is null only on the ghost path (row deleted mid-index) — this
-      // endpoint awaits the full index, so treat it as an unlikely 409.
-      if (!result.repo) {
-        res.status(409).json({ error: 'repo was removed while indexing', code: 'repo_removed_mid_index' });
+      // v1.2 票 03（V29-1 后半）— 同步校验、异步索引：坏路径在此 400 且
+      // **不建行**（保留旧语义，与 MCP index_repo 同规）；通过校验后行即刻
+      // 建立并置 indexing，**202 秒回 `{ repo, taskId }`**——进度走既有 WS
+      // `repoqa.index.progress` 帧 + catalog 轮询（reindex/clone 同款机制），
+      // 最长 600s 的同步长挂就此消灭。破坏性契约变更（202 取代 200/201）
+      // 在 CHANGELOG 破坏性段登记在案。
+      const stat = await fs.stat(localPath).catch(() => null);
+      if (!stat?.isDirectory()) {
+        res.status(400).json({
+          error: `local path is not a directory: ${localPath}`,
+          code: 'import_failed'
+        });
         return;
       }
-      res.status(result.created ? 201 : 200).json({ repo: result.repo });
+      const upsert = deps.repoqa.upsertByLocalPath({
+        name: name ?? deriveLocalRepoName(localPath),
+        localPath,
+        branch
+      });
+      const repoId = upsert.repo.id;
+      deps.repoqa.updateRepoStatus(repoId, 'indexing');
+      // Fire-and-forget（照 MCP index_repo 的 ADR-0016 先例）。indexRepo 内部
+      // 把失败记为 status='error'；其 pre-try 序言（stat/upsert）仍可能
+      // reject——吞掉会让行永远停在 indexing（僵尸防线，ADR-0016 §3 禁止），
+      // 所以 catch 翻 error 并带上根因供 catalog 轮询。
+      void deps.worker
+        .indexRepo({ localPath, branch, name })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+        });
+      res.status(202).json({
+        repo: deps.repoqa.getRepo(repoId)!,
+        // taskId 与 worker.broadcast 的 taskId 同源（`index-${repoId}`），供日志/
+        // WS 帧关联；行 id 已是即时可用的主关联键。
+        taskId: `index-${repoId}`
+      });
     } catch (error) {
       // R3 review P2-3：引擎/FS 报错可能内嵌凭据形状串——出库过掩码，与 chat 面同尺。
       res.status(400).json({
@@ -196,15 +225,23 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         url,
         branch,
         targetDir,
-        // V27-18: transient blips retry (1s/2s); the clone endpoint answers
-        // 202 only after the checkout lands, so retries are logged rather
-        // than streamed (import-202 ledger ticket owns the visible-progress
-        // half of this UX).
+        // V27-18: transient blips retry (1s/2s). v1.2 票 03 — 重试可感知化：
+        // 同一退避事件广播上 WS（V29-1 后半），导入/克隆进度区显示
+        // 「网络瞬断，重试中（第 N 次）」；reason 先过掩码（URL 可能带凭据）。
         onRetry: ({ attempt, backoffMs, reason }) => {
           deps.logger?.info(
             'clone',
             `transient failure before attempt ${attempt} (retry in ${backoffMs}ms): ${reason.slice(0, 200)}`
           );
+          deps.eventBus.emit({
+            type: 'repoqa.import.clone-retry',
+            payload: {
+              name,
+              attempt,
+              backoffMs,
+              reason: maskSensitiveText(reason)
+            }
+          });
         }
       });
 

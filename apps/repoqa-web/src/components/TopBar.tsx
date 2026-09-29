@@ -35,6 +35,8 @@ interface TopBarProps {
   /** Bug-12: repo currently being indexed (from catalog polling) — lets the
    * import dialog show live phase feedback while POST /api/repos is pending. */
   importingRepo?: Repo | null;
+  /** v1.2 票 03 — 克隆瞬断重试（WS），透传给导入弹窗的克隆阶段提示。 */
+  cloneRetry?: { attempt: number; backoffMs: number } | null;
   /** v0.25.0 批次 1：原生目录选择器（可选，未传时按钮隐藏）。 */
   onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
   llmMode: LlmRuntimeMode;
@@ -101,6 +103,7 @@ export function TopBar({
   onToggleSidebar,
   sidebarOpen,
   importingRepo,
+  cloneRetry,
   onPickFolder,
   llmMode,
   llmHost,
@@ -383,6 +386,7 @@ export function TopBar({
           repos={repos}
           importingRepo={importingRepo}
           onPickFolder={onPickFolder}
+          cloneRetry={cloneRetry}
         />
       )}
     </header>

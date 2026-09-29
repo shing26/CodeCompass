@@ -39,42 +39,32 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   } as unknown as RepoQAClient;
 }
 
-describe('useRepoCatalog import polling (Bug-12)', () => {
-  it('refreshes the catalog while the import POST is pending so the UI sees indexing state', async () => {
-    let release: (repo: Repo) => void = () => {};
-    const pending = new Promise<Repo>((resolve) => {
-      release = resolve;
-    });
+describe('useRepoCatalog import (v1.2 票 03：202 语义)', () => {
+  it('inserts the returned indexing row immediately and the standing poll advances it to ready', async () => {
     const listRepos = vi
       .fn()
       .mockResolvedValueOnce([]) // mount
-      .mockResolvedValue([indexingRepo]); // polling ticks see the indexing repo
+      // 常驻轮询（active 即 1500ms）：同一行翻到终态（真实语义），不是换行。
+      .mockResolvedValue([{ ...indexingRepo, status: 'ready', symbolCount: 344 }]);
     const client = makeClient({
       listRepos,
-      importRepo: vi.fn().mockReturnValue(pending)
+      importRepo: vi.fn().mockResolvedValue({ repo: indexingRepo, taskId: 'index-repo-2' })
     });
 
     const { result } = renderHook(() => useRepoCatalog(client, null));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let importPromise: Promise<Repo>;
-    act(() => {
-      importPromise = result.current.importRepo('big-repo', 'C:/projects/big-repo');
-    });
-
-    // The catalog must surface the indexing repo while the POST is in flight
-    // (the poll interval is 1200ms, so allow longer than the default waitFor).
-    await waitFor(
-      () => expect(result.current.repos).toEqual([indexingRepo]),
-      { timeout: 5000 }
-    );
-    expect(listRepos.mock.calls.length).toBeGreaterThan(1);
-
+    let imported: Repo | undefined;
     await act(async () => {
-      release(readyRepo);
-      await importPromise;
+      imported = await result.current.importRepo('big-repo', 'C:/projects/big-repo');
     });
-    expect(result.current.currentRepo?.id).toBe('repo-1');
+    // 202 秒回的 indexing 行立即入目录并选中——不再等 POST 全量结束。
+    expect(imported?.status).toBe('indexing');
+    expect(result.current.currentRepo?.id).toBe('repo-2');
+    // Bug-12 手轮询退役后，进度由常驻状态轮询接管（行 active 即起拍）。
+    await waitFor(() => expect(result.current.currentRepo?.status).toBe('ready'), {
+      timeout: 5000
+    });
   });
 
   it('still surfaces the import error and keeps previous repos when import fails', async () => {

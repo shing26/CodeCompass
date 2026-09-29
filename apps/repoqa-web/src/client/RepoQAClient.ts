@@ -72,9 +72,11 @@ export class RepoQAClient {
     return (await res.json()) as RuntimeInfo;
   }
 
-  async importRepo(input: ImportRepoInput): Promise<Repo> {
-    // R2: this endpoint blocks until the whole index completes (the catalog
-    // only flips to ready in the response) — big repos need the relaxed budget.
+  async importRepo(input: ImportRepoInput): Promise<{ repo: Repo; taskId: string }> {
+    // v1.2 票 03（V29-1 后半）：202 秒回 { repo(status=indexing), taskId }——
+    // 索引在服务端后台跑，进度走 WS + catalog 轮询；此请求不再阻塞等待全量
+    // 索引（旧契约在响应里给 ready 仓，已随票 03 废弃）。超时预算保留宽松档：
+    // 克隆型导入的同步段（含瞬断重试退避）仍可能到分钟级。
     const res = await this.fetcher(`${this.baseUrl}/api/repos`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -96,9 +98,9 @@ export class RepoQAClient {
       }
       throw new Error(`importRepo failed: ${res.status}${detail}`);
     }
-    const body = (await res.json()) as { repo?: Repo };
+    const body = (await res.json()) as { repo?: Repo; taskId?: string };
     if (!body.repo) throw new Error('importRepo failed: missing repo in response');
-    return body.repo;
+    return { repo: body.repo, taskId: body.taskId ?? `index-${body.repo.id}` };
   }
 
   /** Round 2 B4: read-only pre-import preview of file/dir counts. */

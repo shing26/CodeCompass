@@ -12,6 +12,7 @@ import { createHttpApp } from './http';
 import { RepoQARepos, resolveRepoCommitSync } from './ingest/repoqa-repos';
 import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
+import { pollRepoReady } from './test-import-poll';
 
 const tempDirs: string[] = [];
 
@@ -190,7 +191,9 @@ describe('Issue 23 / ADR-0010 — SSE anchors carry the physical commit', () => 
         repo?: { id: string; status: string };
       };
       const repoId = importBody.repo!.id;
-      expect(importBody.repo!.status).toBe('ready');
+      // v1.2 票 03：POST 转 202——轮询到 ready 再走后续断言（旧契约同步 ready）。
+      const settled = await pollRepoReady(baseUrl, repoId);
+      expect(settled?.status).toBe('ready');
 
       const response = await fetch(
         `${baseUrl}/api/repos/${repoId}/query?question=${encodeURIComponent('trace hello')}`

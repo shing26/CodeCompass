@@ -404,10 +404,24 @@ def _git(cwd: Path, args: list[str]) -> None:
 
 
 def import_repo(base: str, name: str, path: Path) -> dict:
+    """v1.2 票 03（V29-1 后半）— POST /api/repos 转 202：校验快返契约
+    （{ repo(status=indexing), taskId } 秒回），再轮询目录到 ready/error。
+    旧同步契约（响应里直接给 ready 仓）已废弃——本函数即破坏性变更的活断言。"""
     res = http_json("POST", f"{base}/api/repos", {"name": name, "localPath": str(path)}, timeout=120)
     repo = res["repo"]
-    assert repo["status"] == "ready", f"{name} not ready: {repo.get('error')}"
-    return repo
+    assert repo["status"] == "indexing", f"{name} expected indexing on 202, got {repo['status']}"
+    task_id = res.get("taskId")
+    assert isinstance(task_id, str) and task_id.startswith("index-"), f"{name} taskId missing: {task_id}"
+    repo_id = repo["id"]
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        current = http_json("GET", f"{base}/api/repos/{repo_id}")["repo"]
+        if current["status"] == "ready":
+            return current
+        if current["status"] == "error":
+            raise AssertionError(f"{name} failed to index: {current.get('error')}")
+        time.sleep(1)
+    raise AssertionError(f"{name} did not leave indexing within 180s")
 
 
 # --------------------------------------------------------------------- checks

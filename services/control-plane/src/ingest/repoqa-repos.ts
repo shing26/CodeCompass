@@ -392,10 +392,22 @@ function mapRepo(row: {
   index_parsed: number;
   index_total: number;
   repo_commit: string | null;
+  suggested_subdirs?: string | null;
   created_at: string;
   updated_at: string;
 }): Repo {
   const indexing = row.status === 'indexing' && row.index_total > 0;
+  let suggestedSubdirs: string[] | undefined;
+  if (row.suggested_subdirs) {
+    try {
+      const parsed = JSON.parse(row.suggested_subdirs) as unknown;
+      if (Array.isArray(parsed) && parsed.every((d) => typeof d === 'string')) {
+        suggestedSubdirs = parsed;
+      }
+    } catch {
+      // 防御：坏 JSON 视作无建议，不拖垮整行映射。
+    }
+  }
   return {
     id: row.id,
     name: row.name,
@@ -410,6 +422,7 @@ function mapRepo(row: {
       ? { indexParsed: row.index_parsed, indexTotal: row.index_total }
       : {}),
     commit: row.repo_commit ?? undefined,
+    ...(suggestedSubdirs ? { suggestedSubdirs } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -563,6 +576,16 @@ export class RepoQARepos {
         `UPDATE repos SET file_count = ?, symbol_count = ?, updated_at = ? WHERE id = ?`
       )
       .run(fileCount, symbolCount, new Date().toISOString(), repoId);
+  }
+
+  /**
+   * v1.2 票 03 — 超限拒绝的「建议子目录」落行：导入转 202 之后没有同步返回值
+   * 可携带它，Modal 必须能从 catalog 行数据读到重试建议。空数组清空该列。
+   */
+  setSuggestedSubdirs(repoId: string, dirs: string[]): void {
+    this.db
+      .prepare(`UPDATE repos SET suggested_subdirs = ?, updated_at = ? WHERE id = ?`)
+      .run(dirs.length > 0 ? JSON.stringify(dirs) : null, new Date().toISOString(), repoId);
   }
 
   clearRepoData(repoId: string): void {

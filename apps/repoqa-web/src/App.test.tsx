@@ -120,7 +120,7 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
   return {
     listRepos: vi.fn().mockResolvedValue([readyRepo]),
     getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'none' } }),
-    importRepo: vi.fn().mockResolvedValue(readyRepo),
+    importRepo: vi.fn().mockResolvedValue({ repo: readyRepo, taskId: 'index-repo-1' }),
     previewRepo: vi.fn().mockResolvedValue({
       path: 'C:/projects/spring-petclinic',
       fileCount: 120,

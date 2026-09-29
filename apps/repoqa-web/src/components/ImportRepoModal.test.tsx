@@ -68,11 +68,14 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     expect(screen.getByTestId('import-name')).toBeInTheDocument();
   });
 
-  it('submits a local import with name + path and closes on success', async () => {
+  it('submits a local import, enters the background phase, and closes when the row reaches ready (v1.2 票 03 202 语义)', async () => {
     const user = userEvent.setup();
-    const onImportLocal = vi.fn().mockResolvedValue(undefined);
+    const imported: Repo = { ...indexingRepo, id: 'repo-local-1', localPath: 'C:/projects/spring-petclinic' };
+    const onImportLocal = vi.fn().mockResolvedValue(imported);
     const onClose = vi.fn();
-    render(<ImportRepoModal {...baseProps({ onImportLocal, onClose })} />);
+    const { rerender } = render(
+      <ImportRepoModal {...baseProps({ onImportLocal, onClose, repos: [] })} />
+    );
 
     await user.type(screen.getByTestId('import-name'), 'petclinic');
     await user.type(screen.getByTestId('import-path'), 'C:/projects/spring-petclinic');
@@ -84,21 +87,27 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
         'C:/projects/spring-petclinic'
       )
     );
+    // 202：不立刻关——进入后台索引阶段，「取消」变「后台继续」（关了索引照跑）。
+    await waitFor(() => expect(screen.getByTestId('import-background-hint')).toBeInTheDocument());
+    expect(screen.getByText('后台继续')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // catalog 行翻 ready → 自动关（与 clone 同款收口）。
+    rerender(
+      <ImportRepoModal
+        {...baseProps({ onImportLocal, onClose, repos: [{ ...imported, status: 'ready' }] })}
+      />
+    );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it('shows bootstrapping then live indexing feedback while local import is pending (Bug-12)', async () => {
+  it('shows live indexing feedback in the background phase (Bug-12 传承)', async () => {
     const user = userEvent.setup();
-    let release: (value: unknown) => void = () => {};
-    const pending = new Promise((resolve) => {
-      release = resolve;
-    });
-    const onImportLocal = vi.fn().mockReturnValue(pending);
+    const imported: Repo = { ...indexingRepo, id: 'repo-local-1' };
+    const onImportLocal = vi.fn().mockResolvedValue(imported);
     const onClose = vi.fn();
     const { rerender } = render(
-      <ImportRepoModal
-        {...baseProps({ onImportLocal, onClose, importingRepo: null })}
-      />
+      <ImportRepoModal {...baseProps({ onImportLocal, onClose, importingRepo: null })} />
     );
 
     await user.type(screen.getByTestId('import-name'), 'big-repo');
@@ -109,32 +118,31 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
       expect(screen.getByTestId('import-progress')).toHaveTextContent('正在启动导入…')
     );
 
+    // 行出现在目录且 catalog 报出文件数 → 进度区实时展示（importingRepo 驱动）
     rerender(
       <ImportRepoModal
-        {...baseProps({ onImportLocal, onClose, importingRepo: clonedIndexingRepo })}
+        {...baseProps({
+          onImportLocal,
+          onClose,
+          repos: [imported],
+          importingRepo: { ...imported, fileCount: 12 }
+        })}
       />
     );
     await waitFor(() =>
       expect(screen.getByTestId('import-progress')).toHaveTextContent('正在解析代码结构…')
     );
     expect(screen.getByTestId('import-progress')).toHaveTextContent('12');
-
-    release(undefined);
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('shows live parsed/total AST progress when the backend reports counts', async () => {
     const user = userEvent.setup();
-    let release: (value: unknown) => void = () => {};
-    const pending = new Promise((resolve) => {
-      release = resolve;
-    });
-    const onImportLocal = vi.fn().mockReturnValue(pending);
+    const imported: Repo = { ...indexingRepo, id: 'repo-local-1' };
+    const onImportLocal = vi.fn().mockResolvedValue(imported);
     const onClose = vi.fn();
     const { rerender } = render(
-      <ImportRepoModal
-        {...baseProps({ onImportLocal, onClose, importingRepo: null })}
-      />
+      <ImportRepoModal {...baseProps({ onImportLocal, onClose, importingRepo: null })} />
     );
 
     await user.type(screen.getByTestId('import-name'), 'big-repo');
@@ -146,6 +154,7 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
         {...baseProps({
           onImportLocal,
           onClose,
+          repos: [imported],
           importingRepo: {
             ...indexingRepo,
             fileCount: 0,
@@ -160,9 +169,7 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
         '正在解析代码结构…（45/120）'
       )
     );
-
-    release(undefined);
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
   });
 
 
@@ -317,25 +324,31 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     expect(screen.getByTestId('import-dialog')).toBeInTheDocument();
   });
 
-  it('v0.6 closeout: offers suggested subdirs after an over-limit reject and re-imports on click', async () => {
+  it('v1.2 票 03: over-limit reject arrives on the row (async) with suggested subdirs and re-imports on click', async () => {
     const user = userEvent.setup();
-    const overLimitRepo: Repo = {
+    const indexingRow: Repo = { ...indexingRepo, id: 'repo-local-2' };
+    const overLimitRow: Repo = {
       ...readyRepo,
+      id: 'repo-local-2',
       status: 'error',
       error: 'repo exceeds 3000 files (found 4200); import a submodule or repo root instead',
       suggestedSubdirs: ['packages', 'apps']
     };
-    const onImportLocal = vi
-      .fn()
-      .mockResolvedValueOnce(overLimitRepo)
-      .mockResolvedValueOnce(readyRepo);
+    const onImportLocal = vi.fn().mockResolvedValue(indexingRow);
     const onClose = vi.fn();
-    render(<ImportRepoModal {...baseProps({ onImportLocal, onClose })} />);
+    const { rerender } = render(
+      <ImportRepoModal {...baseProps({ onImportLocal, onClose, repos: [] })} />
+    );
 
     await user.type(screen.getByTestId('import-name'), 'monorepo');
     await user.type(screen.getByTestId('import-path'), 'C:/big');
     await user.click(screen.getByTestId('import-submit'));
+    await waitFor(() => expect(screen.getByTestId('import-background-hint')).toBeInTheDocument());
 
+    // 严格异步：超限拒绝是行上的 error（含 suggestedSubdirs），catalog 翻到后入册
+    rerender(
+      <ImportRepoModal {...baseProps({ onImportLocal, onClose, repos: [overLimitRow] })} />
+    );
     await waitFor(() =>
       expect(screen.getByTestId('import-suggested-subdirs')).toBeInTheDocument()
     );
@@ -346,7 +359,6 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     await user.click(screen.getAllByTestId('import-suggested-subdir')[0]);
     await waitFor(() => expect(onImportLocal).toHaveBeenCalledTimes(2));
     expect(onImportLocal).toHaveBeenLastCalledWith('monorepo', 'C:/big/packages');
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it('reports an indexing error once the cloned repo flips to error', async () => {

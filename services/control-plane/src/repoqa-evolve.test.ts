@@ -13,6 +13,7 @@ import { Orchestrator } from './orchestrator';
 import { RepoQARepos } from './ingest/repoqa-repos';
 import { RepoQAWorker, deterministicIntentParse } from './ingest/repoqa-worker';
 import { Repos } from './repos';
+import { pollRepoReady } from './test-import-poll';
 
 interface ServerContext {
   baseUrl: string;
@@ -118,9 +119,11 @@ async function importReady(baseUrl: string, repoPath: string): Promise<string> {
     repo?: { id: string; status: string; error?: string };
     error?: string;
   };
-  expect(response.status).toBe(201);
-  expect(body.repo?.status).toBe('ready');
-  return body.repo!.id;
+  // v1.2 票 03：POST 转 202——轮询到 ready 再进入既有断言链路。
+  expect(response.status).toBe(202);
+  const settled = body.repo?.id ? await pollRepoReady(baseUrl, body.repo.id) : null;
+  expect(settled?.status).toBe('ready');
+  return settled!.id;
 }
 
 interface SseFrame {

@@ -151,6 +151,28 @@ async function waitHealthDown(base, timeoutMs = 10000) {
   }
 }
 
+/** v1.2 票 03 — POST /api/repos 转 202 后的就绪收口：轮询目录到 ready/error。 */
+async function waitRepoReady(base, repoId, timeoutMs) {
+  const t0 = Date.now();
+  for (;;) {
+    const r = await fetch(`${base}/api/repos/${repoId}`);
+    if (r.ok) {
+      const { repo } = await r.json();
+      if (repo?.status === 'ready') return repo;
+      if (repo?.status === 'error') return { ...repo, pollFailed: true };
+    }
+    if (Date.now() - t0 > timeoutMs) return null;
+    await new Promise((r2) => setTimeout(r2, 500));
+  }
+}
+
+/** 按名字在目录里找仓（关闭弹窗后的「列表出现」断言用）。 */
+async function findRepoByName(base, name) {
+  const list = await (await fetch(`${base}/api/repos`)).json();
+  const repos = Array.isArray(list) ? list : (list.repos ?? []);
+  return repos.find((r) => r.name === name) ?? null;
+}
+
 async function main() {
   if (!fs.existsSync(CLI)) throw new Error(`dist/cli.js 缺失——先 npm run build（${CLI}）`);
   const stub = await startStubLlm();
@@ -182,12 +204,18 @@ async function main() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ localPath: repoDir, name: 'smoke-repo', branch: 'main' }),
-        // P2-7：该端点同步等全量索引（V27-20 在册）——5 分钟硬上限防永悬吃满 job
-        signal: AbortSignal.timeout(300_000)
+        // v1.2 票 03：POST 已转 202 秒回（旧同步长挂契约废弃）——超时预算回到常规。
+        signal: AbortSignal.timeout(30_000)
       })
     ).json();
+    step(
+      '导入 202 快返（status=indexing + taskId）',
+      imp.repo?.status === 'indexing' && String(imp.taskId ?? '').startsWith('index-'),
+      `status=${imp.repo?.status} taskId=${imp.taskId}`
+    );
     const repoId = imp.repo?.id;
-    step('fixture 导入并 ready', Boolean(repoId) && imp.repo.status === 'ready', `status=${imp.repo?.status}`);
+    const readyRepo = repoId ? await waitRepoReady(base, repoId, 120_000) : null;
+    step('fixture 索引落定 ready（目录轮询收口）', readyRepo?.status === 'ready', `status=${readyRepo?.status}`);
 
     console.log('--- 1. 选库 → 工作台 ---');
     const chromium = await loadChromium();
@@ -277,6 +305,82 @@ async function main() {
         .then(() => true)
         .catch(() => false)
     );
+
+    console.log('--- 1c. 导入流化（v1.2 票 03）：UI 关闭后台继续 + WS 进度序列 ---');
+    // Node 24 原生 WebSocket 独立收帧（与页面无关）：断言阶段序列与终态恰一。
+    const wsFrames = [];
+    const wsProbe = new WebSocket(base.replace(/^http/, 'ws') + '/ws');
+    await new Promise((resolve) => {
+      wsProbe.addEventListener('open', resolve);
+      wsProbe.addEventListener('error', resolve); // 探测口不可用也不阻断主断言
+      setTimeout(resolve, 3000);
+    });
+    wsProbe.addEventListener('message', (e) => {
+      try {
+        const m = JSON.parse(String(e.data));
+        if (m?.type === 'repoqa.index.progress' && m?.payload?.repoId) {
+          wsFrames.push({ repoId: m.payload.repoId, phase: m.payload.phase, percent: m.payload.percent });
+        }
+      } catch {
+        /* malformed frame */
+      }
+    });
+
+    const secondDir = buildFixtureRepo();
+    await page.goto(`${base}/?repo=${repoId}`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('[data-testid="open-import"]', { state: 'visible', timeout: 10000 });
+    await page.click('[data-testid="open-import"]');
+    await page.fill('[data-testid="import-name"]', 'smoke-second');
+    await page.fill('[data-testid="import-path"]', secondDir);
+    const t0 = Date.now();
+    await page.click('[data-testid="import-submit"]');
+    const backgroundPhase = await page
+      .waitForSelector('[data-testid="import-background-hint"]', { state: 'visible', timeout: 15000 })
+      .then(() => true)
+      .catch(() => false);
+    step(
+      '导入 202 后进入后台阶段（不阻塞等待全量索引）',
+      backgroundPhase && Date.now() - t0 < 15000,
+      `elapsed=${Date.now() - t0}ms`
+    );
+
+    // 关闭弹窗（后台继续）→ 索引照跑，完成后列表出现该仓 ready。
+    await page.click('text=后台继续');
+    const dialogClosed = await page
+      .waitForSelector('[data-testid="import-dialog"]', { state: 'detached', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    step('弹窗关闭（后台继续出口可用）', dialogClosed);
+    const secondRepoId = await (async () => {
+      const t1 = Date.now();
+      while (Date.now() - t1 < 90_000) {
+        const found = await findRepoByName(base, 'smoke-second');
+        if (found?.status === 'ready') return found.id;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return null;
+    })();
+    step('关闭后索引继续并落目录 ready', Boolean(secondRepoId));
+
+    // WS 序列：阶段单调 + 终态（FINALIZING/100）恰一。
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      wsProbe.close();
+    } catch {
+      /* already closed */
+    }
+    {
+      const mine = wsFrames.filter((f) => f.repoId === secondRepoId);
+      const order = { DISCOVERY: 0, PARSING: 1, FINALIZING: 2 };
+      const seq = mine.filter((f) => f.phase in order).map((f) => order[f.phase]);
+      const monotonic = seq.length > 0 && seq.every((v, i) => i === 0 || v >= seq[i - 1]);
+      const completes = mine.filter((f) => f.phase === 'FINALIZING' && f.percent === 100).length;
+      step(
+        'WS 进度序列：阶段单调 + 终态恰一',
+        monotonic && completes === 1,
+        `phases=${JSON.stringify([...new Set(mine.map((f) => f.phase))])} completes=${completes} frames=${mine.length}`
+      );
+    }
 
     console.log('--- 2. AskDock → chat → stub 流式回答 ---');
     await page.waitForSelector('[data-testid="ask-dock-input"]', { state: 'visible', timeout: 10000 });

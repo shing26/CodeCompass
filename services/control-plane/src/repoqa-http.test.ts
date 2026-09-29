@@ -18,6 +18,7 @@ import { RepoQAWorker } from './ingest/repoqa-worker';
 import { Repos } from './repos';
 import { maskSensitiveText } from './engine/repoqa-masking';
 import { runGoldenEval } from './eval/repoqa-eval';
+import { pollRepoReady } from './test-import-poll';
 import { capPrompt, completeReAct } from './engine/repoqa-llm';
 
 // The file-limit test previously wrote MAX_FILES + 1 = 12,001 files
@@ -302,6 +303,12 @@ async function importRepo(baseUrl: string, repoPath: string, branch?: string) {
     };
     error?: string;
   };
+  // v1.2 票 03：POST 转 202（含重复导入——created 语义不再体现在状态码）——
+  // 轮询目录到 ready/error 再返回，旧断言面（body.repo.status === 'ready'）保持成立。
+  if (body.repo?.id && body.repo.status !== 'ready' && body.repo.status !== 'error') {
+    const settled = await pollRepoReady(baseUrl, body.repo.id);
+    if (settled) body.repo = { ...body.repo, ...settled };
+  }
   return { status: response.status, body };
 }
 
@@ -543,7 +550,7 @@ describe('RepoPulse repo import HTTP API', () => {
       });
 
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.status).toBe(201);
+      expect(result.status).toBe(202);
       expect(result.body.repo?.status).toBe('ready');
       expect(result.body.repo?.localPath).toBe(path.resolve(root));
       expect(result.body.repo?.fileCount).toBe(5);
@@ -578,7 +585,7 @@ describe('RepoPulse repo import HTTP API', () => {
     try {
       await makeJavaRepo(root);
       const first = await importRepo(ctx.baseUrl, root);
-      expect(first.status).toBe(201);
+      expect(first.status).toBe(202);
       const repoId = first.body.repo!.id;
 
       await ctx.db
@@ -587,7 +594,7 @@ describe('RepoPulse repo import HTTP API', () => {
       await fs.writeFile(path.join(root, 'notes.txt'), 'extra\n');
 
       const second = await importRepo(ctx.baseUrl, root);
-      expect(second.status).toBe(200);
+      expect(second.status).toBe(202);
       expect(second.body.repo?.id).toBe(repoId);
       expect(second.body.repo?.fileCount).toBe(6);
       const symbols = ctx.db
@@ -611,7 +618,7 @@ describe('RepoPulse repo import HTTP API', () => {
     try {
       await makeJavaRepo(root);
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.status).toBe(201);
+      expect(result.status).toBe(202);
       const repoId = result.body.repo!.id;
       const sourceFile = path.join(
         root,
@@ -647,7 +654,7 @@ describe('RepoPulse repo import HTTP API', () => {
     try {
       await makeJavaRepo(root);
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.status).toBe(201);
+      expect(result.status).toBe(202);
       const repoId = result.body.repo!.id;
       const before = result.body.repo!;
 
@@ -753,7 +760,7 @@ describe('RepoPulse repo import HTTP API', () => {
         await fs.writeFile(path.join(root, `file-${index}.txt`), '');
       }
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.status).toBe(201);
+      expect(result.status).toBe(202);
       expect(result.body.repo?.status).toBe('error');
       expect(result.body.repo?.error).toContain(String(MAX_FILES));
       expect(events).toContain('error');
@@ -989,7 +996,7 @@ describe('RepoPulse symbol extraction HTTP API', () => {
     try {
       await makeJavaRepo(root);
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.status).toBe(201);
+      expect(result.status).toBe(202);
       expect(result.body.repo?.status).toBe('ready');
       expect(result.body.repo?.symbolCount).toBeGreaterThan(0);
       const repoId = result.body.repo!.id;
@@ -1226,7 +1233,7 @@ describe('RepoPulse symbol extraction HTTP API', () => {
       );
 
       const result = await importRepo(ctx.baseUrl, root);
-      expect(result.status).toBe(201);
+      expect(result.status).toBe(202);
       expect(result.body.repo?.status).toBe('ready');
       const repoId = result.body.repo!.id;
 

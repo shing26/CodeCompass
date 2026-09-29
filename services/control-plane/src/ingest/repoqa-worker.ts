@@ -398,6 +398,8 @@ export class RepoQAWorker {
       if (!controller.signal.aborted) {
         this.repoqa.updateRepoStatus(repoId, 'idle', 0, 0);
         this.repoqa.clearRepoData(repoId);
+        // v1.2 票 03 — 新一轮索引开始即清陈旧建议（上一轮超限拒绝的残留）。
+        this.repoqa.setSuggestedSubdirs(repoId, []);
       }
 
       this.broadcast(taskId, {
@@ -615,6 +617,9 @@ export class RepoQAWorker {
         /exceeds \d+ (files|lines)/.test(message)
           ? await detectSuggestedSubdirs(localPath)
           : [];
+      // v1.2 票 03 — 建议子目录落行：导入转 202 后没有同步返回值可携带它，
+      // Modal 从 catalog 行数据读重试建议（异步前只在返回值上，会丢）。
+      this.repoqa.setSuggestedSubdirs(repoId, suggestedSubdirs);
       const repo =
         suggestedSubdirs.length > 0
           ? { ...baseRepo, suggestedSubdirs }
