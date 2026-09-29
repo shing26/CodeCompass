@@ -513,7 +513,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 
-  it('switches to the CI gate via the TopBar tab (票 05: 一级导航 3 项)', async () => {
+  it('switches to the CI gate via the TopBar tab (票 05 收敛 → v1.2 票 01 还原 5 项)', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
@@ -521,9 +521,32 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     await user.click(screen.getByTestId('tab-gate'));
     await waitFor(() => expect(screen.getByTestId('ci-gate')).toBeInTheDocument());
 
-    // topo 降为深链/默认视图：着陆即拓扑（offline-hint），无一级页签但可达。
+    // v1.2 票 01 — topo 回归一级：点 tab 即回拓扑画布（offline-hint 是落点标记）。
+    await user.click(screen.getByTestId('tab-topo'));
+    await waitFor(() => expect(screen.getByTestId('offline-hint')).toBeInTheDocument());
+
     await user.click(screen.getByTestId('tab-delta'));
     await waitFor(() => expect(screen.getByTestId('architecture-delta')).toBeInTheDocument());
+
+    // v1.2 票 01 — 体检入列一级：点 tab 落体检骨架（数据面随票 02）。
+    await user.click(screen.getByTestId('tab-scan'));
+    await waitFor(() => expect(screen.getByTestId('scan-health')).toBeInTheDocument());
+  });
+
+  it('reaches the scan skeleton via the deep link, pre- and post-selection (v1.2 票 01)', async () => {
+    // 选库前：体检有自己的「未选库」态（不再是 inert behind the topo guide 的例外路径）。
+    window.history.replaceState(null, '', '/?mode=scan');
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    expect(screen.getByTestId('scan-health')).toHaveTextContent('先在上方选择一个仓库');
+
+    // 选库时深链生效（Ticket 16 URL-as-truth）→ 体检骨架就绪态。
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('scan-health')).toHaveTextContent('体检面即将开放'));
+
+    // URL 同步：mode=scan 存活，刷新仍落体检。
+    expect(window.location.search).toContain('mode=scan');
   });
 
   it('DEBUG mode=evolve dump', async () => {
@@ -1148,8 +1171,8 @@ describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () 
 
     // Ticket 16 (QA-07): highlight must match content — topo, not delta.
     expect(screen.getByTestId('empty-state')).toBeInTheDocument();
-    // 票 05 — topo 不在一级导航：无页签高亮（内容仍是 topo/引导）。
-    expect(screen.queryByTestId('tab-topo')).not.toBeInTheDocument();
+    // v1.2 票 01 — topo 回归一级：无库深链时高亮 topo（内容仍是 topo/引导）。
+    expect(screen.getByTestId('tab-topo')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'false');
     // URL keeps the mode param (no error, no silent drop before a repo exists).
     expect(window.location.search).toContain('mode=diff');

@@ -30,6 +30,8 @@ function viewFromMode(mode: string | null | undefined): MainView {
   // 语义零改，纯增量。
   if (mode === 'metrics') return 'metrics';
   if (mode === 'evolve') return 'evolve';
+  // v1.2 票 01 — 体检面回归一级后获得同款深链（?mode=scan），选库前/后一致生效。
+  if (mode === 'scan') return 'scan';
   return 'topo';
 }
 
@@ -320,6 +322,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       else if (view === 'chat') url.searchParams.set('mode', 'incident');
       else if (view === 'metrics') url.searchParams.set('mode', 'metrics');
       else if (view === 'evolve') url.searchParams.set('mode', 'evolve');
+      else if (view === 'scan') url.searchParams.set('mode', 'scan');
       else url.searchParams.delete('mode');
       window.history.replaceState(null, '', url.toString());
     } catch {

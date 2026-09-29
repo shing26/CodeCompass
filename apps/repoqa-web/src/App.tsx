@@ -10,6 +10,7 @@ import { CiGateView } from './components/CiGateView';
 import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { EvolutionView } from './components/EvolutionView';
 import { ChatView } from './components/ChatView';
+import { ScanHealthView } from './components/ScanHealthView';
 import { AskDock } from './components/AskDock';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
@@ -156,7 +157,9 @@ function WorkbenchShell() {
         onPickFolder={() => client.pickFolder()}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}
-        activeView={noRepo || view === 'tour' ? 'topo' : view}
+        // v1.2 票 01 — 未选库时其它视图仍被 topo 引导兜底（深链 inert 教义），
+        // 但体检骨架自带「未选库」态：view==='scan' 直传，让 tab-scan 高亮一致。
+        activeView={view === 'tour' || (noRepo && view !== 'scan') ? 'topo' : view}
         onSelectView={handleSelectView}
         onCopyAgentContext={handleCopyAgentContext}
         canCopyAgentContext={canCopyAgentContext}
@@ -223,7 +226,12 @@ function WorkbenchShell() {
               <span className="truncate text-xs text-muted">导览 · {activeTour?.title ?? ''}</span>
             </div>
           )}
-          {noRepo || view === 'topo' ? (
+          {/* v1.2 票 01 — 体检面自带「未选库」态，故置于 noRepo 兜底之前：
+              ?mode=scan 选库前后一致落在体检骨架（深链不再是「inert behind
+              the topo guide」的例外）。 */}
+          {view === 'scan' ? (
+            <ScanHealthView repo={currentRepo} />
+          ) : noRepo || view === 'topo' ? (
             <Canvas
               repo={currentRepo}
               anchors={canvasAnchors}

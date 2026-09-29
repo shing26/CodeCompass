@@ -50,12 +50,15 @@ interface TopBarProps {
 }
 
 // 票 05（Web 收敛 6→3）：一级导航只留问现状（chat）/ 变更审计（gate）/ Diff 影响面
-// （delta）三条；topo / metrics / evolve 降为深链页面——视图与深链契约全部保留
-// （`?mode=metrics` / `?mode=evolve` / `?focus=…`），只是不再占一级导航。
+// （delta）三条。v1.2 票 01（产品化 IA 还原）：topo 回归一级（日常排查高频），
+// 新增体检（scan 骨架，数据面随票 02）——一级共 5 项；metrics 并入 more 菜单
+// （一跳可达），evolve 留深链。视图与深链契约零改动（viewFromMode 纯增量）。
 const TABS: Array<{ id: WorkbenchTab; label: string; title: string }> = [
   { id: 'chat', label: '架构问答', title: '问现状：架构、链路、风险都基于代码事实，结论可逐条按证据查证' },
+  { id: 'topo', label: '代码拓扑', title: '点击左侧路由或类，逐步走查确定性调用链路（Caller→Target→Callee）' },
   { id: 'gate', label: '变更审计', title: '运行并记录门禁、回看本机门禁运行史，也可复制预置命令到 CI/CD 流水线' },
-  { id: 'delta', label: 'Diff 影响面', title: '对比两个 Git Commit，精确定位受影响的接口与反向调用方' }
+  { id: 'delta', label: 'Diff 影响面', title: '对比两个 Git Commit，精确定位受影响的接口与反向调用方' },
+  { id: 'scan', label: '体检', title: '代码体检：扫描候选与精度态势——引擎只报确定性事实，语义判断交给对话' }
 ];
 
 function watcherState(status: Repo['status'] | undefined) {
@@ -241,6 +244,19 @@ export function TopBar({
                   data-testid="more-menu"
                   className="absolute right-0 top-full z-50 mt-1 w-48 rounded-md border border-line bg-surface py-1 shadow-neon"
                 >
+                  {/* v1.2 票 01 — metrics 并入 topo 的「一跳可达」落点：不在一级导航
+                      拥挤，深链 ?mode=metrics 契约不变，菜单即入口。 */}
+                  <button
+                    type="button"
+                    data-testid="menu-metrics"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onSelectView('metrics');
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-subtle hover:text-ink"
+                  >
+                    架构仪表盘
+                  </button>
                   <button
                     type="button"
                     data-testid="export-onboarding"
