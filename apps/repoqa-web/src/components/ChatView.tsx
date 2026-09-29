@@ -163,6 +163,46 @@ function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
   );
 }
 
+/**
+ * v1.2 票 05（V27-15）— 超长回答折叠：长作答（流式结束后超阈值）默认只渲染
+ * 前 LONG_ANSWER_CHARS 字 + 「展开全文」——~300+ DOM 节点淹没可访问性树的问题
+ * （computer-use 走查 D5 实证，流式后元素 index 漂移）回到可控量级。
+ * 折叠态不丢内容：展开即完整回放，内容不做任何重写；流式中不折叠（避免边流边折）。
+ */
+const LONG_ANSWER_CHARS = 2400;
+
+function AnswerBody({
+  content,
+  citations,
+  streaming,
+  onNavigate
+}: {
+  content: string;
+  citations?: ChatCitation[];
+  streaming?: boolean;
+  onNavigate: (symbol: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = !streaming && content.length > LONG_ANSWER_CHARS;
+  const shown = isLong && !expanded ? `${content.slice(0, LONG_ANSWER_CHARS)}…` : content;
+  return (
+    <>
+      <MessageBody content={shown} citations={citations} onNavigate={onNavigate} />
+      {isLong && (
+        <button
+          type="button"
+          data-testid="chat-expand-answer"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1 self-start rounded-md border border-line bg-subtle px-2 py-0.5 text-xs text-muted hover:border-accent hover:text-accent"
+        >
+          {expanded ? '收起' : '展开全文'}
+        </button>
+      )}
+    </>
+  );
+}
+
 export function ChatView(props: {
   client: RepoQAClient;
   repoId: string;
@@ -425,7 +465,19 @@ export function ChatView(props: {
             ← 返回工作台
           </button>
         </div>
-        <div className="chat-msgs flex min-h-0 flex-1 overflow-y-auto px-3 py-4" ref={listRef} data-testid="chat-messages">
+        <div
+          className="chat-msgs flex min-h-0 flex-1 overflow-y-auto px-3 py-4"
+          ref={listRef}
+          data-testid="chat-messages"
+          // v1.2 票 05（V27-15）— 消息区 aria landmark：role="log" 是追加式对话的
+          // 语义容器（读屏可按「消息日志」跳转分区），aria-live="polite" 显式钉住
+          // （role=log 隐含同值，显式声明让契约可断言、后续编辑不能静默丢失）；
+          // aria-atomic=false = 只播报新增/变更部分，不整区重读。
+          role="log"
+          aria-label="对话消息"
+          aria-live="polite"
+          aria-atomic="false"
+        >
           {/* spec 布局段：消息列与 composer/空态同一 max-w-3xl 居中语言（review P1-2） */}
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
           {entries.length === 0 && (
@@ -472,7 +524,12 @@ export function ChatView(props: {
                       onOpenEvolution={onOpenEvolution}
                     />
                   ) : null}
-                  <MessageBody content={entry.content} citations={entry.citations} onNavigate={onNavigate} />
+                  <AnswerBody
+                    content={entry.content}
+                    citations={entry.citations}
+                    streaming={entry.streaming}
+                    onNavigate={onNavigate}
+                  />
                 </>
               ) : (
                 <div className="chat-user-text whitespace-pre-wrap">{entry.content}</div>

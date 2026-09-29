@@ -1,6 +1,6 @@
 // ChatView tests (v0.24.0 chat-merge): sessions, streaming, cite deep-links
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChatView } from './ChatView';
 import { ApiError } from '../client/errorCodes';
@@ -196,5 +196,52 @@ describe('ChatView layout completion (v0.27-UI ticket 01)', () => {
     });
     // 指引之外保留原始错误供本机排障
     expect(box.textContent).toContain('unknown session');
+  });
+});
+
+describe('v1.2 票 05 a11y（V27-15）', () => {
+  it('message area is an aria log landmark with explicit polite liveness', async () => {
+    renderChat();
+    const log = await screen.findByTestId('chat-messages');
+    expect(log).toHaveAttribute('role', 'log');
+    expect(log).toHaveAttribute('aria-live', 'polite');
+    expect(log).toHaveAttribute('aria-atomic', 'false');
+    expect(log).toHaveAttribute('aria-label', '对话消息');
+  });
+
+  it('folds a long persisted answer behind 展开全文 and restores it fully on expand', async () => {
+    const long = 'A'.repeat(3000); // > LONG_ANSWER_CHARS (2400)
+    // fireEvent（同步）而非 userEvent：3k 字符的 DOM 下 userEvent 的可交互性
+    // 检查会把 5s 用例预算磨穿（本用例只验证折叠契约，不需要指针语义）。
+    renderChat({
+      messages: vi.fn().mockResolvedValue([
+        { id: 1, sessionId: 'chat-s1', role: 'user', content: '长问题', citations: null },
+        { id: 2, sessionId: 'chat-s1', role: 'assistant', content: long, citations: null }
+      ])
+    });
+    await waitFor(() => expect(screen.getByText('会话 A')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('会话 A'));
+    const toggle = await screen.findByTestId('chat-expand-answer');
+    expect(toggle).toHaveTextContent('展开全文');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    // 折叠态：正文被截断（不出现 2401 连续的 A），读屏/DOM 节点回到可控量级
+    const logText = () => screen.getByTestId('chat-messages').textContent ?? '';
+    expect(logText().includes('A'.repeat(2401))).toBe(false);
+
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('chat-expand-answer')).toHaveAttribute('aria-expanded', 'true');
+    // 展开态：折叠态不丢内容——完整回放（3000 个 A 全在）
+    expect(logText().includes('A'.repeat(3000))).toBe(true);
+
+    fireEvent.click(screen.getByTestId('chat-expand-answer'));
+    expect(logText().includes('A'.repeat(3000))).toBe(false);
+  });
+
+  it('short answers carry no fold control', async () => {
+    renderChat();
+    await screen.findByTestId('chat-messages');
+    await waitFor(() => expect(screen.getByText(/结论/)).toBeInTheDocument());
+    expect(screen.queryByTestId('chat-expand-answer')).not.toBeInTheDocument();
   });
 });
