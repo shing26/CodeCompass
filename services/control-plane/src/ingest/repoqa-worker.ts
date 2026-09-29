@@ -568,15 +568,22 @@ export class RepoQAWorker {
       this.setSymbolGraph(repoId, allSymbols);
       if (modules.length > 0) {
         const sourceRoots = await mavenSourceRoots(localPath, modules);
-        this.repoqa.recordEvent({
-          repoId,
-          eventType: 'repoqa.modules.detected',
-          feedback: JSON.stringify({
-            moduleCount: modules.length,
-            modules: modules.map((module) => ({ name: module.name, pomPath: module.pomPath })),
-            sourceRoots
-          })
-        });
+        // v1.2 票 03 — 终态后仍有异步尾巴（服务端/测试可在 'ready' 就绪后关库）：
+        // 这些写库不得把 indexRepo 变成 rejected（"never rejects" 契约 + 防
+        // unhandled rejection），关库即静默——进度帧已把故事讲完。
+        try {
+          this.repoqa.recordEvent({
+            repoId,
+            eventType: 'repoqa.modules.detected',
+            feedback: JSON.stringify({
+              moduleCount: modules.length,
+              modules: modules.map((module) => ({ name: module.name, pomPath: module.pomPath })),
+              sourceRoots
+            })
+          });
+        } catch {
+          // db closed mid-flight
+        }
       }
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
@@ -600,26 +607,40 @@ export class RepoQAWorker {
         }
       } as any);
 
-      return { repo: this.repoqa.getRepo(repoId) ?? null, created: upsert.created };
+      return { repo: this.safeGetRepo(repoId), created: upsert.created };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+      // v1.2 票 03 — 错误路径的每步都可能撞上「已关库」（shutdown/测试 teardown
+      // 时后台索引仍在跑）：任何一步把异常抛出 catch，都会让 indexRepo 变成
+      // rejected、进而触发调用方 catch 再写库再抛——unhandled rejection 瀑布。
+      // 这里的每一步都必须自保。
+      if (!this.safeMarkRepoError(repoId, message)) {
+        this.broadcast(taskId, {
+          type: 'repoqa.index.error',
+          payload: { repoId, error: message }
+        } as any);
+        return { repo: null, created: upsert.created };
+      }
       this.broadcast(taskId, {
         type: 'repoqa.index.error',
         payload: { repoId, error: message }
       } as any);
-      const baseRepo = this.repoqa.getRepo(repoId);
+      const baseRepo = this.safeGetRepo(repoId);
       if (!baseRepo) {
         // Deleted mid-index: swallow the error path too — no row to record on.
         return { repo: null, created: upsert.created };
       }
       const suggestedSubdirs =
         /exceeds \d+ (files|lines)/.test(message)
-          ? await detectSuggestedSubdirs(localPath)
+          ? await detectSuggestedSubdirs(localPath).catch(() => [])
           : [];
       // v1.2 票 03 — 建议子目录落行：导入转 202 后没有同步返回值可携带它，
       // Modal 从 catalog 行数据读重试建议（异步前只在返回值上，会丢）。
-      this.repoqa.setSuggestedSubdirs(repoId, suggestedSubdirs);
+      try {
+        this.repoqa.setSuggestedSubdirs(repoId, suggestedSubdirs);
+      } catch {
+        // db closed mid-flight
+      }
       const repo =
         suggestedSubdirs.length > 0
           ? { ...baseRepo, suggestedSubdirs }
@@ -1975,6 +1996,29 @@ export class RepoQAWorker {
 
   private broadcast(taskId: string, event: ServerEvent) {
     this.eventBus.emit({ ...event, taskId } as any);
+  }
+
+  /**
+   * v1.2 票 03 — 关库自保：后台索引的终态尾巴可能在 db.close() 之后执行
+   * （服务端优雅关闭 / 测试 teardown 与 202 后台索引赛跑——CI 三平台实证的
+   * unhandled rejection 根因）。这两个包装保证「db 已关」只体现为返回空值或
+   * false，而不是把 indexRepo 变成 rejected、触发调用方 catch 再写库再抛。
+   */
+  private safeGetRepo(repoId: string): Repo | null {
+    try {
+      return this.repoqa.getRepo(repoId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private safeMarkRepoError(repoId: string, message: string): boolean {
+    try {
+      this.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async parseRepo(

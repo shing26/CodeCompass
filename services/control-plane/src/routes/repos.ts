@@ -87,12 +87,18 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       // Fire-and-forget（照 MCP index_repo 的 ADR-0016 先例）。indexRepo 内部
       // 把失败记为 status='error'；其 pre-try 序言（stat/upsert）仍可能
       // reject——吞掉会让行永远停在 indexing（僵尸防线，ADR-0016 §3 禁止），
-      // 所以 catch 翻 error 并带上根因供 catalog 轮询。
+      // 所以 catch 翻 error 并带上根因供 catalog 轮询。catch 自身也要自保：
+      // 后台索引尾巴可能晚于 db.close()（优雅关闭/测试 teardown 与 202 赛跑），
+      // 在已关库上再写会变成 unhandled rejection 瀑布（CI 三平台实证）。
       void deps.worker
         .indexRepo({ localPath, branch, name })
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error);
-          deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+          try {
+            deps.repoqa.updateRepoStatus(repoId, 'error', undefined, undefined, message);
+          } catch {
+            // db already closed — nothing left to record on
+          }
         });
       res.status(202).json({
         repo: deps.repoqa.getRepo(repoId)!,
