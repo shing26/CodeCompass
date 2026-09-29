@@ -11,8 +11,9 @@ interface DashboardViewProps {
   onTrace: (api: TopApiEntry) => void;
   /** code:// navigation to the Inspector (tech stack chips / config keys). */
   onNavigate: (file: string, line: number) => void;
-  /** Switch to the Q&A chat view. */
-  onOpenChat: () => void;
+  /** 查调用链（页头按钮）：跳拓扑并聚焦首条 Top API；无候选时仅切视图。
+   * v1.2 票 04④（V27-5）— 修前是 onOpenChat「只跳视图不聚焦」，名实不符。 */
+  onTraceTop: () => void;
 }
 
 const SCALE_ORDER: Array<{ key: keyof RepoDashboard['scale']; label: string }> = [
@@ -42,7 +43,7 @@ export function DashboardView({
   onRetry,
   onTrace,
   onNavigate,
-  onOpenChat
+  onTraceTop
 }: DashboardViewProps) {
   if (loading && !dashboard) {
     return (
@@ -107,8 +108,8 @@ export function DashboardView({
           </div>
           <button
             type="button"
-            data-testid="open-chat"
-            onClick={onOpenChat}
+            data-testid="open-trace-top"
+            onClick={onTraceTop}
             className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90"
           >
             查调用链

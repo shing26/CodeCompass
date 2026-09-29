@@ -415,6 +415,27 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     expect(badges[2].className).toContain('text-muted');   // 低风险 → 灰
   });
 
+  it('renders at most IMPACT_TREE_LIMIT branches plus a count tail for oversized runs (v1.2 票 04③)', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      routeSymbol: { name: `route${i}`, file: `R${i}.java`, lineStart: i + 1, lineEnd: i + 1, kind: 'route' },
+      affectedBySymbols: [],
+      riskLevel: 'LOW'
+    }));
+    const run = gateRunRow({
+      id: 't3',
+      payload: { summary: 's', affectedRoutes: 60, violations: [], impactedApis: many }
+    });
+    const user = userEvent.setup();
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs: [run], total: 1 })) }} />
+    );
+    await waitFor(() => expect(screen.getByTestId('gate-tree-toggle')).toBeInTheDocument());
+    await user.click(screen.getByTestId('gate-tree-toggle'));
+
+    expect(screen.getAllByTestId('gate-impact-branch')).toHaveLength(50);
+    expect(screen.getByTestId('gate-impact-more')).toHaveTextContent('…其余 10 条未展开（共 60 条受影响路）');
+  });
+
   it('clicking a route node navigates to the symbol anchor via onNavigate', async () => {
     const user = userEvent.setup();
     const onNavigate = vi.fn();

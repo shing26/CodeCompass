@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import { MermaidDiagram } from './MermaidDiagram';
 import { ScenarioGuide } from './ScenarioGuide';
+import { Badge, riskTone } from './ui/Badge';
+import { statusLabel } from '../client/statusLabel';
 import type {
   ArchitectureDeltaReport,
   ArchitectureDeltaSymbol,
@@ -340,17 +342,12 @@ export function ArchitectureDeltaView({ repo, client, onNavigate }: Architecture
                 <ul className="space-y-1 font-mono text-xs text-ink">
                   {delta.impactedApis.map((api) => (
                     <li key={`${api.routeSymbol.file}:${api.routeSymbol.lineStart}:${api.routeSymbol.name}`}>
-                      <span
-                        className={`mr-2 rounded px-1.5 py-0.5 text-micro font-semibold ${
-                          api.riskLevel === 'HIGH'
-                            ? 'bg-warning/15 text-warning'
-                            : api.riskLevel === 'MEDIUM'
-                              ? 'bg-accent/10 text-accent'
-                              : 'bg-success/10 text-success'
-                        }`}
-                      >
-                        {api.riskLevel}
-                      </span>
+                      {/* v1.2 票 04②（V27-6）— 与 gate 树同权威：Badge + 共享
+                          riskTone（红/橙/灰）+ statusLabel 中文映射；修前这是
+                          黄/蓝/绿裸类 + 英文原值，同概念两套配色。 */}
+                      <Badge tone={riskTone(api.riskLevel)} className="mr-2">
+                        {statusLabel(api.riskLevel)}
+                      </Badge>
                       {routeLabel(api.routeSymbol)}
                       <span className="ml-2 text-muted">
                         ({api.affectedBySymbols.join(', ')})

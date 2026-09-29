@@ -100,7 +100,10 @@ describe('ArchitectureDeltaView (v0.6.0)', () => {
     expect(screen.getAllByText(/\/api\/reports/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/\/api\/health/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/missingThing/).length).toBeGreaterThan(0);
-    expect(screen.getByText('HIGH')).toBeInTheDocument();
+    // v1.2 票 04②（V27-6）— 与 gate 树同权威：中文展示映射 + 统一 tone
+    //（修前这里是英文原值 + 黄/蓝/绿裸类，同概念两套配色）。
+    const risk = screen.getByText('高风险');
+    expect(risk.className).toContain('text-danger');
     expect(screen.getByTestId('delta-markdown')).toHaveTextContent('Architecture Delta');
   });
 

@@ -8,7 +8,7 @@ import type {
   RepoDashboard
 } from '../types';
 import { ScenarioGuide } from './ScenarioGuide';
-import { Badge, type BadgeTone } from './ui/Badge';
+import { Badge, riskTone } from './ui/Badge';
 import { statusLabel } from '../client/statusLabel';
 
 interface CiGateViewProps {
@@ -42,11 +42,12 @@ function commitLabel(commit: string): string {
 }
 
 // v0.30 票 04：B03 色族语义不变（HIGH 红 / MEDIUM 橙 / LOW 灰），形态收进 Badge。
-function riskTone(level: ArchitectureDeltaImpactedApi['riskLevel']): BadgeTone {
-  if (level === 'HIGH') return 'danger';
-  if (level === 'MEDIUM') return 'warning';
-  return 'subtle';
-}
+// v1.2 票 04②（V27-6）：映射提公共（ui/Badge::riskTone），delta 视图共用同一权威。
+
+// v1.2 票 04③（V27-7）— 历史行影响树的 DOM 渲染上限：analysis 端的 run 落库
+// 不受 maxAffectedRoutes 截断，超大 run 展开即全量进 DOM（本轮 200+ 路实测卡顿
+// 风险面）。渲染只取前 IMPACT_TREE_LIMIT 条 + 尾行计数——数据与导出不受影响。
+const IMPACT_TREE_LIMIT = 50;
 
 function isImpactedApi(value: unknown): value is ArchitectureDeltaImpactedApi {
   const api = value as Partial<ArchitectureDeltaImpactedApi> | null;
@@ -516,7 +517,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                       )}
                       {expanded && impacted && (
                         <ul data-testid="gate-impact-tree" className="w-full space-y-1 pt-1">
-                          {impacted.map((api) => (
+                          {impacted.slice(0, IMPACT_TREE_LIMIT).map((api) => (
                             <li
                               key={`${api.routeSymbol.file}:${api.routeSymbol.lineStart}:${api.routeSymbol.parentType ?? ''}.${api.routeSymbol.name}`}
                               data-testid="gate-impact-branch"
@@ -556,6 +557,16 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                               )}
                             </li>
                           ))}
+                          {/* v1.2 票 04③（V27-7）— 截断尾行：分母可见，不静默丢。 */}
+                          {impacted.length > IMPACT_TREE_LIMIT && (
+                            <li
+                              data-testid="gate-impact-more"
+                              className="pt-0.5 font-mono text-micro text-muted"
+                            >
+                              …其余 {impacted.length - IMPACT_TREE_LIMIT} 条未展开（共{' '}
+                              {impacted.length} 条受影响路）
+                            </li>
+                          )}
                         </ul>
                       )}
                       {run.error && (

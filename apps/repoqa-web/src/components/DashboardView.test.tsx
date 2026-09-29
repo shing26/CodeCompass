@@ -83,7 +83,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={noop}
         onNavigate={noop}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     expect(screen.getByTestId('dashboard')).toBeInTheDocument();
@@ -111,7 +111,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={noop}
         onNavigate={onNavigate}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     await user.click(screen.getAllByTestId('tech-chip')[0]);
@@ -130,7 +130,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={noop}
         onNavigate={onNavigate}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     await user.click(screen.getAllByTestId('config-item')[0]);
@@ -149,7 +149,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={onTrace}
         onNavigate={noop}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     await user.click(screen.getByTestId('api-entry'));
@@ -163,8 +163,8 @@ describe('DashboardView (issue 13)', () => {
     );
   });
 
-  it('renames the button 提问→查调用链 (v0.26-A ticket 01) but keeps testid + onOpenChat wiring', async () => {
-    const onOpenChat = vi.fn();
+  it('查调用链 button wires to onTraceTop (v1.2 票 04④ renaming of open-chat)', async () => {
+    const onTraceTop = vi.fn();
     const user = userEvent.setup();
     render(
       <DashboardView
@@ -175,13 +175,12 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={noop}
         onNavigate={noop}
-        onOpenChat={onOpenChat}
+        onTraceTop={onTraceTop}
       />
     );
-    await user.click(screen.getByTestId('open-chat'));
-    expect(onOpenChat).toHaveBeenCalledTimes(1);
-    // 文案哨：Q8 只改名，trace 接线本来就是 setView('topo')，无需动
-    expect(screen.getByTestId('open-chat')).toHaveTextContent('查调用链');
+    await user.click(screen.getByTestId('open-trace-top'));
+    expect(onTraceTop).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('open-trace-top')).toHaveTextContent('查调用链');
   });
 
   it('shows a loading state while the dashboard is being fetched', () => {
@@ -194,7 +193,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={noop}
         onNavigate={noop}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     expect(screen.getByTestId('dashboard-loading')).toHaveTextContent('仪表盘加载中…');
@@ -212,7 +211,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={onRetry}
         onTrace={noop}
         onNavigate={noop}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     expect(screen.getByTestId('dashboard-error')).toHaveTextContent('dashboard failed');
@@ -230,7 +229,7 @@ describe('DashboardView (issue 13)', () => {
         onRetry={noop}
         onTrace={noop}
         onNavigate={noop}
-        onOpenChat={noop}
+        onTraceTop={noop}
       />
     );
     expect(screen.getByTestId('tech-stack-empty')).toHaveTextContent(

@@ -303,7 +303,13 @@ function WorkbenchShell() {
               onRetry={refreshDashboard}
               onTrace={handleTrace}
               onNavigate={inspector.openFile}
-              onOpenChat={() => setView('topo')}
+              // v1.2 票 04④（V27-5）：查调用链=聚焦首条 Top API 的确定性链路
+              //（复用行点击的同一路径）；无候选时退化为仅切拓扑视图。
+              onTraceTop={() => {
+                const top = dashboard?.topApis?.[0];
+                if (top) handleTrace(top);
+                else setView('topo');
+              }}
             />
           )}
           {/* v0.27-UI ticket 02 (U3)：全局常驻对话条——chat 视图自带 composer 故隐藏；

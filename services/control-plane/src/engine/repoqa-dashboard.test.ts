@@ -355,6 +355,28 @@ describe('buildDashboard — full-featured Spring repo', () => {
       expect(api.lineStart).toBeGreaterThan(0);
     }
   });
+
+  it('v1.2 票 04① — test paths and USE mount points are not Top API candidates (V27-16)', () => {
+    // 修前实证：self 仓 top-5 全是 http-error.test.ts 的中间件 + http.ts 的
+    // `USE *` 挂载点（首屏自动 trace 因此选中技术侧内部路由）。两条排除各测一种。
+    const route = (name: string, filePath: string, lineStart: number): RepoSymbol =>
+      ({
+        id: `${filePath}:${lineStart}`,
+        repoId: 'r',
+        kind: 'route',
+        name,
+        filePath,
+        lineStart,
+        calls: [{ symbol: 'somewhere' }]
+      }) as unknown as RepoSymbol;
+    const symbols = [
+      route('USE *', 'services/http-error.test.ts', 24), // 测试路径
+      route('USE *', 'services/http.ts', 42), // 非测试 USE 挂载点（带调用边——一度漏网）
+      route('GET /api/orders', 'services/routes/orders.ts', 10) // 合格入口
+    ];
+    const tsDashboard = buildDashboard({ repoId: 'r', repoName: 'ts', symbols });
+    expect(tsDashboard.topApis.map((api) => api.name)).toEqual(['GET /api/orders']);
+  });
 });
 
 describe('buildDashboard — library repo with nothing to aggregate', () => {

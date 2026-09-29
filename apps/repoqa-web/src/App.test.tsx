@@ -658,7 +658,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
 
-  it('switches to the topology workbench from the dashboard 查调用链 button (v0.26-A ticket 01 改名)', async () => {
+  it('switches to the topology workbench from the dashboard 查调用链 button (v1.2 票 04④：跳转+聚焦首条 Top API)', async () => {
     // 票 05 — dashboard 降为深链：`?mode=metrics` 挂载即入（URL-as-truth）。
     // （selectRepo 等 topo 落地——mode 挂起时落点不同，须内联选择。）
     window.history.replaceState(null, '', '/?mode=metrics');
@@ -666,8 +666,8 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     render(<App client={makeClient()} />);
     await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
-    await waitFor(() => expect(screen.getByTestId('open-chat')).toBeInTheDocument());
-    await user.click(screen.getByTestId('open-chat'));
+    await waitFor(() => expect(screen.getByTestId('open-trace-top')).toBeInTheDocument());
+    await user.click(screen.getByTestId('open-trace-top'));
     await waitFor(() => expect(screen.getByTestId('canvas')).toBeInTheDocument());
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });

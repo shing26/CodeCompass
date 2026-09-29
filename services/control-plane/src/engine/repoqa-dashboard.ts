@@ -1,6 +1,6 @@
 import type { RepoSymbol } from '../ingest/repoqa-repos';
 import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
-import { resolveCallChain } from './repoqa-callchain';
+import { resolveCallChain, isTestPath } from './repoqa-callchain';
 
 /**
  * Issue 12 — 零 Prompt 驾驶舱数据聚合（repo dashboard）。
@@ -258,16 +258,28 @@ function routeClasses(symbols: RepoSymbol[]): RepoSymbol[] {
  */
 function apiEntryCandidates(symbols: RepoSymbol[]): RepoSymbol[] {
   const routeNames = new Set(routeClasses(symbols).map((symbol) => symbol.name));
+  // v1.2 票 04①（V27-16 收尾）— 两处候选降噪：
+  // ① 测试文件不是入口（self 仓实测：top-5 全是 http-error.test.ts 的中间件，
+  //    首屏自动 trace 因此选中技术侧内部路由——computer-use 走查 D6 的根因）；
+  // ② `USE` 挂载点不是 API（v0.31 票 17 为 tour 锚点引入的 `USE *` 符号是中间件
+  //    链挂载，作为「Top API」纯噪音）——显式 HTTP 动词才够格。
   const standalone = symbols.filter(
     (symbol) =>
       symbol.kind === 'route' &&
+      !isTestPath(symbol.filePath) &&
+      // `USE *`（app.use(name) 挂载点，带调用边）也必须排除——前者漏网实证：
+      // http.ts:42/162 的中间件挂载曾占据修后榜首。
+      !/^USE\s/.test(symbol.name) &&
       ((symbol.calls?.length ?? 0) > 0 ||
         (/\.(ts|tsx|js|jsx|mjs)$/i.test(symbol.filePath) &&
-          /^(GET|POST|PUT|DELETE|PATCH|ALL|USE)\s+/.test(symbol.name)))
+          /^(GET|POST|PUT|DELETE|PATCH|ALL)\s+/.test(symbol.name)))
   );
   const methods = symbols.filter(
     (symbol) =>
-      symbol.kind === 'method' && symbol.parentType && routeNames.has(symbol.parentType)
+      symbol.kind === 'method' &&
+      symbol.parentType &&
+      routeNames.has(symbol.parentType) &&
+      !isTestPath(symbol.filePath)
   );
   const seen = new Set<string>();
   const out: RepoSymbol[] = [];

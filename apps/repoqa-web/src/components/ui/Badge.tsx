@@ -9,6 +9,18 @@ import type { ReactNode } from 'react';
  */
 export type BadgeTone = 'success' | 'danger' | 'warning' | 'accent' | 'subtle' | 'callee';
 
+/**
+ * v1.2 票 04②（V27-6 收尾）— 风险等级 → tone 的唯一映射，跨视图共用。
+ * 修前飞行：gate 树 HIGH 红/MEDIUM 橙/LOW 灰，而 delta 视图同一概念是
+ * 黄/蓝/绿（HIGH=warning、MEDIUM=accent、LOW=success 的裸类）——同概念两套配色。
+ * 统一到 gate 侧语义（红=危险、橙=警示、灰=中性）。
+ */
+export function riskTone(level: string | undefined | null): BadgeTone {
+  if (level === 'HIGH') return 'danger';
+  if (level === 'MEDIUM') return 'warning';
+  return 'subtle';
+}
+
 const TONE_CLASS: Record<BadgeTone, string> = {
   success: 'bg-success/10 text-success',
   danger: 'bg-danger/10 text-danger',
