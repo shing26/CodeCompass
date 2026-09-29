@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.2.0] - 2026-09-29
+
+### 工作台产品化批（反转 v0.31「Web 只减不增」；ADR-0020）
+
+**一句话**：Web 工作台以「维护者本人每天真用的单机驾驶舱」重新产品化——一级导航 5 项（chat/代码拓扑/变更审计/Diff 影响面/体检）、体检面接上 scan 引擎、导入从「最长 600s 同步长挂」变「202 秒回 + WS 进度」；MCP 主轴与 17 工具冻结不动（双轨制，ADR-0020）。决策全案见 `.scratch/v1.2-workbench-revival/spec.md`。
+
+**⚠ 破坏性变更（REST）**：
+- `POST /api/repos` 由 200/201（响应即 ready 仓）改为 **202 `{ repo(status=indexing), taskId }`**——索引转后台，进度走 WS `repoqa.index.progress` + 目录轮询；坏路径仍 400 且不建行；重复导入不再有 200/201 区分语义。迁移消费方：web 客户端、`closeout_gate.py`、`ui_smoke.mjs`、cp 集成测试（本批同轮完成）；MCP `index_repo` 不受影响（ADR-0016 早于本批）。
+- 新列 `repos.suggested_subdirs`（超限拒绝的建议子目录落行，ALTER 迁移守卫自带）。
+- 新 WS 事件 `repoqa.import.clone-retry`（克隆瞬断重试上屏）。
+
+**票 01 IA 还原**：一级导航 3→5（topo 回归一级 + 体检入列；metrics 入 more 菜单一跳可达，evolve 留深链）；`?mode=scan` 深链选库前后一致生效；ScanHealthView 四态骨架；TopBar 响应式换行机制（Round3 Bug-03）承载 5 tab。
+
+**票 02 体检数据面**：`GET /api/repos/:id/scan`（MCP `codecompass_scan` 的 HTTP twin，同引擎同输入、按 (repoId,commit) TTL 缓存、不落库）+ `GET /api/precision/summary`（棘轮基线只读摘要，仓库外运行诚实 available:false）；五桶 UI 走展示层映射（引擎英文 title 不进 UI）、候选行跳 Inspector、testOnly 徽章；**文案红线**：页面声明「零静态调用者不代表可删除」+ 测试断言无「可安全删除/死代码」；精度态势区（方向语义/抽样口径/诚实边界）。
+
+**票 03 导入 202+WS 流化（V29-1 解冻）**：如上破坏性变更；ImportRepoModal 后台阶段（可关闭后台继续、ready 自动关、error 原地重试建议）；克隆瞬断重试可感知（WS 帧 + 服务端日志双证据）；前端 WS 门控放宽为常连（未选库也收帧，依赖收敛 [baseUrl]、选库不重建 socket）；**关库自保**：后台索引终态尾巴（含 ready/error 之后）对 db 关闭全自保——`indexRepo` 的 never-rejects 契约在优雅关闭/teardown 竞态下也成立（CI 三平台 unhandled rejection 的根治）。
+
+**票 04 视图小债包**：topApis 引擎侧降噪（测试路径过滤 + `USE` 挂载点排除——self 仓 top-5 曾全是中间件噪音）；风险色族跨视图统一到 Badge+riskTone（delta 弃黄/蓝/绿裸类 + 补中文映射）；gate 影响树渲染上限（slice 50 + 尾行计数）；「查调用链」名实升级（onTraceTop：跳拓扑+聚焦首条 Top API；`open-chat`→`open-trace-top`）。
+
+**票 05 a11y（V27-15 解冻）**：消息区 `role="log"` + 显式 `aria-live="polite"` + 长回答折叠（>2400 字「展开全文」，流式不折、折叠不丢内容）。
+
+**票 06 检索分区**：体检面「检索命中原样查看」（`/chunks` 存量端点，入库前已掩码，展示层零处理）；关键词/子串口径（无「语义检索」字样）；真用一周零使用则按 Web 闸撤下（票面登记）。
+
+**ADR-0020**：双面体再平衡——MCP 主轴与 17 工具冻结不变；Web 面新闸 = dogfooding 论证；v0.31 §1.1 前两行放弃项由本 ADR 取代（原文不改写）。
+
+**门禁**：控制面 **778**、web **368**、bridge 26、e2e **73/0**；eval 101 题 9 桶 100%。收口仪式：双轴评审（含 v1.1 补审）见 `docs/reports/` 记录；Round4 体验报告与 tag 随后（见 HANDOFF §1）。
+
 ## [1.1.0] - 2026-09-29
 
 ### 检索取证与证据诚实批（`searchChunks` 真 bug → 检索棘轮 → 覆盖扩张 → FTS5 索引）

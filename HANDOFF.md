@@ -9,7 +9,9 @@
 
 ## 1. 当前状态（一句话版）
 
-**v1.1.0 收口（2026-09-29，检索取证与证据诚实批）**：`searchChunks` LIKE 转义真 bug 修复 → `intent-anchor` 补 4 道非 Java 题（先红 0/4 留证）+ 豁免位 + **9 桶检索棘轮**（fail-closed 入 e2e）→ **FTS5(trigram) 双路径检索**（排序键钉死、写路径收口 2 帮手、开库自愈兼老库升级）→ **chunk 覆盖扩张**（TS/TSX/JS/PY 注释与 docstring + `.md` 结构化切分，self 仓 chunk 73→3389，**4 道豁免题转正 exempt=0**，收口硬条件达成）→ 检索边界表述（禁「语义检索」、语言清单含 Go 缺口）→ `turnId` 决策链整段可取（args 掩码前置补课）→ **真仓 top-10 假阳性门**（frozen↔verdicts 账实一致，零 clone，不得外推；M1 口径修正入 CHANGELOG/HANDOFF）→ 票 10 探针重跑被 provider 402 阻塞（显式 deferred，触发线=额度恢复）。双轴评审记录见收口 commit；票 06 增补的**发版前人工复测**已实测（三仓 10/10 与 frozen 零差异）。门禁基线：控制面 **770**、web **347**、bridge **26**、e2e **72/0**。批次 spec 在 `.scratch/v1.1-retrieval-honesty/spec.md`。**下一批：v1.2 工作台产品化线**（2026-09-28 grill 定案，反转「Web 只减不增」，spec+7 票在 `.scratch/v1.2-workbench-revival/`）。
+**v1.2.0 收口（2026-09-29，工作台产品化批）**：反转 v0.31「Web 只减不增」（**ADR-0020** 双面体再平衡）——一级导航 5 项（chat/代码拓扑/变更审计/Diff 影响面/体检）；体检面接上 scan 引擎（HTTP twin + 五桶 + 精度态势 + 检索命中原样查看）；**导入 202+WS 流化**（`POST /api/repos` 破坏性变更：202 `{repo,taskId}` 取代 200/201 同步 ready；Modal 可关闭后台继续；克隆瞬断重试上屏；关库自保）；视图小债包四件（topApis 引擎降噪/风险色族统一/影响树截断/查调用链名实）+ a11y（aria log + 长回答折叠）。**MCP 主轴与 17 工具冻结不动（双轨制）**。门禁：控制面 **778**、web **368**、bridge 26、e2e **73/0**。**收口顺序（如实）**：文档/版本/ADR 已合 master；**Round4 体验报告与 tag v1.2.0 随后执行**（六动线真 chromium 冒烟已全过：拓扑/chat/gate/韧性/体检/导入流化——Round4 补的是人眼质感走查）；双轴评审（含 v1.1 补审）按补审触发线执行。批次 spec 在 `.scratch/v1.2-workbench-revival/spec.md`。
+
+**v1.1.0 收口（2026-09-29，历史背景）**：检索取证与证据诚实批——`searchChunks` LIKE 转义真 bug 修复 → `intent-anchor` 补 4 道非 Java 题（先红 0/4 留证）+ 豁免位 + **9 桶检索棘轮**（fail-closed 入 e2e）→ **FTS5(trigram) 双路径检索**（排序键钉死、写路径收口 2 帮手、开库自愈兼老库升级）→ **chunk 覆盖扩张**（TS/TSX/JS/PY 注释与 docstring + `.md` 结构化切分，self 仓 chunk 73→3389，**4 道豁免题转正 exempt=0**，收口硬条件达成）→ 检索边界表述（禁「语义检索」、语言清单含 Go 缺口）→ `turnId` 决策链整段可取（args 掩码前置补课）→ **真仓 top-10 假阳性门**（frozen↔verdicts 账实一致，零 clone，不得外推；M1 口径修正入 CHANGELOG/HANDOFF）→ 票 10 探针重跑被 provider 402 阻塞（显式 deferred，触发线=额度恢复）。批次 spec 在 `.scratch/v1.1-retrieval-honesty/spec.md`。
 
 **v0.30.0 收口（2026-09-16，历史背景）**：v0.30.0 去极客化战役全批收口（G0–G8 全闭，门禁全绿）：双文案哨共表（中文 23 词 + 英文 38 词入 `packages/contracts` 跨包权威）+ 字号两档语义化（111 处任意值 → `text-xs`/`text-micro`）+ chrome 中英混排人话化（~55 短语）+ 枚举展示映射（`statusLabel` 表 C）+ Badge/CountPill 双件（9 徽章族归一）+ 黑话双端清扫 + `styles.css` 销号 + 命名族归一（「拆除计划」→「下线方案」，同义触发词保留、工具灵敏度零回归）。前置批次：v0.29 韧性硬化（出库掩码单尺 `maskSensitiveText`、clone 重试分类器、MCP 深链单一源）、v0.28 结构手术（web→contracts 单一源、control-plane 目录归组 ingest/engine/mcp/eval）、v0.27 生产就绪（Docker 修复、版本单一源、WS 优雅关闭挂死真 bug 修复）。各战役 spec 在 `.scratch/<feature>/`。
 
@@ -32,7 +34,7 @@
 | 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
 | 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线（2026-09-29，v1.2 波 2 收口） | 控制面 **778**、web **364**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| 门禁基线（2026-09-29，v1.2.0 收口） | 控制面 **778**、web **368**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
 | MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言。installer 的 autoApprove **默认派生自注册表但会过滤掉破坏性工具**（v1.1 票 11 的 `NON_AUTO_APPROVED_TOOLS`，现只列 `codecompass_remove_repo`）——**新增破坏性工具时必须把名字加进这张清单，否则默认安装会重新自动批准它**；`--auto-approve-all` 可写全量 |
 
 ### 2.2 架构不变量（违反即返工）
@@ -44,7 +46,7 @@
 - **幽灵防线**：worker 长任务在每处数据表写入前做 repo 行存在性断言；`invalidate()` **不 abort**，别指望 AbortController
 - **反向邻接**：全图反向查询必须用 `buildFullCallersIndex`
 - **scan 定位红线（v0.21）**：scan 只报确定性事实（"零调用者"是事实不是"可安全删除"），语义判断属 agent
-- **新增须附精度论证（v0.31 方向裁决）**：新增 MCP 工具 / 界面页签 / 大规模重构，提案必须回答"如何降低误报或提升精度"，否则不开票——精度是主业，宽度不是（兜底口径见 `.scratch/v031-precision/spec.md` §1.1 放弃清单）
+- **新增须附论证（双轨制，v1.2/ADR-0020）**：**MCP 面**——新增工具/签名变更/大规模重构必须回答「如何降低误报或提升精度」，否则不开票（v0.31 纪律不变）；**Web 面**——新增页签/大改必须回答「dogfooding 论证」（维护者日常使用频率与价值），精度/检索类新面天然优先；「为界面而界面」两端都过不了闸（v0.31 定位文档 §1 漂移教训仍有效）
 - **用户面文案受双哨约束**：web `copy-guard.test.ts` + cp `copy-guard.server.test.ts`，词表在 `packages/contracts` 共表（黑话 23 词 / 英文退役 38 词 / 黑名单）；改用户可见文案先对照 `.scratch/v030-degeekify/spec.md` 四张权威表
 - **目录布局（V27-30 结构手术后）**：`src/` 按域分组——`ingest/`（解析入库）、`engine/`（分析引擎族 `repoqa-*.ts`）、`mcp/`、`eval/`、`chat/`、`routes/`、`languages/`；顶层保留 server/cli/db/config/http/ws 等单文件；测试同位（`.test.ts`）
 
