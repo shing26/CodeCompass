@@ -99,6 +99,20 @@ export interface PrecisionSummaryUnavailable {
 }
 export type PrecisionSummary = PrecisionSummaryAvailable | PrecisionSummaryUnavailable;
 
+/**
+ * v1.2 票 06 — /api/repos/:id/chunks 载荷行（web 局部契约：REST-only 检索面，
+ * 无 MCP 对应物，故不进 contracts 镜像；content 入库前已过 maskSensitiveText，
+ * 展示层零二次处理，断言只钉掩码占位符原样透传）。
+ */
+export interface RepoChunkRow {
+  id: number;
+  repoId: string;
+  chunkType: string;
+  content: string;
+  filePath: string | null;
+  lineStart: number | null;
+}
+
 export type RepoStatus = 'idle' | 'indexing' | 'cloning' | 'parsing' | 'ready' | 'error';
 
 export interface Repo {

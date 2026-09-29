@@ -17,6 +17,7 @@ import type {
   ReverseDepsResult,
   RuntimeInfo,
   PrecisionSummary,
+  RepoChunkRow,
   ScanResult,
   SubgraphContextResult,
   SymbolKind,
@@ -296,6 +297,22 @@ export class RepoQAClient {
       throw new Error(`getPrecisionSummary failed: ${res.status}`);
     }
     return (await res.json()) as PrecisionSummary;
+  }
+
+  /**
+   * v1.2 票 06 — 检索面：读 chunk 命中原文（服务端 `searchChunks` FTS5 双路径，
+   * 内容入库前已掩码；展示层零二次处理）。404（未知仓库）答 null，同 getDashboard 规。
+   */
+  async searchChunks(repoId: string, query: string): Promise<RepoChunkRow[] | null> {
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/chunks?q=${encodeURIComponent(query)}`
+    );
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`searchChunks failed: ${res.status}`);
+    }
+    const body = (await res.json()) as { chunks?: RepoChunkRow[] };
+    return body.chunks ?? [];
   }
 
   /**

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Repo, PrecisionSummary, ScanResult } from '../types';
+import type { Repo, PrecisionSummary, RepoChunkRow, ScanResult } from '../types';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import { statusLabel } from '../client/statusLabel';
 import { Badge } from './ui/Badge';
@@ -39,6 +39,10 @@ export function ScanHealthView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // v1.2 票 06 — 检索分区：看 chunk 命中原文（检索质量的日常验收台）。
+  const [chunkQuery, setChunkQuery] = useState('');
+  const [chunkHits, setChunkHits] = useState<RepoChunkRow[] | null>(null);
+  const [chunkLoading, setChunkLoading] = useState(false);
 
   const ready = Boolean(repo && repo.status === 'ready');
 
@@ -73,6 +77,36 @@ export function ScanHealthView({
   }, [repo?.id, repo?.status, client, attempt]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  // v1.2 票 06 — 检索防抖（250ms，非逐键打屏）：<2 字符不查（服务端 LIKE/FTS
+  // 短查询语义都吃 2+）；仓库/索引态变化即清空命中。
+  useEffect(() => {
+    const query = chunkQuery.trim();
+    if (!repo || repo.status !== 'ready' || query.length < 2) {
+      setChunkHits(null);
+      setChunkLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      setChunkLoading(true);
+      client
+        .searchChunks(repo.id, query)
+        .then((hits) => {
+          if (!cancelled && hits) setChunkHits(hits);
+        })
+        .catch(() => {
+          if (!cancelled) setChunkHits([]);
+        })
+        .finally(() => {
+          if (!cancelled) setChunkLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [chunkQuery, repo?.id, repo?.status, client]);
 
   if (!repo) {
     return (
@@ -202,6 +236,64 @@ export function ScanHealthView({
               {BUCKET_REDLINE}
             </p>
           </>
+        )}
+
+        {/* v1.2 票 06 — 检索分区（形态 A）：chunk 命中原文原样查看。文案口径：
+            关键词/子串匹配、入库前已脱敏、不看语义相似度（v1.1 票 07 边界表述；
+            全组件不出现「语义检索」字样）。 */}
+        {scan && !loading && (
+          <section data-testid="scan-search" className="rounded-md border border-line bg-surface p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">
+              检索命中原样查看
+            </h3>
+            <input
+              data-testid="scan-search-input"
+              value={chunkQuery}
+              onChange={(e) => setChunkQuery(e.target.value)}
+              placeholder="输入关键词，例如：脱敏、分块、reindex"
+              className="w-full rounded-md border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-accent"
+            />
+            <p className="mt-1 text-micro text-muted">
+              关键词/子串匹配 chunk 文本（入库前已脱敏）；不看语义相似度。
+            </p>
+            {chunkLoading && (
+              <p data-testid="scan-search-loading" className="mt-2 text-xs text-muted">
+                检索中…
+              </p>
+            )}
+            {chunkHits && chunkHits.length === 0 && !chunkLoading && (
+              <p data-testid="scan-search-empty" className="mt-2 text-xs text-muted">
+                无命中（换个关键词试试）。
+              </p>
+            )}
+            {chunkHits && chunkHits.length > 0 && (
+              <ul data-testid="scan-search-hits" className="mt-2 space-y-1.5">
+                {chunkHits.map((hit) => (
+                  <li key={hit.id} data-testid="scan-search-hit" className="text-xs">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge mono>{hit.chunkType}</Badge>
+                      {hit.filePath && (
+                        <button
+                          type="button"
+                          data-testid="scan-search-hit-node"
+                          onClick={() => onNavigate(hit.filePath!, hit.lineStart ?? 1)}
+                          title={`${hit.filePath}:${hit.lineStart ?? 1}`}
+                          className="min-w-0 truncate font-mono text-xs text-ink hover:text-accent"
+                        >
+                          {hit.filePath}
+                          {hit.lineStart ? `:${hit.lineStart}` : ''}
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-0.5 max-h-24 overflow-hidden whitespace-pre-wrap break-all font-mono text-micro text-muted">
+                      {hit.content.slice(0, 300)}
+                      {hit.content.length > 300 ? '…' : ''}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         )}
 
         <section data-testid="scan-precision" className="rounded-md border border-line bg-surface p-3">

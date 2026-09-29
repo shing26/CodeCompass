@@ -4,10 +4,10 @@
  * 票 01 的四态骨架（未选库 / 索引中 / error / 空态）继续钉住。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ScanHealthView } from './ScanHealthView';
-import type { PrecisionSummary, Repo, ScanResult } from '../types';
+import type { PrecisionSummary, Repo, RepoChunkRow, ScanResult } from '../types';
 import type { RepoQAClient } from '../client/RepoQAClient';
 
 const readyRepo: Repo = {
@@ -180,5 +180,99 @@ describe('ScanHealthView 数据面（v1.2 票 02）', () => {
     expect(screen.getByTestId('scan-loading')).toHaveTextContent('正在扫描符号图谱');
     await waitFor(() => expect(screen.getByTestId('scan-bucket-orphanedPublic')).toBeInTheDocument());
     expect(screen.queryByTestId('scan-loading')).not.toBeInTheDocument();
+  });
+});
+
+describe('ScanHealthView 检索分区（v1.2 票 06）', () => {
+  const hitRows: RepoChunkRow[] = [
+    {
+      id: 1,
+      repoId: 'r1',
+      chunkType: 'docstring',
+      content: '守护进程重启时会重放 WAL；密钥 [REDACTED AWS KEY] 只读。',
+      filePath: 'src/daemon.ts',
+      lineStart: 12
+    },
+    {
+      id: 2,
+      repoId: 'r1',
+      chunkType: 'readme',
+      content: '第二段说明文本',
+      filePath: 'docs/ops.md',
+      lineStart: 3
+    }
+  ];
+
+  function clientWithSearch(searchChunks: ReturnType<typeof vi.fn>) {
+    return {
+      getScan: vi.fn().mockResolvedValue(scanFixture),
+      getPrecisionSummary: vi.fn().mockResolvedValue(precisionFixture),
+      searchChunks
+    } as unknown as RepoQAClient;
+  }
+
+  it('renders chunk hits with type badge, anchor and masked content as-is', async () => {
+    const searchChunks = vi.fn().mockResolvedValue(hitRows);
+    const user = userEvent.setup();
+    render(
+      <ScanHealthView repo={readyRepo} client={clientWithSearch(searchChunks)} onNavigate={() => {}} />
+    );
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+
+    await user.type(screen.getByTestId('scan-search-input'), '重启');
+    const rows = await screen.findAllByTestId('scan-search-hit');
+    expect(rows).toHaveLength(2);
+    expect(searchChunks).toHaveBeenCalledWith('r1', '重启');
+    // 掩码占位符原样透传（入库前已掩码，展示层零二次处理）
+    expect(rows[0].textContent).toContain('[REDACTED AWS KEY]');
+    expect(rows[0].textContent).toContain('src/daemon.ts:12');
+  });
+
+  it('clicking a hit navigates the Inspector with file and line', async () => {
+    const onNavigate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ScanHealthView
+        repo={readyRepo}
+        client={clientWithSearch(vi.fn().mockResolvedValue(hitRows))}
+        onNavigate={onNavigate}
+      />
+    );
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+    await user.type(screen.getByTestId('scan-search-input'), '重启');
+    const nodes = await screen.findAllByTestId('scan-search-hit-node');
+    fireEvent.click(nodes[0]);
+    expect(onNavigate).toHaveBeenCalledWith('src/daemon.ts', 12);
+  });
+
+  it('no hits shows the honest empty state; a 1-char query never queries (debounced ≥2)', async () => {
+    const searchChunks = vi.fn().mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(
+      <ScanHealthView repo={readyRepo} client={clientWithSearch(searchChunks)} onNavigate={() => {}} />
+    );
+    await screen.findByTestId('scan-bucket-orphanedPublic');
+
+    await user.type(screen.getByTestId('scan-search-input'), 'x');
+    await new Promise((resolve) => setTimeout(resolve, 400)); // 越过防抖窗
+    expect(searchChunks).not.toHaveBeenCalled();
+
+    await user.type(screen.getByTestId('scan-search-input'), 'y');
+    await waitFor(() => expect(searchChunks).toHaveBeenCalledWith('r1', 'xy'));
+    expect(await screen.findByTestId('scan-search-empty')).toHaveTextContent('无命中');
+  });
+
+  it('copy red line: the retrieval section never says 语义检索 (v1.1 票 07 边界表述)', async () => {
+    const { container } = render(
+      <ScanHealthView
+        repo={readyRepo}
+        client={clientWithSearch(vi.fn().mockResolvedValue(hitRows))}
+        onNavigate={() => {}}
+      />
+    );
+    await screen.findByTestId('scan-search');
+    expect(container.textContent).not.toContain('语义检索');
+    expect(container.textContent).toContain('关键词/子串匹配');
+    expect(container.textContent).toContain('不看语义相似度');
   });
 });
