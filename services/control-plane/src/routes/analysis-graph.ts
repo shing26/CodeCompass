@@ -257,7 +257,9 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
       scanCache.set(key, { data: maskedScan, expiresAt: now + SCAN_CACHE_TTL_MS });
       res.json({ scan: maskedScan });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      // 出库掩码不变式（CONTEXT 词条；与 repos.ts:128 同尺）——引擎/FS 报错
+      // 可能内嵌凭据形状串，500 出库前必须过掩码。
+      const message = maskSensitiveText(error instanceof Error ? error.message : String(error));
       res.status(500).json({ error: message });
     }
   });
