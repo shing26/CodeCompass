@@ -227,6 +227,14 @@ function StreamCard({
       >
         <CardStatusMark card={card} />
         <span className="min-w-0 flex-1 truncate text-xs text-ink">{card.intent}</span>
+        {/* v1.2.x（V12-3）— 降级产物标注提到折叠态卡头：parsedBy=fallback 的卡
+            是引擎规则解析（LLM 不可用时的降级），用户不必展开就能识别产物性质。
+            echo 详情区的完整解析说明保留。 */}
+        {card.echo?.parsedBy === 'fallback' && (
+          <Badge data-testid="evolve-fallback-badge" tone="warning">
+            LLM 不可用 · 引擎规则解析
+          </Badge>
+        )}
         {card.echo?.resolvedTarget && (
           <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-micro font-semibold text-accent">
             🎯 {card.echo.resolvedTarget}

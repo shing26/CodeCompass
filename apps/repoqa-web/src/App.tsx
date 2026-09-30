@@ -110,7 +110,9 @@ function WorkbenchShell() {
     confirmConsent,
     handleSubmit,
     chatGuardSend,
-    handleTrace
+    handleTrace,
+    modelInfo,
+    switchModel
   } = useChatRuntime();
 
   const { toggleTheme } = useTheme();
@@ -155,6 +157,8 @@ function WorkbenchShell() {
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         importingRepo={repos.find((r) => r.status === 'indexing') ?? null}
+        modelInfo={modelInfo}
+        onSwitchModel={(name) => void switchModel(name)}
         cloneRetry={cloneRetry}
         onPickFolder={() => client.pickFolder()}
         llmMode={runtime.llm.mode}
@@ -266,6 +270,8 @@ function WorkbenchShell() {
               client={client}
               repoId={repoId}
               repoName={currentRepo?.name ?? null}
+              modelInfo={modelInfo}
+              onSwitchModel={(name) => void switchModel(name)}
               onNavigate={(symbol) => {
                 setView('topo');
                 // Same deterministic call-chain entry as the Dashboard Top API

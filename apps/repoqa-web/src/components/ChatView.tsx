@@ -129,36 +129,43 @@ function MessageBody(props: {
   );
 }
 
-/** 模型热切换（批次 D 的 UI 面已就绪，等 llm-profiles 配第二个 profile）。 */
-function ModelSelect(props: { chatClient: RepoQAClient['chat'] }) {
-  const { chatClient } = props;
-  const [model, setModel] = useState<{ profiles: string[]; active: string; configured: boolean } | null>(null);
+/**
+ * 模型热切换（批次 D 的 UI 面已就绪，等 llm-profiles 配第二个 profile）。
+ * v1.2.x — 数据由 App 从 ChatRuntimeContext 消费后下传（单一数据源：与 TopBar
+ * 全局模型胶囊共用同一份 modelInfo，任一处切换另一处即时同步）。组件保持纯
+ * props 依赖，便于无 Provider 的组件级测试。
+ */
+function ModelSelect({
+  modelInfo,
+  onSwitchModel
+}: {
+  modelInfo: { profiles: string[]; active: string; configured: boolean } | null;
+  onSwitchModel: (name: string) => void;
+}) {
   const [error, setError] = useState<string | null>(null);
-  const refresh = useCallback(() => {
-    chatClient.modelInfo().then(setModel).catch(() => {});
-  }, [chatClient]);
-  useEffect(refresh, [refresh]);
   return (
     <>
       <select
         data-testid="chat-model-select"
         className="w-full rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent disabled:opacity-50"
-        value={model?.active ?? ''}
-        onChange={(e) =>
-          void chatClient
-            .switchModel(e.target.value)
-            .then(refresh)
-            .catch((err) => setError(describeError(err)))
-        }
-        disabled={!model?.profiles.length}
+        value={modelInfo?.active ?? ''}
+        onChange={(e) => {
+          try {
+            setError(null);
+            onSwitchModel(e.target.value);
+          } catch (err) {
+            setError(describeError(err));
+          }
+        }}
+        disabled={!modelInfo?.profiles.length}
       >
-        {(model?.profiles ?? []).map((p) => (
+        {(modelInfo?.profiles ?? []).map((p) => (
           <option key={p} value={p}>
             {p}
           </option>
         ))}
       </select>
-      <div className="chat-hint text-xs text-muted">{error ?? (model?.configured ? '热切换即时生效' : 'LLM 未配置')}</div>
+      <div className="chat-hint text-xs text-muted">{error ?? (modelInfo?.configured ? '热切换即时生效' : 'LLM 未配置')}</div>
     </>
   );
 }
@@ -241,8 +248,12 @@ export function ChatView(props: {
   /** v0.27-UI ticket 02 (U3)：AskDock 预填草稿——挂载时进 composer 但不自动发送。 */
   initialDraft?: string;
   onDraftConsumed?: () => void;
+  /** v1.2.x：模型热切换数据（App 从 ChatRuntimeContext 消费下传——与 TopBar
+   * 全局模型胶囊同源）。未传 = 无模型信息（组件级测试态）。 */
+  modelInfo?: { profiles: string[]; active: string; configured: boolean } | null;
+  onSwitchModel?: (name: string) => void;
 }) {
-  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution, initialDraft, onDraftConsumed } = props;
+  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution, initialDraft, onDraftConsumed, modelInfo, onSwitchModel } = props;
   const chatClient = client.chat;
   const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSessionInfo | null>(null);
@@ -457,7 +468,7 @@ export function ChatView(props: {
         {/* CM-05 前置：模型配置是高级项——默认折叠，等第二 profile 配好后可展开 */}
         <details className="text-xs">
           <summary className="chat-hint cursor-pointer pb-1.5 text-muted">模型设置</summary>
-          <ModelSelect chatClient={chatClient} />
+          <ModelSelect modelInfo={modelInfo ?? null} onSwitchModel={onSwitchModel ?? (() => {})} />
         </details>
       </aside>
 

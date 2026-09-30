@@ -38,6 +38,11 @@ interface ChatRuntimeContextValue {
     sessionId: string
   ) => Promise<ChatTurnResult | null>;
   handleTrace: (api: TopApiEntry) => void;
+  /** v1.2.x — 全局模型热切换（自 ChatView.ModelSelect 提升为共享状态）：
+   * TopBar 与 ChatView 消费同一份 modelInfo，切档即全站生效。 */
+  modelInfo: { profiles: string[]; active: string; configured: boolean } | null;
+  refreshModelInfo: () => void;
+  switchModel: (name: string) => Promise<void>;
 }
 
 const ChatRuntimeContext = createContext<ChatRuntimeContextValue | null>(null);
@@ -59,6 +64,31 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const [runtime, setRuntime] = useState<RuntimeInfo>({ llm: { mode: 'none' } });
   const [llmConsented, setLlmConsented] = useState(false);
   const [consentPending, setConsentPending] = useState<ConsentPending | null>(null);
+  // v1.2.x — 全局模型热切换状态（单一数据源：TopBar 与 ChatView 共用）。
+  const [modelInfo, setModelInfo] = useState<{
+    profiles: string[];
+    active: string;
+    configured: boolean;
+  } | null>(null);
+
+  const refreshModelInfo = useCallback(() => {
+    client.chat
+      .modelInfo()
+      .then(setModelInfo)
+      .catch(() => {
+        // best-effort：模型信息拉不到时控件显示未配置态
+      });
+  }, [client]);
+
+  useEffect(refreshModelInfo, [refreshModelInfo]);
+
+  const switchModel = useCallback(
+    async (name: string) => {
+      await client.chat.switchModel(name);
+      refreshModelInfo();
+    },
+    [client, refreshModelInfo]
+  );
 
   useEffect(() => {
     client
@@ -177,7 +207,10 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     confirmConsent,
     handleSubmit,
     chatGuardSend,
-    handleTrace
+    handleTrace,
+    modelInfo,
+    refreshModelInfo,
+    switchModel
   };
 
   return <ChatRuntimeContext.Provider value={value}>{children}</ChatRuntimeContext.Provider>;

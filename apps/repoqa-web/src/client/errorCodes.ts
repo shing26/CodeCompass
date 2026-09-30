@@ -63,7 +63,10 @@ export const ERROR_COPY: Record<ErrorCode, string> = {
   chat_title_required: '会话标题不能为空',
   chat_message_required: '先输入问题再发送',
   invalid_model: '模型切换失败：该名称不存在',
-  chat_run_failed: '回答中途出错（引擎或模型侧），可重新提问或点重新生成'
+  // v1.2.x（Round4 R4-9）— 修前文案指引「点重新生成」，但界面上并不存在该按钮
+  // （恢复动作只有重新提问 + 模型切换）——指向顶栏模型胶囊与模型设置。
+  chat_run_failed:
+    '回答中途出错（引擎或模型侧），可重新提问；若怀疑模型配置（如额度、网络），用顶栏模型胶囊热切换或到「模型设置」检查后重试'
 };
 
 /** 把任意 error（Error/字符串/后端 ApiError/超时）翻成用户可执行的文案。 */

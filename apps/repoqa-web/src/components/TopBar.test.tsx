@@ -234,6 +234,42 @@ describe('TopBar workbench header (Issue 31)', () => {
     expect(onSelectView).toHaveBeenCalledWith('delta');
   });
 
+  it('v1.2.x: model capsule shows the active profile and hot-switches on pick', async () => {
+    const user = userEvent.setup();
+    const onSwitchModel = vi.fn();
+    render(
+      <TopBar
+        {...baseProps({
+          currentRepo: readyRepo,
+          modelInfo: { profiles: ['deepseek-v4-flash', 'gpt-4o'], active: 'deepseek-v4-flash', configured: true },
+          onSwitchModel
+        })}
+      />
+    );
+    const capsule = screen.getByTestId('topbar-model');
+    expect(capsule).toHaveTextContent('deepseek-v4-flash');
+    expect(capsule).toHaveAttribute('aria-label', '切换模型（当前 deepseek-v4-flash）');
+
+    await user.click(capsule);
+    expect(screen.getByTestId('topbar-model-menu')).toBeInTheDocument();
+    await user.click(screen.getByTestId('topbar-model-option-gpt-4o'));
+    expect(onSwitchModel).toHaveBeenCalledWith('gpt-4o');
+  });
+
+  it('v1.2.x: unconfigured LLM shows the muted capsule state', () => {
+    render(
+      <TopBar
+        {...baseProps({
+          currentRepo: readyRepo,
+          modelInfo: { profiles: [], active: '', configured: false }
+        })}
+      />
+    );
+    expect(screen.getByTestId('topbar-model')).toHaveAttribute('aria-label', '模型未配置');
+    fireEvent.click(screen.getByTestId('topbar-model'));
+    expect(screen.getByTestId('topbar-model-menu')).toHaveTextContent('无可用模型配置');
+  });
+
   it('renders the staged indexing progress stepper (v0.6.0)', () => {
     render(
       <TopBar

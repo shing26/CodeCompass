@@ -271,6 +271,12 @@ describe('EvolutionView (Issue 24 / Ticket 24.5 — artifact stream)', () => {
     expect(screen.getByText('给订单模块加 Excel 导出')).toBeInTheDocument();
     expect(screen.getByText('排查这次改动对调用方的影响')).toBeInTheDocument();
 
+    // v1.2.x（V12-3）：fallback 解析的卡在**折叠态**就带降级徽章——不展开即可
+    // 识别产物是引擎规则解析（LLM 不可用时的降级），不必进 echo 详情区。
+    const fallbackBadges = screen.getAllByTestId('evolve-fallback-badge');
+    expect(fallbackBadges.length).toBeGreaterThan(0);
+    expect(fallbackBadges[0]).toHaveTextContent('LLM 不可用 · 引擎规则解析');
+
     // History is collapsed, latest is expanded.
     const toggles = screen.getAllByTestId('evolve-card-toggle');
     expect(toggles).toHaveLength(2);

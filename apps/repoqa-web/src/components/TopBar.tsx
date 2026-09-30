@@ -35,7 +35,10 @@ interface TopBarProps {
   /** Bug-12: repo currently being indexed (from catalog polling) — lets the
    * import dialog show live phase feedback while POST /api/repos is pending. */
   importingRepo?: Repo | null;
-  /** v1.2 票 03 — 克隆瞬断重试（WS），透传给导入弹窗的克隆阶段提示。 */
+  /** v1.2.x — 全局模型热切换：胶囊显示当前 profile，点开下拉即切（chat/evolve 即时生效）。 */
+  modelInfo?: { profiles: string[]; active: string; configured: boolean } | null;
+  onSwitchModel?: (name: string) => void;
+  /** v1.2.x — 克隆瞬断重试（WS），透传给导入弹窗的克隆阶段提示。 */
   cloneRetry?: { attempt: number; backoffMs: number } | null;
   /** v0.25.0 批次 1：原生目录选择器（可选，未传时按钮隐藏）。 */
   onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
@@ -103,6 +106,8 @@ export function TopBar({
   onToggleSidebar,
   sidebarOpen,
   importingRepo,
+  modelInfo,
+  onSwitchModel,
   cloneRetry,
   onPickFolder,
   llmMode,
@@ -115,6 +120,7 @@ export function TopBar({
 }: TopBarProps) {
   const [showImport, setShowImport] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
@@ -138,6 +144,18 @@ export function TopBar({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [menuOpen]);
+
+  // v1.2.x — 模型下拉与 more-menu 同款 Esc 语义。
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setModelMenuOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [modelMenuOpen]);
 
   const handleExport = async () => {
     if (!currentRepo || exporting) return;
@@ -311,6 +329,64 @@ export function TopBar({
         >
           13 条规则已脱敏
         </span>
+        {/* v1.2.x — 全局模型热切换：胶囊显示当前 profile + 配置状态点，下拉即切
+            （chat/evolve 的 LLM 调用即时生效）。 */}
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            data-testid="topbar-model"
+            onClick={() => setModelMenuOpen((v) => !v)}
+            aria-label={modelInfo?.configured ? `切换模型（当前 ${modelInfo.active}）` : '模型未配置'}
+            aria-expanded={modelMenuOpen}
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-line bg-subtle px-2 text-xs font-medium text-muted hover:border-accent hover:text-accent"
+          >
+            <span
+              aria-hidden
+              className={`h-1.5 w-1.5 rounded-full ${modelInfo?.configured ? 'bg-success' : 'bg-muted'}`}
+            />
+            <span className="hidden max-w-28 truncate md:inline">
+              {modelInfo?.active ?? '模型'}
+            </span>
+            <span aria-hidden className="text-micro">▾</span>
+          </button>
+          {modelMenuOpen && (
+            <>
+              <div
+                data-testid="topbar-model-backdrop"
+                className="fixed inset-0 z-40"
+                onClick={() => setModelMenuOpen(false)}
+              />
+              <div
+                data-testid="topbar-model-menu"
+                className="absolute right-0 top-full z-50 mt-1 w-56 rounded-md border border-line bg-surface py-1 shadow-neon"
+              >
+                {(modelInfo?.profiles ?? []).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    data-testid={`topbar-model-option-${p}`}
+                    onClick={() => {
+                      setModelMenuOpen(false);
+                      onSwitchModel?.(p);
+                    }}
+                    className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-subtle ${
+                      p === modelInfo?.active ? 'text-accent' : 'text-muted'
+                    }`}
+                  >
+                    <span className="truncate font-mono">{p}</span>
+                    {p === modelInfo?.active && <span aria-hidden>✓</span>}
+                  </button>
+                ))}
+                {(modelInfo?.profiles ?? []).length === 0 && (
+                  <p className="px-3 py-1.5 text-xs text-muted">无可用模型配置</p>
+                )}
+                <div className="border-t border-line px-3 py-1.5 text-micro text-muted">
+                  {modelInfo?.configured ? '热切换即时生效（chat/演进共用）' : 'LLM 未配置'}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
         <PrivacyPill mode={llmMode} host={llmHost} />
         <button
           type="button"
