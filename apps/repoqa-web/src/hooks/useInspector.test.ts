@@ -103,14 +103,16 @@ describe('useInspector (ticket 05)', () => {
 
   it('surfaces a load failure as a friendly error without crashing', async () => {
     const client = makeClient({
-      getFileRaw: vi.fn().mockRejectedValue(new Error('404 path not found'))
+      getFileRaw: vi.fn().mockRejectedValue(new Error('getFileRaw failed: 404'))
     });
     const { result } = renderHook(() => useInspector(client, 'repo-1'));
 
     act(() => {
       result.current.openFile('missing/Nope.java', 1);
     });
-    await waitFor(() => expect(result.current.error).toContain('404 path not found'));
+    // v1.2 收口（R4-3）：404 转人话 + 恢复引导，不再裸状态码。
+    await waitFor(() => expect(result.current.error).toContain('源码文件不在当前索引中'));
+    await waitFor(() => expect(result.current.error).toContain('重新索引'));
     expect(result.current.loading).toBe(false);
     expect(result.current.text).toBeNull();
   });

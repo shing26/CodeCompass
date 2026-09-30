@@ -7,8 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { tmpdir } from 'os';
-import { join } from 'path';
-import { mkdtempSync, rmSync } from 'fs';
+import { join, sep } from 'path';
+import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { openDb } from '../db';
 import {
   RepoQARepos,
@@ -256,6 +256,41 @@ describe('repo_chunks_fts rebuild on open (票 03 验收⑤ 老库升级)', () =
         new RepoQARepos(reopened).searchChunks('r1', 'legacy indexed chunk').map((c) => c.content)
       ).toEqual(['legacy indexed chunk text']);
       reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('upsertByLocalPath 路径归一化（R4-1）', () => {
+  it('re-imports the same directory in a different path spelling without creating a second repo', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'path-norm-'));
+    try {
+      const store = new RepoQARepos(openDb(':memory:'));
+      const p1 = join(dir, 'demo'); // win32 下即反斜杠形态
+      mkdirSync(p1, { recursive: true });
+
+      const first = store.upsertByLocalPath({ name: 'demo', localPath: p1 });
+      expect(first.created).toBe(true);
+
+      // 同目录的正斜杠 + 尾斜杠写法：必须复用既有行（Round4 实测曾新建第二实体）
+      const p2 = `${p1.split(sep).join('/')}/`;
+      const second = store.upsertByLocalPath({ name: 'demo-two', localPath: p2 });
+      expect(second.repo.id).toBe(first.repo.id);
+      expect(second.created).toBe(false);
+
+      // win32 大小写不敏感：大写变体同样复用
+      if (process.platform === 'win32') {
+        const third = store.upsertByLocalPath({ name: 'demo-three', localPath: p1.toUpperCase() });
+        expect(third.repo.id).toBe(first.repo.id);
+      }
+
+      // 无论写法几种，目录里只有一个实体（第三轮大写 upsert 会改写存储值，
+      // 断言大小写不敏感——NTFS 本就不区分）
+      const demoRows = store
+        .listRepos()
+        .filter((r) => r.localPath.split('\\').join('/').toLowerCase().includes('/demo'));
+      expect(demoRows.length).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

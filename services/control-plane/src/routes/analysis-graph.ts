@@ -93,7 +93,11 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
   app.get('/api/repos/:id/tours', (req, res) => {
     const repo = requireRepo(deps, res, req.params.id);
     if (!repo) return;
-    const { symbols } = deps.worker.getSymbolGraph(repo.id);
+    let { symbols } = deps.worker.getSymbolGraph(repo.id);
+    // v1.2 收口（Round4 R4-3）— 导览步骤引用「已不在索引文件清单里的文件」时，
+    // file-raw 面板必然 404（ResuAlign-Lite 的鉴权链导览实测）：符号先按
+    // repo_files 过滤，陈旧文件的步骤/导览整条自然消失——诚实降级优于裸 404。
+    symbols = symbols.filter((s) => !s.filePath || deps.repoqa.isFileIndexed(repo.id, s.filePath));
     const tours = buildTours({ repoId: repo.id, repoName: repo.name, symbols });
     const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
     const selected = type === '' ? tours : tours.filter((tour) => tour.id === type);

@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RepoQAClient } from '../client/RepoQAClient';
 
+/**
+ * v1.2 收口（Round4 R4-3）— file-raw 404 的人话降级：索引引用的文件已不在盘上
+ * （改名/删除，陈旧索引），裸状态码对新手是死胡同——给原因与恢复动作。
+ */
+function describeFileError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/404/.test(raw)) {
+    return '源码文件不在当前索引中（可能已被改名或删除）——重新索引后可恢复。';
+  }
+  return raw;
+}
+
 export interface NavEntry {
   file: string;
   line: number;
@@ -96,7 +108,7 @@ export function useInspector(client: RepoQAClient, repoId: string | null): UseIn
             setState((prev) => ({
               ...prev,
               loading: false,
-              error: err instanceof Error ? err.message : String(err)
+              error: describeFileError(err)
             }));
           });
       }

@@ -431,6 +431,17 @@ function mapRepo(row: {
 export class RepoQARepos {
   constructor(private db: Database.Database) {}
 
+  /**
+   * v1.2 收口（Round4 R4-1）— 仓库路径归一化：`\` vs `/`、大小写（win32）、
+   * 尾部斜杠的不同写法是同一个目录，却曾让 upsert 判定「新仓」——重复导入
+   * 产生两个并行实体、旧名被静默改写、下拉同名重复（Round4 实测三症状同根）。
+   * 规则：resolve 后统一正斜杠；win32 下再折叠大小写（NTFS 大小写不敏感）。
+   */
+  static normalizeLocalPath(localPath: string): string {
+    const resolved = path.resolve(localPath).split(path.sep).join('/');
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  }
+
   listRepos(): Repo[] {
     const rows = this.db.prepare('SELECT * FROM repos ORDER BY updated_at DESC').all() as any[];
     return rows.map(mapRepo);
@@ -468,10 +479,17 @@ export class RepoQARepos {
   }
 
   findByLocalPath(localPath: string): Repo | undefined {
+    // v1.2 收口（R4-1）— 快路径：精确匹配（历史行大多已是归一化串）；
+    // miss 后走归一化兜底扫描：命中存量脏写法（`\`/大小写/尾斜杠）的行，
+    // 重复导入因此复用既有行而不是新建第二个实体。目录量级 ≤ 双位数，扫描可忽略。
     const row = this.db
       .prepare('SELECT * FROM repos WHERE local_path = ? LIMIT 1')
       .get(localPath) as any;
-    return row ? mapRepo(row) : undefined;
+    if (row) return mapRepo(row);
+    const wanted = RepoQARepos.normalizeLocalPath(localPath);
+    return this.listRepos().find(
+      (r) => r.localPath && RepoQARepos.normalizeLocalPath(r.localPath) === wanted
+    );
   }
 
   upsertByLocalPath(input: {
