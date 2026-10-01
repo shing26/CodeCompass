@@ -314,6 +314,50 @@ async function main() {
         .then(() => true)
         .catch(() => false)
     );
+    // Round5 红线 ①② 进浏览器门：修前概览层的「Top API 入口」五张卡片逐字相同
+    // （AnswerBody → useState，深度恒 1），点枢纽还会弹出远程模型隐私授权模态。
+    // 这两条只有真浏览器点得出来，单测覆盖不到「五张卡片是否真的五样」。
+    const topApiTexts = await page
+      .waitForSelector('[data-testid="api-entry"]', { timeout: 30000 })
+      .then(() =>
+        page.$$eval('[data-testid="api-entry"]', (els) =>
+          els.map((el) => (el.textContent || '').trim())
+        )
+      )
+      .catch(() => []);
+    step(
+      'Top API 入口卡片内容互不相同（红线①：修前五张逐字相同）',
+      topApiTexts.length >= 2 && new Set(topApiTexts).size === topApiTexts.length,
+      `cards=${topApiTexts.length} distinct=${new Set(topApiTexts).size}`
+    );
+    // 伪造的签名是「所有卡片的 hops 逐字相同」（修前五张都是 AnswerBody → useState）。
+    // 单张卡出现「深度 1」是合法的（一跳链路本来就该是 1），所以这里断言的是
+    // 「不存在被所有卡片共用的同一串 hops」，而不是禁止某个深度值。
+    const hopLines = await page
+      .$$eval('[data-testid="api-entry"]', (els) =>
+        els.map((el) => {
+          const line = el.querySelector('div + div');
+          return (line?.textContent || '').trim();
+        })
+      )
+      .catch(() => []);
+    const sharedHop = hopLines.length >= 2 && new Set(hopLines).size < hopLines.length
+      ? [...new Set(hopLines)].find((h) => hopLines.filter((x) => x === h).length === hopLines.length)
+      : undefined;
+    step(
+      '没有卡片共用同一串 hops（伪造签名）',
+      !sharedHop,
+      sharedHop ? `shared="${sharedHop.slice(0, 50)}"` : `hops=${JSON.stringify(hopLines).slice(0, 80)}`
+    );
+    // 点枢纽：静态操作不得弹出远程模型隐私授权（红线②）。
+    await page.click('[data-testid="hub-entry"]').catch(() => {});
+    await page.waitForTimeout(1200);
+    const consentShown = await page
+      .$('[data-testid="consent-modal"]')
+      .then((h) => Boolean(h))
+      .catch(() => false);
+    step('点枢纽不弹远程模型隐私确认（红线②）', !consentShown, `consent=${consentShown}`);
+    if (consentShown) await page.keyboard.press('Escape').catch(() => {});
 
     console.log('--- 1b. 体检面（v1.2 票 02：scan REST + 五桶） ---');
     await page.goto(`${base}/?repo=${repoId}&mode=scan`, { waitUntil: 'domcontentloaded', timeout: 30000 });

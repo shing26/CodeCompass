@@ -113,13 +113,20 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
       });
   }, [client]);
 
+  /* v1.2.x（Round5 红线 ②）— 两个「点入口看链路」都改走 submit 直调，绕开 consent
+     门。**这不是绕过安全，是可证的等价**：`repoqa-worker.ts:978` 的 LLM 分支被
+     `input.mode !== 'call-chain'` 硬门挡住，call-chain 模式全程不调模型，代码与
+     问题都不出本机（概览层文案「不调模型、不联网」因此才成立）。
+     修前两条都走 handleSubmit → 远程模式下静态点击弹出「远程模型隐私确认」模态
+     （fixed inset-0 z-50）并锁死整页，Round5 走查记为 P1。 */
+
   const handleTrace = (api: TopApiEntry) => {
     setView('topo');
     setTraceOrigin('dashboard-entry');
     // Pass the clicked entry as structured input and force the deterministic
     // call-chain mode so the trace starts from THIS exact symbol (name + file),
     // never from a same-name sibling in another file (e.g. a test helper).
-    handleSubmit(`${api.name} 的完整调用链是怎样的？`, 'call-chain', {
+    submit(`${api.name} 的完整调用链是怎样的？`, 'call-chain', {
       name: api.name,
       file: api.filePath
     });
@@ -130,7 +137,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const traceSymbol = (symbol: string) => {
     setView('topo');
     setTraceOrigin('overview-hub');
-    handleSubmit(`${symbol} 的完整调用链是怎样的？`, 'call-chain', {
+    submit(`${symbol} 的完整调用链是怎样的？`, 'call-chain', {
       name: symbol,
       file: ''
     });

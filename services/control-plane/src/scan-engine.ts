@@ -64,6 +64,15 @@ const OVERSIZED_NOTE =
   'Line span is a deterministic complexity proxy until method-body AST ' +
   'extraction lands; it measures size, not quality.';
 
+/** v1.2.x（Round5 红线 ①）— 空桶必须自述「为什么空」。没有这句，「0 条」会被
+ * 读成「这个仓库没有深调用链」——一个由数据边界制造出来的假阴性断言。 */
+const DEEP_CHAIN_NOTE =
+  'Empty is usually a data boundary, not a clean bill of health: an entry ' +
+  'resolves only when the static graph records outgoing edges from it, and ' +
+  'inline arrow-function handlers / dynamic dispatch record none. This bucket ' +
+  'stayed empty on real TS and Go repos while the resolver used to fabricate a ' +
+  'chain (Round5 red line 1) — the fabricator is gone, the gap is real.';
+
 /** Issue 05 (dogfooding): an empty bucket must not point the agent at a tool
  * call it cannot make — "run X on an entry" with zero entries dead-ends. */
 const EMPTY_BUCKET_ACTION =
@@ -500,7 +509,8 @@ export function runScan(input: ScanInput): ScanResult {
         'Deep call chains (longest entry flows)',
         deepChainItems,
         deepChainTotal,
-        'Run codecompass_diagnose on an entry to see the layered chain.'
+        'Run codecompass_diagnose on an entry to see the layered chain.',
+        DEEP_CHAIN_NOTE
       ),
       bucket(
         'oversizedFiles',

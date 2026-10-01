@@ -40,11 +40,22 @@ export function TopApiBlock({
                 <div className="flex items-center gap-2">
                   <span className="truncate font-mono text-sm font-medium text-ink">{api.name}</span>
                   <Badge>{api.controller}</Badge>
-                  <Badge tone="accent" className="ml-auto">
-                    深度 {api.depth}
-                  </Badge>
+                  {/* v1.2.x（Round5 红线 ①）— hops 为空 = 静态图谱没记录该入口的出边
+                      （Express 内联处理函数体未归属 / 动态分派）。入口本身仍是确定
+                      性事实照常列出，但不再编一条链路，也不写「深度 0」。 */}
+                  {api.hops.length > 0 ? (
+                    <Badge tone="accent" className="ml-auto">
+                      深度 {api.depth}
+                    </Badge>
+                  ) : (
+                    <Badge tone="subtle" outline className="ml-auto">
+                      无法静态解析
+                    </Badge>
+                  )}
                 </div>
-                <div className="mt-0.5 truncate text-xs text-muted">{api.hops.join(' → ')}</div>
+                <div className="mt-0.5 truncate text-xs text-muted">
+                  {api.hops.length > 0 ? api.hops.join(' → ') : '静态图谱未记录该入口的出边，不做推测'}
+                </div>
               </button>
             </li>
           ))}

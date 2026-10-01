@@ -419,7 +419,10 @@ describe('ReActAgent tool loop (LLM configured)', () => {
     const turn = await agent.run('哪里值得改？');
     expect(turn.steps).toBe(4);
     expect(turn.citations).toHaveLength(3);
-    expect(turn.answer).toBe('综合结论 [cite: 3]');
+    // v1.2.x（Round5 红线 ③）— 角标归一为**唯一形态** `[cite:N]`：模型写的
+    // `[cite: 3]`（带空格）与 `【3】`/`[3]`/`[^3]` 一律收敛。客户端
+    // `/\[cite:\s*(\d+)\]/` 两种都吃，收敛是为了正文里只剩一种可溯源标记。
+    expect(turn.answer).toBe('综合结论 [cite:3]');
     const lastBody = bodies[bodies.length - 1];
     expect(lastBody.tools).toBeUndefined();
   });

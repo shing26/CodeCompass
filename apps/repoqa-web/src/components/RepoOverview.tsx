@@ -123,7 +123,10 @@ export function RepoOverview({
       {/* 枢纽来自 radar，与 dashboard 是两个独立请求——任一挂掉都不牵连另一半。 */}
       <div>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          枢纽符号 · 按静态图谱的调用密度
+          {/* v1.2.x（Round5 R5-10）— 口径订正：排序依据是 PageRank（度 + 全图
+              随机游走），不是「被调次数」。写「调用密度」与实际排序不符，用户按
+              被调数核对会发现非单调。度数只作展示，不作排序依据。 */}
+          枢纽符号 · 按静态图谱影响力排序
         </h3>
         {radarError ? (
           <div className="flex items-center gap-2">

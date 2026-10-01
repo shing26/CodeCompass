@@ -24,7 +24,7 @@ export type MainView = WorkbenchTab | 'tour';
  * back to `incident` by the view-sync effect (documented in HANDOFF).
  */
 function viewFromMode(mode: string | null | undefined): MainView {
-  if (mode === 'diff') return 'delta';
+  if (mode === 'diff' || mode === 'delta') return 'delta';
   if (mode === 'incident' || mode === 'chat') return 'chat';
   // 票 05 — 降级页面的深链入口：`?mode=metrics` / `?mode=evolve`。既有 mode
   // 语义零改，纯增量。
@@ -32,6 +32,10 @@ function viewFromMode(mode: string | null | undefined): MainView {
   if (mode === 'evolve') return 'evolve';
   // v1.2 票 01 — 体检面回归一级后获得同款深链（?mode=scan），选库前/后一致生效。
   if (mode === 'scan') return 'scan';
+  // v1.2.x（Round5 红线 ④）— 变更审计是一级标签，却既不能被深链直达、URL 也不
+  // 记录当前视图（地址栏被清成干净的 `?repo=`）：停在门禁页时把这个链接发出去，
+  // 别人只会落到拓扑。两端补齐后才是可分享的深链。
+  if (mode === 'gate') return 'gate';
   return 'topo';
 }
 
@@ -366,6 +370,10 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       else if (view === 'metrics') url.searchParams.set('mode', 'metrics');
       else if (view === 'evolve') url.searchParams.set('mode', 'evolve');
       else if (view === 'scan') url.searchParams.set('mode', 'scan');
+      // v1.2.x（Round5 红线 ④）— gate 补 URL 记录：修前落到 delete('mode')，一级
+      // 标签却不可分享。这里写规范名 `gate`，viewFromMode 同时接受 `diff`/`delta`
+      // 等按界面名拼的别名。
+      else if (view === 'gate') url.searchParams.set('mode', 'gate');
       else url.searchParams.delete('mode');
       window.history.replaceState(null, '', url.toString());
     } catch {

@@ -402,17 +402,32 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
   };
 }
 
-/** Return the method symbol the trace actually starts from. */
+/**
+ * Return the method symbol the trace actually starts from.
+ *
+ * v1.2.x（Round5 红线 ①）— 删掉了末行的 `symbols.find(s => s.kind === 'method')`
+ * 兜底。那一行让**入口无法静态起始时静默取「仓库里第一个方法符号」当链路起点**，
+ * 再由 resolveCallChain 打上 VERIFIED：CodeCompass 自仓 64 个 route 符号只有 6 个
+ * 带 calls，其余 58 个（91%）全部返回同一条伪造链
+ * `AnswerBody (VERIFIED) → useState (BROKEN)`——一个前端 React 组件，与被请求的
+ * 路由毫无关系，却同时污染 MCP diagnose / trace_call_chain、仪表盘 Top API 的
+ * hops、体检 deepChains 桶与 CLI diagnose。违反 v0.21 scan 红线与 ADR-0018：
+ * 只报确定性事实，宁可报「无法静态解析」也不编。
+ *
+ * 修法不是「换个兜底」，是**没有起点就没有链路**：返回 undefined →
+ * `resolveCallChain` 返回 `[]`，各消费方如实呈现空链路。路由入口本身仍是确定性
+ * 事实（这个路由存在），所以 dashboard 的 Top API 列表照常列出它，只是 hops 为空。
+ *
+ * Issue 17 的教训保留：`module` 节点携带文件级边（`main.tsx` 的 `render(<App />)`），
+ * 它是合法起点，不属于「无法起始」。
+ */
 function effectiveStart(
-  symbols: RepoSymbol[],
+  _symbols: RepoSymbol[],
   start: RepoSymbol,
   index: SymbolIndex
 ): RepoSymbol | undefined {
   if (start.kind === 'method') return start;
   if (start.kind === 'route' && (start.calls?.length ?? 0) > 0) return start;
-  // Issue 17 — a module node carries the file's module-level edges (`main.tsx`'s
-  // `render(<App />)`), so a chain may start there exactly like a route. Without
-  // this it fell through to the arbitrary "first method in the repo" default.
   if (start.kind === 'module' && (start.calls?.length ?? 0) > 0) return start;
   if (TYPE_KINDS.has(start.kind)) {
     const info = index.types.get(start.name);
@@ -423,7 +438,8 @@ function effectiveStart(
       if (methods.length > 0) return methods[0];
     }
   }
-  return symbols.find((symbol) => symbol.kind === 'method');
+  // 无合法起点 —— 不猜。
+  return undefined;
 }
 
 /** Candidate receiver types for a call, in priority order. */

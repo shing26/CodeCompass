@@ -311,6 +311,20 @@ export function ScanHealthView({
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-accent">检索精度态势</h3>
           {precision?.available ? (
             <>
+              {/* v1.2.x（Round5 R5-07）— 这组数字**恒为 CodeCompass 自仓基线**
+                  （ratchet-baseline.json 只冻结了 self 一个样本），此前没有任何
+                  标注，切到 lazygit 这类异构仓时同一串数字挂在别人页面上。现在
+                  明说它是谁的基线、当前仓是否就是它本身。 */}
+              <p
+                data-testid="precision-scope"
+                className="mb-2 rounded border border-line bg-subtle px-2 py-1 text-micro text-muted"
+              >
+                以下为 <strong className="text-ink">CodeCompass 自仓</strong>的冻结精度基线
+                {repo && repo.name !== 'CodeCompass' ? (
+                  <span className="text-warning">，不是当前仓库（{repo.name}）的测量值</span>
+                ) : null}
+                。
+              </p>
               <ul className="space-y-1 text-xs text-ink">
                 <li data-testid="precision-ratio">
                   自仓孤儿/符号比{' '}

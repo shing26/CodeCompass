@@ -264,6 +264,24 @@ export function runDiagnose(input: DiagnoseEngineInput): DiagnoseResult {
   const identityMap = buildIdentityMap(symbols);
   let previousLayer: DiagnoseLayer = layerOf(entrySymbol, index);
 
+  // v1.2.x（Round5 红线 ①）— 入口解析成功、但静态图谱里它没有出边时，如实说
+  // 「无法静态解析」。修前 `effectiveStart` 会取「仓库第一个方法符号」兜底，于是
+  // 自仓 91% 的路由都返回同一条伪造链并标 VERIFIED；那条链现在由本分支取代。
+  // SUSPECT 而非 BROKEN：符号是真的，只是静态分析到此为止（Express 内联箭头函数
+  // 体未归属到 route 符号、或动态分派），不是索引缺失。
+  const chainUntraceable = trace.length === 0;
+  if (chainUntraceable) {
+    steps.push({
+      layer: previousLayer,
+      symbol: entrySymbol.name,
+      filePath: entrySymbol.filePath,
+      line: entrySymbol.lineStart ?? 1,
+      status: 'SUSPECT',
+      diagnosticNotes:
+        '入口解析成功，但静态图谱未记录它的出边（内联处理函数体未归属到该符号，或分派是动态的）——静态分析到此为止，不做推测。'
+    });
+  }
+
   trace.forEach((hop, i) => {
     const identity = `${hop.file}:${hop.line ?? 0}:${hop.method}`;
     const symbol = identityMap.get(identity);
@@ -309,9 +327,11 @@ export function runDiagnose(input: DiagnoseEngineInput): DiagnoseResult {
     : '';
   const bridgeCount = steps.filter((step) => step.layer === 'FRONTEND_COMPONENT').length;
   const bridgeNote = bridgeCount > 0 ? ` Bridged from ${bridgeCount} frontend component(s) via the HTTP bridge.` : '';
-  const rootCauseSummary = firstBreak
-    ? `${symptomPrefix}Chain traces ${steps.length} step(s); first break at ${firstBreak.symbol} (${firstBreak.filePath}:${firstBreak.line}): ${firstBreak.diagnosticNotes ?? 'static analysis break'}.${bridgeNote}`
-    : `${symptomPrefix}Chain of ${steps.length} step(s) fully verified against the static graph; no deterministic break found.${bridgeNote}`;
+  const rootCauseSummary = chainUntraceable
+    ? `${symptomPrefix}Entry ${entrySymbol.name} (${entrySymbol.filePath}:${entrySymbol.lineStart ?? 1}) resolves, but the static graph records no outgoing call edges from it — the chain cannot be traced further. Nothing is inferred beyond that.${bridgeNote}`
+    : firstBreak
+      ? `${symptomPrefix}Chain traces ${steps.length} step(s); first break at ${firstBreak.symbol} (${firstBreak.filePath}:${firstBreak.line}): ${firstBreak.diagnosticNotes ?? 'static analysis break'}.${bridgeNote}`
+      : `${symptomPrefix}Chain of ${steps.length} step(s) fully verified against the static graph; no deterministic break found.${bridgeNote}`;
 
   return {
     schemaVersion: 1,

@@ -12,6 +12,7 @@ const SYSTEM_PROMPT = `你是 compass-copilot：以 CodeCompass MCP（17 个确�
 
 纪律（继承自 CodeCompass ADR，见本仓库 docs/adr/0001）：
 1. 事实主张必须来自工具返回，回答中用 [cite: N] 标注——N 是本轮工具调用的序号（第 1 次调用 = [cite: 1]）。
+   只写这一种形式：禁止 【N】、[N]、[^N]、脚注或"（来源 1）"等变体（Round5 红线③：变体会让角标退化成正文并截断句子）。
 2. 探查未知仓库时优先 codecompass_scan / codecompass_get_dashboard 自荐（scan 只报事实，判断由你给出）。
 3. 静态不可见的运行时分支（如"Redis 失败降级 MySQL"）只能标 SUSPECT 并给证据，不得断言。
 4. plan_evolution 返回 conventionConflict 或 alternatives 时，原样透出并引导用户带显式 target 重试。
@@ -27,6 +28,33 @@ const SYSTEM_PROMPT = `你是 compass-copilot：以 CodeCompass MCP（17 个确�
 8. 全程使用与用户相同的语言回答（中文提问就是中文回答，不要中途切换英文）。
    不要建议用 codecompass_remove_repo 解决"删除代码"问题——它只移除索引条目，与源码无关。
    演进工具的 target 禁止 "*" 或桶名这类通配值。回答里每个包含事实主张的段落都要带 [cite: N]。`;
+
+/**
+ * v1.2.x（Round5 红线 ③）— 把模型写出的各种引用标记**归一到唯一形态 `[cite:N]`**。
+ *
+ * 换 LLM 供应商暴露的协议脆弱性：客户端与服务端原本只认 `[cite:N]` 一种写法，
+ * 而模型并不总是照做——NVIDIA 的 nemotron 写出 `【2】` / `[^2]` / 裸 `[2]`，
+ * 于是角标全部退化成普通文本，把句子拦腰截断（Round5 走查 R5-06 实测：
+ * 「…（例如 GET /api/chat/status）\n\n2\n\n。鉴权逻辑因而…」）。
+ *
+ * 为什么归一在服务端而不是放宽客户端：出口校验（剔除没有对应工具调用的悬空角标，
+ * R2-03）也在这条路径上。归一后再校验，两条不变量同时成立——正文里只剩一种标记，
+ * 且每一种都能溯源到真实 tool_result。客户端因此保持严格。
+ *
+ * 归一放在校验**之前**：先统一写法，再判悬空；否则变体写法会绕过校验直接进正文。
+ */
+export function normalizeCitationMarkers(text: string): string {
+  return text
+    // 【N】/[N]/[^N]/（cite: N）/[cite N]/[引用: N] → [cite:N]
+    .replace(/【\s*(?:cite)?\s*[:：]?\s*(\d+)\s*】/gi, '[cite:$1]')
+    .replace(/\[\s*\^\s*(\d+)\s*\]/g, '[cite:$1]')
+    .replace(/\[\s*(?:cite|引用|ref|source)\s*[:：]?\s*(\d+)\s*\]/gi, '[cite:$1]')
+    .replace(/[（(]\s*(?:cite|引用)\s*[:：]\s*(\d+)\s*[）)]/gi, '[cite:$1]')
+    // 裸 [N]：只在**不像下标**时才算引用——前一个字符是标识符/右括号时它是数组或
+    // 字典下标（`a[0]`、`b[12]`、`m[i]`），改写它会把代码讲成语义不通的正文。
+    // markdown 链接是 [text](url)，含文字与 URL，本就不匹配。
+    .replace(/(^|[^A-Za-z0-9_$)\]])\[\s*(\d{1,3})\s*\]/g, '$1[cite:$2]');
+}
 
 export interface Citation {
   n: number;
@@ -258,8 +286,11 @@ export class ReActAgent {
 
     // R2-03: 出口校验——剔除正文中没有对应 citation 的悬空角标（web/REPL 共用）。
     // citations 为空时全部剔除（正文引用必须能溯源到真实工具调用）。
-    const finalAnswer = answer.replace(/\[cite:\s*(\d+)\]/g, (m, n: string) =>
-      citations.some((c) => c.n === Number(n)) ? m : '',
+    // v1.2.x（Round5 红线 ③）：先归一模型的各种引用写法，再判悬空——顺序反了
+    // 变体写法就会绕过校验，带着不可溯源的角标进正文。
+    const finalAnswer = normalizeCitationMarkers(answer).replace(
+      /\[cite:\s*(\d+)\]/g,
+      (m, n: string) => (citations.some((c) => c.n === Number(n)) ? m : '')
     );
     this.history.push({ role: 'user', content: intent }, { role: 'assistant', content: finalAnswer });
     this.deps.log.write('agent_turn', {

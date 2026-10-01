@@ -433,9 +433,17 @@ def check_versions() -> None:
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     pkg_version = root_pkg["version"]
     ver_match = re.search(r"VERSION = '([^']+)'", version_ts)
-    log_match = re.search(r"^## \[([^\]]+)\]", changelog, re.MULTILINE)
+    # v1.2.x：取「最新**已发布**」的 changelog 条目，跳过 [Unreleased] 段。修前直接
+    # 取第一个 `## [x]`，于是 v1.2.0 之后一旦按 Keep-a-Changelog 惯例加一段
+    # Unreleased（发布后修复批的正常写法），这道门就误红——它把 Unreleased 当成了
+    # 版本号。门禁要比的是 package.json / version.ts / 最新已发布版本三者一致。
+    log_match = None
+    for candidate in re.findall(r"^## \[([^\]]+)\]", changelog, re.MULTILINE):
+        if re.fullmatch(r"\d+\.\d+\.\d+", candidate):
+            log_match = candidate
+            break
     const_version = ver_match.group(1) if ver_match else ""
-    log_version = log_match.group(1) if log_match else ""
+    log_version = log_match or ""
     engines = root_pkg.get("engines", {}).get("node", "")
     ok = (
         pkg_version == const_version == log_version

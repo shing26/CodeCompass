@@ -2,6 +2,20 @@
 
 ## [Unreleased] — v1.2.x 发布后修复批（tag v1.2.0 之后，尚未发新 tag）
 
+### Round5 红线批（`docs/reports/产品体验报告-Round5.md`，2026-10-02）
+
+**⚠ 行为变更（确定性引擎）**：`codecompass_diagnose` / `codecompass_trace_call_chain` / 仪表盘 Top API 的 hops / 体检 deepChains 桶，在**入口无法静态起始**时不再返回链路。修前 `effectiveStart` 会取「仓库里第一个方法符号」兜底——自仓 64 个 route 符号只有 6 个带 `calls`，**91% 的路由入口**都返回同一条伪造链 `AnswerBody (VERIFIED) → useState (BROKEN)`（一个与请求无关的前端 React 组件）。现在：无起点即无链路，`diagnose` 如实报 SUSPECT +「静态图谱未记录它的出边……不做推测」；仪表盘保留入口（路由存在是事实）但标「无法静态解析」。**真实链路不受影响**（`runScan` 仍 4 跳 3 验证，fixture 露出真实 3 跳 `get → ping → select`）。
+
+- **静态点击不再触发远程授权**：概览层枢纽点击与仪表盘入口点击改走 `submit` 直调，绕开 consent 门。可证等价——`repoqa-worker.ts:978` 的 LLM 分支被 `input.mode !== 'call-chain'` 硬门挡住，call-chain 全程不调模型。此前远程模式下点一张纯静态卡片就弹「远程模型隐私确认」模态并锁死整页。
+- **引用标记归一**：`【N】`/`[^N]`/`[N]`/`（cite: N）` 一律收敛为唯一形态 `[cite:N]`，且**归一在悬空角标校验之前**（顺序反了变体写法会绕过 R2-03 的溯源校验）。裸 `[N]` 加守卫避免改写 `a[0]` 数组下标。这是换 LLM 供应商暴露的协议脆弱性——旧供应商一直 402，从没走到过这一步。
+- **一级标签深链自洽**：`?mode=gate` 冷加载直达变更审计、停在该页时 URL 记录 `mode=gate`（修前是干净的 `?repo=`）；`?mode=delta` / `?mode=chat` 这两个按界面名拼的别名也认。
+- **诚实性标注**：精度态势区加「CodeCompass 自仓基线，非当前仓库」；deepChains 空桶加 note「空通常是数据边界，不是体检合格」；枢纽排序文案由「调用密度」改为「按静态图谱影响力排序」（实为 PageRank）。
+- **门禁修复**：版本一致性检查改为取「最新**已发布**」的 changelog 条目并跳过 `[Unreleased]`——修前一旦按 Keep-a-Changelog 惯例加 Unreleased 段就误红。
+
+回归锁：引擎 6 项 + App 4 项 + UI 冒烟 3 步，**每条都验证过回退后会红**。门禁：控制面 **791**、web **394**、e2e **73/0**、冒烟 PASS。
+
+### Round4 缺陷批（2026-09-30 走查，2026-10-01 全闭）
+
 **一句话**：v1.2.0 发布后的首周体验回访（Round4 Persona 黑盒走查 19 条 + 功能可用性逐模块审计）全部处置完毕——**19 条走查缺陷 18 修、1 条判设计决策**，外加模型热切换与 LLM 面诚实性三件。
 
 - **Round4 P1（3 条）**：导入路径归一化（`path.resolve` + 统一 `/` + win32 小写，一修三症状：重复实体 / 旧名静默改写 / 下拉同名重复与洗牌）；快速导览源码面板 404 根治（导览按 `isFileIndexed` 过滤符号）+ 缺失锚点降级；「导入路径吞反斜杠」经真 Chromium 双通道复现**判定为 QA agent 输入 artifact，非产品缺陷**。

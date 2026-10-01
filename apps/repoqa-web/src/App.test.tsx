@@ -566,6 +566,46 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
     expect(window.location.search).toContain('mode=scan');
   });
 
+  /* v1.2.x（Round5 红线 ④）— 一级标签的深链必须自洽：写进 URL 的 mode 要能被读回来。
+     修前门禁页落到 `delete('mode')`、读取端也不认 `gate`，于是停在变更审计时地址栏
+     是干净的 `?repo=`，把链接发出去别人只会落到代码拓扑——一级标签却不可分享。
+     同时 `?mode=delta` / `?mode=chat` 这两个按界面名拼的自然写法无效。 */
+  it('gate is deep-linkable both ways, and tab-named aliases resolve (Round5 ④)', async () => {
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('tab-gate'));
+    await waitFor(() => expect(screen.getByTestId('ci-gate')).toBeInTheDocument());
+    // 停在门禁页时 URL 必须带 mode=gate（修前是干净的 ?repo=）
+    expect(window.location.search).toContain('mode=gate');
+  });
+
+  it('?mode=gate cold-loads the gate view directly', async () => {
+    window.history.replaceState(null, '', '/?mode=gate');
+    const user = userEvent.setup();
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('ci-gate')).toBeInTheDocument());
+  });
+
+  it('accepts the tab-named aliases ?mode=delta and ?mode=chat', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '/?mode=delta');
+    const first = render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('architecture-delta')).toBeInTheDocument());
+    first.unmount();
+
+    window.history.replaceState(null, '', '/?mode=chat');
+    render(<App client={makeClient()} />);
+    await waitFor(() => expect(screen.getByTestId('repo-select')).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId('repo-select'), 'repo-1');
+    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+  });
+
   it('DEBUG mode=evolve dump', async () => {
     window.history.replaceState(null, '', '/?mode=evolve');
     const user = userEvent.setup();
@@ -921,6 +961,32 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     await user.click(screen.getByTestId('chat-send'));
     expect(screen.getByTestId('consent-modal')).toBeInTheDocument();
     expect(client.chat.chatSend).not.toHaveBeenCalled();
+  });
+
+  /* v1.2.x（Round5 红线 ②）— 概览层的「点枢纽看链路」是纯静态操作：worker 的
+     LLM 分支被 `input.mode !== 'call-chain'` 硬门挡住，全程不调模型，代码与问题都
+     不出本机。修前它走 handleSubmit（带 consent 门），于是远程模式下点一下静态卡片
+     就弹出「远程模型隐私确认」模态（fixed inset-0 z-50）并锁死整页——概览层自己
+     写着「不调模型、不联网」，言实不符。 */
+  it('a hub drill-down never opens the remote-model consent modal', async () => {
+    const client = makeClient({
+      getRuntime: vi.fn().mockResolvedValue({ llm: { mode: 'remote', host: 'api.***.com' } }),
+      queryRepo: vi.fn().mockReturnValue(autoDoneStream())
+    });
+    const user = userEvent.setup();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    const hubs = await screen.findAllByTestId('hub-entry');
+    await user.click(hubs[0]);
+
+    expect(screen.queryByTestId('consent-modal')).not.toBeInTheDocument();
+    // 链路请求照常发出（走的是 call-chain 模式，不是 chat）
+    const queryRepo = client.queryRepo as unknown as ReturnType<typeof vi.fn>;
+    await waitFor(() => expect(queryRepo).toHaveBeenCalled());
+    const call = queryRepo.mock.calls.at(-1) as [string, string, string?, { name?: string }?];
+    expect(call[2]).toBe('call-chain');
+    expect(call[3]?.name).toBe('OrderService');
   });
 });
 
