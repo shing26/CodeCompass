@@ -25,6 +25,32 @@ describe('v0.27-B R3: error code contract (frontend)', () => {
     expect(describeError('string boom')).toBe('string boom');
   });
 
+  /* v1.2.x（Round5 跟进）— 传输层失败（Round5 实测：用户看到
+     「目录选择失败：Failed to fetch」）。请求连响应都没拿到时没有 `${name} failed:`
+     前缀，也没有状态码，只能匹配浏览器各家原文。 */
+  it('maps every browser transport rejection to actionable Chinese', () => {
+    for (const raw of [
+      'Failed to fetch',
+      'NetworkError when attempting to fetch resource.',
+      'Load failed',
+      'Network request failed',
+      'The Internet connection appears to be offline.'
+    ]) {
+      const text = describeError(new Error(raw));
+      expect(text, raw).toContain('连不上本地服务');
+      expect(text, raw).toContain('npm start');
+      // 原始英文保留在后半段供本机排障（与既有 code 分支同一约定）
+      expect(text, raw).toContain(raw);
+    }
+  });
+
+  it('keeps connection-refused distinct from timeout (different remedy)', () => {
+    const refused = describeError(new Error('Failed to fetch'));
+    const timeout = describeError(new NetworkTimeoutError('http://127.0.0.1:43110/api/x', 15000));
+    expect(refused).toContain('没在运行');
+    expect(timeout).toContain('已挂起');
+  });
+
   it('every table entry is non-empty Chinese guidance (copy-guard adjacent)', () => {
     // R3 review P2-2：词表读 client/copyBlacklist 权威源，与 copy-guard 同表。
     for (const [code, hint] of Object.entries(ERROR_COPY)) {

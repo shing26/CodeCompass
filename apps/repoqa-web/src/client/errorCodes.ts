@@ -91,6 +91,25 @@ const CLIENT_ERROR_PREFIX: ReadonlyArray<readonly [RegExp, string]> = [
   [/^getFileRaw failed/, '源码读取失败']
 ];
 
+/**
+ * v1.2.x（Round5 跟进）— **传输层**失败：请求连响应都没拿到，`fetch` 自身 reject。
+ *
+ * 这一类此前完全漏网：`CLIENT_ERROR_PREFIX` 映射的是 `${name} failed: ${status}`
+ * （服务端给了状态码）的形态，而连接被拒时根本没有状态码，浏览器抛的是各家的
+ * 原文（Chrome `Failed to fetch` / Firefox `NetworkError…` / Safari `Load failed`），
+ * 原样透传到界面上——用户看到「目录选择失败：Failed to fetch」，既不知道是哪个
+ * 服务，也不知道该做什么。
+ *
+ * 与 `network_timeout` 分开是有意的：超时=服务在跑但挂起（去重启它），连接被拒
+ * =服务没在跑（去启动它）。补救动作不同，文案就得分开。
+ */
+const TRANSPORT_ERROR: ReadonlyArray<readonly [RegExp, string]> = [
+  [
+    /^(Failed to fetch|NetworkError when attempting to fetch resource\.|Load failed|Network request failed|The Internet connection appears to be offline\.?)$/i,
+    '连不上本地服务（CodeCompass 多半没在运行）——在仓库根目录执行 npm start；地址不对时检查启动端口'
+  ]
+];
+
 /** 把任意 error（Error/字符串/后端 ApiError/超时）翻成用户可执行的文案。 */
 export function describeError(err: unknown): string {
   const e = err as { code?: unknown; message?: unknown } | null | undefined;
@@ -100,6 +119,12 @@ export function describeError(err: unknown): string {
   // 服务端可能返回任意 string（守卫测试保证它 ∈ 契约）；查 copy 前收窄。
   const hint = code ? ERROR_COPY[code as ErrorCode] : undefined;
   if (hint) return `${hint}（原始错误：${message}）`;
+  // 传输层先判：它没有 `${name} failed:` 前缀，走下面的循环只会原样透传。
+  for (const [pattern, human] of TRANSPORT_ERROR) {
+    if (pattern.test(message.trim())) {
+      return `${human}（原始错误：${message.trim()}）`;
+    }
+  }
   for (const [pattern, human] of CLIENT_ERROR_PREFIX) {
     if (pattern.test(message)) {
       // 剥掉英文前缀后接中文；细节（如 404/path）保留在后半段。
