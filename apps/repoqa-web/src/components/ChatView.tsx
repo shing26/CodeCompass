@@ -252,8 +252,11 @@ export function ChatView(props: {
    * 全局模型胶囊同源）。未传 = 无模型信息（组件级测试态）。 */
   modelInfo?: { profiles: string[]; active: string; configured: boolean } | null;
   onSwitchModel?: (name: string) => void;
+  /** v1.2.x（R4-19）— 隐私确认后的草稿就绪提示。 */
+  draftReady?: boolean;
+  onDismissDraftReady?: () => void;
 }) {
-  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution, initialDraft, onDraftConsumed, modelInfo, onSwitchModel } = props;
+  const { client, repoId, repoName, onNavigate, onBackToWorkbench, onSend, onOpenEvolution, initialDraft, onDraftConsumed, modelInfo, onSwitchModel, draftReady, onDismissDraftReady } = props;
   const chatClient = client.chat;
   const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
   const [activeSession, setActiveSession] = useState<ChatSessionInfo | null>(null);
@@ -412,6 +415,14 @@ export function ChatView(props: {
         );
       } catch (e) {
         setError(describeError(e));
+        // v1.2.x（R4-15）— 出错时撤掉零输出的流式占位：402 等「一个 token
+        // 都没回来就失败」的路径下，finally 只停流态会留下一个空白
+        // assistant 气泡悬浮在消息流里（Round4 实测多次出现）。
+        setEntries((prev) =>
+          prev
+            .map((e) => ({ ...e, streaming: false, regenerating: false }))
+            .filter((e) => !(e.role === 'assistant' && e.content === '' && !e.planCards?.length))
+        );
       } finally {
         setEntries((prev) => prev.map((e) => ({ ...e, streaming: false, regenerating: false })));
         setBusy(false);
@@ -567,6 +578,27 @@ export function ChatView(props: {
           </div>
         </div>
         {error && <div className="chat-error mx-3 mb-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger" data-testid="chat-error">{error}</div>}
+        {/* v1.2.x（R4-19）— 隐私确认后不自动发（不误发），但显式说清「为何没
+            发出」：草稿已就绪，点发送。输入变化或发送后自动退场。 */}
+        {draftReady && !busy && (
+          <div
+            data-testid="chat-draft-ready"
+            className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-md border border-accent-soft bg-accent-soft/30 px-3 py-1.5 text-xs text-accent"
+          >
+            <span className="min-w-0 truncate">已授权远程模型——问题已填好，点「发送」发出。</span>
+            {onDismissDraftReady && (
+              <button
+                type="button"
+                data-testid="chat-draft-ready-dismiss"
+                aria-label="关闭草稿就绪提示"
+                onClick={onDismissDraftReady}
+                className="shrink-0 rounded px-1 text-accent hover:bg-accent/10"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
         <div className="chat-composer sticky bottom-0 border-t border-line bg-canvas/95 px-3 py-2 backdrop-blur">
           <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
             <textarea
@@ -574,7 +606,10 @@ export function ChatView(props: {
               ref={taRef}
               value={input}
               rows={1}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                if (e.target.value) onDismissDraftReady?.();
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();

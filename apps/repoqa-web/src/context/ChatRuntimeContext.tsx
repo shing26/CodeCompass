@@ -24,6 +24,9 @@ interface ChatRuntimeContextValue {
   consentPending: ConsentPending | null;
   setConsentPending: (v: ConsentPending | null) => void;
   confirmConsent: () => void;
+  /** v1.2.x（R4-19）— 隐私确认后 composer 草稿就绪提示（确认≠自动发送）。 */
+  draftReady: boolean;
+  clearDraftReady: () => void;
   /** LLM consent 门之后的程序化提问入口（Dashboard Top API / 深链）。 */
   handleSubmit: ReturnType<typeof useChat>['submit'];
   /** chat-merge — ChatView 的发送入口，同样受 consent 门保护。
@@ -63,6 +66,9 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const evolutionSession = useEvolutionSession(client, currentRepo);
   const [runtime, setRuntime] = useState<RuntimeInfo>({ llm: { mode: 'none' } });
   const [llmConsented, setLlmConsented] = useState(false);
+  // v1.2.x（R4-19）
+  const [draftReady, setDraftReady] = useState(false);
+  const clearDraftReady = useCallback(() => setDraftReady(false), []);
   const [consentPending, setConsentPending] = useState<ConsentPending | null>(null);
   // v1.2.x — 全局模型热切换状态（单一数据源：TopBar 与 ChatView 共用）。
   const [modelInfo, setModelInfo] = useState<{
@@ -165,8 +171,11 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     setLlmConsented(true);
     if (consentPending) {
       if (consentPending.chatMessage) {
-        // chat 路径：输入保留在 ChatView，用户再次发送即走已授权通道
+        // chat 路径：输入保留在 ChatView，用户再次发送即走已授权通道。
+        // v1.2.x（R4-19）— 置 draftReady 让 ChatView 显式提示「草稿已就绪，
+        // 点发送」：确认后不自动发（不误发），但要让用户知道为何没发出去。
         setConsentPending(null);
+        setDraftReady(true);
         return;
       }
       submit(consentPending.question, consentPending.mode, consentPending.start, consentPending.stack);
@@ -205,6 +214,8 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     consentPending,
     setConsentPending,
     confirmConsent,
+    draftReady,
+    clearDraftReady,
     handleSubmit,
     chatGuardSend,
     handleTrace,

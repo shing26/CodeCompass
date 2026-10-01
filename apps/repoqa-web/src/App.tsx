@@ -113,7 +113,9 @@ function WorkbenchShell() {
     chatGuardSend,
     handleTrace,
     modelInfo,
-    switchModel
+    switchModel,
+    draftReady,
+    clearDraftReady
   } = useChatRuntime();
 
   const { toggleTheme } = useTheme();
@@ -284,6 +286,8 @@ function WorkbenchShell() {
               repoName={currentRepo?.name ?? null}
               modelInfo={modelInfo}
               onSwitchModel={(name) => void switchModel(name)}
+              draftReady={draftReady}
+              onDismissDraftReady={clearDraftReady}
               onNavigate={(symbol) => {
                 setView('topo');
                 // Same deterministic call-chain entry as the Dashboard Top API

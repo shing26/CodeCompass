@@ -49,6 +49,19 @@ function commitLabel(commit: string): string {
 // 风险面）。渲染只取前 IMPACT_TREE_LIMIT 条 + 尾行计数——数据与导出不受影响。
 const IMPACT_TREE_LIMIT = 50;
 
+/** v1.2.x（R4-16）— 运行史时间戳本地化：修前直出 ISO UTC
+ * （2026-09-30T18:25:07.633Z），本地读者需心算换算；完整 ISO 留 title。 */
+function fmtRunTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
 function isImpactedApi(value: unknown): value is ArchitectureDeltaImpactedApi {
   const api = value as Partial<ArchitectureDeltaImpactedApi> | null;
   const symbol = api?.routeSymbol as Partial<ArchitectureDeltaSymbol> | undefined;
@@ -283,7 +296,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
       <div className="mx-auto max-w-3xl space-y-4">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold text-ink">CI 门禁</h2>
+            <h2 className="whitespace-nowrap text-base font-semibold text-ink">CI 门禁</h2>
             <p className="mt-0.5 truncate text-xs text-muted">{repo.name}</p>
           </div>
           <ScenarioGuide
@@ -490,7 +503,7 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                           违规 {run.violationsCount}
                         </span>
                       )}
-                      <span className="shrink-0 text-muted">{run.createdAt}</span>
+                      <span className="shrink-0 text-muted" title={run.createdAt}>{fmtRunTime(run.createdAt)}</span>
                       {canExpand && (
                         <button
                           type="button"

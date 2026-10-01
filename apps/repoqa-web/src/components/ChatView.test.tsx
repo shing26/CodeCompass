@@ -40,13 +40,15 @@ function makeChatClient(overrides: Partial<RepoQAClient['chat']> = {}): RepoQACl
 
 function renderChat(
   chatClientOverrides: Partial<RepoQAClient['chat']> = {},
-  onSendImpl?: (message: string, handlers: { onDelta: (t: string) => void }) => Promise<ChatTurnResult>
+  onSendImpl?: (message: string, handlers: { onDelta: (t: string) => void }) => Promise<ChatTurnResult>,
+  props: Partial<Parameters<typeof ChatView>[0]> = {}
 ) {
   const chatClient = makeChatClient(chatClientOverrides);
   const client = { chat: chatClient } as unknown as RepoQAClient;
   const onNavigate = vi.fn();
   render(
     <ChatView
+      {...props}
       client={client}
       repoId="repo-1"
       repoName="petclinic"
@@ -196,10 +198,22 @@ describe('ChatView layout completion (v0.27-UI ticket 01)', () => {
     });
     // 指引之外保留原始错误供本机排障
     expect(box.textContent).toContain('unknown session');
+    // v1.2.x（R4-15）— 零输出失败不留空白 assistant 泡：error 出现时消息流里
+    // 不应残留一个空 content 的流式占位。
+    const emptyAssistant = document.querySelectorAll('.chat-msg.assistant');
+    expect(Array.from(emptyAssistant).every((el) => (el.textContent ?? '').trim() !== '')).toBe(
+      true
+    );
   });
 });
 
 describe('v1.2 票 05 a11y（V27-15）', () => {
+  it('v1.2.x R4-19: shows the draft-ready hint after privacy consent (no silent non-send)', () => {
+    renderChat({}, undefined, { draftReady: true, onDismissDraftReady: vi.fn() });
+    const hint = screen.getByTestId('chat-draft-ready');
+    expect(hint).toHaveTextContent('点「发送」发出');
+  });
+
   it('message area is an aria log landmark with explicit polite liveness', async () => {
     renderChat();
     const log = await screen.findByTestId('chat-messages');

@@ -287,6 +287,15 @@ describe('TopBar workbench header (Issue 31)', () => {
     expect(onDismissError).toHaveBeenCalledTimes(1);
   });
 
+  it('v1.2.x R4-18: the masking pill opens a rules summary panel', async () => {
+    const user = userEvent.setup();
+    render(<TopBar {...baseProps({ currentRepo: readyRepo })} />);
+    await user.click(screen.getByTestId('masked-badge'));
+    const panel = screen.getByTestId('mask-help');
+    expect(panel).toHaveTextContent('私钥块');
+    expect(panel).toHaveTextContent('入库前');
+  });
+
   it('renders the staged indexing progress stepper (v0.6.0)', () => {
     render(
       <TopBar

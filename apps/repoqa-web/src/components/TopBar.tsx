@@ -124,6 +124,7 @@ export function TopBar({
   const [showImport, setShowImport] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [maskHelpOpen, setMaskHelpOpen] = useState(false); // v1.2.x R4-18 脱敏说明面板
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
@@ -355,12 +356,44 @@ export function TopBar({
         {exportError && (
           <span className="hidden text-xs text-danger xl:inline">{exportError}</span>
         )}
-        <span
-          data-testid="masked-badge"
-          className="hidden shrink-0 rounded-full border border-line bg-subtle px-2 py-1 text-micro font-medium text-muted xl:inline-flex"
-        >
-          13 条规则已脱敏
-        </span>
+        {/* v1.2.x（R4-18）— 脱敏胶囊可点：说明「盖什么」，此前点击无任何反应
+            （胶囊是 span），用户对脱敏范围无据可查。规则族摘要，取自
+            engine/repoqa-masking.ts 的 13 条 pattern 归纳。 */}
+        <div className="relative hidden shrink-0 xl:inline-flex">
+          <span
+            data-testid="masked-badge"
+            role="button"
+            tabIndex={0}
+            onClick={() => setMaskHelpOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setMaskHelpOpen((v) => !v);
+              }
+            }}
+            className="shrink-0 cursor-pointer rounded-full border border-line bg-subtle px-2 py-1 text-micro font-medium text-muted hover:border-accent hover:text-accent"
+          >
+            13 条规则已脱敏
+          </span>
+          {maskHelpOpen && (
+            <div
+              data-testid="mask-help"
+              role="note"
+              className="absolute right-0 top-full z-50 mt-1 w-72 rounded-md border border-line bg-surface p-3 text-xs text-muted shadow-neon"
+            >
+              <p className="mb-1.5 font-medium text-ink">出库脱敏覆盖（13 条规则）</p>
+              <ul className="list-inside list-disc space-y-0.5">
+                <li>私钥块：PEM（RSA/EC/OPENSSH/加密）与 PGP</li>
+                <li>令牌：JWT、GitHub PAT/OAuth、OpenAI sk- 密钥、Bearer/Basic 授权头</li>
+                <li>云密钥：AWS 访问密钥与临时凭据、阿里云/腾讯云密钥</li>
+                <li>含口令的数据库连接串（DSN）</li>
+                <li>URL 内嵌凭据（https://user:pass@host）</li>
+                <li>私网/内网地址字面量</li>
+              </ul>
+              <p className="mt-1.5 text-micro">脱敏发生在内容入库前——索引、检索、导出与 WS 帧里的文本都已过筛。</p>
+            </div>
+          )}
+        </div>
         {/* v1.2.x — 全局模型热切换：胶囊显示当前 profile + 配置状态点，下拉即切
             （chat/evolve 的 LLM 调用即时生效）。 */}
         <div className="relative shrink-0">

@@ -275,7 +275,7 @@ export function Canvas({
                 <strong className="text-ink">② 选一个视图</strong> —
                 <strong className="text-ink">要方案 →</strong>「规范演进」给改动意图，产出落地建议与风险清单（引擎只读）；
                 <strong className="text-ink">问现状 →</strong>「架构问答」自然语言提问，结论可逐条查证（推荐新手从这里开始）。
-                其余：「代码拓扑」深入调用链、「架构仪表盘」看全仓热点、「变更审计」对接 CI 门禁、「Diff 影响面」看架构差异。
+                其余：「代码拓扑」深入调用链、「变更审计」对接 CI 门禁、「Diff 影响面」看架构差异；全仓热点在右上「⋯ 更多操作 → 架构仪表盘」（v1.2.x R4-13：入口已移出一级导航）。
               </p>
               <p>
                 <strong className="text-ink">③ 提问或探索</strong> — 在「架构问答」输入如

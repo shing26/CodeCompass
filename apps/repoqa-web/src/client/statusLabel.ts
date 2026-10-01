@@ -38,7 +38,11 @@ export const STATUS_LABEL: Readonly<Record<string, string>> = {
   hubs: '变更影响枢纽',
   oversized: '超大方法',
   deepChains: '深调用链',
-  oversizedFiles: '超大文件'
+  oversizedFiles: '超大文件',
+  // v1.2.x（R4-14）— chunk 类型展示映射：检索命中的徽章曾恒显「readme」
+  // （.md 结构化切分后全部入 readme 型），用户无法区分文档片段与代码注释。
+  readme: '文档',
+  docstring: '代码注释'
 };
 
 export function statusLabel(value: string): string {

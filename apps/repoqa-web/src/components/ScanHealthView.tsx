@@ -282,7 +282,7 @@ export function ScanHealthView({
                 {chunkHits.map((hit) => (
                   <li key={hit.id} data-testid="scan-search-hit" className="text-xs">
                     <div className="flex min-w-0 items-center gap-2">
-                      <Badge mono>{hit.chunkType}</Badge>
+                      <Badge mono>{statusLabel(hit.chunkType)}</Badge>
                       {hit.filePath && (
                         <button
                           type="button"
