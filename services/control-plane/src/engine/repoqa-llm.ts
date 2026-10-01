@@ -122,6 +122,74 @@ export interface LlmEnvConfig {
 }
 
 /**
+ * v1.2.x — 把供应商的 HTTP 失败翻译成可执行的处置提示。
+ *
+ * 修前所有失败一律抛 `LLM request failed with HTTP 402`：用户拿到一个状态码，
+ * 不知道是余额不足、key 填错还是模型 ID 不存在，而这三者的修法完全不同。切换
+ * LLM 供应商（`.env` 三行）是最常见的用户侧操作，诊断质量就是功能的一部分。
+ *
+ * 供应商原话（`error.message`）一并带出，但先脱敏再截断——错误体理论上可能回显
+ * 请求内容，不做净化就等于把凭据写进日志与界面。
+ */
+const LLM_STATUS_HINT: Record<number, string> = {
+  400: '请求被拒——多半是模型 ID 或参数该端点不认，核对 REPOQA_LLM_MODEL',
+  401: '凭据无效或未填——核对 REPOQA_LLM_API_KEY（注意别带空格与引号）',
+  402: '账户余额不足或套餐未开通——充值，或换一个 REPOQA_LLM_BASE',
+  403: '无权访问该模型——换模型档位，或换一个 key',
+  404: '端点或模型不存在——核对 REPOQA_LLM_BASE 是否需要带版本段（如 /v1）与 REPOQA_LLM_MODEL',
+  408: '供应商侧超时——稍后重试，或换响应更快的模型档位',
+  429: '被限流——退避重试，或换模型档位'
+};
+
+/** 凭据形状的通用净化：任何厂商的 key 形态都可能落进错误回显。 */
+function scrubCredentials(text: string): string {
+  return text
+    .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-***')
+    .replace(/\bBearer\s+[A-Za-z0-9._-]{6,}/gi, 'Bearer ***')
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '***');
+}
+
+/** 供应商错误体里最有信息量的一句；非 JSON 或读失败时返回 undefined。 */
+export function providerErrorMessage(bodyText: string | undefined): string | undefined {
+  if (!bodyText) return undefined;
+  const scrubbed = scrubCredentials(bodyText).trim();
+  if (!scrubbed) return undefined;
+  try {
+    const parsed = JSON.parse(scrubbed) as { error?: { message?: unknown } | string };
+    const message = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message;
+    if (typeof message === 'string' && message.trim()) return message.trim().slice(0, 200);
+  } catch {
+    // 非 JSON 错误体（网关的 HTML 500 之类）——退回截断后的原文。
+  }
+  return scrubbed.slice(0, 200);
+}
+
+/**
+ * 组装一条可执行的失败信息：`HTTP 402 · 账户余额不足或套餐未开通——…`
+ * 未知状态码只报状态码本身，不臆测原因。
+ */
+export function describeLlmHttpFailure(
+  status: number,
+  bodyText?: string,
+  model?: string
+): string {
+  const hint = LLM_STATUS_HINT[status];
+  const head = `HTTP ${status}${model ? `（模型 ${model}）` : ''}`;
+  const detail = providerErrorMessage(bodyText);
+  if (!hint) return detail ? `${head} · ${detail}` : head;
+  return detail ? `${head} · ${hint} · 供应商原话：${detail}` : `${head} · ${hint}`;
+}
+
+/** 读错误响应体；正文不可读时降级为 undefined，绝不让诊断本身抛出。 */
+async function readErrorBody(response: Response): Promise<string | undefined> {
+  try {
+    return await response.text();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Resolve LLM configuration. Real process.env triggers `.env` loading so a
  * local `.env` file is honored; explicitly injected env objects (tests) are
  * used as-is and never read the filesystem.
@@ -348,7 +416,9 @@ export async function completeReAct(
   });
 
   if (!response.ok) {
-    throw new Error(`LLM request failed with HTTP ${response.status}`);
+    throw new Error(
+      describeLlmHttpFailure(response.status, await readErrorBody(response), config.model)
+    );
   }
 
   const { raw, firstTokenMs } = await readResponseBody(response);
@@ -464,7 +534,9 @@ export async function completeNativeChat(
     }
   }
   if (!response.ok) {
-    throw new Error(`LLM request failed with HTTP ${response.status}`);
+    throw new Error(
+      describeLlmHttpFailure(response.status, await readErrorBody(response), config.model)
+    );
   }
 
   const firstTokenMs = Date.now() - startedAt;

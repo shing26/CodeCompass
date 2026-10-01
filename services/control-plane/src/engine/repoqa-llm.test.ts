@@ -10,6 +10,8 @@ import {
   chatCompletionsEndpoint,
   completeReAct,
   DIAGRAM_LAYER_GUIDE,
+  describeLlmHttpFailure,
+  providerErrorMessage,
   LAYER_DIAGRAM_KINDS,
   sanitizeLayerInstruction,
   estimateTokenCount,
@@ -841,5 +843,49 @@ describe('Issue 23 — runReActAgent with nativeTools', () => {
     } finally {
       await new Promise<void>((resolve) => raw.close(() => resolve()));
     }
+  });
+});
+
+describe('v1.2.x — provider failure diagnosis (switching LLM vendors)', () => {
+  // 凭据一律运行时拼接：源码里不落任何形似真实 key 的字面量。
+  const FAKE_KEY = 'sk-' + 'a'.repeat(24);
+
+  it('names the actionable cause for every status we have a remedy for', () => {
+    expect(describeLlmHttpFailure(402)).toContain('余额不足');
+    expect(describeLlmHttpFailure(401)).toContain('REPOQA_LLM_API_KEY');
+    expect(describeLlmHttpFailure(404)).toContain('REPOQA_LLM_BASE');
+    expect(describeLlmHttpFailure(429)).toContain('限流');
+  });
+
+  it('keeps the active model in the message so a wrong model id is self-evident', () => {
+    const message = describeLlmHttpFailure(404, undefined, 'glm-4-plus');
+    expect(message).toContain('HTTP 404');
+    expect(message).toContain('模型 glm-4-plus');
+  });
+
+  it("quotes the provider's own sentence after the remedy", () => {
+    const message = describeLlmHttpFailure(402, '{"error":{"message":"Insufficient Balance"}}');
+    expect(message).toContain('供应商原话：Insufficient Balance');
+  });
+
+  it('scrubs credentials before the provider text can reach logs or the UI', () => {
+    const body = JSON.stringify({ error: { message: `invalid key ${FAKE_KEY}` } });
+    const message = describeLlmHttpFailure(401, body);
+    expect(message).not.toContain(FAKE_KEY);
+    expect(message).toContain('sk-***');
+  });
+
+  it('falls back to truncated raw text for a non-JSON gateway error', () => {
+    expect(providerErrorMessage('<html>502 Bad Gateway</html>')).toBe('<html>502 Bad Gateway</html>');
+    expect(providerErrorMessage(undefined)).toBeUndefined();
+    expect(providerErrorMessage('   ')).toBeUndefined();
+  });
+
+  it('never invents a cause for an unknown status', () => {
+    const message = describeLlmHttpFailure(599);
+    expect(message).toBe('HTTP 599');
+    expect(describeLlmHttpFailure(599, '{"error":{"message":"upstream exploded"}}')).toBe(
+      'HTTP 599 · upstream exploded'
+    );
   });
 });
