@@ -1013,14 +1013,23 @@ export class ChatMergeClient {
   async chatSend(
     sessionId: string,
     message: string,
-    handlers: ChatSendHandlers
+    handlers: ChatSendHandlers,
+    /**
+     * v1.2.x（R5-05）— 外部中断信号。`fetchWithTimeout` 自带首字节预算控制器，
+     * 但它不暴露句柄，调用方无法中止；R2 的 signal 合并逻辑（R2 P2-2）在这里
+     * 正好派上用场——外部 signal 与预算 signal 取并集，谁先到谁生效。
+     * 服务端 `analysis-stream.ts` 已有 `res.on('close')` 收口，客户端一断，
+     * 写入循环即退出（已在途的那一次 LLM 调用仍会跑完，属可接受代价）。
+     */
+    signal?: AbortSignal
   ): Promise<ChatTurnResult> {
     const res = await this.fetcher(
       `${this.baseUrl}/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message }),
+        ...(signal ? { signal } : {})
       }
     );
     if (!res.ok || !res.body) {

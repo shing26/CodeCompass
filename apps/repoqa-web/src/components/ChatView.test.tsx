@@ -40,7 +40,12 @@ function makeChatClient(overrides: Partial<RepoQAClient['chat']> = {}): RepoQACl
 
 function renderChat(
   chatClientOverrides: Partial<RepoQAClient['chat']> = {},
-  onSendImpl?: (message: string, handlers: { onDelta: (t: string) => void }) => Promise<ChatTurnResult>,
+  onSendImpl?: (
+    message: string,
+    handlers: { onDelta: (t: string) => void },
+    sessionId: string,
+    signal?: AbortSignal
+  ) => Promise<ChatTurnResult | null>,
   props: Partial<Parameters<typeof ChatView>[0]> = {}
 ) {
   const chatClient = makeChatClient(chatClientOverrides);
@@ -65,6 +70,61 @@ function renderChat(
   );
   return { chatClient, onNavigate };
 }
+
+describe('v1.2.x（Round5 R5-05）流式可感知 / 可中断', () => {
+  /** 一个永不自己结束的流：只有外部 abort 才收口——真实等待中的最坏形态。 */
+  function hangingSend() {
+    return (_m: string, handlers: { onDelta: (t: string) => void }, _sid: string, signal?: AbortSignal) =>
+      new Promise<ChatTurnResult>((_resolve, reject) => {
+        handlers.onDelta('开头几个字 ');
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+  }
+
+  it('busy 时把发送键换成停止键，并把 signal 交给调用方', async () => {
+    const user = userEvent.setup();
+    renderChat({}, hangingSend());
+    await user.click(await screen.findByTestId('chat-new-session'));
+    await user.type(screen.getByTestId('chat-question'), '慢慢想');
+    await user.click(screen.getByTestId('chat-send'));
+
+    const stop = await screen.findByTestId('chat-stop');
+    expect(stop).toBeInTheDocument();
+    // 修前 busy 时只有一个禁用态的「…」，没有出口
+    expect(screen.queryByTestId('chat-send')).not.toBeInTheDocument();
+  });
+
+  it('点停止 → abort 生效、部分内容保留、如实标注已停止且不弹错误', async () => {
+    const user = userEvent.setup();
+    renderChat({}, hangingSend());
+    await user.click(await screen.findByTestId('chat-new-session'));
+    await user.type(screen.getByTestId('chat-question'), '慢慢想');
+    await user.click(screen.getByTestId('chat-send'));
+    await screen.findByTestId('chat-stop');
+
+    await user.click(screen.getByTestId('chat-stop'));
+
+    await waitFor(() => expect(screen.getByText(/已停止/)).toBeInTheDocument());
+    // 已收到的部分内容不丢
+    expect(screen.getByText(/开头几个字/)).toBeInTheDocument();
+    // 用户主动停止不是错误
+    expect(screen.queryByTestId('chat-error')).not.toBeInTheDocument();
+    // 停止后发送键回来，可以再问
+    expect(await screen.findByTestId('chat-send')).toBeInTheDocument();
+  });
+
+  it('等待期如实显示已用时与首字延迟（R5-05：修前只有三个点）', async () => {
+    const user = userEvent.setup();
+    renderChat({}, hangingSend());
+    await user.click(await screen.findByTestId('chat-new-session'));
+    await user.type(screen.getByTestId('chat-question'), '慢慢想');
+    await user.click(screen.getByTestId('chat-send'));
+
+    const timing = await screen.findByTestId('chat-timing');
+    await waitFor(() => expect(timing).toHaveTextContent(/首字/));
+    expect(timing).toHaveTextContent(/已用/);
+  });
+});
 
 describe('ChatView (chat-merge Q4)', () => {
   it('renders persisted messages with clickable cite badges after opening a session', async () => {

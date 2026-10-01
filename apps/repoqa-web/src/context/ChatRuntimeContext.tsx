@@ -38,7 +38,9 @@ interface ChatRuntimeContextValue {
       onRegenerate?: () => void;
       onPlan?: (cards: ChatPlanCard[]) => void;
     },
-    sessionId: string
+    sessionId: string,
+    /** v1.2.x（R5-05）— 外部中断：ChatView 的「停止」经此直达 fetch。 */
+    signal?: AbortSignal
   ) => Promise<ChatTurnResult | null>;
   handleTrace: (api: TopApiEntry) => void;
   /** v1.2 票 08（R4-7）— 只给符号名的同一 call-chain 入口（概览层枢纽 /
@@ -186,14 +188,15 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
         onRegenerate?: () => void;
         onPlan?: (cards: ChatPlanCard[]) => void;
       },
-      sessionId: string
+      sessionId: string,
+      signal?: AbortSignal
     ) => {
       if (runtime.llm.mode === 'remote' && !llmConsented) {
         setConsentPending({ question: message, chatMessage: message });
         return Promise.resolve(null);
       }
       if (!currentRepo) return Promise.resolve(null);
-      return client.chat.chatSend(sessionId, message, handlers);
+      return client.chat.chatSend(sessionId, message, handlers, signal);
     },
     [runtime.llm.mode, llmConsented, currentRepo, client]
   );

@@ -241,7 +241,9 @@ export function ChatView(props: {
       onPlan?: (cards: ChatPlanCard[]) => void;
     },
     /** 真实会话 id（chat-s*）——调用方需要它来 POST /sessions/:id/messages */
-    sessionId: string
+    sessionId: string,
+    /** v1.2.x（R5-05）— 外部中断信号，供 composer 的「停止」使用。 */
+    signal?: AbortSignal
   ) => Promise<ChatTurnResult | null>;
   /** v0.26-A ticket 02 (Q3)：方案摘要卡 CTA 跳规范演进——App 组合层注入。 */
   onOpenEvolution?: () => void;
@@ -268,6 +270,37 @@ export function ChatView(props: {
   const [sideOpen, setSideOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+
+  /* v1.2.x（Round5 R5-05）— 「它到底在干嘛」与「我能不能叫停」。
+   *
+   * 修前：68s 的一轮回答里全页只有三个点，用户无法分辨「在跑」还是「坏了」，
+   * 也无法中断（textarea 保持可用但 Enter 被 busy 吞掉）。实测数据把病因说清了：
+   * NVIDIA nemotron-3-super 预热后首字 466–660ms（我先前报的 8s 是**冷启动**），
+   * 68s 主要来自 agent 多步循环 + 冷启动，不是模型慢——所以这里要做的是
+   * **如实显示耗时与首字延迟**并给出停止出口，而不是换模型。
+   *
+   * 首字延迟由前端自己测（发起到第一个 delta），不依赖服务端字段：这是用户
+   * 真正感知到的那个数，服务端自己测的 firstTokenMs 不含网络与排队。
+   */
+  const abortRef = useRef<AbortController | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [firstTokenMs, setFirstTokenMs] = useState<number | null>(null);
+  const [stopped, setStopped] = useState(false);
+  const startedAtRef = useRef(0);
+  const sawTokenRef = useRef(false);
+
+  useEffect(() => {
+    if (!busy) return;
+    const timer = window.setInterval(
+      () => setElapsedMs(Date.now() - startedAtRef.current),
+      200
+    );
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   // 自适应高度挂在 input 的 effect 上（review P1-1）：命令式 style 不会被
   // React 重渲染重置，放 onChange 会让「发送清空/consent 草稿恢复/程序化
@@ -369,6 +402,9 @@ export function ChatView(props: {
       const message = (raw ?? input).trim();
       if (!message || busy) return;
       let session = activeSession;
+      // 声明在 try 外：catch 里要用 controller.signal 判定「用户主动停止」
+      // 与「真的失败」——这是 R5-05 的核心分支，不能被块作用域挡住。
+      const controller = new AbortController();
       try {
         if (!session) {
           session = await chatClient.createSession(repoId);
@@ -377,6 +413,12 @@ export function ChatView(props: {
         }
         setError(null);
         setBusy(true);
+        setStopped(false);
+        setFirstTokenMs(null);
+        setElapsedMs(0);
+        startedAtRef.current = Date.now();
+        sawTokenRef.current = false;
+        abortRef.current = controller;
         setInput('');
         const streamKey = `a-${Date.now()}`;
         setEntries((prev) => [
@@ -385,13 +427,18 @@ export function ChatView(props: {
           { key: streamKey, role: 'assistant', content: '', streaming: true }
         ]);
         const done = await onSend(message, {
-          onDelta: (text) =>
-            setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: e.content + text } : e))),
+          onDelta: (text) => {
+            if (!sawTokenRef.current) {
+              sawTokenRef.current = true;
+              setFirstTokenMs(Date.now() - startedAtRef.current);
+            }
+            setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: e.content + text } : e)));
+          },
           onRegenerate: () =>
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: '', regenerating: true } : e))),
           onPlan: (cards: ChatPlanCard[]) =>
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, planCards: cards } : e)))
-        }, session.id);
+        }, session.id, controller.signal);
         if (!done) {
           // consent 待确认（chatGuardSend 未执行）——撤回本地占位，恢复草稿
           setEntries((prev) => prev.filter((e) => e.key !== streamKey && e.content !== message));
@@ -414,7 +461,14 @@ export function ChatView(props: {
           ),
         );
       } catch (e) {
-        setError(describeError(e));
+        // 用户主动停止不是错误：保留已收到的部分内容、如实标注「已停止」，
+        // 不弹错误条（R5-05）。判定用 controller.aborted 而非错误名——不同
+        // 运行时对 fetch 抛出的 AbortError 形态不一致（有的包成 TypeError）。
+        if (controller.signal.aborted) {
+          setStopped(true);
+        } else {
+          setError(describeError(e));
+        }
         // v1.2.x（R4-15）— 出错时撤掉零输出的流式占位：402 等「一个 token
         // 都没回来就失败」的路径下，finally 只停流态会留下一个空白
         // assistant 气泡悬浮在消息流里（Round4 实测多次出现）。
@@ -426,6 +480,7 @@ export function ChatView(props: {
       } finally {
         setEntries((prev) => prev.map((e) => ({ ...e, streaming: false, regenerating: false })));
         setBusy(false);
+        abortRef.current = null;
       }
     },
     [input, activeSession, busy, chatClient, repoId, refreshSessions, onSend]
@@ -620,15 +675,41 @@ export function ChatView(props: {
               disabled={busy}
               className="min-h-8 max-h-32 flex-1 resize-none rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent disabled:opacity-60"
             />
-            <button
-              className="chat-send shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
-              data-testid="chat-send"
-              onClick={() => void send()}
-              disabled={busy || !input.trim()}
-            >
-              {busy ? '…' : '发送'}
-            </button>
+            {busy ? (
+              /* R5-05：busy 时发送键换成停止键。此前整轮只有三个点、无出口——
+                 68s 的回答既看不出在跑还是坏了，也叫不停。 */
+              <button
+                type="button"
+                className="chat-stop shrink-0 rounded-lg border border-line bg-surface px-4 py-2 text-sm font-medium text-ink hover:border-danger/50 hover:text-danger"
+                data-testid="chat-stop"
+                onClick={stop}
+                title="停止本轮回答"
+              >
+                停止
+              </button>
+            ) : (
+              <button
+                className="chat-send shrink-0 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
+                data-testid="chat-send"
+                onClick={() => void send()}
+                disabled={!input.trim()}
+              >
+                发送
+              </button>
+            )}
           </div>
+          {/* 如实显示这轮花了多久、首字用了多久。首字之前是最难熬的窗口，
+              没有这块用户只能盯着三个点猜（R5-05）。 */}
+          {(busy || firstTokenMs !== null || stopped) && (
+            <div
+              data-testid="chat-timing"
+              className="mx-auto mt-1 flex w-full max-w-3xl items-center gap-2 text-micro text-muted"
+            >
+              {busy && <span>已用 {(elapsedMs / 1000).toFixed(1)}s</span>}
+              {firstTokenMs !== null && <span>首字 {(firstTokenMs / 1000).toFixed(1)}s</span>}
+              {stopped && <span className="text-warning">已停止——以上是中断前收到的部分内容</span>}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -463,6 +463,22 @@ async function main() {
       .then(() => true)
       .catch(() => false));
     await page.click('[data-testid="chat-send"]');
+    // v1.2.x（R5-05）流式可感知/可中断进 Release 门：修前整轮只有一个禁用的「…」，
+    // 用户既看不出在跑还是坏了也叫不停（Round5 走查：68s 一轮无任何出口）。
+    step('busy 时出现停止键（取代发送键）', await page
+      .waitForSelector('[data-testid="chat-stop"]', { state: 'visible', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false));
+    step('等待期显示已用时 / 首字延迟', await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('[data-testid="chat-timing"]');
+          return Boolean(el && /已用|首字/.test(el.textContent || ''));
+        },
+        { timeout: 10000 }
+      )
+      .then(() => true)
+      .catch(() => false));
     if (await page.locator('[data-testid="consent-modal"]').count()) {
       await page.click('[data-testid="consent-confirm"]');
       await page.click('[data-testid="chat-send"]'); // consent 后输入保留，用户再发
