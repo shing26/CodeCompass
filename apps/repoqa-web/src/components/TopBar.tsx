@@ -42,8 +42,11 @@ interface TopBarProps {
   onSwitchModel?: (name: string) => void;
   /** v1.2.x — 克隆瞬断重试（WS），透传给导入弹窗的克隆阶段提示。 */
   cloneRetry?: { attempt: number; backoffMs: number } | null;
-  /** v0.25.0 批次 1：原生目录选择器（可选，未传时按钮隐藏）。 */
-  onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
+  /** v0.25.0 批次 1：原生目录选择器（可选，未传时按钮隐藏）。
+   *  v1.2.x（Round5）：signal 由导入弹窗在超时预算到点时 abort，一路透传到 fetch。 */
+  onPickFolder?: (
+    signal?: AbortSignal
+  ) => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
   llmMode: LlmRuntimeMode;
   llmHost?: string;
   /** Issue 31: active workbench tab. */

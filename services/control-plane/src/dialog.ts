@@ -13,19 +13,41 @@ export interface FolderDialogResult {
   path?: string;
 }
 
+/**
+ * 拉起系统目录对话框并**真正置于前台**。
+ *
+ * 修前（Round5 实测「目录选择超时（对话框可能被遮挡）」）：owner 窗体 `$form` 从未
+ * `Show()`，却被当作 `ShowDialog($form)` 的 owner。Windows 对「不可见的 owner」
+ * 处理是已知不可靠的——对话框可能不激活、可能落在浏览器窗口后面，用户看不见，
+ * 15s 后前端判超时，而对话框其实还开着（请求也没被中止，随后选完路径不生效）。
+ *
+ * 修后照搬 WinForms 前台配方：启用视觉样式 → 造一个 1×1 的 owner 并真正 Show()
+ * （让它在任务栏有一席之地，模态框才不会被完全埋掉）→ Activate + DoEvents 强制
+ * 激活 → 结束后 Close 掉 owner。脚本仍是常量、无任何用户输入拼接。
+ */
 const PS_SCRIPT = [
   'Add-Type -AssemblyName System.Windows.Forms | Out-Null',
+  'Add-Type -AssemblyName System.Drawing | Out-Null',
+  '[System.Windows.Forms.Application]::EnableVisualStyles()',
   '$form = New-Object System.Windows.Forms.Form',
   '$form.TopMost = $true',
-  '$form.ShowInTaskbar = $false',
-  "$form.Text = '选择仓库根目录'",
+  '$form.ShowInTaskbar = $true',
+  '$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedToolWindow',
+  "$form.Text = 'CodeCompass — 选择仓库根目录'",
+  '$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual',
+  '$form.Location = New-Object System.Drawing.Point(0, 0)',
+  '$form.Size = New-Object System.Drawing.Size(160, 40)',
+  '$form.Show()',
+  '$form.Activate()',
+  '[System.Windows.Forms.Application]::DoEvents()',
   '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
   "$dialog.Description = '选择要导入的仓库根目录'",
   '$dialog.ShowNewFolderButton = $false',
   '$result = $dialog.ShowDialog($form)',
   'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
   '  Write-Output $dialog.SelectedPath',
-  '}'
+  '}',
+  '$form.Close()'
 ].join('; ');
 
 const TIMEOUT_MS = 60_000;

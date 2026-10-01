@@ -205,11 +205,14 @@ export class RepoQAClient {
   /** v0.25.0 批次 1（#08 域迁移）：原生目录选择器——Windows 拉起系统对话框回传
    * 绝对路径；非 Windows 返回 supported:false，前端降级手输。方法归仓库导入域（与
    * previewRepo/cloneRepo 同层），契约与端点 GET /api/dialog/folder 不变。 */
-  async pickFolder(): Promise<{ supported: boolean; canceled?: boolean; path?: string }> {
+  async pickFolder(signal?: AbortSignal): Promise<{ supported: boolean; canceled?: boolean; path?: string }> {
     // R2 review P1-1: human-paced native dialog — headers only come after the
     // user clicks. Server budgets 60s (dialog.ts); the client must be longer.
+    // v1.2.x（Round5）：signal 由调用方（导入弹窗）在超时预算到点时 abort——
+    // 否则对话框还开着、界面却已判超时，用户随后选完路径也不会生效（R5 实测）。
     const res = await this.fetcher(`${this.baseUrl}/api/dialog/folder`, {
-      timeoutMs: DIALOG_FETCH_TIMEOUT_MS
+      timeoutMs: DIALOG_FETCH_TIMEOUT_MS,
+      ...(signal ? { signal } : {})
     });
     return (await res.json()) as { supported: boolean; canceled?: boolean; path?: string };
   }

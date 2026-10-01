@@ -165,7 +165,7 @@ function WorkbenchShell() {
         modelInfo={modelInfo}
         onSwitchModel={(name) => void switchModel(name)}
         cloneRetry={cloneRetry}
-        onPickFolder={() => client.pickFolder()}
+        onPickFolder={(signal) => client.pickFolder(signal)}
         llmMode={runtime.llm.mode}
         llmHost={runtime.llm.host}
         // v1.2 票 01 — 未选库时其它视图仍被 topo 引导兜底（深链 inert 教义），

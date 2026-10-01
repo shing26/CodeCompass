@@ -22,7 +22,9 @@ interface ImportRepoModalProps {
   importingRepo?: Repo | null;
   /** v0.25.0 批次 1：原生目录选择器（Node 侧拉起系统对话框回传绝对路径）。
    * 未提供时（旧测试/降级）隐藏按钮。 */
-  onPickFolder?: () => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
+  onPickFolder?: (
+    signal?: AbortSignal
+  ) => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
   /** v1.2 票 03 — 最近一次克隆瞬断重试（WS `repoqa.import.clone-retry`），
    * 克隆阶段显示「网络瞬断，重试中」。null/undefined = 无。 */
   cloneRetry?: { attempt: number; backoffMs: number } | null;
@@ -33,13 +35,22 @@ type RemotePhase = 'idle' | 'cloning' | 'indexing';
 type LocalPhase = 'idle' | 'indexing';
 
 /**
+ * v1.2.x（Round5 实测修）— 目录选择的前端等待预算：15s → 60s。
+ *
+ * 15s 是「防请求挂起」的预算，但人要看清窗口、定位到目标盘、再翻两层目录，
+ * 15s 远远不够；超时降级的初衷是防挂起，不是防人慢。60s 与服务端 dialog.ts 的
+ * 子进程预算同量级，两端一致才不会出现「前端已判超时、服务端还在等」的错位。
+ */
+const DIALOG_PICK_TIMEOUT_MS = 60_000;
+
+/**
  * Issue 19: repository ingestion hub — local path import and GitHub remote
  * clone, side by side. The local tab takes a manual absolute path plus a
  * native folder picker (v0.25.0 批次 1: GET /api/dialog/folder raises the OS
  * dialog so the real absolute path lands in the form — browsers cannot read
- * one; hidden on non-Windows hosts, 15s 超时降级手输); the remote tab clones
- * through POST /api/repos/clone with a cloning → indexing two-phase loading
- * and auto-closes when the repo is indexed.
+ * one; hidden on non-Windows hosts, 60s 超时降级手输并**真正中止**请求); the
+ * remote tab clones through POST /api/repos/clone with a cloning → indexing
+ * two-phase loading and auto-closes when the repo is indexed.
  */
 export function ImportRepoModal({
   open,
@@ -335,19 +346,31 @@ export function ImportRepoModal({
                 data-testid="import-browse"
                 onClick={() => {
                   setFolderHint('正在打开系统目录选择对话框…');
-                  // 暗礁防御（spec 批次 1）：弹窗可能被遮挡导致请求长期挂起，
-                  // 前端 15s 超时自动降级手输；后端子进程自身还有更长超时兜底。
+                  // Round5 实测修：预算 15s → 60s（与服务端 dialog.ts 的 60s
+                  // 子进程预算同量级）。15s 对「看见窗口、定位、翻目录」不够用，
+                  // 而超时降级的初衷是防挂起，不是防人慢。
+                  // 另一处同批修：超时后**真的中止**请求。修前 Promise.race 只是
+                  // 忽略结果，对话框还开着，用户随后选完路径也不会生效——比超时报错
+                  // 本身更迷惑（界面早说超时、窗口还在、人也选完了）。
                   const timedOut = new Promise<'timeout'>((resolve) =>
-                    setTimeout(() => resolve('timeout'), 15_000)
+                    setTimeout(() => resolve('timeout'), DIALOG_PICK_TIMEOUT_MS)
                   );
-                  void Promise.race([onPickFolder(), timedOut])
+                  const controller = new AbortController();
+                  const onTimeout = setTimeout(() => controller.abort(), DIALOG_PICK_TIMEOUT_MS);
+                  void Promise.race([onPickFolder(controller.signal), timedOut])
                     .then((result) => {
                       if (result === 'timeout') {
-                        setFolderHint('目录选择超时（对话框可能被遮挡），请手动填写完整路径。');
+                        setFolderHint(
+                          '目录选择超时（对话框可能在别的窗口后面，或没成功弹出）。' +
+                            '可以点「浏览文件夹…」重试，或直接把完整路径粘进下面的输入框——' +
+                            '正斜杠反斜杠都认。'
+                        );
                         return;
                       }
                       if (!result.supported) {
-                        setFolderHint('当前平台不支持系统目录选择，请手动填写完整路径。');
+                        setFolderHint(
+                          '当前平台不支持系统目录选择（PowerShell 不可用）。请把完整路径粘进下面的输入框。'
+                        );
                         return;
                       }
                       if (result.canceled || !result.path) {
@@ -360,7 +383,14 @@ export function ImportRepoModal({
                       setFolderHint(null);
                       runPreview(picked);
                     })
-                    .catch((err) => setFolderHint(`目录选择失败：${err instanceof Error ? err.message : String(err)}`));
+                    .catch((err) => {
+                      // 超时触发的 abort 不是错误——此时界面已显示降级指引；
+                      // 其余失败才落错误文案（describeError 把「Failed to fetch」
+                      // 之类的传输层失败翻成「服务没在跑」，见 client/errorCodes.ts）。
+                      if (controller.signal.aborted) return;
+                      setFolderHint(`目录选择失败：${describeError(err)}`);
+                    })
+                    .finally(() => clearTimeout(onTimeout));
                 }}
                 className="mb-2 rounded-md border border-line bg-surface px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-accent"
               >
