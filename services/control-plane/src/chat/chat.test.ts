@@ -166,7 +166,7 @@ describe('chat SSE streaming', () => {
     expect(deltas.join('')).toBe('Hello world');
   });
 
-  it('surfaces provider errors with status', async () => {
+  it('surfaces provider errors as an actionable, scrubbed diagnosis', async () => {
     const llm = new LlmManager('Z:/definitely-missing.json', {
       COPILOT_LLM_BASE: 'https://api.x.com/v1',
       COPILOT_LLM_MODEL: 'm1',
@@ -174,7 +174,15 @@ describe('chat SSE streaming', () => {
     });
     llm.load();
     const fetchImpl = (async () => new Response('{"error":"quota"}', { status: 402 })) as unknown as typeof fetch;
-    await expect(llm.chat([{ role: 'user', content: 'hi' }], {}, fetchImpl)).rejects.toThrow(/LLM 402/);
+    // v1.2.x：不再是裸状态码——带处置提示、当前模型与供应商原话。
+    const failure = await llm
+      .chat([{ role: 'user', content: 'hi' }], {}, fetchImpl)
+      .then(() => null)
+      .catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
+    expect(failure).toContain('HTTP 402');
+    expect(failure).toContain('余额不足');
+    expect(failure).toContain('模型 m1');
+    expect(failure).toContain('quota');
   });
 });
 

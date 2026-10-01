@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { readDotEnvFile, dotEnvFilePath } from '../engine/repoqa-llm.js';
+import { readDotEnvFile, dotEnvFilePath, describeLlmHttpFailure } from '../engine/repoqa-llm.js';
 
 export interface LlmProfile {
   name: string;
@@ -151,8 +151,15 @@ export class LlmManager {
       signal: opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
     });
     if (!response.ok) {
-      const detail = (await response.text()).slice(0, 300);
-      throw new Error(`LLM ${response.status}: ${detail}`);
+      // v1.2.x — 与引擎两处抛点同款诊断（可执行提示 + 供应商原话 + 脱敏）。
+      // 修前是 `LLM ${status}: ${detail}`：裸状态码 + 未脱敏的响应体前 300 字符。
+      let body: string | undefined;
+      try {
+        body = await response.text();
+      } catch {
+        body = undefined;
+      }
+      throw new Error(describeLlmHttpFailure(response.status, body, resolved.model));
     }
     return parseSseStream(response, opts.onDelta);
   }
