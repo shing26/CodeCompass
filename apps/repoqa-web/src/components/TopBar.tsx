@@ -16,6 +16,8 @@ interface TopBarProps {
   currentRepo: Repo | null;
   loading: boolean;
   error: string | null;
+  /** v1.2.x（R4-4）— 错误条可消（× 钮 + 8s 自动消退）。 */
+  onDismissError?: () => void;
   onSelectRepo: (id: string) => void;
   /** Issue 19: local ingestion — name + local path (double-tab import dialog). */
   onImportLocal: (name: string, localPath: string) => Promise<Repo | void>;
@@ -96,6 +98,7 @@ export function TopBar({
   currentRepo,
   loading,
   error,
+  onDismissError,
   onSelectRepo,
   onImportLocal,
   onPreviewLocal,
@@ -156,6 +159,14 @@ export function TopBar({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [modelMenuOpen]);
+
+  // v1.2.x（R4-4）— 错误条 8s 自动消退：修前它永久钉在页头（Esc 关弹窗后、
+  // 切主题都在，无关闭钮）；手动 × 与自动消退并存。
+  useEffect(() => {
+    if (!error || !onDismissError) return;
+    const timer = window.setTimeout(onDismissError, 8000);
+    return () => window.clearTimeout(timer);
+  }, [error, onDismissError]);
 
   const handleExport = async () => {
     if (!currentRepo || exporting) return;
@@ -319,7 +330,28 @@ export function TopBar({
             )}
           </div>
         )}
-        {error && <span className="hidden text-xs text-danger xl:inline">{error}</span>}
+        {error && (
+          <span
+            data-testid="topbar-error"
+            role="alert"
+            className="flex min-w-0 items-center gap-1 text-xs text-danger"
+          >
+            <span className="min-w-0 truncate" title={error}>
+              {error}
+            </span>
+            {onDismissError && (
+              <button
+                type="button"
+                data-testid="topbar-error-dismiss"
+                aria-label="关闭错误提示"
+                onClick={onDismissError}
+                className="shrink-0 rounded px-1 text-xs text-danger hover:bg-danger/10"
+              >
+                ×
+              </button>
+            )}
+          </span>
+        )}
         {exportError && (
           <span className="hidden text-xs text-danger xl:inline">{exportError}</span>
         )}

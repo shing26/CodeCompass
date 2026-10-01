@@ -270,6 +270,23 @@ describe('TopBar workbench header (Issue 31)', () => {
     expect(screen.getByTestId('topbar-model-menu')).toHaveTextContent('无可用模型配置');
   });
 
+  it('v1.2.x R4-4: the header error bar is dismissible (× button calls back)', async () => {
+    const user = userEvent.setup();
+    const onDismissError = vi.fn();
+    render(
+      <TopBar
+        {...baseProps({
+          currentRepo: readyRepo,
+          error: '导入失败：路径不可读',
+          onDismissError
+        })}
+      />
+    );
+    expect(screen.getByTestId('topbar-error')).toHaveTextContent('导入失败：路径不可读');
+    await user.click(screen.getByTestId('topbar-error-dismiss'));
+    expect(onDismissError).toHaveBeenCalledTimes(1);
+  });
+
   it('renders the staged indexing progress stepper (v0.6.0)', () => {
     render(
       <TopBar

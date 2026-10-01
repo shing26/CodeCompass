@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Repo, RepoPreview } from '../types';
+import { describeError } from '../client/errorCodes';
 
 interface ImportRepoModalProps {
   /** Issue 19: standalone import dialog (was inline in TopBar). */
@@ -120,7 +121,8 @@ export function ImportRepoModal({
         setPreview(result);
       } catch (error) {
         if (seq !== previewSeq.current) return;
-        setPreviewError(error instanceof Error ? error.message : String(error));
+        // v1.2.x（R4-4）：英文方法名错误经 describeError 翻成人话。
+        setPreviewError(describeError(error));
       } finally {
         if (seq === previewSeq.current) setPreviewLoading(false);
       }
@@ -196,7 +198,8 @@ export function ImportRepoModal({
         setLocalPhase('indexing');
       }
     } catch (err) {
-      setLocalError(err instanceof Error ? err.message : String(err));
+      // v1.2.x（R4-4）：英文方法名错误经 describeError 翻成人话。
+      setLocalError(describeError(err));
     } finally {
       setLocalBusy(false);
     }

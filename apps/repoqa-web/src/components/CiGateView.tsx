@@ -458,7 +458,12 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                     <li
                       key={run.id}
                       data-testid="gate-run-row"
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs"
+                      // v1.2.x（R4-8）— 整行可点展开：修前只有行内「展开影响树」
+                      // 小按钮可点，行本身是死区——「可逐行回看影响树」的承诺在
+                      // 用户的直觉入口（点行）上落空。行内按钮 stopPropagation 避免
+                      // 双切换。
+                      onClick={() => toggleExpand(run.id)}
+                      className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs hover:bg-subtle"
                     >
                       <Badge
                         data-testid="gate-run-status"
@@ -491,7 +496,10 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                           type="button"
                           data-testid="gate-tree-toggle"
                           aria-expanded={expanded}
-                          onClick={() => toggleExpand(run.id)}
+                          onClick={(e) => {
+                            e.stopPropagation(); // 行本身也可点（v1.2.x R4-8）——避免双切换
+                            toggleExpand(run.id);
+                          }}
                           className="shrink-0 rounded-md border border-line bg-subtle px-2 py-0.5 text-xs text-muted hover:border-accent hover:text-accent"
                         >
                           {expanded ? '收起影响树' : '展开影响树'}

@@ -391,6 +391,12 @@ describe('runScan', () => {
     const top = chains.items[0];
     expect(top.kind).toBe('route');
     expect(top.detail).toMatch(/chain depth \d+: .+ → .+/);
+    // v1.2.x（R4-12）：桶内每条必须是真正的多跳链（depth≥2）——「深调用链」桶
+    // 曾收录 depth 1 的单跳入口（Round4 实测 49 条全为 depth 1）。
+    for (const item of chains.items) {
+      const depth = Number(/chain depth (\d+):/.exec(item.detail)?.[1] ?? 0);
+      expect(depth).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it('keeps a route declared in a test file out of deepChains (M2)', () => {

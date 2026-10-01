@@ -528,4 +528,16 @@ describe('CiGateView (v0.26-B ticket 02 — 三段化：运行并记录 + 门禁
     expect(screen.getAllByTestId('gate-impact-tree')).toHaveLength(1);
     expect(screen.getAllByTestId('gate-impact-branch')).toHaveLength(2);
   });
+
+  it('v1.2.x R4-8: clicking the row itself toggles the impact tree (row is not a dead zone)', async () => {
+    const user = userEvent.setup();
+    const runs = [payloadRun({ id: 'row-click' })];
+    render(
+      <CiGateView repo={repo} dashboard={dashboard} client={{ runGate: vi.fn(), listGateRuns: vi.fn(async () => ({ runs, total: 1 })) }} />
+    );
+    const row = await screen.findByTestId('gate-run-row');
+    expect(screen.queryByTestId('gate-impact-tree')).not.toBeInTheDocument();
+    await user.click(row);
+    expect(screen.getAllByTestId('gate-impact-tree')).toHaveLength(1);
+  });
 });

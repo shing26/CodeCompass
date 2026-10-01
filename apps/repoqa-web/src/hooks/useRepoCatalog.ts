@@ -11,6 +11,8 @@ export interface UseRepoCatalogResult {
   currentRepo: Repo | null;
   loading: boolean;
   error: string | null;
+  /** v1.2.x（R4-4）— 清错误（页头错误条可消）。 */
+  clearError: () => void;
   selectRepo: (id: string) => void;
   /** Resolves with the created repo (status may be `error` with
    * `suggestedSubdirs` after an over-limit reject — v0.5.1 D1 contract). */
@@ -114,5 +116,9 @@ export function useRepoCatalog(
 
   const currentRepo = repos.find((r) => r.id === currentId) ?? null;
 
-  return { repos, currentRepo, loading, error, selectRepo, importRepo, refresh };
+  // v1.2.x（R4-4）— 错误条可消：catalog 的 error 曾永久钉在页头（无关闭钮、
+  // 切主题也在），暴露 clearError 供 UI 调用。
+  const clearError = useCallback(() => setError(null), []);
+
+  return { repos, currentRepo, loading, error, clearError, selectRepo, importRepo, refresh };
 }

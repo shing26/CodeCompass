@@ -25,4 +25,13 @@ describe('PrivacyConsentModal (Sprint 1)', () => {
     await user.click(screen.getByTestId('consent-cancel'));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it('v1.2.x R4-10: Escape cancels (keyboard users are not trapped)', async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(<PrivacyConsentModal host="api.***.com" onConfirm={vi.fn()} onCancel={onCancel} />);
+
+    await user.keyboard('{Escape}');
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
 });

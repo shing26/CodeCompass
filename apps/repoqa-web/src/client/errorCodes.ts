@@ -69,6 +69,28 @@ export const ERROR_COPY: Record<ErrorCode, string> = {
     '回答中途出错（引擎或模型侧），可重新提问；若怀疑模型配置（如额度、网络），用顶栏模型胶囊热切换或到「模型设置」检查后重试'
 };
 
+/**
+ * v1.2.x（Round4 R4-4）— 客户端方法抛错的英文前缀 → 人话。
+ * client 各方法统一以 `${name} failed: ${status}` 形式 throw，用户不该看到
+ * 英文方法名。映射不全时原样透传（安全降级）。
+ */
+const CLIENT_ERROR_PREFIX: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^importRepo failed/, '导入失败'],
+  [/^previewRepo failed/, '预检失败（路径不可读或不是仓库目录？）'],
+  [/^reindexRepo failed/, '重新索引失败'],
+  [/^searchChunks failed/, '检索失败'],
+  [/^getScan failed/, '体检扫描失败'],
+  [/^getDashboard failed/, '仪表盘加载失败'],
+  [/^getTours failed/, '导览加载失败'],
+  [/^listSymbols failed/, '符号加载失败'],
+  [/^switchModel failed/, '模型切换失败'],
+  [/^modelInfo failed/, '模型信息读取失败'],
+  [/^deleteRepo failed/, '删除索引失败'],
+  [/^cloneRepo failed/, '克隆失败'],
+  [/^findRepoByLocalPath failed/, '查找仓库失败'],
+  [/^getFileRaw failed/, '源码读取失败']
+];
+
 /** 把任意 error（Error/字符串/后端 ApiError/超时）翻成用户可执行的文案。 */
 export function describeError(err: unknown): string {
   const e = err as { code?: unknown; message?: unknown } | null | undefined;
@@ -77,5 +99,13 @@ export function describeError(err: unknown): string {
     err instanceof Error ? err.message : typeof e?.message === 'string' ? e.message : String(err);
   // 服务端可能返回任意 string（守卫测试保证它 ∈ 契约）；查 copy 前收窄。
   const hint = code ? ERROR_COPY[code as ErrorCode] : undefined;
-  return hint ? `${hint}（原始错误：${message}）` : message;
+  if (hint) return `${hint}（原始错误：${message}）`;
+  for (const [pattern, human] of CLIENT_ERROR_PREFIX) {
+    if (pattern.test(message)) {
+      // 剥掉英文前缀后接中文；细节（如 404/path）保留在后半段。
+      const rest = message.replace(pattern, '').replace(/^:\s*/, '');
+      return rest ? `${human}：${rest}` : human;
+    }
+  }
+  return message;
 }

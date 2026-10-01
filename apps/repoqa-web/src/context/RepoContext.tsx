@@ -53,6 +53,8 @@ interface RepoContextValue {
   repoId: string | null;
   loading: boolean;
   error: string | null;
+  /** v1.2.x（R4-4）— 错误条可消。 */
+  clearError: () => void;
   selectRepo: (id: string) => void;
   refresh: ReturnType<typeof useRepoCatalog>['refresh'];
   symbols: ReturnType<typeof useSymbols>['symbols'];
@@ -117,7 +119,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       return { focus: null, mode: null, traceId: null };
     }
   }, []);
-  const { repos, currentRepo, loading, error, selectRepo, importRepo, refresh } = useRepoCatalog(
+  const { repos, currentRepo, loading, error, clearError, selectRepo, importRepo, refresh } = useRepoCatalog(
     client,
     initialRepoId
   );
@@ -442,6 +444,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     repoId,
     loading,
     error,
+    clearError,
     selectRepo,
     refresh,
     symbols,

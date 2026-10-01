@@ -409,8 +409,12 @@ export function runScan(input: ScanInput): ScanResult {
      `pickTopApis` itself is untouched: the cockpit's top-APIs panel is a
      different surface with its own semantics. */
   const DEEP_CHAIN_MAX_DEPTH = 6;
+  // v1.2.x（R4-12，票 04① 的引擎侧同域收尾）— 「深调用链」桶只收 depth≥2 的
+  // 多跳链：修前 depth 1 的单跳入口（如 AnswerBody → useState）也进桶，桶名与
+  // 内容自相矛盾、消耗维护者信任（Round4 实测 49 条全为 depth 1）。USE 挂载点
+  // 已由 apiEntryCandidates 降噪（票 04①），此处补深度下限。
   const deepChainEntries = pickTopApis(symbols, DEEP_CHAIN_MAX_DEPTH, 100).filter(
-    (entry) => !isTestPath(entry.filePath)
+    (entry) => entry.depth >= 2 && !isTestPath(entry.filePath)
   );
   const deepChains = deepChainEntries.slice(0, SCAN_TOP_LIMIT);
   const deepChainTotal = deepChainEntries.length;

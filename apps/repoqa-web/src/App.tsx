@@ -59,6 +59,7 @@ function WorkbenchShell() {
     repoId,
     loading,
     error,
+    clearError,
     symbols,
     symbolsLoading,
     tours,
@@ -147,6 +148,7 @@ function WorkbenchShell() {
         currentRepo={currentRepo}
         loading={loading}
         error={error}
+        onDismissError={clearError}
         onSelectRepo={handleSelectRepo}
         onImportLocal={handleImportLocal}
         onPreviewLocal={(path) => client.previewRepo(path)}
@@ -212,7 +214,17 @@ function WorkbenchShell() {
           onRetryTours={refreshTours}
           onPlayTour={handlePlayTour}
           open={sidebarOpen}
-          onNavigate={inspector.openFile}
+          onNavigate={(file, line, lineEnd, symbolName) => {
+            // v1.2.x（R4-6）— 侧栏点符号时若在拓扑视图：走 handlePaletteSelect
+            // 统一入口（打开 Inspector + 请求画布聚焦），否则右面板已开而主画布
+            // 焦点仍停在旧符号——两个区域指向不同对象。非 topo/无符号名时维持
+            // 原 openFile 行为（Inspector 独立可用）。
+            if (view === 'topo' && symbolName) {
+              handlePaletteSelect(symbolName, file, line ?? 1);
+            } else {
+              inspector.openFile(file, line, lineEnd, symbolName);
+            }
+          }}
           onOpenEvolution={goEvolution}
         />
         <div className="flex min-w-0 flex-1 flex-col">

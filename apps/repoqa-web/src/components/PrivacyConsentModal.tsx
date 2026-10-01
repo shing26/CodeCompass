@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 interface PrivacyConsentModalProps {
   host?: string;
   onConfirm: () => void;
@@ -5,6 +7,16 @@ interface PrivacyConsentModalProps {
 }
 
 export function PrivacyConsentModal({ host, onConfirm, onCancel }: PrivacyConsentModalProps) {
+  // v1.2.x（R4-10）— Esc 可关：此前只有遮罩点击/取消按钮，纯键盘用户被卡死
+  // （导入弹窗 Esc 可关，两处行为不一致）。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onCancel]);
+
   return (
     <div
       data-testid="consent-modal"
