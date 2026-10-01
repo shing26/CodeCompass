@@ -23,6 +23,8 @@ export const STATUS_LABEL: Readonly<Record<string, string>> = {
   CONTROLLER: '控制器',
   SERVICE: '服务',
   ENTITY: '实体',
+  // v1.2 票 08（R4-7）— 雷达枢纽 role 的第三个规范值，此前原样透传英文。
+  DATA_MAPPER: '数据映射',
   return_wrapping: '返回值包装',
   interface_impl_style: '接口实现风格',
   base_class: '基类约定',

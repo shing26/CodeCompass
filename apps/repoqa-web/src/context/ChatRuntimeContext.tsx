@@ -41,6 +41,11 @@ interface ChatRuntimeContextValue {
     sessionId: string
   ) => Promise<ChatTurnResult | null>;
   handleTrace: (api: TopApiEntry) => void;
+  /** v1.2 票 08（R4-7）— 只给符号名的同一 call-chain 入口（概览层枢纽 /
+   * ChatView 证据角标共用，避免同一段提交逻辑在两处各写一遍）。 */
+  traceSymbol: (symbol: string) => void;
+  /** 当前画布链路由谁发起——画布据此标注来源，消除「来历不明」。 */
+  traceOrigin: string;
   /** v1.2.x — 全局模型热切换（自 ChatView.ModelSelect 提升为共享状态）：
    * TopBar 与 ChatView 消费同一份 modelInfo，切档即全站生效。 */
   modelInfo: { profiles: string[]; active: string; configured: boolean } | null;
@@ -66,6 +71,9 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const evolutionSession = useEvolutionSession(client, currentRepo);
   const [runtime, setRuntime] = useState<RuntimeInfo>({ llm: { mode: 'none' } });
   const [llmConsented, setLlmConsented] = useState(false);
+  // v1.2 票 08（R4-7）— 画布链路来源。默认 'chat'：用户自己发的问是唯一无歧义的
+  // 起点；自动示例链路与概览/仪表盘入口会覆盖它。
+  const [traceOrigin, setTraceOrigin] = useState('chat');
   // v1.2.x（R4-19）
   const [draftReady, setDraftReady] = useState(false);
   const clearDraftReady = useCallback(() => setDraftReady(false), []);
@@ -107,6 +115,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
 
   const handleTrace = (api: TopApiEntry) => {
     setView('topo');
+    setTraceOrigin('dashboard-entry');
     // Pass the clicked entry as structured input and force the deterministic
     // call-chain mode so the trace starts from THIS exact symbol (name + file),
     // never from a same-name sibling in another file (e.g. a test helper).
@@ -116,9 +125,23 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // v1.2 票 08（R4-7）— 枢纽符号只有名字（radar 的 hubNodes 不带 filePath），
+  // 走同一条确定性 call-chain；发起方记为 'overview-hub'，画布照实标注。
+  const traceSymbol = (symbol: string) => {
+    setView('topo');
+    setTraceOrigin('overview-hub');
+    handleSubmit(`${symbol} 的完整调用链是怎样的？`, 'call-chain', {
+      name: symbol,
+      file: ''
+    });
+  };
+
   // 改造 2 (zero-click value): 拓扑首屏自动渲染首条 Top API 的调用链——
   // 每个仓库只自动触发一次（autoTracedRepoRef 守卫）。确定性 call-chain
   // 由 worker 绕过 LLM，无需 consent 门（submit 直调而非 handleSubmit）。
+  // v1.2 票 08（R4-7）：这条链路是**用户没要求的**样本，此前独占首屏且无任何
+  // 来源标注（走查记为「来历不明」）。保留零点击价值，但把发起方记为
+  // 'auto-topapi'，画布在链路区上方照实标出「自动示例」。
   const autoTracedRepoRef = useRef<string | null>(null);
   useEffect(() => {
     if (!repoId || view !== 'topo' || dashboardLoading || !dashboard) return;
@@ -126,6 +149,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     const first = dashboard.topApis?.[0];
     if (first) {
       autoTracedRepoRef.current = repoId;
+      setTraceOrigin('auto-topapi');
       submit(`${first.name} 的完整调用链是怎样的？`, 'call-chain', {
         name: first.name,
         file: first.filePath
@@ -219,6 +243,8 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     handleSubmit,
     chatGuardSend,
     handleTrace,
+    traceSymbol,
+    traceOrigin,
     modelInfo,
     refreshModelInfo,
     switchModel

@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
 import { RepoQAClient } from './client/RepoQAClient';
-import type { Repo, RepoDashboard, RepoSymbol, RepoTour } from './types';
+import type { DomainRadarResult, Repo, RepoDashboard, RepoSymbol, RepoTour } from './types';
 
 // The Inspector's monaco wiring imports the ESM-only monaco-editor package,
 // which vite-node cannot resolve; tests never create a real editor.
@@ -60,6 +60,18 @@ const roundDashboard: RepoDashboard = {
       hops: ['listOrders', 'findOrders', 'findAll']
     }
   ]
+};
+
+const roundRadar: DomainRadarResult = {
+  schemaVersion: 1,
+  repoId: 'repo-1',
+  matchedAnchors: [],
+  hubNodes: [
+    { symbol: 'OrderService', inDegree: 12, outDegree: 5, pagerank: 0.21, role: 'SERVICE' },
+    { symbol: 'OrderController', inDegree: 2, outDegree: 9, pagerank: 0.14, role: 'CONTROLLER' }
+  ],
+  topApis: [],
+  persistenceEntities: ['Order', 'Owner']
 };
 
 const roundTours: RepoTour[] = [
@@ -136,6 +148,8 @@ function makeClient(overrides: Partial<RepoQAClient> = {}): RepoQAClient {
     getFileRaw: vi.fn(),
     queryRepo: vi.fn().mockReturnValue(noopStream),
     getDashboard: vi.fn().mockResolvedValue(roundDashboard),
+    // v1.2 票 08（R4-7）— 拓扑概览层的枢纽数据（空 query 即全仓枢纽）。
+    radar: vi.fn().mockResolvedValue(roundRadar),
     // v1.2 票 02 — 体检面数据面（scan-health 视图在选库/深链后即取数）。
     getScan: vi.fn().mockResolvedValue(null),
     getPrecisionSummary: vi.fn().mockResolvedValue({ available: false, reason: '测试环境' }),

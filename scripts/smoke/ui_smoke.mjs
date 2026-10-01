@@ -289,6 +289,32 @@ async function main() {
     step('侧栏路由项 ≥1', await page.waitForSelector('[data-testid="route-item"]', { timeout: 15000 }).then(() => true).catch(() => false));
     step('AskDock 常驻', await page.waitForSelector('[data-testid="ask-dock"]', { state: 'visible', timeout: 10000 }).then(() => true).catch(() => false));
 
+    // v1.2 票 08（R4-7）— 拓扑概览层进 Release 门：Round4 记「新手点进代码拓扑
+    // 只看到一条来历不明的示例链路」，该症状只能靠真浏览器首屏断言拦住。
+    console.log('--- 1a. 拓扑概览层（v1.2 票 08 / R4-7） ---');
+    step(
+      '概览层渲染（结构规模网格可见）',
+      await page
+        .waitForSelector('[data-testid="repo-overview"] [data-testid="scale-files"]', { state: 'visible', timeout: 30000 })
+        .then(() => true)
+        .catch(() => false)
+    );
+    step(
+      '枢纽符号列表渲染（radar 空 query 全仓枢纽）',
+      await page
+        .waitForSelector('[data-testid="repo-overview"] [data-testid="hub-entry"]', { timeout: 30000 })
+        .then(() => true)
+        .catch(() => false)
+    );
+    // 自动示例链路必须自报家门（这是「来历不明」的修法本身）。
+    step(
+      '自动示例链路带来源标注',
+      await page
+        .waitForSelector('[data-testid="trace-origin"]', { timeout: 30000 })
+        .then(() => true)
+        .catch(() => false)
+    );
+
     console.log('--- 1b. 体检面（v1.2 票 02：scan REST + 五桶） ---');
     await page.goto(`${base}/?repo=${repoId}&mode=scan`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     step(

@@ -1,5 +1,8 @@
 import type { RepoDashboard, ConfigTopologyItem, TopApiEntry } from '../types';
 import { Badge } from './ui/Badge';
+import { ScaleBlock } from './overview/ScaleBlock';
+import { TopApiBlock } from './overview/TopApiBlock';
+import { HighlightChips } from './overview/HighlightChips';
 
 interface DashboardViewProps {
   repoName: string | null;
@@ -15,19 +18,6 @@ interface DashboardViewProps {
    * v1.2 票 04④（V27-5）— 修前是 onOpenChat「只跳视图不聚焦」，名实不符。 */
   onTraceTop: () => void;
 }
-
-const SCALE_ORDER: Array<{ key: keyof RepoDashboard['scale']; label: string }> = [
-  { key: 'routes', label: '接口' },
-  { key: 'services', label: '服务' },
-  { key: 'repositories', label: '仓储' },
-  { key: 'advices', label: '切面' },
-  { key: 'plainClasses', label: '普通类' },
-  { key: 'interfaces', label: '接口定义' },
-  { key: 'methods', label: '方法' },
-  { key: 'fields', label: '字段' },
-  { key: 'configKeys', label: '配置键' },
-  { key: 'files', label: '文件' }
-];
 
 /**
  * Zero-prompt onboarding dashboard (issue 12/13): a single screen of tech stack
@@ -91,19 +81,7 @@ export function DashboardView({
               技术栈、架构规模与核心 API 概览（零 Prompt 驾驶舱）
             </p>
             {dashboard.techStack.highlights.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5" data-testid="highlights">
-                {dashboard.techStack.highlights.map((h) => (
-                    <Badge
-                      key={h}
-                      data-testid="highlight-badge"
-                      tone="accent"
-                      outline
-                      className="rounded-full px-2 py-0.5 text-xs font-medium"
-                    >
-                      {h}
-                    </Badge>
-                ))}
-              </div>
+              <HighlightChips highlights={dashboard.techStack.highlights} />
             )}
           </div>
           <button
@@ -160,18 +138,7 @@ export function DashboardView({
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
             结构规模
           </h3>
-          <div data-testid="scale" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {SCALE_ORDER.map(({ key, label }) => (
-              <div
-                key={key}
-                data-testid={`scale-${key}`}
-                className="rounded-md border border-line bg-subtle px-2 py-1.5 text-center"
-              >
-                <div className="text-lg font-semibold text-ink">{dashboard.scale[key]}</div>
-                <div className="text-xs text-muted">{label}</div>
-              </div>
-            ))}
-          </div>
+          <ScaleBlock scale={dashboard.scale} />
         </section>
 
         {/* ——— Config topology ——— */}
@@ -211,36 +178,7 @@ export function DashboardView({
 
         {/* ——— Top core APIs ——— */}
         <section className="rounded-md border border-line bg-surface p-3">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            Top 核心 API 入口 · 点击追踪调用链
-          </h3>
-          {dashboard.topApis.length === 0 ? (
-            <p className="text-xs text-muted">—</p>
-          ) : (
-            <ul data-testid="top-apis" className="space-y-1.5">
-              {dashboard.topApis.map((api: TopApiEntry, idx: number) => (
-                <li key={`${api.name}-${idx}`}>
-                  <button
-                    type="button"
-                    data-testid="api-entry"
-                    onClick={() => onTrace(api)}
-                    className="w-full rounded-md border border-line px-2.5 py-2 text-left hover:border-accent/40 hover:bg-accent-soft/20"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-mono text-sm font-medium text-ink">
-                        {api.name}
-                      </span>
-                      <Badge>{api.controller}</Badge>
-                      <Badge tone="accent" className="ml-auto">深度 {api.depth}</Badge>
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-muted">
-                      {api.hops.join(' → ')}
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <TopApiBlock apis={dashboard.topApis} onTrace={onTrace} />
         </section>
       </div>
     </div>

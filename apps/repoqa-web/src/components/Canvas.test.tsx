@@ -189,3 +189,30 @@ describe('Canvas live trace strip (v0.11 Stage 4)', () => {
     expect(screen.getByTestId('trace-step-label')).toHaveTextContent('步骤 2/3');
   });
 });
+
+describe('v1.2 票 08（R4-7）链路来源标注', () => {
+  const anchors = [{ file: 'A.java', line: 1, symbol: 'a' }];
+
+  it('labels the auto-sample chain so it is no longer an unexplained trace', () => {
+    renderCanvas({ anchors, traceOrigin: 'auto-topapi' });
+    expect(screen.getByTestId('trace-origin')).toHaveTextContent('自动示例：首条 Top API');
+  });
+
+  it('names the dashboard entry and the hub as their own origins', () => {
+    const { unmount } = renderCanvas({ anchors, traceOrigin: 'dashboard-entry' });
+    expect(screen.getByTestId('trace-origin')).toHaveTextContent('来自架构仪表盘的入口');
+    unmount();
+    renderCanvas({ anchors, traceOrigin: 'overview-hub' });
+    expect(screen.getByTestId('trace-origin')).toHaveTextContent('来自这里的枢纽符号');
+  });
+
+  it('shows no origin row while no chain is on the canvas', () => {
+    renderCanvas({ traceOrigin: 'auto-topapi' });
+    expect(screen.queryByTestId('trace-origin')).not.toBeInTheDocument();
+  });
+
+  it('omits the overview layer unless the data plumbing is wired', () => {
+    renderCanvas({ anchors });
+    expect(screen.queryByTestId('repo-overview')).not.toBeInTheDocument();
+  });
+});

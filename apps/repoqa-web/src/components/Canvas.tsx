@@ -1,8 +1,21 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Anchor, Repo, RepoSymbol, TraceStep } from '../types';
+import type { Anchor, Repo, RepoSymbol, RepoDashboard, TopApiEntry, TraceStep } from '../types';
+import type { RepoQAClient } from '../client/RepoQAClient';
 import { Badge } from './ui/Badge';
 import { CountPill } from './ui/CountPill';
 import { statusLabel } from '../client/statusLabel';
+import { RepoOverview } from './RepoOverview';
+
+/**
+ * v1.2 票 08（R4-7）— 链路来源标注。文案是本轮唯一新增的用户可见判断句：
+ * 只陈述「这次链路是谁发起的」这一确定性事实，不替用户解释该不该看。
+ */
+const TRACE_ORIGIN_COPY: Record<string, string> = {
+  chat: '来自架构问答',
+  'dashboard-entry': '来自架构仪表盘的入口',
+  'overview-hub': '来自这里的枢纽符号',
+  'auto-topapi': '自动示例：首条 Top API'
+};
 
 interface CanvasProps {
   repo: Repo | null;
@@ -31,6 +44,20 @@ interface CanvasProps {
    * internal focus request, and external requests take precedence.
    */
   focusRequest?: { symbol: string; requestId: number } | null;
+  /* v1.2 票 08（R4-7）— 概览层数据面：dashboard 由 App 的 useDashboard 全局
+     加载，本组件只透传（不重复请求）；radar 由 RepoOverview 自取。三件套
+     （client + 两个下钻回调）缺一即不渲染概览层——纯组件测试与无库态不受影响。 */
+  client?: RepoQAClient;
+  dashboard?: RepoDashboard | null;
+  dashboardLoading?: boolean;
+  dashboardError?: string | null;
+  onRetryDashboard?: () => void;
+  /** 概览层「Top API 入口」点击 → 与仪表盘同一条确定性 call-chain。 */
+  onTraceApi?: (api: TopApiEntry) => void;
+  /** 概览层「枢纽符号」点击 → 同一 call-chain，只给名字。 */
+  onTraceSymbol?: (symbol: string) => void;
+  /** 当前展示链路的发起方，用于给下半部分加来源标注（R4-7「来历不明」）。 */
+  traceOrigin?: string | null;
 }
 
 /**
@@ -49,7 +76,15 @@ export function Canvas({
   symbols = [],
   deepLinkFocus = null,
   deepLinkTraceId = null,
-  focusRequest: externalFocusRequest = null
+  focusRequest: externalFocusRequest = null,
+  client,
+  dashboard = null,
+  dashboardLoading = false,
+  dashboardError = null,
+  onRetryDashboard,
+  onTraceApi,
+  onTraceSymbol,
+  traceOrigin = null
 }: CanvasProps) {
   // v0.7 (issue 12) — one-shot highlight of the trace's start node: a Top API
   // click lands here and the focused card flashes once instead of blending in.
@@ -186,6 +221,27 @@ export function Canvas({
                 </span>
               </div>
             )}
+            {client && onTraceApi && onTraceSymbol && (
+              <RepoOverview
+                repo={repo}
+                client={client}
+                dashboard={dashboard}
+                dashboardLoading={dashboardLoading}
+                dashboardError={dashboardError}
+                onRetryDashboard={onRetryDashboard ?? (() => undefined)}
+                onTraceApi={onTraceApi}
+                onTraceSymbol={onTraceSymbol}
+              />
+            )}
+            {flowAnchors.length > 0 && traceOrigin && (
+              <div
+                data-testid="trace-origin"
+                className="mx-auto mb-2 flex max-w-4xl items-center gap-2 text-micro text-muted"
+              >
+                <span className="font-medium text-ink">当前链路</span>
+                <span>{TRACE_ORIGIN_COPY[traceOrigin] ?? traceOrigin}</span>
+              </div>
+            )}
             {flowAnchors.length > 0 && (
               <FlowCards
                 anchors={flowAnchors}
@@ -275,7 +331,7 @@ export function Canvas({
                 <strong className="text-ink">② 选一个视图</strong> —
                 <strong className="text-ink">要方案 →</strong>「规范演进」给改动意图，产出落地建议与风险清单（引擎只读）；
                 <strong className="text-ink">问现状 →</strong>「架构问答」自然语言提问，结论可逐条查证（推荐新手从这里开始）。
-                其余：「代码拓扑」深入调用链、「变更审计」对接 CI 门禁、「Diff 影响面」看架构差异；全仓热点在右上「⋯ 更多操作 → 架构仪表盘」（v1.2.x R4-13：入口已移出一级导航）。
+                其余：「代码拓扑」先看结构规模与枢纽符号、再点进去看调用链、「变更审计」对接 CI 门禁、「Diff 影响面」看架构差异；全仓配置拓扑在右上「⋯ 更多操作 → 架构仪表盘」（v1.2.x R4-13：入口已移出一级导航）。
               </p>
               <p>
                 <strong className="text-ink">③ 提问或探索</strong> — 在「架构问答」输入如

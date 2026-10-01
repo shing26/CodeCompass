@@ -109,9 +109,10 @@ function WorkbenchShell() {
     consentPending,
     setConsentPending,
     confirmConsent,
-    handleSubmit,
     chatGuardSend,
     handleTrace,
+    traceSymbol,
+    traceOrigin,
     modelInfo,
     switchModel,
     draftReady,
@@ -261,6 +262,16 @@ function WorkbenchShell() {
               deepLinkFocus={deepLink.focus}
               deepLinkTraceId={deepLink.traceId}
               focusRequest={paletteFocus}
+              /* v1.2 票 08（R4-7）— 概览层：dashboard 是 useDashboard 的全局
+                 数据，只透传不重复请求；radar 由 RepoOverview 自取。 */
+              client={client}
+              dashboard={dashboard}
+              dashboardLoading={dashboardLoading}
+              dashboardError={dashboardError}
+              onRetryDashboard={refreshDashboard}
+              onTraceApi={handleTrace}
+              onTraceSymbol={traceSymbol}
+              traceOrigin={traceOrigin}
             />
           ) : view === 'tour' && activeTour ? (
             <TourPlayer
@@ -289,13 +300,9 @@ function WorkbenchShell() {
               draftReady={draftReady}
               onDismissDraftReady={clearDraftReady}
               onNavigate={(symbol) => {
-                setView('topo');
                 // Same deterministic call-chain entry as the Dashboard Top API
-                // click: explicit (name) start, LLM bypassed by the worker.
-                handleSubmit(`${symbol} 的完整调用链是怎样的？`, 'call-chain', {
-                  name: symbol,
-                  file: ''
-                });
+                // click and the topo hub click (v1.2 票 08): one implementation.
+                traceSymbol(symbol);
               }}
               onBackToWorkbench={() => setView('topo')}
               onSend={chatGuardSend}
