@@ -1,10 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { useRepoCatalog } from '../hooks/useRepoCatalog';
 import { useSymbols } from '../hooks/useSymbols';
 import { useTours } from '../hooks/useTours';
 import { useDashboard } from '../hooks/useDashboard';
 import { downloadTextFile } from '../utils/download';
+import { describeError } from '../client/errorCodes';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import type {
   StepperProgress,
@@ -59,6 +60,17 @@ interface RepoContextValue {
   error: string | null;
   /** v1.2.x（R4-4）— 错误条可消。 */
   clearError: () => void;
+  /** v1.2.x（Round5）— 删除确认走应用内对话框：原生 confirm 会被屏蔽对话框的
+   *  宿主静默吞掉（内置浏览器 / kiosk / 自动化），点删除看起来「没反应」。 */
+  pendingDelete: Repo | null;
+  deleting: boolean;
+  confirmDelete: () => Promise<void>;
+  cancelDelete: () => void;
+  /** 同上，「重新索引」共用应用内确认框。 */
+  pendingReindex: Repo | null;
+  reindexing: boolean;
+  confirmReindex: () => Promise<void>;
+  cancelReindex: () => void;
   selectRepo: (id: string) => void;
   refresh: ReturnType<typeof useRepoCatalog>['refresh'];
   symbols: ReturnType<typeof useSymbols>['symbols'];
@@ -123,7 +135,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
       return { focus: null, mode: null, traceId: null };
     }
   }, []);
-  const { repos, currentRepo, loading, error, clearError, selectRepo, importRepo, refresh } = useRepoCatalog(
+  const { repos, currentRepo, loading, error, clearError, reportError, selectRepo, importRepo, refresh } = useRepoCatalog(
     client,
     initialRepoId
   );
@@ -410,31 +422,77 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     setView('tour');
   };
 
+  /* 重新索引与删除是同一族：修前都把确认与报错押在原生对话框上，在屏蔽对话框的
+     宿主里一并静默失效（「重新索引」点了同样没反应）。共用同一个应用内对话框，
+     由 pendingAction 区分。 */
+  const [pendingReindex, setPendingReindex] = useState<Repo | null>(null);
+  const [reindexing, setReindexing] = useState(false);
+
   const handleReindex = async (repo: Repo) => {
-    if (!window.confirm(`重新索引「${repo.name}」？现有索引会被重建。`)) return;
+    setPendingReindex(repo);
+  };
+
+  const confirmReindex = useCallback(async () => {
+    const repo = pendingReindex;
+    if (!repo || reindexing) return;
+    setReindexing(true);
+    clearError();
     try {
       await client.reindexRepo(repo.id);
+      setPendingReindex(null);
       await refresh();
       selectRepo(repo.id);
       setActiveTour(null);
       setView('topo');
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      setPendingReindex(null);
+      reportError(describeError(err));
+    } finally {
+      setReindexing(false);
     }
-  };
+  }, [pendingReindex, reindexing, client, clearError, reportError, refresh, selectRepo, setActiveTour]);
+
+  const cancelReindex = useCallback(() => {
+    if (!reindexing) setPendingReindex(null);
+  }, [reindexing]);
+
+  /* v1.2.x（Round5 实测「仓库不能删除」）— 确认与报错都不再走原生对话框。
+   *
+   * 修前 `window.confirm` 在屏蔽对话框的宿主里（ZCode 内置浏览器、部分 kiosk 与
+   * 自动化环境）直接返回 false 且不显示，于是点删除**静默无反应**；失败分支的
+   * `window.alert` 同理把错误一起蒸发。现在：应用内 `ConfirmDialog` 承接确认，
+   * 失败走 useRepoCatalog 的既有错误面（页头错误条，可消，8s 自动退场）。
+   */
+  const [pendingDelete, setPendingDelete] = useState<Repo | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async (repo: Repo) => {
-    if (!window.confirm(`删除「${repo.name}」的索引？源文件不会被删除。`)) return;
+    setPendingDelete(repo);
+  };
+
+  const confirmDelete = useCallback(async () => {
+    const repo = pendingDelete;
+    if (!repo || deleting) return;
+    setDeleting(true);
+    clearError();
     try {
       await client.deleteRepo(repo.id);
+      setPendingDelete(null);
       await refresh();
       selectRepo('');
       setActiveTour(null);
       setView('topo');
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      setPendingDelete(null);
+      reportError(describeError(err));
+    } finally {
+      setDeleting(false);
     }
-  };
+  }, [pendingDelete, deleting, client, clearError, reportError, refresh, selectRepo, setActiveTour]);
+
+  const cancelDelete = useCallback(() => {
+    if (!deleting) setPendingDelete(null);
+  }, [deleting]);
 
   // Issue 14: fetch the handover document and trigger `{repoName}-ONBOARDING.md`.
   const handleExport = async () => {
@@ -453,6 +511,14 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     loading,
     error,
     clearError,
+    pendingDelete,
+    deleting,
+    confirmDelete,
+    cancelDelete,
+    pendingReindex,
+    reindexing,
+    confirmReindex,
+    cancelReindex,
     selectRepo,
     refresh,
     symbols,

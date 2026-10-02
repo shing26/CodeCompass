@@ -13,6 +13,8 @@ export interface UseRepoCatalogResult {
   error: string | null;
   /** v1.2.x（R4-4）— 清错误（页头错误条可消）。 */
   clearError: () => void;
+  /** v1.2.x（Round5）— 外部把错误投递到同一条错误面（删除失败不再走 alert）。 */
+  reportError: (message: string) => void;
   selectRepo: (id: string) => void;
   /** Resolves with the created repo (status may be `error` with
    * `suggestedSubdirs` after an over-limit reject — v0.5.1 D1 contract). */
@@ -119,6 +121,19 @@ export function useRepoCatalog(
   // v1.2.x（R4-4）— 错误条可消：catalog 的 error 曾永久钉在页头（无关闭钮、
   // 切主题也在），暴露 clearError 供 UI 调用。
   const clearError = useCallback(() => setError(null), []);
+  // v1.2.x（Round5）— 删除失败也要落进同一个错误面：修前走 window.alert，在屏蔽
+  // 对话框的宿主里连错误一起蒸发，用户只看到「点了没反应」。
+  const reportError = useCallback((message: string) => setError(message), []);
 
-  return { repos, currentRepo, loading, error, clearError, selectRepo, importRepo, refresh };
+  return {
+    repos,
+    currentRepo,
+    loading,
+    error,
+    clearError,
+    reportError,
+    selectRepo,
+    importRepo,
+    refresh
+  };
 }

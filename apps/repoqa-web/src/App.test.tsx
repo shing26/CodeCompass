@@ -738,6 +738,77 @@ describe('Issue 14 ONBOARDING.md export', () => {
     window.history.replaceState(null, '', '/');
   });
 
+  /* v1.2.x（Round5 实测「仓库不能删除」）— 确认不能押在原生对话框上。
+   *
+   * 修前 `handleDelete` 第一行就是 `window.confirm(...)`：在屏蔽对话框的宿主里
+   * （ZCode 内置浏览器、部分 kiosk、自动化）它直接返回 false 且不显示任何东西，
+   * 于是「点删除」静默失效——用户看到的就是「不能删除」。失败分支的
+   * `window.alert` 同理把错误一起蒸发。
+   *
+   * 本用例把 window.confirm 设成**抛异常**（比返回 false 更严：任何残留调用都会
+   * 让测试红），证明新流程压根不碰它。 */
+  it('delete never touches window.confirm — in-app dialog shows even when confirm is hostile', async () => {
+    const confirmSpy = vi
+      .spyOn(window, 'confirm')
+      .mockImplementation(() => {
+        throw new Error('host silently swallows dialogs');
+      });
+    try {
+      const user = userEvent.setup();
+      const client = makeClient();
+      render(<App client={client} />);
+      await selectRepo(user);
+
+      await user.click(screen.getByTestId('more-actions'));
+      await user.click(screen.getByTestId('delete-repo'));
+
+      // 应用内对话框必须出现，且请求尚未发出（还在等确认）
+      const dialog = await screen.findByTestId('confirm-dialog');
+      expect(dialog).toHaveTextContent('删除');
+      expect(screen.getByTestId('confirm-ok')).toBeInTheDocument();
+      expect(client.deleteRepo).not.toHaveBeenCalled();
+
+      await user.click(screen.getByTestId('confirm-ok'));
+      await waitFor(() => expect(client.deleteRepo).toHaveBeenCalledWith('repo-1'));
+      expect(confirmSpy).not.toHaveBeenCalled();
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
+
+  it('cancelling the in-app delete dialog issues no request', async () => {
+    const user = userEvent.setup();
+    const client = makeClient();
+    render(<App client={client} />);
+    await selectRepo(user);
+
+    await user.click(screen.getByTestId('more-actions'));
+    await user.click(screen.getByTestId('delete-repo'));
+    await screen.findByTestId('confirm-dialog');
+    await user.click(screen.getByTestId('confirm-cancel'));
+
+    await waitFor(() => expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument());
+    expect(client.deleteRepo).not.toHaveBeenCalled();
+  });
+
+  it('a delete failure surfaces in the page error bar, not an invisible alert', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    try {
+      const user = userEvent.setup();
+      render(<App client={makeClient({ deleteRepo: vi.fn().mockRejectedValue(new Error('删除失败：数据库忙')) })} />);
+      await selectRepo(user);
+
+      await user.click(screen.getByTestId('more-actions'));
+      await user.click(screen.getByTestId('delete-repo'));
+      await user.click(await screen.findByTestId('confirm-ok'));
+
+      await waitFor(() => expect(screen.getByTestId('topbar-error')).toHaveTextContent('删除失败'));
+      expect(alertSpy).not.toHaveBeenCalled();
+    } finally {
+      alertSpy.mockRestore();
+    }
+  });
+
   it('downloads {repoName}-ONBOARDING.md for the selected repo', async () => {
     const client = makeClient();
     const user = userEvent.setup();

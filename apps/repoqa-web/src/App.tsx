@@ -15,6 +15,7 @@ import { AskDock } from './components/AskDock';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { CopyMaskingToast } from './components/CopyMaskingToast';
 import { RepoProvider, useRepo } from './context/RepoContext';
 import { InspectorProvider, useInspectorContext } from './context/InspectorContext';
@@ -86,6 +87,14 @@ function WorkbenchShell() {
     handleCloneRemote,
     handleReindex,
     handleDelete,
+    pendingDelete,
+    deleting,
+    confirmDelete,
+    cancelDelete,
+    pendingReindex,
+    reindexing,
+    confirmReindex,
+    cancelReindex,
     handleExport
   } = useRepo();
   const {
@@ -183,6 +192,26 @@ function WorkbenchShell() {
           onCancel={() => setConsentPending(null)}
         />
       )}
+      {/* v1.2.x（Round5）— 删除确认的应用内对话框。修前用 window.confirm，在
+          屏蔽原生对话框的宿主里被静默吞掉：点「删除」没反应、失败也不报错。 */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`删除「${pendingDelete?.name ?? ''}」的索引？`}
+        body="只删除本地索引记录，磁盘上的源码不会被删除。之后可以用同一路径重新导入。"
+        confirmLabel="删除索引"
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={cancelDelete}
+      />
+      <ConfirmDialog
+        open={pendingReindex !== null}
+        title={`重新索引「${pendingReindex?.name ?? ''}」？`}
+        body="现有索引会被重建，耗时与首次导入相当。源码不受影响。"
+        confirmLabel="重新索引"
+        busy={reindexing}
+        onConfirm={() => void confirmReindex()}
+        onCancel={cancelReindex}
+      />
       <CommandPalette
         open={paletteOpen}
         client={client}
