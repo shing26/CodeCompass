@@ -512,6 +512,51 @@ describe('RepoPulse repo import HTTP API', () => {
     }
   });
 
+  /* v1.2.x（Round5 实测）— 人手复制来的杂质不该被当成「路径不可读」。
+   *
+   * 实测：`"D:\CodeCompass"`（从终端/资源管理器复制时连引号一起带进来）被判 400
+   * `local path is not a directory`，界面提示「路径不可读或不是仓库目录？」——指
+   * 错了方向：路径本身是对的。与 Round4 的反斜杠归一化（R4-1）是同一族缺陷，
+   * 这次清洗的是「用户到底敲了什么」。 */
+  it('accepts quoted / padded local paths and echoes the cleaned one back', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-quoted-'));
+    try {
+      for (const raw of [
+        `"${root}"`,
+        `'${root}'`,
+        `  ${root}  `,
+        `"${root.replace(/\\/g, '/')}"`,
+        `"“${root}”"` // 中文引号也收（手输/输入法常见）
+      ]) {
+        const res = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ localPath: raw })
+        });
+        expect(res.status, raw).toBe(200);
+        const { preview } = (await res.json()) as { preview: { path: string } };
+        // 回显必须是清洗后的那条，否则用户看着输入框里的引号以为系统吃的是别处
+        expect(preview.path, raw).not.toMatch(/^["'“”]/);
+        await expect(fs.stat(preview.path), raw).resolves.toBeTruthy();
+      }
+
+      // 真的不存在时仍要 400，且报错里也是清洗后的路径（不含引号）
+      const bad = await fetch(`${ctx.baseUrl}/api/repos/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ localPath: `"${path.join(root, 'missing')}"` })
+      });
+      expect(bad.status).toBe(400);
+      const { error } = (await bad.json()) as { error: string };
+      expect(error).toContain('not a directory');
+      expect(error).not.toContain('"');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('rejects preview requests without a path or with a non-directory path', async () => {
     const ctx = await startServer();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-preview-bad-'));

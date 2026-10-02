@@ -57,6 +57,40 @@ function guardIndexFailure(deps: HttpDeps, repoId: string, error: unknown): void
   }
 }
 
+/**
+ * v1.2.x（Round5 实测）— 用户输入的本地路径清洗。
+ *
+ * 实测：`"D:\CodeCompass"`（**从终端/资源管理器复制时连引号一起带进来**）被
+ * `fs.stat` 判成「不是一个目录」而 400，用户看到的是「预检失败：路径不可读或
+ * 不是仓库目录？」——指向完全错误的方向：路径明明是对的。
+ *
+ * 这与 Round4 修的反斜杠（R4-1 `normalizeLocalPath`）是同一族纸面缺陷：真实
+ * 障碍从来不是路径语义，而是**人手复制来的杂质**。那次归一化的是「怎么比较两个
+ * 路径」，这次清洗的是「用户到底敲了什么」——两者都要，缺一个就还在同一处卡人。
+ *
+ * 只剥**成对**的一层引号（直引号/中文引号都收），不做更激进的重写：`\\server\share`
+ * 这类 UNC 路径以反斜杠开头，不受引号处理影响；路径中间的真引号在 Windows 上本就
+ * 非法，不必为它发明规则。
+ */
+export function sanitizeLocalPathInput(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let value = raw.trim();
+  // 连续剥两层：手输常见 `"D:\x"` 或从 JSON/日志里再包一层 `'D:\x'`。
+  for (let i = 0; i < 2; i += 1) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if (value.length < 2) break;
+    const isPair =
+      (first === '"' && last === '"') ||
+      (first === "'" && last === "'") ||
+      (first === '“' && last === '”') ||
+      (first === '‘' && last === '’');
+    if (!isPair) break;
+    value = value.slice(1, -1).trim();
+  }
+  return value;
+}
+
 export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps): void {
   app.post('/api/repos', asyncHandler(async (req, res) => {
     try {
@@ -65,8 +99,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
         branch?: unknown;
         name?: unknown;
       };
-      const localPath =
-        typeof body.localPath === 'string' ? body.localPath.trim() : '';
+      const localPath = sanitizeLocalPathInput(body.localPath);
       if (!localPath) {
         res.status(400).json({ error: 'localPath is required', code: 'repo_path_required' });
         return;
@@ -132,13 +165,14 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
   app.post('/api/repos/preview', asyncHandler(async (req, res) => {
     try {
       const body = (req.body ?? {}) as { localPath?: unknown };
-      const localPath =
-        typeof body.localPath === 'string' ? body.localPath.trim() : '';
+      const localPath = sanitizeLocalPathInput(body.localPath);
       if (!localPath) {
         res.status(400).json({ error: 'localPath is required', code: 'repo_path_required' });
         return;
       }
       const stats = await previewRepo(localPath);
+      // 回显**清洗后**的路径：界面显示的必须是真正被索引的那一条，否则用户
+      // 看着输入框里的引号、以为系统吃的是另一个路径。
       res.json({ preview: { path: localPath, ...stats } });
     } catch (error) {
       res.status(400).json({
