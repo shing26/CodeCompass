@@ -216,3 +216,43 @@ describe('v1.2 票 08（R4-7）链路来源标注', () => {
     expect(screen.queryByTestId('repo-overview')).not.toBeInTheDocument();
   });
 });
+
+/* v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— 止于仓库外 ≠ 断链。
+ *
+ * 绝大多数仓的链路最后一跳都是 `super.x()`（JDK 父类方法）、`useState()`
+ * （React 运行时）这类仓库外调用：代码完全正常，静态分析看不见外部所以到此为止。
+ * 此前一律显示红色「断链」，让正常代码看起来像坏了。 */
+describe('v1.2.x（Round5）止于外部调用不标断链', () => {
+  const anchors = [{ file: 'A.java', line: 1, symbol: 'a' }];
+
+  it('shows 「止于外部调用」 for an EXTERNAL hop', async () => {
+    const user = userEvent.setup();
+    renderCanvas({
+      anchors,
+      traceSteps: [
+        { file: 'src/Wrapper.java', line: 65, symbol: 'getHeader', status: 'VERIFIED' },
+        { file: 'src/Wrapper.java', line: 66, symbol: 'getHeader', status: 'EXTERNAL' }
+      ]
+    });
+    // 轨迹条默认停在第 1 步，终止跳在第 2 步
+    await user.click(screen.getByTestId('trace-step-next'));
+    const label = screen.getByTestId('trace-step-label');
+    expect(label).toHaveTextContent('止于外部调用');
+    expect(label).not.toHaveTextContent('断链');
+  });
+
+  it('still says 断链 for a genuinely unresolved hop', async () => {
+    const user = userEvent.setup();
+    renderCanvas({
+      anchors,
+      traceSteps: [
+        { file: 'src/Wrapper.java', line: 65, symbol: 'getHeader', status: 'VERIFIED' },
+        { file: 'src/Wrapper.java', line: 66, symbol: 'mystery', status: 'BROKEN' }
+      ]
+    });
+    await user.click(screen.getByTestId('trace-step-next'));
+    const label = screen.getByTestId('trace-step-label');
+    expect(label).toHaveTextContent('断链');
+    expect(label).not.toHaveTextContent('止于外部调用');
+  });
+});

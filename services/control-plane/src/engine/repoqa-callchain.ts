@@ -1,5 +1,10 @@
 import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
-import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
+import {
+  STATIC_ANALYSIS_BREAK_DYNAMIC,
+  STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  isExternalDispatchReason,
+  type RepoQaTraceHop
+} from '../../../../packages/contracts/src/index';
 
 /**
  * Issue 05 — Deterministic call-chain query.
@@ -14,10 +19,16 @@ import type { RepoQaTraceHop } from '../../../../packages/contracts/src/index';
  *   the chain emits an explicit `break` hop carrying a marker instead.
  */
 
-export const STATIC_ANALYSIS_BREAK_DYNAMIC =
-  '[Static Analysis Break: Dynamic/RPC Dispatch]';
-export const STATIC_ANALYSIS_BREAK_UNRESOLVED =
-  '[Static Analysis Break: target method not found]';
+/**
+ * v1.2.x — 这两个 marker 是**线上契约值**（随 trace hop 的 `reason` 字段一起
+ * 过线），单一落点迁到 `packages/contracts`，引擎与前端都从那里取，避免两处
+ * 各写一份字符串后悄悄漂移。此处保留再导出，既有 import 不受影响。
+ */
+export {
+  STATIC_ANALYSIS_BREAK_DYNAMIC,
+  STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  isExternalDispatchReason
+};
 
 const TYPE_KINDS = new Set<RepoSymbol['kind']>([
   'class',

@@ -12,6 +12,10 @@ export const STATUS_LABEL: Readonly<Record<string, string>> = {
   PASS: '通过',
   FAIL: '未通过',
   BROKEN: '断链',
+  // v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— 止于仓库外 ≠ 断链。
+  // 绝大多数仓的最后一跳都是 super.x() / React 运行时这类调用，代码完全正常；
+  // 标成「断链」会让正常代码看起来像坏了。措辞区分的是**分析边界**与**解析失败**。
+  EXTERNAL: '止于外部调用',
   LOW: '低风险',
   MEDIUM: '中风险',
   HIGH: '高风险',

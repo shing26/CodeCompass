@@ -256,8 +256,13 @@ export interface TraceStep {
   line: number;
   lineEnd?: number;
   symbol: string;
-  /** BROKEN for a static-analysis break hop, otherwise VERIFIED. */
-  status: 'BROKEN' | 'VERIFIED';
+  /**
+   * v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）—
+   * `EXTERNAL` = 止于仓库外的调用（`super.x()` 的父类方法、React 运行时、框架
+   * 注入入口）：**分析边界，代码正常**。`BROKEN` 才是真正的解析失败。绝大多数仓
+   * 的最后一跳都属前者，此前一律标 BROKEN，让正常代码看起来像坏了。
+   */
+  status: 'BROKEN' | 'VERIFIED' | 'EXTERNAL';
   /** v0.7 — hop entered via a goroutine dispatch. */
   async?: boolean;
   /** v0.10 — browser HTTP bridge method (GET/POST) when the hop is bridged. */

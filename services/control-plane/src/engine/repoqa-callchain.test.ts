@@ -10,6 +10,7 @@ import {
   CallResolver,
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  isExternalDispatchReason,
   resolveCallChain,
   resolveCallEdge,
   applyImplicitInterfaces
@@ -1052,5 +1053,23 @@ describe('resolveCall — declared receiver type absent from the index stays dyn
       dynamic: false
     });
     expect('target' in typed && typed.target.parentType).toBe('Caller');
+  });
+});
+
+/* v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— 判定「止于仓库外」。 */
+describe('isExternalDispatchReason', () => {
+  it('accepts the plain marker and the HTTP-annotated variant (includes, not ===)', () => {
+    expect(isExternalDispatchReason(STATIC_ANALYSIS_BREAK_DYNAMIC)).toBe(true);
+    // resolveCall 的 HTTP 分支会在 marker 后追加 " HTTP GET /x"——等值比较会漏
+    expect(
+      isExternalDispatchReason(`${STATIC_ANALYSIS_BREAK_DYNAMIC} HTTP GET /api/owners`)
+    ).toBe(true);
+  });
+
+  it('rejects a genuine unresolved break and empty input', () => {
+    expect(isExternalDispatchReason(STATIC_ANALYSIS_BREAK_UNRESOLVED)).toBe(false);
+    expect(isExternalDispatchReason(undefined)).toBe(false);
+    expect(isExternalDispatchReason(null)).toBe(false);
+    expect(isExternalDispatchReason('')).toBe(false);
   });
 });

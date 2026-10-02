@@ -11,6 +11,7 @@ import {
   resolveCallChain,
   symbolIdentity,
   isTestPath,
+  isExternalDispatchReason,
   type SymbolIndex
 } from './engine/repoqa-callchain';
 import { maskSensitiveText } from './engine/repoqa-masking';
@@ -286,13 +287,20 @@ export function runDiagnose(input: DiagnoseEngineInput): DiagnoseResult {
     const identity = `${hop.file}:${hop.line ?? 0}:${hop.method}`;
     const symbol = identityMap.get(identity);
     if (hop.break) {
+      // v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— 区分「止于仓库外」
+      // 与「解析失败」。绝大多数仓的最后一跳都是 `super.x()` / React 运行时这类
+      // 仓库外调用，代码完全正常，标成 BROKEN 会让它看起来像坏了。真正的解析失败
+      // （目标不在索引且无动态解释）仍归 BROKEN。
+      const external = isExternalDispatchReason(hop.reason);
       steps.push({
         layer: previousLayer,
         symbol: hop.method,
         filePath: hop.file,
         line: hop.line ?? 1,
-        status: 'BROKEN',
-        diagnosticNotes: hop.reason ?? 'Static analysis break'
+        status: external ? 'EXTERNAL' : 'BROKEN',
+        diagnosticNotes: external
+          ? `止于仓库外的调用（${hop.reason}）——父类/运行时/框架方法不在本仓索引内，属分析边界而非缺陷。`
+          : (hop.reason ?? 'Static analysis break')
       });
       return;
     }
@@ -327,11 +335,14 @@ export function runDiagnose(input: DiagnoseEngineInput): DiagnoseResult {
     : '';
   const bridgeCount = steps.filter((step) => step.layer === 'FRONTEND_COMPONENT').length;
   const bridgeNote = bridgeCount > 0 ? ` Bridged from ${bridgeCount} frontend component(s) via the HTTP bridge.` : '';
+  const externalEnd = steps.find((step) => step.status === 'EXTERNAL');
   const rootCauseSummary = chainUntraceable
     ? `${symptomPrefix}Entry ${entrySymbol.name} (${entrySymbol.filePath}:${entrySymbol.lineStart ?? 1}) resolves, but the static graph records no outgoing call edges from it — the chain cannot be traced further. Nothing is inferred beyond that.${bridgeNote}`
     : firstBreak
       ? `${symptomPrefix}Chain traces ${steps.length} step(s); first break at ${firstBreak.symbol} (${firstBreak.filePath}:${firstBreak.line}): ${firstBreak.diagnosticNotes ?? 'static analysis break'}.${bridgeNote}`
-      : `${symptomPrefix}Chain of ${steps.length} step(s) fully verified against the static graph; no deterministic break found.${bridgeNote}`;
+      : externalEnd
+        ? `${symptomPrefix}Chain traces ${steps.length} step(s), all in-repo steps verified; it ends at ${externalEnd.symbol} (${externalEnd.filePath}:${externalEnd.line}), which calls outside this repository — an analysis boundary, not a defect.${bridgeNote}`
+        : `${symptomPrefix}Chain of ${steps.length} step(s) fully verified against the static graph; no deterministic break found.${bridgeNote}`;
 
   return {
     schemaVersion: 1,

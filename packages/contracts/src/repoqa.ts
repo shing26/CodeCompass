@@ -115,13 +115,50 @@ export interface DiagnoseParams {
   symptomDescription?: string;
 }
 
+/* ------------------------------------------------------------------ */
+/* Static-analysis limit markers (wire values — they travel inside the  */
+/* `reason` field of a trace hop and a diagnose step, so both the       */
+/* engine and every consumer must agree on the exact string).          */
+/* ------------------------------------------------------------------ */
+
+/** The next call is dynamic / on a receiver the index cannot type (RPC, DI, framework). */
+export const STATIC_ANALYSIS_BREAK_DYNAMIC =
+  '[Static Analysis Break: Dynamic/RPC Dispatch]';
+/** The callee is neither in the index nor explained by a dynamic dispatch. */
+export const STATIC_ANALYSIS_BREAK_UNRESOLVED =
+  '[Static Analysis Break: target method not found]';
+
+/**
+ * v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— `true` 表示这条终止是
+ * **静态分析的边界**，不是解析失败。
+ *
+ * 绝大多数真实仓的链路最后一跳都会调到仓库外的东西：`super.getHeaders(...)`
+ * （JDK 的 HttpServletRequest）、`useState(...)`（React 运行时）、框架注入入口。
+ * 这些代码完全正常，静态分析看不见外部所以只能到此为止——标成「断链」等于让正常
+ * 代码看起来像坏了，用户观感就是「每个仓最后一跳都是断链」。
+ *
+ * 与 UNRESOLVED 的区别是实质的：前者是「知道这是动态/外部调用，如实说走到边界」，
+ * 后者是「目标确实不在索引里且没有动态解释」——后者才需要人看一眼。
+ *
+ * 用 `includes` 而非等值：HTTP 变体会在后面追加 ` HTTP GET /x`。
+ */
+export function isExternalDispatchReason(reason: string | undefined | null): boolean {
+  return typeof reason === 'string' && reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC);
+}
+
 export interface DiagnoseChainStep {
   layer: DiagnoseLayer;
   symbol: string;
   filePath: string;
   line: number;
-  status: 'VERIFIED' | 'BROKEN' | 'SUSPECT';
-  /** Present on BROKEN steps: the deterministic static-analysis break reason. */
+  /**
+   * `EXTERNAL` = 静态分析止于仓库外的调用（`super.x()` 的父类方法、React 运行时、
+   * 框架注入入口等）。**这是分析边界，不是解析失败，代码本身正常**——Round5 用户
+   * 报障「很多仓库到最后一跳都有断链」，根因就是这一类被混标成了 `BROKEN`。
+   * 真正的解析失败仍归 `BROKEN`（目标不在索引且无动态解释）。
+   */
+  status: 'VERIFIED' | 'BROKEN' | 'SUSPECT' | 'EXTERNAL';
+  /** Present on BROKEN/EXTERNAL steps: the deterministic analysis reason. */
   diagnosticNotes?: string;
   codeSnippet?: string;
 }

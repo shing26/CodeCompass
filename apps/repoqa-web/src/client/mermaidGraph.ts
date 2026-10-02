@@ -30,7 +30,8 @@ export interface TrimResult {
 /** v0.10 — minimal structural view of a trace hop for the semantics helper. */
 export interface TraceHopView {
   symbol: string;
-  status: 'BROKEN' | 'VERIFIED';
+  /** v1.2.x（Round5）— EXTERNAL = 止于仓库外（分析边界），不算 broken 边。 */
+  status: 'BROKEN' | 'VERIFIED' | 'EXTERNAL';
   httpMethod?: string;
   async?: boolean;
 }

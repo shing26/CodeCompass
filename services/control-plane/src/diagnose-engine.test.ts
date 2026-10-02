@@ -138,11 +138,13 @@ describe('runDiagnose', () => {
   });
 
   it('marks a statically unresolvable hop as BROKEN with the reason', () => {
+    // v1.2.x（Round5）样本口径收窄：BROKEN 现在专指「目标不在索引里且没有动态
+    // 解释」。原样本是 `dynamic: true`，按新分类那属于 EXTERNAL（分析边界），
+    // 该语义已移交给下一条用例；这里换成真正的「未解析」调用，两条分支各自守住。
     const brokenService: RepoSymbol = {
       ...DO_LIKE,
-      calls: [
-        { file: DO_LIKE.filePath, method: 'unknownMethod', line: 24, receiver: 'ghost', dynamic: true }
-      ]
+      // 无 receiver、无 dynamic、索引里也没有同名符号 → resolveCall 判 UNRESOLVED
+      calls: [{ file: DO_LIKE.filePath, method: 'unknownMethod', line: 24 }]
     };
     const symbols = [ROUTE, SERVICE, brokenService, MAPPER_IFACE];
     const index = buildCallIndex(symbols);
@@ -150,6 +152,29 @@ describe('runDiagnose', () => {
     const broken = result.verifiedChain.find((step) => step.status === 'BROKEN');
     expect(broken).toBeDefined();
     expect(result.rootCauseSummary).toContain('first break');
+  });
+
+  /* v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— 止于仓库外的调用是
+     分析边界、不是解析失败：绝大多数仓的最后一跳都是 `super.x()` / React 运行时
+     这类调用，代码完全正常。此前一律标 BROKEN，让正常代码看起来像坏了。 */
+  it('marks a dynamic/external hop as EXTERNAL, not BROKEN', () => {
+    const externalService: RepoSymbol = {
+      ...DO_LIKE,
+      calls: [
+        { file: DO_LIKE.filePath, method: 'superCall', line: 24, receiver: 'super', dynamic: true }
+      ]
+    };
+    const symbols = [ROUTE, SERVICE, externalService, MAPPER_IFACE];
+    const index = buildCallIndex(symbols);
+    const result = runDiagnose({ repoId: 'r1', entrySymbol: 'likePost', symbols, index });
+
+    expect(result.verifiedChain.some((step) => step.status === 'BROKEN')).toBe(false);
+    const external = result.verifiedChain.find((step) => step.status === 'EXTERNAL');
+    expect(external).toBeDefined();
+    expect(external!.diagnosticNotes).toContain('止于仓库外的调用');
+    // 摘要必须说清这是边界而非缺陷，且不再宣称「first break」
+    expect(result.rootCauseSummary).toContain('analysis boundary, not a defect');
+    expect(result.rootCauseSummary).not.toContain('first break');
   });
 
   it('reports a BROKEN chain when the entry route does not exist', () => {

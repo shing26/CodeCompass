@@ -290,6 +290,13 @@ export function Canvas({
                       {visibleTraceStep.status === 'BROKEN' && (
                         <span className="ml-1.5 text-danger">{statusLabel('BROKEN')}</span>
                       )}
+                      {/* v1.2.x（Round5）— 止于仓库外用中性色，不用危险色：它是
+                          分析边界而非缺陷，红字会让正常代码看起来像坏了。 */}
+                      {visibleTraceStep.status === 'EXTERNAL' && (
+                        <span className="ml-1.5 text-muted" title="链路止于仓库外的调用（父类方法 / 运行时 / 框架入口）——分析边界，不是缺陷">
+                          {statusLabel('EXTERNAL')}
+                        </span>
+                      )}
                       {visibleTraceStep.httpMethod && (
                         <span
                           className={`ml-1.5 ${

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Anchor, EvidenceItem, QueryMode, QueryStart, TokenUsage, TraceStep } from '../types';
 import type { QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
 import { parseEvidenceFromAnswer } from '../components/evidence';
+import { isExternalDispatchReason } from '../../../../packages/contracts/src/index';
 
 export interface ChatMessage {
   id: string;
@@ -91,6 +92,7 @@ function parseTraceSteps(payload: Record<string, unknown> | undefined): TraceSte
       line?: unknown;
       lineEnd?: unknown;
       break?: unknown;
+      reason?: unknown;
       async?: unknown;
       http?: { method?: unknown };
     };
@@ -100,7 +102,16 @@ function parseTraceSteps(payload: Record<string, unknown> | undefined): TraceSte
       line: typeof h.line === 'number' ? h.line : 1,
       ...(typeof h.lineEnd === 'number' ? { lineEnd: h.lineEnd } : {}),
       symbol: h.method,
-      status: h.break === true ? 'BROKEN' : 'VERIFIED',
+      // v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— 区分「止于仓
+      // 库外」与「解析失败」。reason 一直随载荷传过来（worker 早就带了），只是这里
+      // 从没用过：绝大多数仓的最后一跳都是 `super.x()` / React 运行时这类仓库外
+      // 调用，代码完全正常，标成 BROKEN 会让它看起来像坏了。
+      status:
+        h.break !== true
+          ? 'VERIFIED'
+          : isExternalDispatchReason(typeof h.reason === 'string' ? h.reason : undefined)
+            ? 'EXTERNAL'
+            : 'BROKEN',
       ...(h.async === true ? { async: true } : {}),
       ...(typeof h.http?.method === 'string' ? { httpMethod: h.http.method } : {})
     });

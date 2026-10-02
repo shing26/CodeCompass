@@ -18,8 +18,10 @@ import type { Anchor, EvidenceItem, EvidenceStatus } from '../types';
  * the narrative summary stays unstructured (and unbadged) by design.
  */
 
-/** Diagnose chain line: `- [STATUS] LAYER symbol @ file:line`. */
-const CHAIN_LINE_RE = /^-\s*\[(VERIFIED|BROKEN|SUSPECT)\]\s+(\S+)\s+(.+?)\s+@\s+(.+):(\d+)\s*$/;
+/** Diagnose chain line: `- [STATUS] LAYER symbol @ file:line`.
+ *  v1.2.x（Round5）：状态集加 EXTERNAL（止于仓库外 = 分析边界，不是缺陷）。 */
+const CHAIN_LINE_RE =
+  /^-\s*\[(VERIFIED|BROKEN|SUSPECT|EXTERNAL)\]\s+(\S+)\s+(.+?)\s+@\s+(.+):(\d+)\s*$/;
 
 /** Matched frame line: `- frame -> symbol @ file:line [STATUS]`. */
 const FRAME_LINE_RE = /^-\s*(.+?)\s*->\s*(.+?)\s+@\s+(.+):(\d+)\s*\[(VERIFIED|BREAK|SUSPECT)\]\s*$/;
