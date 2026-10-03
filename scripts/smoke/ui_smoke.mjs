@@ -289,6 +289,35 @@ async function main() {
     step('侧栏路由项 ≥1', await page.waitForSelector('[data-testid="route-item"]', { timeout: 15000 }).then(() => true).catch(() => false));
     step('AskDock 常驻', await page.waitForSelector('[data-testid="ask-dock"]', { state: 'visible', timeout: 10000 }).then(() => true).catch(() => false));
 
+    /* v1.2.x（Round5 复核 P1）— 五个一级标签在宽屏必须**真的可点**。
+     *
+     * 此前 TopBar 注释断言「tab 条 hittable、无重叠」，但从没被验证过：实际在
+     * ≥1280px 时右侧簇与 tab 条同行，两个 flex-1 簇各分一半，而右侧簇内容更宽
+     * 且子元素 shrink-0，配 justify-end 溢出从盒子左边缘外泼，盖住末位标签
+     * （1440px 挡住 delta/scan，1280px 连 gate 一起挡）。冒烟与 e2e 全程走
+     * `?mode=` 深链、jsdom 无布局，所以一直没暴露。
+     *
+     * 判据用 elementFromPoint（命中自身才算可点），不用 click —— click 失败要等
+     * 超时，一个宽度就白等好几秒。 */
+    const tabHit = await page.evaluate(() => {
+      const out = [];
+      for (const el of document.querySelectorAll('[data-testid^="tab-"]')) {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        out.push({
+          id: el.getAttribute('data-testid'),
+          ok: hit === el,
+          blockedBy: hit === el ? null : (hit?.getAttribute('data-testid') || hit?.tagName || 'null')
+        });
+      }
+      return out;
+    });
+    step(
+      `一级标签全部可点（${page.viewportSize().width}px，不被右侧簇遮挡）`,
+      tabHit.length === 5 && tabHit.every((t) => t.ok),
+      tabHit.filter((t) => !t.ok).map((t) => `${t.id}被${t.blockedBy}挡`).join(' ') || `${tabHit.length}/5 可点`
+    );
+
     // v1.2 票 08（R4-7）— 拓扑概览层进 Release 门：Round4 记「新手点进代码拓扑
     // 只看到一条来历不明的示例链路」，该症状只能靠真浏览器首屏断言拦住。
     console.log('--- 1a. 拓扑概览层（v1.2 票 08 / R4-7） ---');

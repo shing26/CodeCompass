@@ -253,9 +253,16 @@ export function TopBar({
         </button>
       </div>
 
-      {/* Round 3 Bug-03 — right cluster stays on row 1; it must never overlap
-          the tab strip, which now owns row 2 on <1280px. */}
-      <div className="order-2 flex min-w-0 flex-1 items-center justify-end gap-1.5 xl:order-3 xl:gap-2">
+      {/* 右侧簇**按内容宽度**排布，不参与弹性分配。
+          Round 3 Bug-03 的注释假定「右侧簇留在第一行、tab 条在 <1280px 独占第二行」
+          就够了——实测 ≥1280px 时它与 tab 条同行，两个 `flex-1` 簇各分到 535px，
+          而右侧簇内容约 632px 且子元素全是 `shrink-0` 不可压缩；配上
+          `justify-content: flex-end`，溢出会**从盒子左边缘往外泼**，正好盖住
+          tab 条末位（1440px 挡住 tab-delta/tab-scan，1280px 连 tab-gate 一起挡）。
+          实测佐证：三个直接子盒并不重叠（左 12..547 / tabs 559..881 / 右 893..1428），
+          但 more-actions 落在 x=798 —— 在右盒之外、压在 tabs 上。
+          改 `flex-none` 后宽度由内容决定，左簇（有 min-w-0，select 可缩）吸收余量。 */}
+      <div className="order-2 flex shrink-0 items-center justify-end gap-1.5 xl:order-3 xl:gap-2">
         {currentRepo && (
           <div className="relative shrink-0">
             <button
