@@ -737,6 +737,11 @@ export interface DiffReport {
    * 仓上该规则的 flag 率 63–100%，它只能恒定说 FAIL。
    */
   routeReachability?: RouteReachability;
+  /**
+   * v1.2.x — 本次可达性用的是哪张图：`全仓索引`（完整）或 `变更文件图`（残缺：
+   * 调用链跨出变更文件就断）。弃权文案与界面都该让人看见用的是哪种。
+   */
+  reachGraph?: '全仓索引' | '变更文件图';
   configChanges: ConfigChange[];
   mermaid: string;
   /** Issue 29: pr-summary 门禁判定；`diff` 命令不附加。 */
@@ -749,6 +754,20 @@ export interface AnalyzeDiffOptions {
   repoPath: string;
   base: string;
   head: string;
+  /**
+   * v1.2.x（Round5）— 已持久化的**全仓**符号表（控制面索引）及其对应 commit。
+   *
+   * 为什么需要：可达性图默认只由**变更文件**构成（`headSymbols`），调用链一旦跨出
+   * 变更文件就断 → 本该可达的符号被判 uncovered。实测 Nexus-Campus 一次 16 文件
+   * 提交里，12 条生产符号中就有 `VibePostMapper.countReviewsAwaitingWork` 这类明显
+   * 经 service→controller 可达的，是残缺图的产物而非真不可达。
+   *
+   * **只在可证同一快照时才用**：索引是按工作区建的，diff 的 head 是某个 git ref。
+   * `indexedCommit` 与 `headSha` 不一致时（未重新索引 / head 是旧提交）身份对不上，
+   * 强行使用会把全部符号判成「不在图里」——比现状更糟。因此不一致就回落到变更文件图，
+   * 让弃权基线自己说明。
+   */
+  reachabilitySymbols?: { symbols: RepoSymbol[]; indexedCommit?: string };
 }
 
 async function parseRefSymbols(
@@ -1003,16 +1022,36 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
     .filter((entry) => changedSourcePaths.has(entry.symbol.filePath));
 
   // 反向可达性：head 侧用 head 图；base 侧（删除）用 base 图。
-  const reachableModified = headModified.filter((entry) => entry.symbol.kind === 'method');
-  const headReach = reverseReachability(headSymbols, reachableModified);
+  /* v1.2.x（Round5）— 建图选择：优先用已索引的**全仓**符号表，条件是它与本次
+   * diff 的 head 是同一快照（indexedCommit === headSha，或索引没记 commit 而我们
+   * 只能选择相信）。对不上就回落到变更文件图——宁可基线难看，也不能拿一张身份
+   * 对不上的图去判「这个符号不在图里」。 */
+  const indexedCommit = options.reachabilitySymbols?.indexedCommit?.trim() ?? '';
+  /* 短哈希比较：`headSha` 来自 `shortSha()`（短形式），而索引里的 `commit` 是完整
+     40 位——直接等值比较**永远不相等**，全仓索引分支会静默地永远走不到
+     （实测踩过：两者明明是同一个 commit，reachGraph 仍报「变更文件图」）。 */
+  const sameCommit = (a: string, b: string): boolean => {
+    if (a === '' || b === '') return false;
+    const short = a.length <= b.length ? a : b;
+    const long = a.length <= b.length ? b : a;
+    return long.startsWith(short) && short.length >= 7;
+  };
+  const fullIndexMatchesHead =
+    Boolean(options.reachabilitySymbols) &&
+    headSha !== undefined &&
+    headSha !== '' &&
+    (indexedCommit === '' || sameCommit(indexedCommit, headSha));
+  const reachGraph = fullIndexMatchesHead
+    ? (options.reachabilitySymbols!.symbols as RepoSymbol[])
+    : headSymbols;
+  const reachGraphKind = fullIndexMatchesHead ? '全仓索引' : '变更文件图';
 
-  /* v1.2.x（Round5 测量后）— 本次运行所依据的**这张图**的可达基线。
-   *
-   * 必须从 headSymbols（规则实际用的那张图）上量，而不是全仓索引：规则看不到的边，
-   * 自测时也必须看不到，否则弃权判据会替规则「补边」而失真。
-   * 基线为 0 或没有路由符号时，`broken-chain` 弃权（见 evaluateDiffPolicy）。
-   */
-  const routeReachability = measureRouteReachability(headSymbols);
+  const reachableModified = headModified.filter((entry) => entry.symbol.kind === 'method');
+  const headReach = reverseReachability(reachGraph, reachableModified);
+
+  /* 本次运行所依据的**这张图**的可达基线——必须与建图选择一致，否则弃权判据会替
+   * 规则「补边」而失真（规则看不到的边，自测时也必须看不到）。 */
+  const routeReachability = measureRouteReachability(reachGraph);
 
   let baseReach: { hits: ReachabilityHit[]; uncovered: ModifiedSymbol[] } = {
     hits: [],
@@ -1123,8 +1162,9 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
     repoName: path.basename(repoPath),
     base: options.base,
     head: options.head,
-    // v1.2.x：随报告带上这张图的可达基线，供策略层决定弃权（并让 CLI/界面能展示）。
+    // v1.2.x：随报告带上这张图的可达基线与建图来源，供策略层决定弃权、界面展示。
     routeReachability,
+    reachGraph: reachGraphKind,
     baseSha,
     headSha,
     changedFiles: statuses

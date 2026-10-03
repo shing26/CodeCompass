@@ -87,10 +87,22 @@ export function registerGateRoutes(app: express.Express, deps: HttpDeps): void {
     const commit = resolveRepoCommitSync(repo.localPath);
     const started = Date.now();
     try {
-      const report = await analyzeDiff({ repoPath: repo.localPath, base, head });
-      // v1.2.x（Round5）：把本次分析所依据那张图的可达基线交给策略层——
-      // `broken-chain` 在基线为 0 时弃权（记入 policy.skipped，不计入 FAIL），
-      // 而不是恒定报警。实测五仓上该规则 flag 率 63–100%。
+      const report = await analyzeDiff({
+        repoPath: repo.localPath,
+        base,
+        head,
+        // v1.2.x（Round5）：把**已索引的全仓符号表**交给 diff 分析建图。默认那张图
+        // 只含变更文件，调用链跨出变更文件即断 → 本该可达的符号被判 uncovered。
+        // analyzeDiff 侧只在 `indexedCommit === headSha` 时才采用；对不上就回落变更
+        // 文件图（宁可基线难看，也不拿身份对不上的图去判定）。
+        reachabilitySymbols: {
+          symbols: deps.worker.getSymbolGraph(repo.id).symbols,
+          indexedCommit: repo.commit
+        }
+      });
+      // 把本次分析所依据那张图的可达基线交给策略层——`broken-chain` 在基线过低时
+      // 弃权（记入 policy.skipped，不计入 FAIL），而不是恒定报警。实测五仓上该规则
+      // flag 率 63–100%。
       const policy = evaluateDiffPolicy(report, {
         ...options,
         routeReachability: report.routeReachability
@@ -112,6 +124,9 @@ export function registerGateRoutes(app: express.Express, deps: HttpDeps): void {
         // 那就是隐瞒。UI 展开该行时能看到「哪条规则没判、为什么」。
         ...(policy.skipped?.length ? { skippedRules: policy.skipped } : {}),
         routeReachability: report.routeReachability,
+        // v1.2.x：这次判定用的是完整图还是残缺图（只含变更文件）。两者结论不同时，
+        // 用户该知道自己看的是哪种。
+        reachGraph: report.reachGraph,
         impactedApis: impacted
       });
       // Echo the STORED row by runId — never "latest of the stream" (two
