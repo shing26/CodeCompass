@@ -88,7 +88,13 @@ export function registerGateRoutes(app: express.Express, deps: HttpDeps): void {
     const started = Date.now();
     try {
       const report = await analyzeDiff({ repoPath: repo.localPath, base, head });
-      const policy = evaluateDiffPolicy(report, options);
+      // v1.2.x（Round5）：把本次分析所依据那张图的可达基线交给策略层——
+      // `broken-chain` 在基线为 0 时弃权（记入 policy.skipped，不计入 FAIL），
+      // 而不是恒定报警。实测五仓上该规则 flag 率 63–100%。
+      const policy = evaluateDiffPolicy(report, {
+        ...options,
+        routeReachability: report.routeReachability
+      });
       const impacted = report.architectureDelta?.impactedApis ?? [];
       // Key = displayPath#Controller.method: displayPath alone carries neither
       // verb nor controller (GET+POST on one path collide → silent dedup), so
@@ -102,6 +108,10 @@ export function registerGateRoutes(app: express.Express, deps: HttpDeps): void {
         summary: report.summary,
         affectedRoutes: report.affectedApis.length,
         violations: policy.violations,
+        // v1.2.x（Round5）：弃权的规则随行落库——「PASS」若不说清是因为判不了，
+        // 那就是隐瞒。UI 展开该行时能看到「哪条规则没判、为什么」。
+        ...(policy.skipped?.length ? { skippedRules: policy.skipped } : {}),
+        routeReachability: report.routeReachability,
         impactedApis: impacted
       });
       // Echo the STORED row by runId — never "latest of the stream" (two

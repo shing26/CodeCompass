@@ -682,7 +682,9 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
         ? evaluateDiffPolicy(report, {
             maxAffectedRoutes: args.maxAffectedRoutes,
             failOnBreak: args.failOnBreak,
-            failOnAuthImpact: args.failOnAuthImpact
+            failOnAuthImpact: args.failOnAuthImpact,
+            // v1.2.x（Round5）：基线为 0 时 broken-chain 弃权（见 evaluateDiffPolicy）。
+            routeReachability: report.routeReachability
           })
         : undefined;
     if (policy) report.policy = policy;

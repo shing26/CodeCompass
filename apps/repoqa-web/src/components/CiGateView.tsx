@@ -62,6 +62,30 @@ function fmtRunTime(iso: string): string {
   });
 }
 
+/**
+ * v1.2.x（Round5）— 一次运行里被**弃权**（判不了、不是判过）的规则。
+ *
+ * `policy.skipped` 是 v1.2.x 新增的服务端字段，存在 gate run 的 payload 里。
+ * 这里做防御式解析：老运行没有这个字段时返回空数组，不影响渲染。
+ */
+interface GateSkip {
+  rule: string;
+  reason: string;
+  detail?: string;
+}
+
+function gateSkipsOf(run: GateRunRow): GateSkip[] {
+  const payload = run.payload as { skippedRules?: unknown } | undefined;
+  const raw = payload?.skippedRules;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is GateSkip =>
+      Boolean(item) &&
+      typeof (item as GateSkip).rule === 'string' &&
+      typeof (item as GateSkip).reason === 'string'
+  );
+}
+
 function isImpactedApi(value: unknown): value is ArchitectureDeltaImpactedApi {
   const api = value as Partial<ArchitectureDeltaImpactedApi> | null;
   const symbol = api?.routeSymbol as Partial<ArchitectureDeltaSymbol> | undefined;
@@ -501,6 +525,19 @@ export function CiGateView({ repo, dashboard, client, onNavigate }: CiGateViewPr
                       {run.violationsCount > 0 && (
                         <span data-testid="gate-run-violations" className="shrink-0 text-danger">
                           违规 {run.violationsCount}
+                        </span>
+                      )}
+                      {/* v1.2.x（Round5）— 有规则被弃权时明说。没这一条，一次因为
+                          「静态图不足以判定」而 PASS 的运行看起来和「全部通过」一模一样。 */}
+                      {gateSkipsOf(run).length > 0 && (
+                        <span
+                          data-testid="gate-run-skipped"
+                          className="shrink-0 text-warning"
+                          title={gateSkipsOf(run)
+                            .map((s) => `${s.rule}：${s.reason}${s.detail ? `（${s.detail}）` : ''}`)
+                            .join('\n')}
+                        >
+                          弃权 {gateSkipsOf(run).length} 条规则
                         </span>
                       )}
                       <span className="shrink-0 text-muted" title={run.createdAt}>{fmtRunTime(run.createdAt)}</span>

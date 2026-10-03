@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { RepoSymbol } from '../ingest/repoqa-repos';
 import { adapterFor } from '../ingest/repoqa-parser';
 import { CallResolver, symbolIdentity } from './repoqa-callchain';
+import { isTestPath } from '../diagnose-engine';
 import { scanPom, scanProperties, scanYaml, type ScannedKey } from '../ingest/repoqa-config';
 import { SOURCE_EXTENSIONS } from '../languages/registry';
 import type {
@@ -40,6 +41,24 @@ export const ARCHITECTURE_DELTA_SCHEMA_VERSION = 1 as const;
 export type PolicyRule = 'max-affected-routes' | 'broken-chain' | 'auth-impact';
 export type DiffPolicyStatus = 'PASS' | 'FAIL';
 
+/**
+ * v1.2.x（Round5）— `broken-chain` 可判定的最低可达基线。低于它则弃权。
+ * 校准见 `DiffPolicyOptions.minRouteReachabilityForBreak` 的注释（五仓实测）。
+ */
+export const MIN_ROUTE_REACHABILITY_FOR_BREAK = 0.1;
+
+/**
+ * v1.2.x（Round5 测量后）— 规则**弃权**记录：不是违规，而是「这张静态图不足以支撑
+ * 这条规则」。与 violations 分开陈列，界面/CI 都能明确区分「判了 FAIL」与「判不了，
+ * 原因在此」。
+ */
+export interface PolicySkip {
+  rule: PolicyRule;
+  reason: string;
+  /** 弃权时附上的可核查数字（如「可达基线 0/2143 个方法」）。 */
+  detail?: string;
+}
+
 export interface DiffPolicyOptions {
   /** Fail when the number of affected API routes exceeds this limit. */
   maxAffectedRoutes?: number;
@@ -47,6 +66,21 @@ export interface DiffPolicyOptions {
   failOnBreak?: boolean;
   /** Fail when an impacted sensitive route lacks an auth guard. */
   failOnAuthImpact?: boolean;
+  /**
+   * v1.2.x — 本仓的「路由可达基线」，由 analyzeDiff 从**它实际使用的那张图**上量出
+   * 来（见 `RouteReachability`）。`broken-chain` 在基线为 0 时弃权：此时规则只能给出
+   * 恒 FAIL，任何判定都不携带信息。
+   */
+  routeReachability?: RouteReachability;
+  /**
+   * v1.2.x — `broken-chain` 判定所需的**最低可达基线**（0–1）。低于它则弃权。
+   * 校准依据（scripts/precision/gate_breakchain_measure.ts，五仓实测的放行率）：
+   *   spring-petclinic 26%、BossHunter 37%（规则可用）｜Nexus-Campus 15%（边缘）
+   *   ｜CodeCompass(Express) 0.5%、lazygit 无路由符号（纯噪声）。
+   * 取 0.10 把「纯噪声」挡在外面而不误伤 petclinic。**这是 n=5 的校准**，调大调小
+   * 只需改这里；想按仓调整就传覆盖值（CI 可逐仓给）。
+   */
+  minRouteReachabilityForBreak?: number;
 }
 
 export interface PolicyViolation {
@@ -59,6 +93,26 @@ export interface PolicyViolation {
 export interface DiffPolicyResult {
   status: DiffPolicyStatus;
   violations: PolicyViolation[];
+  /** v1.2.x：因数据不足而未判的规则（不计入 FAIL）。 */
+  skipped?: PolicySkip[];
+}
+
+/**
+ * v1.2.x（Round5）— 一次门禁运行里「这张图能支撑到什么程度」的自述。
+ *
+ * 测量工具（scripts/precision/gate_breakchain_measure.ts）在五个真实仓上的读数：
+ * CodeCompass(Express) 可达 0/200、lazygit 路由符号 0 个、Nexus-Campus 30/200、
+ * BossHunter 74/200、spring-petclinic 47/184。两种退化是可证的、与语言无关的：
+ *   - `routeMethods === 0`：仓里没有路由符号（纯库 / CLI / Go 后端）→「你的改动到不了
+ *     任何路由」这句话对每个符号都成立，规则退化为恒 FAIL。
+ *   - `reachable === 0 && productionMethods > 0`：**没有任何方法**能到达路由。实测
+ *     Express 仓 64 个 route 符号里 58 个零出边（处理函数是内联箭头函数），于是任何
+ *     方法都到不了路由 → 又一个恒 FAIL。
+ */
+export interface RouteReachability {
+  routeMethods: number;
+  productionMethods: number;
+  reachable: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -677,6 +731,12 @@ export interface DiffReport {
   affectedApis: AffectedApiEntry[];
   /** 被修改但未定位到上游 API 的方法（静态边界之外）。 */
   uncovered: Array<{ name: string; parentType?: string; file: string; line: number; side: 'head' | 'base' }>;
+  /**
+   * v1.2.x（Round5）— 本次分析所依据的那张图的「路由可达基线」。`broken-chain`
+   * 在基线为 0（无路由符号 / 无方法可达路由）时**弃权**而不是给恒 FAIL——实测五个真实
+   * 仓上该规则的 flag 率 63–100%，它只能恒定说 FAIL。
+   */
+  routeReachability?: RouteReachability;
   configChanges: ConfigChange[];
   mermaid: string;
   /** Issue 29: pr-summary 门禁判定；`diff` 命令不附加。 */
@@ -946,6 +1006,14 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
   const reachableModified = headModified.filter((entry) => entry.symbol.kind === 'method');
   const headReach = reverseReachability(headSymbols, reachableModified);
 
+  /* v1.2.x（Round5 测量后）— 本次运行所依据的**这张图**的可达基线。
+   *
+   * 必须从 headSymbols（规则实际用的那张图）上量，而不是全仓索引：规则看不到的边，
+   * 自测时也必须看不到，否则弃权判据会替规则「补边」而失真。
+   * 基线为 0 或没有路由符号时，`broken-chain` 弃权（见 evaluateDiffPolicy）。
+   */
+  const routeReachability = measureRouteReachability(headSymbols);
+
   let baseReach: { hits: ReachabilityHit[]; uncovered: ModifiedSymbol[] } = {
     hits: [],
     uncovered: []
@@ -1055,6 +1123,8 @@ export async function analyzeDiff(options: AnalyzeDiffOptions): Promise<DiffRepo
     repoName: path.basename(repoPath),
     base: options.base,
     head: options.head,
+    // v1.2.x：随报告带上这张图的可达基线，供策略层决定弃权（并让 CLI/界面能展示）。
+    routeReachability,
     baseSha,
     headSha,
     changedFiles: statuses
@@ -1207,6 +1277,68 @@ function routeLabel(api: AffectedApiEntry): string {
 }
 
 /**
+ * v1.2.x（Round5）— 量一张图自己的「路由可达基线」。
+ *
+ * 口径刻意与 `reverseReachability` 同源（同 `CallResolver`、同 route method 判定），
+ * 但被测集合是**全图的生产方法**而不是本次改动的符号：问的是「这张图本身能支撑
+ * broken-chain 吗」，不是「这次改动有哪些不可达」。基准独立于被测对象。
+ */
+export function measureRouteReachability(symbols: RepoSymbol[]): RouteReachability {
+  const routeClassNames = new Set(
+    symbols.filter((s) => s.kind === 'route').map((s) => s.name)
+  );
+  const routeIds = new Set<string>();
+  for (const s of symbols) {
+    if (
+      s.kind === 'route' ||
+      (s.kind === 'method' && s.parentType && routeClassNames.has(s.parentType))
+    ) {
+      routeIds.add(symbolIdentity(s));
+    }
+  }
+  const production = symbols.filter((s) => s.kind === 'method' && !isTestPath(s.filePath));
+  if (routeIds.size === 0 || production.length === 0) {
+    return { routeMethods: routeIds.size, productionMethods: production.length, reachable: 0 };
+  }
+  // 反向索引一次，逐个生产方法判可达。
+  const resolver = new CallResolver(symbols);
+  const callersOf = new Map<string, Set<string>>();
+  for (const caller of symbols) {
+    if (caller.kind !== 'method' && caller.kind !== 'route') continue;
+    for (const call of caller.calls ?? []) {
+      const resolved = resolver.resolve(caller, call);
+      if (!('target' in resolved) || !resolved.target) continue;
+      const callee = symbolIdentity(resolved.target);
+      let set = callersOf.get(callee);
+      if (!set) {
+        set = new Set<string>();
+        callersOf.set(callee, set);
+      }
+      set.add(symbolIdentity(caller));
+    }
+  }
+  const reachesRoute = (startId: string): boolean => {
+    const seen = new Set<string>([startId]);
+    const queue = [startId];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (routeIds.has(cur)) return true;
+      for (const next of callersOf.get(cur) ?? []) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    return false;
+  };
+  let reachable = 0;
+  for (const m of production) {
+    if (reachesRoute(symbolIdentity(m))) reachable += 1;
+  }
+  return { routeMethods: routeIds.size, productionMethods: production.length, reachable };
+}
+
+/**
  * Issue 29 — deterministic gate evaluation for `pr-summary`. Every enabled
  * rule either contributes concrete violations or stays silent, so CI gets a
  * stable PASS/FAIL verdict with Markdown-ready diagnostics.
@@ -1229,15 +1361,51 @@ export function evaluateDiffPolicy(
     });
   }
 
-  if (options.failOnBreak && report.uncovered.length > 0) {
-    violations.push({
-      rule: 'broken-chain',
-      message: `${report.uncovered.length} 个被修改符号无法经静态调用边到达任何路由`,
-      details: report.uncovered.map(
-        (entry) =>
-          `${entry.parentType ? `${entry.parentType}.` : ''}${entry.name} @ ${entry.file}:${entry.line} (${entry.side === 'head' ? '新增/修改' : '删除'})`
-      )
-    });
+  /* v1.2.x（Round5 测量后）— broken-chain 先自测本仓能不能支撑这条规则，撑不住就
+     **弃权**（记入 skipped，不计入 FAIL），而不是给一个恒 FAIL。
+     动机是实测：五个真实仓上这条规则的 flag 率 63–100%（CodeCompass 200/200、
+     lazygit 200/200），它只能恒定说 FAIL。两种退化可证且与语言无关：
+       - 仓里没有路由符号（纯库 / CLI / Go 后端）→「你的改动到不了任何路由」对每个
+         符号都成立；
+       - 没有任何方法能到达路由（实测 Express 仓 64 个 route 符号有 58 个零出边，
+         处理函数是内联箭头函数）→ 规则无判别力。 */
+const skipped: PolicySkip[] = [];
+  if (options.failOnBreak) {
+    const rr = options.routeReachability;
+    const minBaseline =
+      options.minRouteReachabilityForBreak ?? MIN_ROUTE_REACHABILITY_FOR_BREAK;
+    const noRoutes = rr !== undefined && rr.routeMethods === 0;
+    const baseline =
+      rr && rr.productionMethods > 0 ? rr.reachable / rr.productionMethods : undefined;
+    const tooLow = baseline !== undefined && baseline < minBaseline;
+    if (noRoutes || tooLow) {
+      skipped.push({
+        rule: 'broken-chain',
+        reason: noRoutes
+          ? '本仓没有路由符号，"改动是否连得上入口"在这张图上无法判定'
+          : `这张静态图的路由可达基线 ${(baseline! * 100).toFixed(1)}% 低于 ${(minBaseline * 100).toFixed(0)}% 的判定门槛（框架动态注册的处理函数多未进索引）——规则判不了，不做判定`,
+        ...(rr
+          ? {
+              detail: `可达基线 ${rr.reachable}/${rr.productionMethods} 个生产方法可达路由；路由符号 ${rr.routeMethods} 个`
+            }
+          : {})
+      });
+    } else {
+      /* 测试路径先剔掉：测试代码**按定义**到不了任何生产路由，让它进这条规则等于
+       * 「只加测试的 PR 必然 FAIL」。实测（Nexus-Campus 一次 16 文件的真实提交）：
+       * 24 条 uncovered 里 12 条是 `*.java` 测试方法，全是噪声。 */
+      const judgeable = report.uncovered.filter((entry) => !isTestPath(entry.file));
+      if (judgeable.length > 0) {
+        violations.push({
+          rule: 'broken-chain',
+          message: `${judgeable.length} 个被修改符号无法经静态调用边到达任何路由`,
+          details: judgeable.map(
+            (entry) =>
+              `${entry.parentType ? `${entry.parentType}.` : ''}${entry.name} @ ${entry.file}:${entry.line} (${entry.side === 'head' ? '新增/修改' : '删除'})`
+          )
+        });
+      }
+    }
   }
 
   if (options.failOnAuthImpact) {
@@ -1255,27 +1423,40 @@ export function evaluateDiffPolicy(
 
   return {
     status: violations.length > 0 ? 'FAIL' : 'PASS',
-    violations
+    violations,
+    ...(skipped.length > 0 ? { skipped } : {})
   };
 }
 
 /** Issue 29: standalone Markdown verdict block for a gate result. */
 export function renderPolicyMarkdown(result: DiffPolicyResult): string {
   const lines = ['## 门禁判定', ''];
+  const skipLines = (result.skipped ?? []).map((skip) => {
+    const detail = skip.detail ? `（${skip.detail}）` : '';
+    return `- **${skip.rule} 弃权**：${skip.reason}${detail}`;
+  });
   if (result.status === 'PASS') {
     lines.push('**PASS** — 未触发任何策略违规。');
     lines.push('');
-    return lines.join('\n');
-  }
-  lines.push(`**FAIL** — ${result.violations.length} 项策略违规：`);
-  lines.push('');
-  for (const violation of result.violations) {
-    lines.push(`### ${violation.rule}`);
+  } else {
+    lines.push(`**FAIL** — ${result.violations.length} 项策略违规：`);
     lines.push('');
-    lines.push(`- ${violation.message}`);
-    for (const detail of violation.details) {
-      lines.push(`  - \`${detail}\``);
+    for (const violation of result.violations) {
+      lines.push(`### ${violation.rule}`);
+      lines.push('');
+      lines.push(`- ${violation.message}`);
+      for (const detail of violation.details) {
+        lines.push(`  - \`${detail}\``);
+      }
+      lines.push('');
     }
+  }
+  // v1.2.x（Round5）：弃权必须显式说出来。一次因为「静态图判不了」而 PASS 的运行，
+  // 若与「全部通过」长得一样，就是在隐瞒——用户会以为那条规则真的判过了。
+  if (skipLines.length > 0) {
+    lines.push('### 未判定的规则（弃权）');
+    lines.push('');
+    lines.push(...skipLines);
     lines.push('');
   }
   return lines.join('\n');

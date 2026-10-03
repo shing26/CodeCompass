@@ -1,3 +1,5 @@
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import { openDb } from '../../services/control-plane/src/db';
 import { EventBus } from '../../services/control-plane/src/events';
 import { RepoQARepos } from '../../services/control-plane/src/ingest/repoqa-repos';
@@ -33,6 +35,42 @@ import { symbolIdentity } from '../../services/control-plane/src/engine/repoqa-c
  *     scripts/precision/gate_breakchain_measure.ts <repoPath> [repoPath...]
  */
 
+const execFile = promisify(execFileCallback);
+
+/**
+ * 「变更文件图」对照——本轮测量的第二问，也是比第一问更根本的一问。
+ *
+ * `analyzeDiff` 的可达性图**只由变更文件构成**（`headSymbols = parseRefSymbols(
+ * repoPath, head, headSourceFiles)`，未变更文件不在图里）。反向 BFS 沿 callers
+ * 向上找路由，调用链只要跨出变更文件就断了 → 直接进 `uncovered`。
+ *
+ * 所以要分清两件事：
+ *   (a) **全仓图**下的不可达 = 索引缺边（第一问，已测）；
+ *   (b) **变更文件图**下的额外不可达 = 规则按构造就该失效（第二问，本段）。
+ * 用最后一次真实提交当变更集，对比同一批方法在两张图下的可达率。
+ */
+async function changedFilesOfLastCommit(repoPath: string): Promise<string[]> {
+  try {
+    const { stdout } = await execFile('git', ['diff', '--name-only', 'HEAD~1..HEAD'], {
+      cwd: repoPath,
+      maxBuffer: 16 * 1024 * 1024
+    });
+    return stdout
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/** 归一为 posix 相对路径，便于与符号的 filePath 对齐。 */
+function normRel(repoPath: string, p: string): string {
+  const norm = p.replace(/\\/g, '/');
+  const root = repoPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  return norm.startsWith(root) ? norm.slice(root.length + 1) : norm;
+}
+
 const SEED = 20261003;
 const SAMPLE_SIZE = 200;
 
@@ -55,6 +93,15 @@ interface RepoVerdict {
   /** 严格图下可达 → 规则正确放行。 */
   correctPass: number;
   examples: Array<{ symbol: string; file: string; line: number }>;
+  /* 「变更文件图」对照：同一批方法，改用 analyzeDiff 实际使用的那张（残缺）图 */
+  diffGraph: {
+    changedFiles: number;
+    changedMethods: number;
+    /** 在全仓图下可达路由的方法数 */
+    reachableInFullGraph: number;
+    /** 同一批方法在「只含变更文件」的图下可达数 */
+    reachableInDiffGraph: number;
+  };
 }
 
 function dominantLanguage(symbols: RepoSymbol[]): string {
@@ -237,6 +284,28 @@ async function measure(repoPath: string): Promise<RepoVerdict> {
       }
     }
 
+    /* ── 对照：把图裁成「只有变更文件」再测一次（analyzeDiff 的真实做法） ── */
+    const changedFiles = await changedFilesOfLastCommit(repoPath);
+    const changedSet = new Set(changedFiles.map((f) => normRel(repoPath, f)));
+    const changedSymbols = symbols.filter((s) => changedSet.has(s.filePath));
+    const changedMethods = changedSymbols.filter(
+      (s) => s.kind === 'method' && !isTestPath(s.filePath)
+    );
+    const diffEdges = buildEdges(changedSymbols, buildCallIndex(changedSymbols));
+    const diffRouteIds = new Set(
+      changedSymbols
+        .filter((s) => routeIds.has(symbolIdentity(s)))
+        .map((s) => symbolIdentity(s))
+    );
+    const diffIdToSymbol = new Map(changedSymbols.map((s) => [symbolIdentity(s), s]));
+    let fullReach = 0;
+    let diffReach = 0;
+    for (const m of changedMethods) {
+      const id = symbolIdentity(m);
+      if (reachesRoute(id, strict, idToSymbol, routeIds)) fullReach += 1;
+      if (reachesRoute(id, diffEdges.strict, diffIdToSymbol, diffRouteIds)) diffReach += 1;
+    }
+
     return {
       repo: repoPath.split(/[\\/]/).pop() ?? repoPath,
       language: dominantLanguage(symbols),
@@ -249,7 +318,13 @@ async function measure(repoPath: string): Promise<RepoVerdict> {
       noCallers,
       callersButDeadEnd,
       correctPass,
-      examples
+      examples,
+      diffGraph: {
+        changedFiles: changedSet.size,
+        changedMethods: changedMethods.length,
+        reachableInFullGraph: fullReach,
+        reachableInDiffGraph: diffReach
+      }
     };
   } finally {
     db.close();
@@ -288,6 +363,22 @@ async function main(): Promise<void> {
         `    被 flag 样例: ${v.examples.map((e) => `${e.symbol}@${e.file.split(/[\\/]/).pop()}:${e.line}`).join(', ')}`
       );
     }
+  }
+  console.log('\n--- 对照：analyzeDiff 实际使用的「只有变更文件」图 ---');
+  console.log('同一批方法（最后一次真实提交涉及的变更文件里的生产方法），分别在全仓图与');
+  console.log('变更文件图上判可达。差额就是**规则按构造丢掉的信号**，与索引质量无关。\n');
+  for (const v of verdicts) {
+    const d = v.diffGraph;
+    if (d.changedMethods === 0) {
+      console.log(`${v.repo.padEnd(20)} 无变更文件可对照（HEAD~1 不存在或非 git 仓）`);
+      continue;
+    }
+    const full = d.reachableInFullGraph;
+    const diff = d.reachableInDiffGraph;
+    console.log(
+      `${v.repo.padEnd(20)} 变更文件${String(d.changedFiles).padStart(4)} 方法${String(d.changedMethods).padStart(4)} | 全仓图可达 ${String(full).padStart(4)} → 变更文件图可达 ${String(diff).padStart(4)}` +
+        `  (${d.changedMethods > 0 ? ((diff / d.changedMethods) * 100).toFixed(0) : '—'}%)`
+    );
   }
   console.log('\n读法：flag 越多，门禁越吵；假阳性占比越高，越说明是缺边而非真死码。');
 }

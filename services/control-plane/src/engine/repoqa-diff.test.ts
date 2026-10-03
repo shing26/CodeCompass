@@ -548,6 +548,98 @@ describe('Issue 29 diff policy gate', () => {
     expect(renderPolicyMarkdown(result)).toContain('max-affected-routes');
   });
 
+  /* v1.2.x（Round5 测量后）— `broken-chain` 先自测这张图撑不撑得住规则，撑不住就
+     **弃权**（skipped，不计入 FAIL）。
+     动机是实测：五个真实仓上该规则 flag 率 63–100%（CodeCompass 200/200、lazygit
+     200/200），它只能恒定说 FAIL。两种退化可证且与语言无关：仓里没有路由符号；
+     没有任何方法能到达路由（实测 Express 仓 64 个 route 符号有 58 个零出边，处理
+     函数是内联箭头函数）。 */
+  it('abstains broken-chain when the graph has no route symbol at all', () => {
+    const report = makePolicyReport({
+      uncovered: [{ name: 'orphanMethod', file: 'src/Orphan.java', line: 5, side: 'head' }]
+    });
+    const result = evaluateDiffPolicy(report, {
+      failOnBreak: true,
+      routeReachability: { routeMethods: 0, productionMethods: 42, reachable: 0 }
+    });
+    expect(result.status).toBe('PASS');
+    expect(result.violations).toHaveLength(0);
+    expect(result.skipped?.[0].rule).toBe('broken-chain');
+    expect(result.skipped?.[0].reason).toContain('没有路由符号');
+    // 弃权要附可核查数字
+    expect(result.skipped?.[0].detail).toContain('0/42');
+  });
+
+  it('abstains broken-chain when nothing in the graph can reach a route', () => {
+    const report = makePolicyReport({
+      uncovered: [{ name: 'orphanMethod', file: 'src/Orphan.java', line: 5, side: 'head' }]
+    });
+    const result = evaluateDiffPolicy(report, {
+      failOnBreak: true,
+      routeReachability: { routeMethods: 64, productionMethods: 120, reachable: 0 }
+    });
+    expect(result.status).toBe('PASS');
+    expect(result.violations).toHaveLength(0);
+    expect(result.skipped?.[0].detail).toContain('0/120');
+  });
+
+  it('still judges broken-chain when the baseline is non-zero（别把信号一起弃掉）', () => {
+    const report = makePolicyReport({
+      uncovered: [{ name: 'orphanMethod', file: 'src/Orphan.java', line: 5, side: 'head' }]
+    });
+    const result = evaluateDiffPolicy(report, {
+      failOnBreak: true,
+      routeReachability: { routeMethods: 24, productionMethods: 184, reachable: 47 }
+    });
+    expect(result.status).toBe('FAIL');
+    expect(result.violations[0].rule).toBe('broken-chain');
+    expect(result.skipped).toBeUndefined();
+  });
+
+  it('judges broken-chain as before when no baseline is supplied（旧调用方不受影响）', () => {
+    const report = makePolicyReport({
+      uncovered: [{ name: 'orphanMethod', file: 'src/Orphan.java', line: 5, side: 'head' }]
+    });
+    const result = evaluateDiffPolicy(report, { failOnBreak: true });
+    expect(result.status).toBe('FAIL');
+    expect(result.violations[0].rule).toBe('broken-chain');
+  });
+
+  /* 测试代码按定义到不了任何生产路由，让它进 broken-chain 等于「只加测试的 PR 必然
+     FAIL」。实测：Nexus-Campus 一次 16 文件真实提交，24 条 uncovered 里 12 条是测试
+     方法，纯噪声。 */
+  it('excludes test paths from broken-chain（只加测试的 PR 不该 FAIL）', () => {
+    const result = evaluateDiffPolicy(
+      makePolicyReport({
+        uncovered: [
+          { name: 'setup', file: 'src/test/java/com/x/FooTest.java', line: 12, side: 'head' },
+          { name: 'realMethod', file: 'src/main/java/com/x/Foo.java', line: 30, side: 'head' }
+        ]
+      }),
+      { failOnBreak: true, routeReachability: { routeMethods: 24, productionMethods: 184, reachable: 47 } }
+    );
+    expect(result.status).toBe('FAIL');
+    expect(result.violations).toHaveLength(1);
+    expect(result.violations[0].details).toHaveLength(1);
+    expect(result.violations[0].details[0]).toContain('realMethod');
+    expect(result.violations[0].details[0]).not.toContain('FooTest');
+  });
+
+  it('passes silently when every uncovered symbol is a test path', () => {
+    const result = evaluateDiffPolicy(
+      makePolicyReport({
+        uncovered: [
+          { name: 'setup', file: 'src/test/java/com/x/FooTest.java', line: 12, side: 'head' },
+          { name: 'teardown', file: 'src/test/java/com/x/BarTest.java', line: 4, side: 'head' }
+        ]
+      }),
+      { failOnBreak: true, routeReachability: { routeMethods: 24, productionMethods: 184, reachable: 47 } }
+    );
+    expect(result.status).toBe('PASS');
+    expect(result.violations).toHaveLength(0);
+    expect(result.skipped).toBeUndefined();
+  });
+
   it('fails when modified symbols cannot reach any route', () => {
     const report = makePolicyReport({
       uncovered: [{ name: 'orphanMethod', file: 'src/Orphan.java', line: 5, side: 'head' }]
