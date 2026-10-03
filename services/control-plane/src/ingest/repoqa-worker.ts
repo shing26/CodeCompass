@@ -32,6 +32,18 @@ import {
   applyImplicitInterfaces
 } from '../engine/repoqa-callchain';
 import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
+
+/**
+ * v1.2.x（Round5 用户报障：中文问句答出不相干内容）— 一个符号都没解析到时的出口。
+ *
+ * 能力边界如实说清：入口解析是 keyword/substring（ADR-0002，无语义检索），中文自然
+ * 语言问句只有「仓库注释/文档本身写着中文」时才可能命中（eval 的 intent-anchor 九题
+ * 注释写明「only the doc-chunk bridge can resolve them」）。注释是英文的仓（含本仓）
+ * 中文问句当前无路可走——所以给「带一个符号名再问」这个真实可行的出口，而不是假装
+ * 解析到了什么。
+ */
+const NO_START_SYMBOL_HINT =
+  '没能从这个问题里定位到具体符号。入口解析只认标识符文本（无语义检索），中文问句需要仓库注释/文档本身是中文才可能命中——试着在问题里带上一个符号名（如 indexRepo）。';
 import { runDiagnose, isTestPath } from '../diagnose-engine';
 import { runBlastRadius } from '../blast-radius';
 import { runDomainRadar } from '../domain-radar-engine';
@@ -1104,6 +1116,15 @@ export class RepoQAWorker {
           });
         }
       } else {
+        /* v1.2.x（Round5）— 「一个符号都没解析到」必须显式记为低置信。
+         *
+         * 删掉 `resolveStartSymbol` 的任意兜底后，`resolution?.fallback ?? false`
+         * 在 undefined 时是 false、confidence 是 undefined，于是
+         * `lowConfidence = startFallback || (confidence < 0.6)` 变成 **false**——
+         * 「完全没解析到」反而被报成高置信。这里补回来：未解析 = fallback + 置信 0。
+         */
+        startFallback = true;
+        startConfidence = 0;
         this.repoqa.recordEvent({
           repoId: repo.id,
           eventType: 'tool.miss',
@@ -1155,8 +1176,11 @@ export class RepoQAWorker {
             // Issue 05: surface the break marker textually so deterministic
             // call-chain queries never look like silent success.
             const breakHop = trace?.find((hop) => hop.break);
+            /* v1.2.x（Round5）：原文写「以下基于默认入口推导供参考」——那句描述的是
+             * 被删掉的那个任意兜底（红线①同款）。现在「未解析到符号」就是未解析到，
+             * 不能再暗示背后有个默认入口在推导。 */
             const fallbackPrefix = startFallback
-              ? '未在工程中定位到精确对应符号，以下基于默认入口推导供参考。\n\n'
+              ? '未在工程中定位到精确对应符号——本回答不含符号级调用链证据。\n\n'
               : '';
             const chainLines =
               trace && trace.length > 0
@@ -1187,9 +1211,18 @@ export class RepoQAWorker {
     if (anchors.length > 0) {
       yield { type: 'repoqa.query.anchors', payload: { anchors } };
     }
+    /* v1.2.x（Round5）— 一个符号都没解析到时，给出**可执行**的下一步而不是空指针。
+     *
+     * 能力边界要如实说：入口解析是 keyword/substring（ADR-0002，无语义检索），
+     * 中文自然语言问句只有在仓库注释/文档本身写着中文时才可能命中（eval 的
+     * intent-anchor 九题注释写明「only the doc-chunk bridge can resolve them」）。
+     * 注释是英文的仓，中文问句当前无路可走——所以出口是「带一个符号名再问」，
+     * 而不是假装解析到了什么。
+     */
     const suggestedAction =
       route ? `Trace ${route.name}` :
-      anchors.length > 0 ? `Inspect ${anchors[0].symbol}` : undefined;
+      anchors.length > 0 ? `Inspect ${anchors[0].symbol}` :
+      usesSymbolResolution ? NO_START_SYMBOL_HINT : undefined;
     this.repoqa.recordEvent({
       repoId: repo.id,
       eventType: 'query.done',
@@ -1753,10 +1786,30 @@ export class RepoQAWorker {
       const match = find(symbols, typeKinds, word);
       if (match) return { symbol: match, fallback: false, confidence: 1 };
     }
-    const fallback =
-      prodSymbols.find((symbol) => symbol.kind === 'method') ??
-      symbols.find((symbol) => symbol.kind === 'method');
-    return fallback ? { symbol: fallback, fallback: true, confidence: 0.2 } : undefined;
+    /* v1.2.x（Round5 用户报障：中文问句答出不相干内容）— 删掉任意兜底。
+     *
+     * 上面的词表（`question.toLowerCase().match(...)`，字符类只含 ASCII 标识符字符）
+     * **提不出任何中文词元**：中文问句（如
+     * 「索引是怎么建立起来的？」）提取出 0 个词，词级匹配全部空转，于是每次都落到
+     * 这里「取仓库第一个方法符号」。本仓第一个 method 是 `AnswerBody`（前端 React
+     * 组件），于是中文问句稳定答出 React 组件——与红线①（trace 解析器里的同类兜底）
+     * 是同一个反模式，只是发生在**入口解析**这一层。
+     *
+     * 按红线①的同一口径处理：**没有起点就没有起点**。解析不出来就返回 undefined，
+     * 由 `queryRepo` 如实标低置信并给出可执行出口（问题里带一个符号名再问一次），
+     * 而不是拿一个不相干的符号编出确定性答案。
+     *
+     * ⚠ 不能只删兜底：`resolution?.fallback ?? false` 在 resolution 为 undefined 时
+     * 得到 false、confidence 为 undefined，于是
+     * `lowConfidence = startFallback || (confidence < 0.6)` 为 **false**——完全没解析
+     * 到符号反而被报成高置信。`queryRepo` 侧必须一并把「未解析」显式记为 fallback。
+     *
+     * 能力边界（ADR-0002：keyword/substring，无语义检索）：中文问句唯一能走的桥是
+     * **文档分块**——仓库注释/文档里写着中文时才可能命中（见 eval 的 intent-anchor
+     * 九题，注释写明「only the doc-chunk bridge can resolve them」）。注释是英文的仓
+     * （含本仓）中文问句无路可走，这不是本函数能补的，先如实说出来。
+     */
+    return undefined;
   }
 
   private findStartSymbol(

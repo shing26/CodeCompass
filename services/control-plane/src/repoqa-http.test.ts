@@ -2192,9 +2192,12 @@ describe('RepoPulse architecture question resolution (Round 2)', () => {
         const doneData = JSON.parse(
           doneBlock!.slice(doneBlock!.indexOf('data: ') + 6)
         ) as { answer: string };
+        // v1.2.x（Round5）：前缀原文写「基于默认入口推导」，但那个任意兜底已被删除——
+        // 不能再暗示背后有个默认入口。文案改为如实说「不含符号级调用链证据」。
         expect(doneData.answer).toContain(
-          '未在工程中定位到精确对应符号，以下基于默认入口推导供参考。'
+          '未在工程中定位到精确对应符号——本回答不含符号级调用链证据。'
         );
+        expect(doneData.answer).not.toContain('默认入口推导');
       }
     } finally {
       await ctx.close();
@@ -2240,9 +2243,12 @@ describe('RepoPulse architecture question resolution (Round 2)', () => {
         .find((block) => block.startsWith('event: repoqa.query.done'));
       const fallbackData = JSON.parse(
         fallbackBlock!.slice(fallbackBlock!.indexOf('data: ') + 6)
-      ) as { confidence: number; lowConfidence: boolean };
-      expect(fallbackData.confidence).toBe(0.2);
+      ) as { confidence: number; lowConfidence: boolean; suggestedAction?: string };
+      // v1.2.x（Round5）：解析不到符号时不再返回「第一个方法符号 + confidence 0.2」。
+      // 现在 confidence 记 0、lowConfidence 为 true，并给出可执行出口。
+      expect(fallbackData.confidence).toBe(0);
       expect(fallbackData.lowConfidence).toBe(true);
+      expect(fallbackData.suggestedAction).toContain('符号');
     } finally {
       await ctx.close();
       await fs.rm(root, { recursive: true, force: true });

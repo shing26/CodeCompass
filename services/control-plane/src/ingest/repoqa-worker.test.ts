@@ -235,7 +235,49 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
     }
   }, 20_000);
 
-  it('returns exact-symbol confidence 1 and default-entry fallback 0.2', async () => {
+  /* v1.2.x（Round5 用户报障：中文问句答出不相干内容）— 删掉「取第一个方法符号」兜底。
+   *
+   * 词表（`question.toLowerCase().match(...)`，字符类只含 ASCII 标识符字符）提不出任何
+   * 中文词元，词级匹配
+   * 全空转后必落兜底 → 「取仓库第一个方法符号」。本仓第一个 method 是 AnswerBody
+   * （前端 React 组件），于是中文问句稳定答出 React 组件——与红线①（trace 解析器
+   * 里的同类兜底）同一个反模式，只是发生在**入口解析**这一层。
+   *
+   * 修法同红线①：解析不出来就返回 undefined，由 queryRepo 如实标低置信 + 给可执行
+   * 出口，而不是拿不相干的符号编一个确定性答案。 */
+  it('returns no start symbol (instead of the first method in the repo) when nothing resolves', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-worker-nostart-'));
+    const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
+    await fs.mkdir(pkg, { recursive: true });
+    await fs.writeFile(
+      path.join(pkg, 'App.java'),
+      'package com.demo;\npublic class App {\n  public static void main(String[] args) { new Controller().hello(); }\n}\n'
+    );
+    await fs.writeFile(
+      path.join(pkg, 'Controller.java'),
+      'package com.demo;\npublic class Controller {\n  public String hello() { return "hi"; }\n}\n'
+    );
+
+    const db = openDb(':memory:');
+    const repoqa = new RepoQARepos(db);
+    const worker = new RepoQAWorker(repoqa, new EventBus());
+    try {
+      const result = await worker.indexRepo({ localPath: root, name: 'nostart' });
+      if (!result.repo) throw new Error('repo row lost');
+
+      // 纯中文问句：词表提不出任何 ASCII 标识符
+      expect(worker.resolveStartSymbolForQuery(result.repo.id, '这个仓库是怎么建立起来的？')).toBeUndefined();
+      // 纯 ASCII 但仓库里没有的符号：同样不猜
+      expect(worker.resolveStartSymbolForQuery(result.repo.id, 'zzzz不存在符号')).toBeUndefined();
+      // 带真实符号名仍然正常命中（别把好路径一起改坏）
+      expect(worker.resolveStartSymbolForQuery(result.repo.id, 'hello')?.symbol.name).toBe('hello');
+    } finally {
+      db.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it('returns exact-symbol confidence 1 (the 0.2 default-entry fallback is gone)', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-worker-confidence-'));
     const pkg = path.join(root, 'src', 'main', 'java', 'com', 'demo');
     await fs.mkdir(pkg, { recursive: true });
@@ -261,10 +303,9 @@ describe('RepoQAWorker index progress (Bug-R2-04)', () => {
       expect(exact?.fallback).toBe(false);
       expect(exact?.confidence).toBe(1);
 
-      const fallback = worker.resolveStartSymbolForQuery(result.repo.id, 'zzzz不存在符号');
-      expect(fallback?.fallback).toBe(true);
-      expect(fallback?.confidence).toBe(0.2);
-      expect(fallback?.symbol.kind).toBe('method');
+      // v1.2.x（Round5）：解析不到时不再返回「第一个方法符号 + confidence 0.2」，
+      // 那正是中文问句稳定答出不相干符号的来源（见上一条用例）。
+      expect(worker.resolveStartSymbolForQuery(result.repo.id, 'zzzz不存在符号')).toBeUndefined();
 
       // Compatibility wrapper still resolves the same symbol.
       expect(worker.findStartSymbolForQuery(result.repo.id, 'hello')?.name).toBe('hello');
