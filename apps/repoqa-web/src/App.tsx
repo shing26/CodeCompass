@@ -287,7 +287,6 @@ function WorkbenchShell() {
               anchors={canvasAnchors}
               traceSteps={canvasTraceSteps}
               onNavigate={inspector.openFile}
-              symbols={symbols}
               deepLinkFocus={deepLink.focus}
               deepLinkTraceId={deepLink.traceId}
               focusRequest={paletteFocus}

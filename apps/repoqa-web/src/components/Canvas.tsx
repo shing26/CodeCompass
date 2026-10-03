@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Anchor, Repo, RepoSymbol, RepoDashboard, TopApiEntry, TraceStep } from '../types';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import type { Anchor, Repo, RepoDashboard, TopApiEntry, TraceStep } from '../types';
 import type { RepoQAClient } from '../client/RepoQAClient';
 import { Badge } from './ui/Badge';
 import { CountPill } from './ui/CountPill';
@@ -30,8 +30,12 @@ interface CanvasProps {
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** Issue 18: pinned "back to dashboard" entry inside the canvas. */
   onBackToDashboard?: () => void;
-  /** Issue 31: symbol catalog for the workbench API/SQL impact counts. */
-  symbols?: RepoSymbol[];
+  /**
+   * v1.2.x（Round5 R5-11）— 移除：原 `↑API / ↓SQL` 两个焦点计数由它算出，而那两个
+   * 数字是**整仓常量**、与焦点无关（详见组件内注释）。保留一个无人消费的 prop 只是
+   * 换一种形式留死代码，故一并移除。
+   */
+  symbols?: never;
   /**
    * v0.8 — deep-link focus (?focus=&traceId=): flashes and scrolls to the
    * matching trace card once a trace has resolved for the linked symbol.
@@ -73,7 +77,6 @@ export function Canvas({
   traceSteps = null,
   onNavigate,
   onBackToDashboard,
-  symbols = [],
   deepLinkFocus = null,
   deepLinkTraceId = null,
   focusRequest: externalFocusRequest = null,
@@ -111,14 +114,15 @@ export function Canvas({
   const flowAnchors = anchors ?? [];
   const selectedNode = flowAnchors[0]?.symbol ?? repo?.name ?? '—';
   const affectedCount = flowAnchors.length;
-  const apiCount = useMemo(
-    () => symbols.filter((s) => s.kind === 'route' || s.displayPath).length,
-    [symbols]
-  );
-  const sqlCount = useMemo(
-    () => symbols.filter((s) => s.kind === 'sql' || s.kind === 'mapper').length,
-    [symbols]
-  );
+  /* v1.2.x（Round5 R5-11）— 删掉「↑ API / ↓ SQL」两个计数。
+   *
+   * 它们由**整仓 symbols** 算出（`symbols.filter(...)`），与焦点无关——点不同符号、
+   * 换不同枢纽，数字恒定不变。放在「焦点」条里会被读成「当前焦点影响多少接口」，
+   * 而它其实是「这个仓一共有多少接口」。而且概览层的「结构规模」已经用正确的标签
+   * 展示了同一组数字（接口 64 / 仓储 12…），两处并存纯属冗余。
+   *
+   * 若日后要真正做「焦点影响面」，那是 blast-radius 的活（blast_radius 图），不是
+   * 两个常量计数器该冒充的。 */
 
   // v0.11 (Stage 3/4) — a focus request (external Cmd+K or a trace-step jump)
   // flashes the matching topology card; the requestId increments every
@@ -187,14 +191,6 @@ export function Canvas({
               </span>
               <CountPill data-testid="affected-count">
                 {affectedCount} 受影响
-              </CountPill>
-            </div>
-            <div className="mb-3 flex items-center gap-2 text-micro font-medium text-muted">
-              <CountPill data-testid="api-count" variant="outline">
-                ↑ API {apiCount}
-              </CountPill>
-              <CountPill data-testid="sql-count" variant="outline">
-                ↓ SQL {sqlCount}
               </CountPill>
             </div>
             {onBackToDashboard && (
