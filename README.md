@@ -248,4 +248,4 @@ docs/adr/                   # 架构决策记录；术语表见 CONTEXT.md
 
 ## 版本
 
-当前版本：`v1.2.0`（单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.2.0 完整条目）。语义化版本规则见 `docs/adr/`。
+当前版本：`v1.3.0`（单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.3.0 完整条目）。语义化版本规则见 `docs/adr/`。
