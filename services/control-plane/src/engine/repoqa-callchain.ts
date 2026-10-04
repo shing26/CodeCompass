@@ -2,6 +2,7 @@ import type { RepoSymbol, RepoSymbolCall } from '../ingest/repoqa-repos';
 import {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  STATIC_ANALYSIS_BREAK_EXTERNAL,
   isExternalDispatchReason,
   type RepoQaTraceHop
 } from '../../../../packages/contracts/src/index';
@@ -27,6 +28,7 @@ import {
 export {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  STATIC_ANALYSIS_BREAK_EXTERNAL,
   isExternalDispatchReason
 };
 
@@ -721,9 +723,24 @@ function resolveCall(
     }
   }
   // Explicitly a dynamic/RPC-style dispatch (untyped receiver, chain, interface).
-  return call.dynamic || call.receiver
-    ? { reason: STATIC_ANALYSIS_BREAK_DYNAMIC }
-    : { reason: STATIC_ANALYSIS_BREAK_UNRESOLVED };
+  if (call.dynamic || call.receiver) {
+    return { reason: STATIC_ANALYSIS_BREAK_DYNAMIC };
+  }
+  /* v1.2.x（Round5 抽样后）— 「全仓根本没有这个名字」与「仓里有、却没解析出来」是
+     两回事，此前共用 UNRESOLVED，把前者算成了解析失败。
+     抽样实测（scripts/precision/edge_unresolved_sample.ts，接收者类型感知判定）：
+     四个语言合计约 1.96 万条未解析边属于前者——`os.RemoveAll`、`fmt.Sprintf`、
+     `list()` 这类标准库/内建/第三方调用，静态分析**按定义**看不见仓库外。
+     单列出来之后，「未解析」才回到真实水平（TS 92% 的未解析边曾属此类）。 */
+  const name = String(call.method ?? '').toLowerCase();
+  const knownSomewhere = [...index.methodsByName.keys()].some(
+    (key) => key.toLowerCase() === name
+  );
+  return {
+    reason: knownSomewhere
+      ? STATIC_ANALYSIS_BREAK_UNRESOLVED
+      : STATIC_ANALYSIS_BREAK_EXTERNAL
+  };
 }
 
 export function resolveCallChain(

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { openDb } from '../../services/control-plane/src/db';
-import { buildCallIndex, CallResolver, symbolIdentity } from '../../services/control-plane/src/engine/repoqa-callchain';
+import { buildCallIndex, CallResolver, isExternalDispatchReason, symbolIdentity } from '../../services/control-plane/src/engine/repoqa-callchain';
 import { isTestPath } from '../../services/control-plane/src/diagnose-engine';
 import type { RepoSymbol } from '../../services/control-plane/src/ingest/repoqa-repos';
 
@@ -120,7 +120,9 @@ for (const [repoId, symbols] of byRepo) {
       }
       const r = resolver.resolve(caller, call);
       if ('target' in r && r.target) resolved += 1;
-      else if ('reason' in r && /Dynamic/.test(r.reason)) dynamic += 1;
+      // v1.2.x：用共享判定而不是 `/Dynamic/` 正则——外部终止有两种成因（已知动态/
+      // 外部分派、名字全仓不存在），文案各不相同，正则会漏掉后者，指标继续灌水。
+      else if ('reason' in r && isExternalDispatchReason(r.reason)) dynamic += 1;
       else unresolved += 1;
     }
   }

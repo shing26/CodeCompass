@@ -129,6 +129,18 @@ export const STATIC_ANALYSIS_BREAK_UNRESOLVED =
   '[Static Analysis Break: target method not found]';
 
 /**
+ * v1.2.x（Round5 抽样后）— 被调用的名字**在整个仓里都不存在**：标准库、第三方包、
+ * 语言内建（`os.RemoveAll`、`fmt.Sprintf`、`list()`…）。静态分析看不见仓库外，这类边
+ * 按定义永远解析不了。
+ *
+ * 此前它们与「仓里有、却没解析出来」共用 UNRESOLVED（「target method not found」），
+ * 于是「未解析率」被灌水：抽样实测四个语言合计约 1.96 万条（TS 92%、Java 29%、
+ * Python 51% 的未解析边属此类）。把它单列出来，那个指标才回到真实水平。
+ */
+export const STATIC_ANALYSIS_BREAK_EXTERNAL =
+  '[Static Analysis Break: outside this repository]';
+
+/**
  * v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— `true` 表示这条终止是
  * **静态分析的边界**，不是解析失败。
  *
@@ -143,7 +155,14 @@ export const STATIC_ANALYSIS_BREAK_UNRESOLVED =
  * 用 `includes` 而非等值：HTTP 变体会在后面追加 ` HTTP GET /x`。
  */
 export function isExternalDispatchReason(reason: string | undefined | null): boolean {
-  return typeof reason === 'string' && reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC);
+  if (typeof reason !== 'string') return false;
+  // 「止于仓库外」有两种成因：已知是动态/外部分派（receiver/dynamic 标记），以及
+  // 名字全仓都不存在（标准库/第三方包）。两者在**分析边界**上是同一件事——
+  // 都是「目标不在本仓，静态分析到此为止」，展示层都该说「止于外部调用」而非「断链」。
+  return (
+    reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC) ||
+    reason.includes(STATIC_ANALYSIS_BREAK_EXTERNAL)
+  );
 }
 
 export interface DiagnoseChainStep {

@@ -10,6 +10,7 @@ import {
   CallResolver,
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  STATIC_ANALYSIS_BREAK_EXTERNAL,
   isExternalDispatchReason,
   resolveCallChain,
   resolveCallEdge,
@@ -771,7 +772,11 @@ describe('resolveCallChain — legacy format, cycles and depth', () => {
     expect(trace[1].lineEnd).toBe(5);
   });
 
-  it('keeps a break hop for a legacy unresolvable call', () => {
+  /* v1.2.x（Round5 抽样后）— 「名字全仓不存在」不再算「解析失败」。
+   * 抽样实测（scripts/precision/edge_unresolved_sample.ts）：四个语言合计约 1.96 万条
+   * 未解析边属于这一类（`os.RemoveAll`、`fmt.Sprintf`、`list()`…），静态分析按定义
+   * 看不见仓库外——它与「仓里有、却没绑上」是两回事，混在一起会把指标灌水。 */
+  it('classifies a bare call whose name exists nowhere as EXTERNAL, not unresolved', () => {
     const withMissing: RepoSymbol[] = [
       ...base,
       {
@@ -788,6 +793,38 @@ describe('resolveCallChain — legacy format, cycles and depth', () => {
     const broken = withMissing.find((s) => s.name === 'broken')!;
     const trace = resolveCallChain(withMissing, broken);
     expect(trace.map((hop) => hop.method)).toEqual(['broken', 'missingMethod']);
+    expect(trace[1]).toEqual(
+      expect.objectContaining({ break: true, reason: STATIC_ANALYSIS_BREAK_EXTERNAL })
+    );
+  });
+
+  it('still reports UNRESOLVED when the receiver type exists but lacks the method', () => {
+    // 这是「解析失败」真正的样子：名字在本仓有同名方法，但不是接收者类型上的那个。
+    const symbols: RepoSymbol[] = [
+      ...base,
+      {
+        repoId: 'r',
+        kind: 'class',
+        name: 'Other',
+        filePath: 'Other.java',
+        lineStart: 1,
+        lineEnd: 4
+      },
+      {
+        repoId: 'r',
+        kind: 'method',
+        name: 'notOnOther',
+        filePath: 'Controller.java',
+        lineStart: 9,
+        lineEnd: 11,
+        parentType: 'Controller',
+        calls: [
+          { file: 'Controller.java', method: 'gone', line: 9, receiverType: 'Other', dynamic: false }
+        ]
+      }
+    ];
+    const caller = symbols.find((s) => s.name === 'notOnOther')!;
+    const trace = resolveCallChain(symbols, caller);
     expect(trace[1]).toEqual(
       expect.objectContaining({ break: true, reason: STATIC_ANALYSIS_BREAK_UNRESOLVED })
     );

@@ -138,15 +138,25 @@ describe('runDiagnose', () => {
   });
 
   it('marks a statically unresolvable hop as BROKEN with the reason', () => {
-    // v1.2.x（Round5）样本口径收窄：BROKEN 现在专指「目标不在索引里且没有动态
-    // 解释」。原样本是 `dynamic: true`，按新分类那属于 EXTERNAL（分析边界），
-    // 该语义已移交给下一条用例；这里换成真正的「未解析」调用，两条分支各自守住。
+    // v1.2.x（Round5）口径两次收窄：
+    //   原样本 `dynamic: true` → 那是 EXTERNAL（分析边界）；
+    //   换成「无 receiver 无 dynamic、名字全仓也没有」→ 那是外部库调用，同样是 EXTERNAL；
+    //   现在用**真正**的解析失败样本：接收者类型存在、但它上面没有这个方法 → UNRESOLVED。
+    const otherType: RepoSymbol = {
+      repoId: 'r1',
+      kind: 'class',
+      name: 'Other',
+      filePath: 'src/main/java/com/x/Other.java',
+      lineStart: 1,
+      lineEnd: 4
+    };
     const brokenService: RepoSymbol = {
       ...DO_LIKE,
-      // 无 receiver、无 dynamic、索引里也没有同名符号 → resolveCall 判 UNRESOLVED
-      calls: [{ file: DO_LIKE.filePath, method: 'unknownMethod', line: 24 }]
+      calls: [
+        { file: DO_LIKE.filePath, method: 'goneMethod', line: 24, receiverType: 'Other', dynamic: false }
+      ]
     };
-    const symbols = [ROUTE, SERVICE, brokenService, MAPPER_IFACE];
+    const symbols = [ROUTE, SERVICE, brokenService, MAPPER_IFACE, otherType];
     const index = buildCallIndex(symbols);
     const result = runDiagnose({ repoId: 'r1', entrySymbol: 'likePost', symbols, index });
     const broken = result.verifiedChain.find((step) => step.status === 'BROKEN');

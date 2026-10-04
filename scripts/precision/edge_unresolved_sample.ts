@@ -1,6 +1,6 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { buildCallIndex, CallResolver } from '../../services/control-plane/src/engine/repoqa-callchain';
+import { buildCallIndex, CallResolver, isExternalDispatchReason } from '../../services/control-plane/src/engine/repoqa-callchain';
 import type { RepoSymbol } from '../../services/control-plane/src/ingest/repoqa-repos';
 
 /**
@@ -196,7 +196,7 @@ for (const [repoId, symbols] of byRepo) {
       if ((call as { http?: unknown }).http) continue;
       const r = resolver.resolve(caller, call);
       if ('target' in r && r.target) continue;
-      if ('reason' in r && /Dynamic/.test(r.reason)) continue;
+      if ('reason' in r && isExternalDispatchReason(r.reason)) continue;
       const isBindable = bindable.has(call.method);
       const existsAny = names.has(call.method);
       /* 接收者类型感知判定（v1.2.x 第二版）：
