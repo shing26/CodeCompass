@@ -60,6 +60,9 @@ for (const r of rows) {
     lineStart: r.line_start ?? undefined,
     calls: r.calls ? JSON.parse(r.calls) : [],
     parentType: r.parent_type ?? undefined,
+    // v1.2.x 修正：漏掉 typeName 会让「接收者类型」视图全空 → 所有带接收者的边都被
+    // 误判成 D（判不了），A 假性归零。字段类型是从这里来的，必须带上。
+    typeName: r.type_name ?? undefined,
     displayPath: r.display_path ?? undefined
   } as unknown as RepoSymbol;
   const list = byRepo.get(r.repo_id) ?? [];
@@ -67,30 +70,62 @@ for (const r of rows) {
   byRepo.set(r.repo_id, list);
 }
 
-/** 本仓出现过的名字，分两类：**可绑定的**（method/route）与**结构上绑不上的**（class/field/type/config）。 */
-const bindableNames = new Map<string, Set<string>>();
-const anyNames = new Map<string, Set<string>>();
-for (const symbols of byRepo.values()) {
+/**
+ * 每仓的「类型 → 成员」视图——**接收者类型感知**判定所需。
+ *
+ * v1.2.x 第一版分类只看「仓里有没有同名方法」，被抽样打脸：`wg.Done()` 因为仓里
+ * 别处有个同名方法被判成「仓内存在却没连上」，实际 `sync.WaitGroup` 是标准库。
+ * 判定必须落到**接收者所属的那个类型**上，而不是全仓。
+ */
+interface TypeView {
+  /** typeName → fieldName → 字段类型 */
+  fields: Map<string, Map<string, string>>;
+  /** `ParentType#method` —— 可被调用边绑定的成员 */
+  callable: Set<string>;
+  /** 全仓可绑定成员名（裸调用回退时用） */
+  anyCallable: Set<string>;
+  /** 全仓出现过的任何名字 */
+  anyName: Set<string>;
+}
+
+const typeViews = new Map<string, TypeView>();
+for (const [repoId, symbols] of byRepo) {
+  const view: TypeView = {
+    fields: new Map(),
+    callable: new Set(),
+    anyCallable: new Set(),
+    anyName: new Set()
+  };
   for (const s of symbols) {
-    let any = anyNames.get(s.repoId);
-    if (!any) {
-      any = new Set<string>();
-      anyNames.set(s.repoId, any);
-    }
-    any.add(s.name);
-    if (s.parentType) any.add(`${s.parentType}.${s.name}`);
-    // 只有方法/路由才是调用边**可以**绑定的目标。类字段（构造函数里赋的箭头函数）、
-    // 类本身（构造函数调用）、类型、配置键都没有方法符号，绑不上不是解析器的锅。
+    view.anyName.add(s.name);
     if (s.kind === 'method' || s.kind === 'route') {
-      let bind = bindableNames.get(s.repoId);
-      if (!bind) {
-        bind = new Set<string>();
-        bindableNames.set(s.repoId, bind);
+      view.anyCallable.add(s.name);
+      if (s.parentType) view.callable.add(`${s.parentType}#${s.name}`);
+    }
+    if (s.kind === 'field' && s.parentType && s.typeName) {
+      let fm = view.fields.get(s.parentType);
+      if (!fm) {
+        fm = new Map();
+        view.fields.set(s.parentType, fm);
       }
-      bind.add(s.name);
-      if (s.parentType) bind.add(`${s.parentType}.${s.name}`);
+      fm.set(s.name, s.typeName);
     }
   }
+  typeViews.set(repoId, view);
+}
+
+const SELF_NAMES = new Set(['this', 'self', 'Self', 'cls']);
+
+/** 从调用点自身推出接收者类型；推不出（本地变量 / 未标注）返回 undefined。 */
+function receiverTypeOf(
+  view: TypeView,
+  caller: RepoSymbol,
+  receiver: string | undefined
+): string | undefined {
+  if (!receiver) return undefined;
+  if (SELF_NAMES.has(receiver)) return caller.parentType ?? undefined;
+  if (!caller.parentType) return undefined;
+  return view.fields.get(caller.parentType)?.get(receiver);
 }
 
 interface Sample {
@@ -101,7 +136,7 @@ interface Sample {
   callee: string;
   receiver?: string;
   dynamic?: boolean;
-  verdict: 'A-仓内存在但未连上' | 'B-本仓不存在（外部）';
+  verdict: string;
   where: string;
 }
 
@@ -136,7 +171,8 @@ function take<T>(items: T[], n: number, seed: number): T[] {
 const bucketA = new Map<string, Sample[]>();
 const bucketB = new Map<string, Sample[]>();
 const bucketC = new Map<string, Sample[]>();
-const langTotals = new Map<string, { a: number; b: number; c: number }>();
+const bucketD = new Map<string, Sample[]>();
+const langTotals = new Map<string, { a: number; b: number; c: number; d: number }>();
 
 for (const [repoId, symbols] of byRepo) {
   if (!symbols.length) continue;
@@ -144,14 +180,16 @@ for (const [repoId, symbols] of byRepo) {
   // 跳过测试夹具/空仓，避免样本被零星仓稀释
   if (symbols.length < 50) continue;
   const lang = langOf(symbols.map((s) => s.filePath));
-  const names = anyNames.get(repoId) ?? new Set<string>();
-  const bindable = bindableNames.get(repoId) ?? new Set<string>();
+  const view = typeViews.get(repoId)!;
+  const names = view.anyName;
+  const bindable = view.anyCallable;
   const index = buildCallIndex(symbols);
   const resolver = new CallResolver(symbols, index);
 
   const local: Sample[] = [];
   const external: Sample[] = [];
   const structural: Sample[] = [];
+  const unknownRecv: Sample[] = [];
   for (const caller of symbols) {
     if (caller.kind !== 'method' && caller.kind !== 'route') continue;
     for (const call of caller.calls ?? []) {
@@ -161,29 +199,54 @@ for (const [repoId, symbols] of byRepo) {
       if ('reason' in r && /Dynamic/.test(r.reason)) continue;
       const isBindable = bindable.has(call.method);
       const existsAny = names.has(call.method);
-      const verdict: Sample['verdict'] = isBindable
-        ? 'A-仓内有同名方法却没连上（真缺陷）'
-        : existsAny
-          ? 'C-名字存在但无可绑方法符号（类字段/构造/类型，结构上绑不上）'
+      /* 接收者类型感知判定（v1.2.x 第二版）：
+         只有「接收者所属的那个类型上确实有这个方法」才算真缺陷；全仓同名不算。 */
+      const recv = (call as { receiver?: string }).receiver;
+      const recvType = receiverTypeOf(view, caller, recv);
+      let verdict: string;
+      let where: string;
+      if (recvType) {
+        const onType = view.callable.has(`${recvType}#${call.method}`);
+        verdict = onType
+          ? 'A-接收者类型上有该方法却没连上（真缺陷）'
+          : 'C-接收者类型上没有该方法（继承自外部/结构上绑不上）';
+        where = onType ? `类型 ${recvType} 上确有 ${call.method}` : `类型 ${recvType} 上没有 ${call.method}`;
+      } else if (recv) {
+        verdict = 'D-接收者类型推不出（本地变量/未标注），判不了';
+        where = `receiver=${recv} 类型不可得`;
+      } else {
+        verdict = existsAny
+          ? 'C-裸调用且仓内有同名方法（无法归因到接收者，需人工看）'
           : 'B-本仓无此名（外部库调用）';
+        where = existsAny ? '裸调用 + 本仓有同名 method' : '本仓无此名';
+      }
       const sample: Sample = {
         repo: repoName,
         lang,
         caller: `${caller.parentType ? `${caller.parentType}.` : ''}${caller.name}`,
         callerAt: `${caller.filePath}:${caller.lineStart ?? 1}`,
         callee: call.method,
-        receiver: (call as { receiver?: string }).receiver,
+        receiver: recv,
         dynamic: (call as { dynamic?: boolean }).dynamic,
         verdict,
-        where: isBindable ? '本仓有同名 method/route' : existsAny ? '本仓只有同名非方法符号' : '本仓无此名'
+        where
       };
-      (verdict.startsWith('A') ? local : verdict.startsWith('B') ? external : structural).push(sample);
+      (
+        verdict.startsWith('A')
+          ? local
+          : verdict.startsWith('B')
+            ? external
+            : verdict.startsWith('D')
+              ? unknownRecv
+              : structural
+      ).push(sample);
     }
   }
-  const t = langTotals.get(lang) ?? { a: 0, b: 0, c: 0 };
+  const t = langTotals.get(lang) ?? { a: 0, b: 0, c: 0, d: 0 };
   t.a += local.length;
   t.b += external.length;
   t.c += structural.length;
+  t.d += unknownRecv.length;
   langTotals.set(lang, t);
   // 按语言分桶存放，最后轮流取样——否则打印时会被 map 顺序最靠前的仓吃满，
   // 其它语言一条都显示不出来（总数对、抽样偏）。
@@ -197,6 +260,7 @@ for (const [repoId, symbols] of byRepo) {
   put(bucketA, local);
   put(bucketB, external);
   put(bucketC, structural);
+  put(bucketD, unknownRecv);
 }
 
 /** 轮流从各语言取一条，保证样本跨语言均衡。 */
@@ -219,24 +283,32 @@ function interleave(byLang: Map<string, Sample[]>, cap: number): Sample[] {
 }
 
 console.log('=== 未解析边的全量构成（未抽样）===');
-console.log('A=仓内有同名方法却没连上（真缺陷）  C=名字存在但无可绑方法（结构上绑不上）  B=本仓无此名（外部库）');
-for (const [lang, t] of [...langTotals].sort((x, y) => (y[1].a + y[1].b + y[1].c) - (x[1].a + x[1].b + x[1].c))) {
-  const total = t.a + t.b + t.c;
+console.log('A=接收者类型上确有该方法却没连上（真缺陷）  C=该类型上没有（继承自外部/结构绑不上）');
+console.log('D=接收者类型推不出，判不了  B=本仓无此名（外部库调用）');
+for (const [lang, t] of [...langTotals].sort(
+  (x, y) => y[1].a + y[1].b + y[1].c + y[1].d - (x[1].a + x[1].b + x[1].c + x[1].d)
+)) {
+  const total = t.a + t.b + t.c + t.d;
   const f = (n: number) => (total > 0 ? `${((n / total) * 100).toFixed(0)}%` : '—');
   console.log(
-    `${lang.padEnd(7)} 合计 ${String(total).padStart(6)}  |  A ${String(t.a).padStart(5)} (${f(t.a).padStart(4)})  C ${String(t.c).padStart(5)} (${f(t.c).padStart(4)})  B ${String(t.b).padStart(5)} (${f(t.b).padStart(4)})`
+    `${lang.padEnd(7)} 合计 ${String(total).padStart(6)}  |  A ${String(t.a).padStart(5)} (${f(t.a).padStart(4)})  C ${String(t.c).padStart(5)} (${f(t.c).padStart(4)})  D ${String(t.d).padStart(5)} (${f(t.d).padStart(4)})  B ${String(t.b).padStart(5)} (${f(t.b).padStart(4)})`
   );
 }
 
-console.log(`\n=== A 类抽样：仓内有同名方法却没连上 = 真解析缺陷（最多 ${PER_BUCKET} 条）===`);
+console.log(`\n=== A 类抽样：接收者类型上确有该方法却没连上 = 真解析缺陷（最多 ${PER_BUCKET} 条）===`);
 if (interleave(bucketA, 1).length === 0) console.log('  （无）');
 for (const s of interleave(bucketA, PER_BUCKET)) {
   console.log(
-    `[${s.lang}] ${s.repo}  ${s.caller}  →  ${s.callee}${s.receiver ? ` (recv=${s.receiver})` : ''}${s.dynamic ? ' [dynamic]' : ''}\n      ${s.callerAt}`
+    `[${s.lang}] ${s.repo}  ${s.caller}  →  ${s.callee}${s.receiver ? ` (recv=${s.receiver})` : ''}\n      ${s.where}\n      ${s.callerAt}`
   );
 }
 
-console.log(`\n=== C 类抽样：名字存在但没有可绑的方法符号 = 结构性不可解析（最多 ${PER_BUCKET} 条）===`);
+console.log(`\n=== D 类抽样：接收者类型推不出，本工具判不了（最多 ${PER_BUCKET} 条）===`);
+for (const s of interleave(bucketD, PER_BUCKET)) {
+  console.log(`[${s.lang}] ${s.repo}  ${s.caller}  →  ${s.callee} (recv=${s.receiver})`);
+}
+
+console.log(`\n=== C 类抽样：该类型上没有该方法 = 继承自外部或结构上绑不上（最多 ${PER_BUCKET} 条）===`);
 for (const s of interleave(bucketC, PER_BUCKET)) {
   console.log(`[${s.lang}] ${s.repo}  ${s.caller}  →  ${s.callee}${s.receiver ? ` (recv=${s.receiver})` : ''}`);
 }
