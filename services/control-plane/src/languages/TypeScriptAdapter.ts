@@ -200,6 +200,29 @@ function argumentNodes(node: SyntaxNode): SyntaxNode[] {
   return out;
 }
 
+/**
+ * v1.2.x（Round5）— 路由注册的 handler 参数里那个**内联函数节点**。
+ *
+ * 覆盖两种本仓都在用的写法：
+ *   ① `app.get('/p', (req, res) => { … })` — 参数直接就是箭头；
+ *   ② `app.get('/p', asyncHandler(async (req, res) => { … }))` — 参数是包裹调用，
+ *      真正的箭头在它的第一个实参里（本仓更常见）。
+ *
+ * 找不到（非内联，即具名 handler 引用）时返回 undefined —— 那种情况路由符号本来就
+ * 已经挂了指向具名函数的边（`handlerName` 分支），不需要归属。
+ */
+function inlineHandlerNode(arg: SyntaxNode | undefined): SyntaxNode | undefined {
+  if (!arg) return undefined;
+  if (arg.name === 'ArrowFunction' || arg.name === 'FunctionExpression') return arg;
+  if (arg.name === 'CallExpression') {
+    const inner = argumentNodes(arg)[0];
+    if (inner && (inner.name === 'ArrowFunction' || inner.name === 'FunctionExpression')) {
+      return inner;
+    }
+  }
+  return undefined;
+}
+
 /** `this.service.findOne` → `['this', 'service', 'findOne']`. */
 function memberParts(node: SyntaxNode, source: string): string[] {
   const parts: string[] = [];
@@ -1653,6 +1676,12 @@ export function parseTypeScriptSource(
   const typeStack: TypeRecord[] = [];
   const methodStack: RepoSymbol[] = [];
   const scopeStack: MethodScope[] = [];
+  /**
+   * v1.2.x（Round5）— 为哪些**内联 handler 节点**压过 route 符号进 methodStack。
+   * 按节点身份记录（而不是按 ArrowFunction 类型弹栈）：handler 体内还会嵌套箭头
+   * （`.map(x => …)`），按类型弹会在最内层箭头处把路由提前弹掉。
+   */
+  const routeInlineOwners = new Set<SyntaxNode>();
   let moduleSymbol: RepoSymbol | undefined;
   /**
    * Issue 17 — who owns an edge that appears OUTSIDE every function.
@@ -2062,7 +2091,7 @@ export function parseTypeScriptSource(
                 ? textOf(secondArg, source)
                 : undefined
               : middlewareName;
-            symbols.push({
+            const routeSymbol: RepoSymbol = {
               repoId,
               kind: 'route',
               name: routeName,
@@ -2079,7 +2108,31 @@ export function parseTypeScriptSource(
               calls: handlerName
                 ? [{ file: relativePath, method: handlerName, line, dynamic: false }]
                 : []
-            });
+            };
+            symbols.push(routeSymbol);
+
+            /* v1.2.x（Round5）— 内联 handler 的调用归属到**路由自己**。
+             *
+             * 实测：本仓 64 个 route 符号有 58 个零出边——因为 Express 路由几乎全用
+             * 内联箭头函数（或 `asyncHandler(async …)`），没有具名 handler 可挂边。
+             * 而这些调用并非丢失了，是被归到了**外层注册函数**
+             * （`registerGraphRoutes` / `registerReposIngestRoutes`）名下——于是反向
+             * BFS 从 helper 往上走到那个注册函数就断了，而它不是路由。
+             *
+             * 修法：进入路由注册的 CallExpression 后，把路由符号压进 methodStack，
+             * 直到遍历完那个内联箭头节点，函数体里的每个调用就都归到路由名下
+             * （`GET /api/repos/:id/dashboard → buildDashboard` 这类边由此产生）。
+             *
+             * 用**节点身份集合**而不是「遇到 ArrowFunction 就弹栈」：handler 体内
+             * 还会嵌套箭头（`.map(x => …)`），按类型弹会在最内层箭头处提前弹掉路由。
+             */
+            if (!handlerName) {
+              const inline = inlineHandlerNode(secondArg);
+              if (inline) {
+                methodStack.push(routeSymbol);
+                routeInlineOwners.add(inline);
+              }
+            }
           }
           return;
         }
@@ -2219,6 +2272,12 @@ export function parseTypeScriptSource(
           methodStack.pop();
           scopeStack.pop();
         }
+        return;
+      }
+      // v1.2.x（Round5）— 遍历完内联 handler 后把 route 符号弹出（见入栈处注释）。
+      if (routeInlineOwners.has(node)) {
+        routeInlineOwners.delete(node);
+        methodStack.pop();
       }
     }
   });

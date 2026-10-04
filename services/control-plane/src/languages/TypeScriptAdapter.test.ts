@@ -112,6 +112,61 @@ function createOrder() {}
     expect(postRoute?.calls?.[0]?.method).toBe('createOrder');
   });
 
+  /* v1.2.x（Round5）— 内联 handler 的调用归属到**路由自己**。
+   *
+   * 实测：本仓 64 个 route 符号有 58 个零出边——Express 路由几乎全用内联箭头（或
+   * `asyncHandler(async …)`），没有具名 handler 可挂边；而这些调用并非丢失，是被归
+   * 到外层注册函数（registerGraphRoutes）名下，于是反向 BFS 走到那儿就断了。
+   *
+   * 覆盖三种写法：直接箭头、asyncHandler 包裹、具名引用（后者保持原行为）；
+   * 外加一条防回归——handler 体内的嵌套箭头不得把路由提前弹栈。
+   */
+  it('attributes inline handler calls to the route symbol itself', () => {
+    const source = `
+import express from 'express';
+const app = express();
+
+function buildDashboard() { return {}; }
+function requireRepo() { return null; }
+function namedHandler() {}
+
+app.get('/api/dash', (req, res) => {
+  const repo = requireRepo();
+  res.json(buildDashboard(repo));
+});
+
+app.post('/api/repos', asyncHandler(async (req, res) => {
+  res.status(201).json(requireRepo());
+});
+
+app.get('/api/named', namedHandler);
+
+app.get('/api/nested', (req, res) => {
+  res.json([1, 2].map((n) => n * 2));
+});
+`;
+    const symbols = parseTypeScriptSource(source, 'src/routes.ts', 'repo');
+    const route = (name: string) =>
+      symbols.find((symbol) => symbol.kind === 'route' && symbol.name === name);
+
+    const dash = route('GET /api/dash');
+    const dashCalls = (dash?.calls ?? []).map((c) => c.method);
+    expect(dashCalls).toContain('requireRepo');
+    expect(dashCalls).toContain('buildDashboard');
+
+    // asyncHandler(async …) 包裹写法同样要归到路由（函数体在包裹调用的实参里）
+    const create = route('POST /api/repos');
+    expect((create?.calls ?? []).map((c) => c.method)).toContain('requireRepo');
+
+    // 具名引用保持原语义（只有一条边，指向那个函数）
+    expect(route('GET /api/named')?.calls).toEqual([
+      { file: 'src/routes.ts', method: 'namedHandler', line: 18, dynamic: false }
+    ]);
+
+    // 嵌套箭头不得把路由提前弹栈：dash 的边仍然完整
+    expect((route('GET /api/dash')?.calls ?? []).map((c) => c.method)).toContain('buildDashboard');
+  });
+
   it('extracts axios and fetch HTTP calls with method and URL', () => {
     const source = `
 import axios from 'axios';
