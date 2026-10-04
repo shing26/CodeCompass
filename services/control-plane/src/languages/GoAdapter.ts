@@ -593,6 +593,15 @@ function isRouterBase(name: string): boolean {
   return ROUTER_NAMES.has(name) || /(?:Router|Group|Engine|App)$/.test(name);
 }
 
+/**
+ * v1.2.x — 标准库 `net/http` 的注册函数名。
+ *
+ * `HandleFunc(path, handler)` 任意方法都注册 → 记作 `ANY`（不替用户断言动词）。
+ * `Handle(path, handler)` 挂的是 http.Handler，handler 常是包装类型，**不认**——
+ * 那属于「目标在仓内但没有方法符号可绑」，混进来只会给路由列表添噪音。
+ */
+const NET_HTTP_ENTRY = new Set(['HandleFunc']);
+
 function receiverTypeOf(
   scope: MethodScope | undefined,
   declarations: DeclarationScope,
@@ -955,6 +964,48 @@ export function parseGoSource(
         if (parts.length >= 2) {
           const base = parts[0];
           const verb = parts[parts.length - 1];
+
+          /* v1.2.x — 标准库 `net/http` 的入口注册。
+           *
+           * 此前只认 Gin/Fiber 一类（`r.GET(path, handler)`，verb 形如大写方法名）。
+           * 而 `http.HandleFunc("/api/x", handler)` 是 Go 最主流的**零依赖**写法，
+           * 完全不被识别——实测：用例探针下 Gin 认出 2/2，`http.HandleFunc` 认出 **0**。
+           * 后果是纯标准库的 Go 服务在拓扑概览 / Diff 影响面 / 门禁三处都是「没有入口」，
+           * 可达性恒 0，门禁只能弃权（不是误判，但等于这条线对该仓失效）。
+           *
+           * 语义取舍：`HandleFunc` 不带方法，任意方法都注册。这里记作 `ANY`——**不替
+           * 用户断言**它是 GET 还是 POST；`ROUTE_VERBS` 里加 `ANY` 只是让它进路由列表。
+           */
+          if (NET_HTTP_ENTRY.has(verb) && (base === 'http' || isRouterBase(base))) {
+            const routePath = firstStringArg(node, source);
+            if (routePath) {
+              const prefix = base === 'http' ? '' : (lookupRouter(base, routerScopes, moduleRouters) ?? '');
+              const displayPath = joinRoutePath(prefix, routePath);
+              const handler = argumentNodes(node)[1];
+              const handlerName =
+                handler?.name === 'VariableName'
+                  ? textOf(handler, source)
+                  : handler?.name === 'SelectorExpr'
+                    ? selectorParts(handler, source).pop()
+                    : undefined;
+              symbols.push({
+                repoId,
+                kind: 'route',
+                name: `${verb === 'HandleFunc' ? 'ANY' : verb} ${displayPath}`,
+                filePath: relativePath,
+                lineStart: lineAt(source, node.from),
+                lineEnd: lineAt(source, Math.max(node.from, node.to - 1)),
+                signature: textOf(node, source).split(/\r?\n/, 1)[0],
+                displayPath,
+                annotations: [`${base}.${verb}("${routePath}")`],
+                calls: handlerName
+                  ? [{ file: relativePath, method: handlerName, line: lineAt(source, node.from), dynamic: false }]
+                  : []
+              });
+            }
+            return;
+          }
+
           if (ROUTE_VERBS.has(verb) && isRouterBase(base)) {
             const routePath = firstStringArg(node, source);
             if (routePath) {

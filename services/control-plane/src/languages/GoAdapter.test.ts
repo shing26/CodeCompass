@@ -117,6 +117,50 @@ describe('GoAdapter — symbol extraction (Issue 26)', () => {
     expect(postRoute?.calls?.[0]?.method).toBe('createOrder');
   });
 
+  /* v1.2.x — 标准库 `net/http` 的入口注册。此前只认 Gin/Fiber 一类，纯标准库的
+     Go 服务在探针下 Gin 认出 2/2 而 `http.HandleFunc` 认出 **0**：拓扑概览 /
+     Diff 影响面 / 门禁三处都判「没有入口」，可达性恒 0。
+     `HandleFunc` 不带方法（任意方法都注册），记作 `ANY`——不替用户断言动词。 */
+  it('extracts net/http HandleFunc entries as ANY routes with handler edges', () => {
+    const source = [
+      'package main',
+      '',
+      'import "net/http"',
+      '',
+      'func main() {',
+      '  http.HandleFunc("/api/users", listUsers)',
+      '  http.ListenAndServe(":8080", nil)',
+      '}',
+      '',
+      'func listUsers(w http.ResponseWriter, r *http.Request) {}'
+    ].join('\n');
+    const symbols = parseGoSource(source, 'main.go', 'repo');
+
+    const route = symbols.find((symbol) => symbol.kind === 'route');
+    expect(route).toMatchObject({
+      name: 'ANY /api/users',
+      displayPath: '/api/users',
+      lineStart: 6
+    });
+    expect(route?.calls).toEqual([
+      { file: 'main.go', method: 'listUsers', line: 6, dynamic: false }
+    ]);
+  });
+
+  it('does not claim http.Handle (Handler-typed) as a route — 没有方法符号可绑', () => {
+    const source = [
+      'package main',
+      '',
+      'import "net/http"',
+      '',
+      'func main() {',
+      '  http.Handle("/static/", http.FileServer(http.Dir(".")))',
+      '}'
+    ].join('\n');
+    const symbols = parseGoSource(source, 'main.go', 'repo');
+    expect(symbols.filter((s) => s.kind === 'route')).toHaveLength(0);
+  });
+
   it('extracts Fiber routes with title-case verbs', () => {
     const source = [
       'package main',
