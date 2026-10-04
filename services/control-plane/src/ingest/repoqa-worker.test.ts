@@ -391,3 +391,58 @@ describe('annotateTraceHttpMethods (v0.10 Stage 1)', () => {
     expect(annotated[0].http).toBeUndefined();
   });
 });
+
+/**
+ * v1.2.x（Round5）— 运行期僵尸 `indexing` 行回收。
+ *
+ * 启动时 `resetInterrupted()` 只跑一次；实测撞到服务连续运行 6.6 小时、期间索引被
+ * 打断（进程被杀/任务丢失），那一行永远停在 `indexing`——DELETE 与 reindex 双双
+ * 409，概览层因非 ready 静默消失。ADR-0016 §3 禁止的正是这种行，那条防的是
+ * fire-and-forget 的尾巴，漏了运行期这一种。
+ *
+ * 判据只用「此刻没有活任务」，**不做超时猜测**：真正在跑的大仓索引不受影响。
+ */
+describe('reconcileZombieIndexing (v1.2.x)', () => {
+  it('marks indexing rows with no live job as error, and leaves a live one alone', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-zombie-'));
+    const src = path.join(root, 'src');
+    await fs.mkdir(src, { recursive: true });
+    await fs.writeFile(path.join(src, 'a.ts'), 'export const a = 1;\n');
+
+    const db = openDb(':memory:');
+    const repoqa = new RepoQARepos(db);
+    const worker = new RepoQAWorker(repoqa, new EventBus());
+    try {
+      const result = await worker.indexRepo({ localPath: root, name: 'zombie' });
+      if (!result.repo) throw new Error('repo row lost');
+      const repoId = result.repo.id;
+
+      // 模拟「行停在 indexing 但没有活任务」——进程被杀后残留的那种。
+      repoqa.updateRepoStatus(repoId, 'indexing');
+      expect(worker.isIndexingRepo(repoId)).toBe(false);
+      expect(worker.reconcileZombieIndexing()).toBe(1);
+      const after = repoqa.listRepos().find((r) => r.id === repoId)!;
+      expect(after.status).toBe('error');
+      expect(after.error).toContain('重新索引');
+
+      // ready 的仓不受影响。
+      repoqa.updateRepoStatus(repoId, 'ready');
+      expect(worker.reconcileZombieIndexing()).toBe(0);
+      expect(repoqa.listRepos().find((r) => r.id === repoId)!.status).toBe('ready');
+    } finally {
+      db.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  it('never touches a repo whose index job is genuinely running', () => {
+    const worker = new RepoQAWorker(new RepoQARepos(openDb(':memory:')), new EventBus());
+    // 伪造一个在跑的活任务：`running` 是私有的，按同形 key 注入。
+    (worker as unknown as { running: Map<string, AbortController> }).running.set(
+      'index-repo-x',
+      new AbortController()
+    );
+    expect(worker.isIndexingRepo('repo-x')).toBe(true);
+    expect(worker.reconcileZombieIndexing()).toBe(0);
+  });
+});

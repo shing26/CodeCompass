@@ -152,4 +152,26 @@ describe('v1.2 票 08（R4-7）拓扑概览层', () => {
     renderOverview({ repo: { ...readyRepo, status: 'indexing' } });
     expect(screen.queryByTestId('repo-overview')).not.toBeInTheDocument();
   });
+
+  /* v1.2.x（Round5）— 非 ready 时必须**说明原因**而不是整块消失。
+   * 实测撞到：某仓的行永远停在 indexing（上个进程索引被打断、任务丢失），
+   * 概览层因 status !== 'ready' 返回 null，用户只看到一个空画布——不知道在等什么、
+   * 也不知道下面该点什么。DELETE/reindex 此时还都返回 409。 */
+  it('explains the indexing state instead of silently disappearing', () => {
+    renderOverview({ repo: { ...readyRepo, status: 'indexing' } });
+    const card = screen.getByTestId('repo-overview-pending');
+    expect(card).toHaveTextContent('正在索引');
+    expect(card).toHaveTextContent('文件监视');
+    // 结构数据本身仍不该出现（没有完整索引就不给数字）
+    expect(screen.queryByTestId('repo-overview')).not.toBeInTheDocument();
+  });
+
+  it('points at 重新索引 when the index failed, and shows why', () => {
+    renderOverview({
+      repo: { ...readyRepo, status: 'error', error: '上次索引没有跑完（进程中断或任务丢失）' }
+    });
+    const card = screen.getByTestId('repo-overview-pending');
+    expect(card).toHaveTextContent('重新索引');
+    expect(card).toHaveTextContent('上次索引没有跑完');
+  });
 });

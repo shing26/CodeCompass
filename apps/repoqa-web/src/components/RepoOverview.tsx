@@ -75,6 +75,30 @@ export function RepoOverview({
     };
   }, [repo?.id, repo?.status, client, attempt]);
 
+  /* v1.2.x（Round5）— 非 ready 时**说明原因**，而不是整块消失。
+   *
+   * 实测撞到：某仓的行永远停在 `indexing`（上个进程索引被打断、任务丢失），概览层
+   * 因 `status !== 'ready'` 返回 null，用户看到的是一个**空画布**——既不知道在等
+   * 什么，也不知道下面该点哪儿。DELETE/reindex 此时还都返回 409（ADR-0016 §3 禁止
+   * 的僵尸行）。服务端已补运行期回收，这里负责把话说清楚。 */
+  if (!ready && repo) {
+    const indexing = repo.status === 'indexing';
+    return (
+      <section
+        data-testid="repo-overview-pending"
+        className="mx-auto mb-4 max-w-4xl rounded-md border border-line bg-surface p-3"
+      >
+        <h2 className="text-sm font-semibold text-ink">这仓库是什么</h2>
+        <p className="mt-1 text-xs text-muted">
+          {indexing
+            ? '正在索引这个仓库，完成后这里会显示技术栈、结构规模、枢纽符号与入口清单。进度见顶部「文件监视」。'
+            : `索引没有完成（状态：${repo.status}）。结构概览需要完整索引才能给出可靠数字——先在右上「⋯ 更多操作 → 重新索引」重试。`}
+        </p>
+        {repo.error && <p className="mt-1 text-xs text-danger">{repo.error}</p>}
+      </section>
+    );
+  }
+
   if (!ready) return null;
 
   return (

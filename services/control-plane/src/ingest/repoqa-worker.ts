@@ -135,6 +135,53 @@ export class RepoQAWorker {
   activeOpCount(): number {
     return this.running.size;
   }
+
+  /**
+   * v1.2.x（Round5）— 这个仓此刻有没有**活着的**索引任务（taskId 形如
+   * `index-${repoId}`）。僵尸回收据此判「没有任务在跑却停在 indexing」。
+   */
+  isIndexingRepo(repoId: string): boolean {
+    for (const taskId of this.running.keys()) {
+      if (taskId === `index-${repoId}`) return true;
+    }
+    return false;
+  }
+
+  /**
+   * v1.2.x（Round5）— **运行期**僵尸回收。
+   *
+   * 启动时已有 `resetInterrupted()` 把 `indexing` 打回 `idle`，但那只在进程重启
+   * 时跑一次。实测撞到：服务连续运行 6.6 小时、期间索引被打断（进程被杀/任务丢失），
+   * 那一行就永远停在 `indexing`——DELETE 与 reindex 双双 409，概览层因为非
+   * `ready` 静默消失，用户只看到一个空画布、不知道自己该做什么。ADR-0016 §3
+   * 禁止的正是这种「永久停在 indexing 的行」，只是那一条防的是 fire-and-forget
+   * 的尾巴，漏了运行期这一种。
+   *
+   * 判据只用**「此刻没有活任务」**——不做超时猜测，所以真正在跑的大仓索引
+   * （lazygit 4.5 万符号要几分钟）不会被误伤。已知的 `indexing` 行若无活任务，
+   * 即为僵尸，标 `error` 并写明原因，用户一键「重新索引」即可恢复。
+   *
+   * @returns 被回收的仓数
+   */
+  reconcileZombieIndexing(): number {
+    const stale = this.repoqa
+      .listRepos()
+      .filter((repo) => repo.status === 'indexing' && !this.isIndexingRepo(repo.id));
+    for (const repo of stale) {
+      try {
+        this.repoqa.updateRepoStatus(
+          repo.id,
+          'error',
+          undefined,
+          undefined,
+          '上次索引没有跑完（进程中断或任务丢失），已标记为失败。点「重新索引」重试。'
+        );
+      } catch {
+        // db 已关闭——启动/关闭竞态，不阻断（与 guardIndexFailure 同款自保）。
+      }
+    }
+    return stale.length;
+  }
   private readonly symbolCache = new Map<string, { symbols: RepoSymbol[]; index: SymbolIndex }>();
   private readonly progressEmitAt = new Map<string, number>();
 

@@ -111,6 +111,26 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   const eventBus = new EventBus();
   const worker = new RepoQAWorker(repoqa, eventBus);
+  // v1.2.x（Round5）— 运行期僵尸回收。`resetInterrupted()` 只在启动跑一次；实测撞到
+  // 服务连续运行数小时、期间索引被打断，那一行永远停在 `indexing`：DELETE/reindex 双双
+  // 409、概览层因非 ready 静默消失。启动时回收一次 + 每分钟兜底，判据只有「此刻没有
+  // 活任务」，真正在跑的大仓索引不受影响（ADR-0016 §3 的运行期一侧）。
+  try {
+    const requeued = worker.reconcileZombieIndexing();
+    if (requeued > 0) {
+      serverLog.warn('server', '回收僵尸 indexing 行（上个进程索引未完成）', { repos: requeued });
+    }
+  } catch {
+    // 对账失败不阻断启动：最坏情况退回启动时的 resetInterrupted。
+  }
+  const zombieTimer = setInterval(() => {
+    try {
+      worker.reconcileZombieIndexing();
+    } catch {
+      // db 已关闭（优雅关闭期间）——静默跳过。
+    }
+  }, 60_000);
+  zombieTimer.unref?.();
   const orchestrator = new Orchestrator(repos);
   const harnessManager = new HarnessManager({ repos, eventBus });
 
