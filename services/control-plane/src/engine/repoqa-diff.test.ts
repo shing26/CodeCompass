@@ -920,6 +920,11 @@ describe('v0.6.0 Architecture Delta', () => {
     expect(delta.mermaid).toContain('graph TD');
     expect(delta.mermaid).toContain('/api/reports');
     expect(delta.mermaid).toContain('/api/health');
+    // v1.3.x 回归锁：linkStyle 曾带无效的 color: 属性（mermaid v11 在该行报解析错），
+    // 与首尾围栏一起令「差异图」恒走源码回退态。围栏保留——markdown 报告消费它；
+    // 渲染链路（web trimMermaidGraph）负责剥离，见 mermaidGraph.test.ts。
+    expect(delta.mermaid).toMatch(/^```mermaid\n/);
+    expect(delta.mermaid).not.toMatch(/linkStyle[^;]*color:/);
   });
 
   it('reports multi-language route additions/removals and broken edges through analyzeDiff', async () => {

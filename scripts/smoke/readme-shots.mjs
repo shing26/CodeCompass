@@ -500,10 +500,8 @@ async function main() {
     await settle();
     await shot(page, 'scan');
 
-    // 4. Diff 影响面：HEAD~1 → HEAD
-    // 已知缺陷（2026-10-14 实测）：delta.mermaid 自带 ```mermaid 围栏且 linkStyle 含
-    // 无效的 color: 属性，mermaid.render 双阻断 → 差异图恒走 mermaid-fallback 源码态。
-    // 本截图保留为该面的实况记录；修复前不入 README。
+    // 4. Diff 影响面：HEAD~1 → HEAD（差异图为渲染态 mermaid；
+    //    v1.3.x 修复前恒走 mermaid-fallback 源码态：围栏 + linkStyle color: 双阻断）
     await page.goto(`${base}/?repo=${repoId}&mode=delta`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('[data-testid="delta-run"]', { state: 'visible', timeout: 15000 });
     await page.fill('[data-testid="delta-base"]', 'HEAD~1');

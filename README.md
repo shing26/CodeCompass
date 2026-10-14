@@ -44,6 +44,10 @@
   </tr>
 </table>
 
+**Diff 影响面**——基线到 HEAD 的架构差异：新增接口 / 移除符号 / 断边 / 受影响 API 分级，差异图以 mermaid 渲染（红边 = 静态断链）：
+
+<img src=".github/assets/delta.png" alt="Diff 影响面" width="100%" />
+
 ---
 
 <a id="why"></a>
@@ -76,7 +80,7 @@ CodeCompass 的立场是「**精确检索工具，不是理解工具**」：把 
 
 ### 1. 确定性 AST 调用链
 
-基于 `@lezer` 语法树（CST）构建调用图：不调用任何 LLM、不消耗 token、结果可复现。代码拓扑视图以聚焦卡片流 + 调用链步骤条呈现，逐跳直达 `file:line` 源码锚点；Onboarding Tour 与演进工件以 mermaid 渲染图谱，节点绑定 `code://file#line` 深链。静态解析不到的位置显式标记 **Static Analysis Break**（链路止于仓库外时为 EXTERNAL——是分析边界，不是缺陷），绝不静默编造。链路追踪 100% 确定性（ADR-0005）；问答侧另有「零幻觉合约」兜底——每条断言逐字来自工具返回的 Call Edge，每个 `file:line` 必须过 raw-file 物理校验。
+基于 `@lezer` 语法树（CST）构建调用图：不调用任何 LLM、不消耗 token、结果可复现。代码拓扑视图以聚焦卡片流 + 调用链步骤条呈现，逐跳直达 `file:line` 源码锚点；Onboarding Tour、演进工件与 Diff 差异图以 mermaid 渲染图谱，节点绑定 `code://file#line` 深链。静态解析不到的位置显式标记 **Static Analysis Break**（链路止于仓库外时为 EXTERNAL——是分析边界，不是缺陷），绝不静默编造。链路追踪 100% 确定性（ADR-0005）；问答侧另有「零幻觉合约」兜底——每条断言逐字来自工具返回的 Call Edge，每个 `file:line` 必须过 raw-file 物理校验。
 
 ### 2. 多语言适配器
 
@@ -362,7 +366,6 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
   - [ ] R5-08 用户级 `llm-profiles.json`：模型热切换目前只有 `default` 一档，UI 在而功能空
   - [ ] R5-09 / R5-11 / R5-13 / R5-14 / R5-16 体验打磨项
 - [ ] **npm 发布积压**：registry 最新为 0.31.0；1.0.0–1.3.0 均未上 npm（发布需本机 token，流程见 `HANDOFF.md`）
-- [ ] **已知缺陷（2026-10-14 本机实测，待立票）**：Diff 影响面的「差异图」恒走源码回退态——`delta.mermaid` 字符串自带 markdown 代码围栏（`mermaid.render` 报 "No diagram type detected"）且 `linkStyle` 含无效的 `color:` 属性，双重阻断渲染；该面的差异概览 / 新增路由 / 折边 / 受影响 API 均正常
 
 当前版本：`v1.3.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.3.0 完整条目）。
 

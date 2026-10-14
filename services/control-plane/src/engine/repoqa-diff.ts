@@ -862,7 +862,9 @@ function buildDeltaMermaid(delta: {
     return '```mermaid\ngraph TD\n    empty["无架构差异"]\n```';
   }
   // v0.8: every edge in the delta graph is a broken edge — paint them red.
-  const styleLines = edgeLines.map((_, i) => `    linkStyle ${i} stroke:#f7768e,stroke-width:2px,color:#f7768e;`);
+  // v1.3.x 修复：linkStyle 不接受 color: 属性（mermaid v11 在该行报解析错，
+  // 与围栏一起构成「差异图恒走源码回退态」的双阻断）；红色由 stroke 表达即足。
+  const styleLines = edgeLines.map((_, i) => `    linkStyle ${i} stroke:#f7768e,stroke-width:2px;`);
   return ['```mermaid', 'graph TD', ...nodeLines, ...edgeLines, ...styleLines, '```'].join('\n');
 }
 

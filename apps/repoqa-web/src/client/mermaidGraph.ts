@@ -13,6 +13,19 @@ const EDGE_RE =
   /^\s*([A-Za-z_]\w*)(?:\[[^\]]*\])?\s*-->(?:\|[^|]*\|)?\s*([A-Za-z_]\w*)(?:\[[^\]]*\])?/;
 const CLICK_RE = /^\s*click\s+([A-Za-z_]\w*)\s+"/;
 
+/**
+ * v1.3.x 修复——后端 diff 生成器把图包在 ```` ```mermaid ```` 围栏里返回
+ * （markdown 报告需要围栏），但 `mermaid.render` 不认围栏（报 "No diagram
+ * type detected"），导致 Diff 影响面的「差异图」恒走源码回退态（v0.6.0 引入，
+ * 回退态一直静默兜底所以没暴露）。渲染链路在此统一剥掉首尾围栏：
+ * markdown 消费方（pr-summary 报告）拿到的仍是带围栏原文，不受影响。
+ * 对无围栏输入（Tour 的 chainMermaid、LLM 工件）原样返回。
+ */
+export function stripMermaidFence(code: string): string {
+  const match = /^```(?:mermaid)?[^\S\n]*\n([\s\S]*?)(?:\n?```)?$/.exec(code.trim());
+  return match ? match[1] : code;
+}
+
 export interface MermaidGraphStats {
   totalNodes: number;
   shownNodes: number;
@@ -69,6 +82,7 @@ export function edgeAnnotationsForTrace(trace: TraceHopView[]): MermaidEdgeView[
 }
 
 export function trimMermaidGraph(code: string, maxNodes = 60): TrimResult {
+  code = stripMermaidFence(code);
   const lines = code.split('\n');
   const nodeOrder: string[] = [];
   const nodeSet = new Set<string>();

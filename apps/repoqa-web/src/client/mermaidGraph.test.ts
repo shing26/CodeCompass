@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   edgeAnnotationsForTrace,
+  stripMermaidFence,
   trimMermaidGraph,
   type TraceHopView
 } from './mermaidGraph';
@@ -41,6 +42,35 @@ describe('trimMermaidGraph (v0.7)', () => {
     expect(result.code).toContain('click n1');
     expect(result.code).not.toContain('click n119');
     expect(result.stats.collapsedEdges).toBeGreaterThan(0);
+  });
+});
+
+describe('stripMermaidFence / 围栏剥离（v1.3.x 修复）', () => {
+  // 后端 diff 生成器把图包在 ```mermaid 围栏里（markdown 报告需要围栏），
+  // 但 mermaid.render 不认围栏——修复前 Diff「差异图」恒走源码回退态。
+  const fenced = '```mermaid\ngraph TD\n    n1["a"]\n    n2["b"]\n    n1 --> n2\n    linkStyle 0 stroke:#f7768e,stroke-width:2px;\n```';
+
+  it('trimMermaidGraph 剥掉围栏后交到渲染链路', () => {
+    const result = trimMermaidGraph(fenced, 60);
+    expect(result.code).toBe(
+      'graph TD\n    n1["a"]\n    n2["b"]\n    n1 --> n2\n    linkStyle 0 stroke:#f7768e,stroke-width:2px;'
+    );
+    expect(result.stats.totalNodes).toBe(2);
+  });
+
+  it('无围栏输入原样返回（Tour chainMermaid / LLM 工件）', () => {
+    const bare = 'flowchart LR\n  a --> b';
+    expect(trimMermaidGraph(bare, 60).code).toBe(bare);
+  });
+
+  it('stripMermaidFence 容忍无闭合围栏与裸 ``` 围栏', () => {
+    expect(stripMermaidFence('```mermaid\ngraph TD')).toBe('graph TD');
+    expect(stripMermaidFence('```\ngraph TD\n```')).toBe('graph TD');
+    expect(stripMermaidFence('flowchart LR')).toBe('flowchart LR');
+  });
+
+  it('围栏内嵌 ``` 不会误伤（取首尾围栏）', () => {
+    expect(stripMermaidFence('```mermaid\ngraph TD\n  a["x```y"]\n```')).toBe('graph TD\n  a["x```y"]');
   });
 });
 
