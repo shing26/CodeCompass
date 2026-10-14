@@ -1,88 +1,178 @@
-# CodeCompass
+<div align="center">
 
-![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)
+# 🧭 CodeCompass
 
-本地优先的**多语言代码事实层**，主轴是 **MCP**：一条命令导入任何仓库，向 coding agent 提供确定性的调用链、反向依赖、影响面与可点击的 `file:line` 锚点。全部在一个 Node.js 进程内完成：AST 索引 → 确定性分析 → 零 LLM。
+**让工具停止编造，让 Agent 停止猜测。**
 
-> 定位（ADR-0001/0002）：对源码**只读**、永不写回；只承诺**确定性静态分析**，不调用 LLM 也能给出全部核心结论；每个结论都带可点击的 `file:line` 锚点。
-> **消费面主次**（ADR-0020，v1.2 起）：`codecompass mcp` 的 17 个工具是**产品面**（给 IDE / agent 宿主用），签名与数量冻结；Web 工作台是**个人日常驾驶舱**（拓扑/聊天/门禁/差异/体检五个面），与 MCP 消费同一份引擎输出、不另起叙述管线——用来日常肉眼核证引擎结论与观察精度态势。
+本地优先的**多语言代码事实层**：确定性 AST 调用链、跨栈根因穿透、架构影响面，经 Model Context Protocol (MCP) 直达 coding agent。对源码只读、零 LLM 依赖、每个结论带可点击 `file:line` 锚点。
 
-## 定位：给 agent 的确定性检索层
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.3.0)
+[![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
+[![MCP](https://img.shields.io/badge/MCP-17%20tools-8b5cf6.svg?style=flat-square)](https://modelcontextprotocol.io/)
+[![ADR](https://img.shields.io/badge/ADRs-20%20records-f59e0b.svg?style=flat-square)](#adr)
+[![Tests](https://img.shields.io/badge/tests-103%20TS%20files-10b981.svg?style=flat-square)](#quality)
+[![npm](https://img.shields.io/badge/npm-%40codecompass%2Fcli%200.31.0-cb3837.svg?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@codecompass/cli)
+[![License](https://img.shields.io/badge/license-MIT-gray.svg?style=flat-square)](./LICENSE)
 
-CodeCompass 是**精确检索工具，不是理解工具**——它把 agent 不擅长的大规模确定性查找（全库反向依赖、调用链、规模统计、影响面）做到秒级精确，把省下来的上下文窗口留给 agent 去读真正需要精读的文件。仓库越大价值越大：几千文件以上的项目接近必需，几十文件的迷你项目直接读文件更快。架构判断、设计评审、安全隐患排查仍属于 agent 的读码工作，本引擎不越界。
+[为什么](#why) • [产品一览](#gallery) • [核心特性](#features) • [系统架构](#architecture) • [快速上手](#quickstart) • [MCP 接入](#mcp) • [架构治理](#adr) • [质量门禁](#quality) • [路线图](#roadmap)
 
-## 核心能力
+</div>
 
-### 1. AST 确定性调用链
-基于 `@lezer` 语法树（CST）构建调用图，call-chain 模式走**完全确定性的静态分析路径**：不调用任何 LLM、不消耗 token、结果可复现。每条调用链都是一幅 mermaid 时序图，节点带 `code://` 锚点，点击直达 Inspector 源码行；静态解析不到的位置显式标记 **Static Analysis Break**，绝不静默编造。
+---
 
-### 2. 跨语言契约桥接
-前端 `fetch` / `$fetch` / `axios`（含 `axios.create` 封装）的 HTTP 调用点，按归一化路径（含 `/api`、`/api/v1` 前缀变体）**唯一匹配**到 Spring / Express / Gin / Fiber / FastAPI / Flask 路由后连边——前端到后端的调用链在同一张图里打通。匹配保守：候选不唯一时停下并标记，而不是猜。
+<a id="gallery"></a>
 
-### 2.5 Prisma 数据层（v0.15）
-TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.post.findMany()` 类调用确定性解析到数据层——TypeScript 项目拥有与 Java/MyBatis 同级的 4 层穿透能力。
+## 📸 产品一览
 
-### 3. 多语言 AST 解析
-`LanguageAdapter` 抽象层把不同语言的语法树统一成同一套 `RepoSymbol` 契约：同一份调用图索引、同一套调用链算法、同一个 Web/MCP/CLI 证据面。
+> 全部为本机**真实渲染**（非示意图）：演示 fixture 为 Java Spring + TypeScript + Python 混合仓（两次提交）。UI 变更后用 `node scripts/smoke/readme-shots.mjs` 重新生成。
 
-| 语言 | 扩展名 | 主要符号 | 框架 / 路由识别 |
-| --- | --- | --- | --- |
-| Java | `.java` | class / interface / method / field / route / service / repository / advice / mapper | Spring MVC 注解、MyBatis Mapper（含 XML SQL 穿透） |
-| TypeScript / JavaScript | `.ts` `.tsx` `.js` `.jsx` `.mjs` | class / function / interface / type / route | NestJS 装饰器、Express 路由、`axios` / `fetch` 调用点 |
-| Go | `.go` | struct / interface / func / receiver method | Gin / Fiber 路由注册（`r.GET`、`group.POST`） |
-| Python | `.py` | class / def / async def / route | FastAPI / Flask 装饰器、`pyproject.toml` / `.env` 配置证据 |
+**确定性调用链**——点任一入口展开全链，逐跳 `file:line` 锚点，步骤条逐跳导航，断链显式标记：
 
-消费侧同样多语言：dashboard 的技术栈统计与配置证据支持 `package.json`、`pyproject.toml`、`.env`、yaml/properties、`pom.xml`。
+<img src=".github/assets/callchain.png" alt="确定性调用链" width="100%" />
 
-### 4. 零 Prompt 驾驶舱与架构差异
-- **看板**：导入即分析——技术栈分类统计、结构规模（接口 / 服务 / 仓储 / 方法 / 配置键…）、Top API 列表，一键导出 `ONBOARDING.md`。
-- **架构差异**：对比 base/head 两个 git ref，输出新增/删除路由、断边、受影响 API（风险分级）与 mermaid 差异图；CLI 侧 `codecompass diff` / `pr-summary` 同源内核，并支持 `--fail-on-auth-impact` 在 CI 中守住"无认证敏感路由被改"的安全红线。
+<table>
+  <tr>
+    <td align="center" width="50%"><img src=".github/assets/overview.png" alt="拓扑概览"><br><sub><b>拓扑概览</b>：栈构成 / 结构规模 / 枢纽符号 / Top API 入口</sub></td>
+    <td align="center" width="50%"><img src=".github/assets/tour.png" alt="Onboarding Tour"><br><sub><b>Onboarding Tour</b>：mermaid 渲染主业务流全链，节点绑定 <code>code://</code> 深链</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src=".github/assets/scan.png" alt="体检面"><br><sub><b>体检</b>：五桶候选 + 精度态势，只报确定性事实、判断留给使用者</sub></td>
+    <td align="center"><img src=".github/assets/inspector.png" alt="Inspector"><br><sub><b>Inspector</b>：Monaco 只读源码 + 上下游关联切片 + 子图缩略图</sub></td>
+  </tr>
+</table>
 
-### 5. Local-First 隐私与脱敏
-- **索引层**：配置只索引 key，value 从不落盘、从不导出；多模式确定性掩码引擎重写凭据赋值（`password` / `secret` / `token` / `aws_access_key_id`…），且只重写字面量赋值。
-- **输出层**：所有导出与 HTTP 响应再经 `maskSensitiveText` 防御性过滤，双保险。
-- **前端可见**：Local-First 隐私药丸（纯本地 / 本地模型 / 远程模型三态）、会话 Token 预算、消息级来源徽章（静态图谱 vs 模型推理）——远程 LLM 问答默认关闭，需显式同意。
+---
 
-### 6. Graph RAG Agent Context
-`codecompass context <query>` 用与调用链完全一致的确定性入口解析器定位符号，沿内存符号图做 **1-Hop Caller + 1~3 Hop Callee** 双向检索：折叠类骨架、按优先级队列做 Token 预算剪枝、13 类凭据脱敏，产出可直接粘贴给 Agent 的 Markdown。也可通过 `codecompass mcp` 以标准 MCP 工具供 Claude Desktop / Cursor 调用（见下文）。
+<a id="why"></a>
+
+## 💡 为什么需要 CodeCompass？
+
+让 coding agent（Claude Code、Cursor、Cline……）读大型代码库时，有两个绕不开的死结：
+
+- **上下文爆炸**：把整个仓库塞进上下文窗口，成本陡增，噪音淹没信号；
+- **更隐蔽的那个——编造**：LLM 会凭函数名的相似性"脑补"调用链，架构判断建立在虚构的边上，而且**读起来总是很像真的**。
+
+CodeCompass 的立场是「**精确检索工具，不是理解工具**」：把 agent 不擅长的大规模确定性查找（全库反向依赖、调用链、影响面、规模统计）做到秒级精确，把省下来的上下文窗口留给 agent 去精读真正该读的文件。仓库越大价值越大；架构判断、设计评审、安全隐患排查仍属于 agent 的读码工作，引擎不越界。
+
+而「不编造」首先是引擎对自己的纪律。v1.3.0 收口批次的主题就是「**让工具停止编造**」——起因是一次双路走查发现：**58/64 个路由入口返回同一条常量调用链，还打着 VERIFIED 徽章**。修复不是加更多提示词，而是删掉那个"取全仓第一个方法符号"的兜底：**无起点即无链路**，diagnose 如实报 SUSPECT。
+
+| 维度 | 让 LLM 直接推断 | grep / 正则扫描 | CodeCompass |
+| :--- | :--- | :--- | :--- |
+| **调用链拓扑** | ⚠️ 凭名称相似脑补，虚构边 | ⚠️ 文本匹配，无符号语义 | ✅ `@lezer` CST 符号求解，逐边确定性可复现 |
+| **断链处理** | ❌ 静默补全 | ❌ 无概念 | ✅ 显式标记 **Static Analysis Break**，缺层不硬凑 |
+| **跨语言穿透** | ⚠️ 单文件视角 | ❌ 单语言 | ✅ 前端 `fetch`/`axios` → Spring / Express / Gin / Fiber / FastAPI / Flask 路由连边；Prisma 数据层穿透 |
+| **Agent 接口** | ❌ 纯文本 | ❌ 无标准协议 | ✅ 17 个 `codecompass_*` MCP 工具（stdio，零 LLM） |
+| **隐私边界** | ⚠️ 全量上送 | — | ✅ 双层脱敏：索引层只落 key，出库前 `maskSensitiveText` 单尺过滤 |
+| **证据形态** | ❌ 无锚点 | ⚠️ 裸行号 | ✅ 物理锚点 `repoId + commit + file:line`，raw file 校验通过才展示 |
+
+---
+
+<a id="features"></a>
+
+## ✨ 核心特性
+
+### 1. 确定性 AST 调用链
+
+基于 `@lezer` 语法树（CST）构建调用图：不调用任何 LLM、不消耗 token、结果可复现。代码拓扑视图以聚焦卡片流 + 调用链步骤条呈现，逐跳直达 `file:line` 源码锚点；Onboarding Tour 与演进工件以 mermaid 渲染图谱，节点绑定 `code://file#line` 深链。静态解析不到的位置显式标记 **Static Analysis Break**（链路止于仓库外时为 EXTERNAL——是分析边界，不是缺陷），绝不静默编造。链路追踪 100% 确定性（ADR-0005）；问答侧另有「零幻觉合约」兜底——每条断言逐字来自工具返回的 Call Edge，每个 `file:line` 必须过 raw-file 物理校验。
+
+### 2. 多语言适配器
+
+`LanguageAdapter` 抽象层把不同语言的语法树统一成同一套 `RepoSymbol` 契约——同一份索引、同一套算法、同一个 Web / MCP / CLI 证据面：
+
+| 语言 | 扩展名 | 框架 / 路由识别 |
+| --- | --- | --- |
+| Java | `.java` | Spring MVC 注解、MyBatis Mapper（含 XML SQL 穿透） |
+| TypeScript / JavaScript | `.ts` `.tsx` `.js` `.jsx` `.mjs` | NestJS 装饰器、Express 路由、`axios` / `fetch` 调用点 |
+| Go | `.go` | Gin / Fiber 路由注册、`net/http` 标准库入口 |
+| Python | `.py` | FastAPI / Flask 装饰器、`pyproject.toml` / `.env` 配置证据 |
+
+### 3. 跨语言契约桥接与数据层穿透
+
+前端 HTTP 调用点（`fetch` / `$fetch` / `axios`，含 `axios.create` 封装）按归一化路径**唯一匹配**到后端路由后连边，前端到后端的调用链在同一张图里打通——候选不唯一时停下并标记，而不是猜。TS/Node.js 工程的 `schema.prisma` 解析为实体与操作符号，`prisma.post.findMany()` 类调用确定性解析到数据层。
+
+### 4. 专精 Agent 的复合工具
+
+两大确定性、零 LLM 复合工具替代分散的单点查询：
+
+- **根因穿透** `codecompass_diagnose`：从方法名或 `"POST /api/owners"` 出发，穿透 前端组件 → 路由 → Service → Mapper/XML SQL，逐层标 `VERIFIED / BROKEN / SUSPECT`，缺层不硬凑；
+- **爆炸半径** `codecompass_refactor_plan`：递归聚合直接/间接调用方，上卷受波及对外路由与桥接前端组件，给出 HIGH/MEDIUM/LOW 风险评级与迁移步骤。
+
+配套还有：`codecompass_plan_evolution`（EXTEND 挂载点分析 / DEPRECATE 固定点级联孤立死代码）、`codecompass_domain_radar`（出入度 + 确定性 PageRank，零 embedding）、`codecompass_scan`（五桶"该动哪里"自荐，只报确定性事实、判断留给 agent）、`codecompass export`（单文件自包含 HTML 诊断工件，内联 mermaid 运行时，断网可渲染、可随 PR 归档）。
+
+### 5. Graph RAG Agent Context
+
+`codecompass context <query>` 用与调用链完全一致的确定性入口解析器定位符号，沿内存符号图做 **1-Hop Caller + 1~3 Hop Callee** 双向检索：折叠类骨架、按优先级队列做 Token 预算剪枝、13 类凭据脱敏，产出可直接粘贴给 Agent 的 Markdown。
+
+### 6. Local-First 隐私与脱敏
+
+- **索引层**：配置只索引 key，value 从不落盘、从不导出；多模式确定性掩码引擎只重写凭据类字面量赋值；
+- **输出层**：所有导出与 HTTP 响应再经 `maskSensitiveText` 防御性过滤（14-pattern 唯一权威尺，双保险）；
+- **前端可见**：隐私药丸三态（纯本地 / 本地模型 / 远程模型）、会话 Token 预算、消息级来源徽章——远程 LLM 问答默认关闭，需显式同意。
 
 ### 7. 韧性与自诊断
-- **doctor**：`codecompass doctor --json` 一键体检 Node 版本、SQLite 原生 ABI、端口、数据目录与磁盘余量、本地 Ollama。
-- **分阶段索引**：DISCOVERY → AST_EXTRACTION → CROSS_LANG_BRIDGE → FINALIZING 四阶段实时进度。
-- **热重载**：FS watcher 增量刷新符号与调用边，编辑即所见，无需重导。
-- **大文件降级**：超大文件自动降级为轻量提取，不拖垮索引。
 
-### 8. 专精 Agent 复合工具（v0.8）
-两大**确定性、零 LLM** 的复合工具，替代分散的单点查询：
-- **根因穿透**：`codecompass_diagnose` 从方法名或 `"POST /api/owners"` 出发，穿透 前端组件 → 路由 → Service → Mapper/XML SQL，逐层标 `VERIFIED / BROKEN / SUSPECT`；Java 全栈四层全开，其他语言按实际索引层级降级输出，缺层不硬凑。CLI 同款：`codecompass diagnose <symbol> [repoPath]`（输出 JSON，CI 可直接消费）。
-- **爆炸半径**：`codecompass_refactor_plan` 递归聚合直接/间接调用方，上卷受波及对外路由与桥接前端组件，给出 HIGH/MEDIUM/LOW 风险评级与迁移步骤。CLI 同款：`codecompass refactor-plan <symbol> [--change-type <t>]`。
-- **诊断工件**：`codecompass export <symbol> [--file out.html]` 输出单文件自包含 HTML（内联 mermaid 运行时，断网可渲染，可随 PR 归档），断链在拓扑图中红色描边。
-- **深链现场还原**：工具结果的 `cockpitDeepLink` 携带 `?focus=<symbol>&traceId=<id>&mode=diff`，打开即闪烁聚焦目标卡片 / 直达架构差异视图。URL 是选库的唯一真理源：后退到无 `repo` 参数的历史条目即取消选库。`mode` 取值：不带 = 代码拓扑，`diff` = 架构差异视图，`incident` = 架构问答；`incident` 为规范值，历史别名 `mode=chat` 仍被接受但 URL 静默归一为 `incident`（既定行为）。
-补丁类生成内容归 LLM 编排层并显式标注（ADR-0006）；链路追踪 100% 确定性（ADR-0005）。
+`codecompass doctor --json` 一键体检（Node 版本、SQLite 原生 ABI、端口、数据目录与磁盘余量、本地 Ollama）；DISCOVERY → AST_EXTRACTION → CROSS_LANG_BRIDGE → FINALIZING 四阶段实时进度；FS watcher 热重载，编辑即所见；超大文件自动降级轻量提取，不拖垮索引；启动前自动备份 SQLite（保留最近 5 份）。
 
-### 9. 模块演进与领域雷达（v0.9）
-- **安全下线分析**：`codecompass evolve --intent deprecate --target <module>` —— 模块聚类 → 全图反向引用 → **固定点级联孤立死代码**（被独占的公共工具一并标出）→ 五类清理 Checklist。
-- **扩展挂载分析**：`codecompass evolve --intent extend --target <symbol> [--goal "..."]` —— 挂载点定位、方法/类/接口三级 `@Transactional` 事务边界证据、解耦模式匹配（Spring Event 异步 / AOP 切面 / 直接注入）+ 确定性代码脚手架（补丁仍归 LLM 层，ADR-0006）。
-- **领域雷达**：`codecompass radar [query]` —— Hub 节点（出入度 + 确定性 PageRank，悬挂节点权重不外泄、桥接边计入入度）、Top APIs、持久化底座；中文意图靠 doc-chunk 证据确定性桥接，零 embedding。
+### 8. Zero-Config 安装器
 
-### 10. Zero-Config 安装器（v0.8）
 ```bash
-codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all> [--repo <path>] [--dry-run] [--auto-approve-all]
+codecompass install --ide <cursor|zcode|claude|windsurf|cline|roo|all>
 ```
-把 stdio MCP 入口写入各 IDE 自有配置（Cursor `~/.cursor/mcp.json` 并注入工具 autoApprove 白名单、ZCode `~/.zcode/cli/config.json`、Claude Desktop），自动解析 Node 运行时绝对路径；幂等合并、写前自动备份、`--dry-run` 预览。**默认不自动批准破坏性工具**：白名单为 17 个工具里去掉 `codecompass_remove_repo`（级联删除索引数据）的 16 个；需要全量时加 `--auto-approve-all`。
 
-## 快速上手
+把 stdio MCP 入口写进各 IDE 自有配置（Cursor `~/.cursor/mcp.json` 并注入 autoApprove 白名单、ZCode、Claude Desktop 等 6 家），自动解析 Node 运行时绝对路径，幂等合并、写前自动备份。**默认不自动批准破坏性工具**——`codecompass_remove_repo`（级联删除索引数据）不在白名单，需要时显式加 `--auto-approve-all`。
+
+---
+
+<a id="architecture"></a>
+
+## 🏗️ 系统架构
+
+```mermaid
+flowchart LR
+    subgraph CLIENT["消费面"]
+        CLI["codecompass CLI<br/>bin/codecompass.js"]
+        WEB["Web 工作台<br/>React 19 + Monaco + mermaid"]
+        AGENTS["AI Coding Agents<br/>Cursor / Claude / Cline / Roo"]
+    end
+
+    subgraph CP["Control Plane（单 Node 进程）"]
+        INGEST["ingest 解析入库<br/>@lezer CST × 4 语言"]
+        ENGINE["engine 分析族<br/>调用链 / 反向依赖 / 差异 / 雷达"]
+        MASK["出库脱敏单尺<br/>maskSensitiveText"]
+        MCP["MCP Server<br/>17 个 codecompass_* 工具"]
+        DB[("SQLite 本地索引<br/>只读快照 · 不上传")]
+    end
+
+    CLI --> INGEST
+    CLI --> MCP
+    WEB -->|"HTTP / SSE · 43110"| ENGINE
+    AGENTS -->|"stdio · JSON-RPC"| MCP
+    INGEST --> ENGINE
+    ENGINE --> DB
+    ENGINE --> MASK
+    MCP --> ENGINE
+```
+
+> **双面体原则（ADR-0020）**：MCP 面是产品面（给 IDE / agent 宿主用，17 工具签名与数量冻结），Web 工作台是维护者日常驾驶舱与演示调试面——两端消费同一份引擎输出，不另起叙述管线。引擎对源码**只读**、永不写回（ADR-0001）。术语表见 [`CONTEXT.md`](./CONTEXT.md)。
+
+---
+
+<a id="quickstart"></a>
+
+## 🚀 快速上手
 
 ### 前置要求
-- Node.js 24+（`engines` 与 `codecompass doctor` 均按此约束；开发环境 v24）
-  > 原因：`better-sqlite3` 是原生模块，本地直接运行预编译 `dist` 时 Node 主版本必须与构建时 ABI 匹配（NODE_MODULE_VERSION）。Docker 路径在镜像内重新 `npm ci` 重建原生模块，不受此限制。
+
+- **Node.js >= 24**（`engines` 硬约束，`codecompass doctor` 同约束）：`better-sqlite3` 是原生模块，本地直接运行 `dist` 时 Node 主版本必须与构建时 ABI（NODE_MODULE_VERSION）匹配；Docker 路径在镜像内重新 `npm ci` 重建原生模块，不受此限
 - 首次使用需要构建一次（`bin/codecompass.js` 依赖 `dist/` 产物）
-- 启动前可运行 `codecompass doctor --json` 自检环境
 
 ### 方式一：CLI（推荐）
 
 ```bash
-# 1. 安装依赖
+# 1. 安装全部 workspace 依赖
 npm run install:all
 
 # 2. 构建（一次即可，产物在 dist/）
@@ -90,45 +180,29 @@ npm run build
 
 # 3. 单命令导入并打开驾驶舱
 codecompass /path/to/your/repo
-# 或
+# 或不全局安装：
 npm start -- /path/to/your/repo
 ```
 
-常用参数：
+常用命令：
 
 ```bash
-codecompass <path>            # 导入仓库并自动打开浏览器到驾驶舱
 codecompass <path> --port 9000        # 自定义端口（默认 43110 / $MHW_CP_PORT）
 codecompass <path> --data-dir ./data  # 自定义数据目录（默认 ~/.mhw / $MHW_DATA_DIR）
 codecompass <path> --no-browser       # 只启动服务，不自动开浏览器
 codecompass context listOrders /path/to/your/repo   # 导出 Graph RAG Agent 上下文
+codecompass diagnose "POST /api/owners" /path       # 跨栈根因穿透（JSON，CI 可消费）
+codecompass diff <base> <head> [path] # PR 架构影响面（支持 --fail-on-auth-impact）
 codecompass doctor --json             # 环境自诊断
-codecompass diff <base> <head> [path] # PR 架构影响面
-codecompass --version
 ```
 
-### Web 界面（演示与调试面，非产品面）
-
-导入完成后浏览器访问 `http://localhost:<port>`，三栏布局（clean / cyber 双主题）。它存在的意义是**肉眼确认引擎结论**与排查解析问题，不是给人长期使用的产品界面——产品面是上面的 MCP 工具；本仓近期对它的投入原则是**只减不增**（收敛与修缺陷，不加新功能）。
-
-> **绑定说明（v0.27.0 起）**：服务默认只监听 `127.0.0.1`（本机回环）——控制面无鉴权，不再默认暴露到局域网。确需他机访问（如投屏展示）时设 `MHW_CP_HOST=0.0.0.0` 启动，启动日志会打印 LAN 暴露告警；Docker 镜像已在内部预设该逃生值，`-p` 端口映射照常。
-
-- **左侧栏**：Quick Tours 上手导览、路由列表、符号树——支持文本搜索与按符号类型（route / class / method / config / dependency…）过滤。
-- **中央画布**：提问即得确定性调用链时序图；看板 / CI 门禁 / 架构差异为独立 Tab。
-- **右侧 Inspector**：Monaco 只读源码 + 一次性 glow 定位；选中符号可看**反向依赖**（谁调用了它）、**子图透视**（caller / callee 方向切换）、复制 Agent 上下文。
-- **导入**：本地路径 / GitHub 克隆双通道，导入前实时预览文件数；大仓超限时会给出可一键选用的子目录建议。
-
-### 回归门禁
+### Web 工作台（驾驶舱与调试面）
 
 ```bash
-npm run e2e   # = python scripts/e2e/closeout_gate.py（需 Node 24 + 已构建 dist + git + python3）
+npm run dev   # vite dev server → http://localhost:5173（API 走 43110）
 ```
 
-一键构建多语言 fixture（Java+TS / Python / Go）并断言 35 项能力：doctor、版本一致性、
-多语言消费面、Module Scope、扫描过滤（venv/二进制）、跨语言桥接、reverse-deps、
-确定性调用链、SSE 流（mermaid + 锚点）、symbolType 枚举、架构差异、ADR-0003 脱敏
-门禁、FastAPI Depends、Go 隐式接口、热重载，以及 v0.8 的 MCP stdio 复合工具往返、
-CLI diagnose / refactor-plan / export 与 install --dry-run，以及 v0.9 的 radar 全景与意图锚点、evolve 双意图与多视图工件断言（含 MCP stdio 往返）、v0.13 的 golden eval 阈值冒烟。基准报表见 `docs/benchmark.md`。
+三栏布局（clean / cyber 双主题）：左侧 Quick Tours 导览、路由列表与符号树；中央提问即得确定性调用链时序图，看板 / 变更审计 / Diff 影响面 / 体检为独立 Tab；右侧 Inspector 为 Monaco 只读源码 + 反向依赖 / 子图透视。服务默认只监听 `127.0.0.1`（控制面无鉴权）；确需他机访问时设 `MHW_CP_HOST=0.0.0.0`，启动日志会打印 LAN 暴露告警。
 
 ### 方式二：Docker（容器开发）
 
@@ -136,32 +210,20 @@ CLI diagnose / refactor-plan / export 与 install --dry-run，以及 v0.9 的 ra
 docker compose up --build
 ```
 
-`docker-compose.yml` 将当前目录**只读挂载**到容器内的 `/repo`（容器拿不到你的源码写权限），导入结果存到命名卷 `codecompass-data`，服务暴露在 `http://localhost:43110`。不想用默认编排时，也可直接构建镜像：
+`docker-compose.yml` 将当前目录**只读挂载**到容器内 `/repo`（容器拿不到源码写权限），导入结果存命名卷 `codecompass-data`，服务暴露在 `http://localhost:43110`。
 
-```bash
-docker build -t codecompass:local .
-docker run --rm -p 43110:43110 \
-  -v "$PWD:/repo:ro" -v codecompass-data:/data \
-  codecompass:local node services/control-plane/dist/cli.js /repo --no-browser
-```
+### 数据与备份
 
-## 安装（npm）
+- **删除仓库**：只移除仓库索引，源文件与本地克隆目录保留，之后可随时重新导入同一路径；
+- **启动前自动备份**：每次启动服务前用 SQLite online backup 生成 `mhw.db.backup-<时间戳>`，数据目录保留最近 5 份。
 
-```bash
-# 无需预装，直接拉起 stdio MCP 服务：
-npx @codecompass/cli mcp /path/to/your/repo
+---
 
-# 或全局安装后使用 codecompass 命令：
-npm install -g @codecompass/cli
-codecompass /path/to/your/repo          # 打开 Web 驾驶舱
-codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
-```
+<a id="mcp"></a>
 
-支持一键写入的 IDE：Cursor、ZCode、Claude Desktop、Windsurf、Cline (VS Code)、Roo Code (VS Code)。
+## 🔌 接入 MCP 生态
 
-写入 Cursor / Cline / Roo 配置时，`autoApprove` 允许列表**默认不含破坏性工具**（`codecompass_remove_repo`，级联删除索引数据）；需要恢复全量 17 个工具时加 `--auto-approve-all`。**早前装过的环境不会自动变安全**——重跑一次 `codecompass install` 刷新允许列表。
-
-## MCP 工具接入
+CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可作为 MCP Server 直接注入主流 AI 开发工具。工具面是产品面——签名与数量冻结，新增须附精度论证（ADR-0020 双轨制纪律）：
 
 <!-- mcp-tools:begin -->
 `codecompass mcp <path>` 启动标准 stdio MCP 服务，当前提供 **17 个**确定性工具（全部零 LLM、结果确定性可复现）：
@@ -187,22 +249,7 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 | `codecompass_plan_evolution` | **演进方案（`module_evolution` 的接替者）**：EXTEND 挂载点 + 声明级事务边界 + 解耦模式与脚手架；DEPRECATE 固定点级联孤立死代码 + 清理 Checklist（补丁仍归 LLM 层） |
 <!-- mcp-tools:end -->
 
-### Cursor
-
-在项目根目录创建 `.cursor/mcp.json`：
-
-```json
-{
-  "mcpServers": {
-    "codecompass": {
-      "command": "npx",
-      "args": ["-y", "@codecompass/cli", "mcp", "/path/to/your/repo"]
-    }
-  }
-}
-```
-
-### Claude Desktop
+### 接入 Claude Desktop
 
 编辑 `claude_desktop_config.json`（Windows：`%APPDATA%\Claude\claude_desktop_config.json`；macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`）：
 
@@ -217,35 +264,130 @@ codecompass install --ide all           # 一键写入 6 家 IDE 的 MCP 配置
 }
 ```
 
-## 开发
+### 接入 Cursor / Cline / Roo
+
+在项目根目录创建 `.cursor/mcp.json`（Cline / Roo 用各自的 MCP 设置项），内容同上。
+
+### 版本实情（重要）
+
+npm registry 上 `@codecompass/cli` 最新为 **0.31.0**——1.0.0–1.3.0 尚未发布（见[路线图](#roadmap)）。`npx` 拉起的是 0.31.0；要使用 1.3.0 的全部能力，按上文 clone + `npm run build` 后：
 
 ```bash
-npm run install:all    # 安装全部 workspace 依赖
-npm run typecheck      # 四个包全部 tsc --noEmit
-npm test               # 后端 vitest（services/control-plane）
-npm run test:web       # 前端 vitest（apps/repoqa-web）
-npm run dev            # 前端 dev server（API 走 43110）
-python scripts/e2e/closeout_gate.py   # API 级端到端回归基线
+node bin/codecompass.js mcp /path/to/your/repo
+# 或全局链接后使用 codecompass 命令：
+npm install -g .
+codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 ```
 
-## 个人数据管理
+写入 Cursor / Cline / Roo 配置时，`autoApprove` 允许列表**默认不含破坏性工具**（`codecompass_remove_repo`，级联删除索引数据）；需要恢复全量 17 个工具时加 `--auto-approve-all`。**早前装过的环境不会自动变安全**——重跑一次 `codecompass install` 刷新允许列表。
 
-- **删除仓库**：只移除仓库索引，源文件与本地克隆目录保留，之后可随时重新导入同一路径。
-- **启动前自动备份**：每次启动服务前用 SQLite online backup 生成 `mhw.db.backup-<时间戳>`，数据目录保留最近 5 份。
+---
+
+<a id="adr"></a>
+
+## 📐 架构治理（ADR）
+
+本项目严格采用架构决策记录指导技术选型与边界演进，仓库内沉淀 **20 份 ADR**（ADR-0001–0020，均为已生效决策）：
+
+| ADR | 核心决策 |
+| --- | --- |
+| [0001](./docs/adr/0001-repopulse-read-only-local-first.md) | 只读、本地优先（曾用名 RepoPulse，等价 CodeCompass） |
+| [0002](./docs/adr/0002-structured-static-analysis-over-semantic-retrieval.md) | 结构化静态分析优于语义检索——真理之源红线 |
+| [0003](./docs/adr/0003-security-gates-before-llm.md) | 进 LLM 之前的安全门禁：脱敏先行 |
+| [0004](./docs/adr/0004-golden-dataset-before-prompt-tuning.md) | 先黄金数据集，后 prompt 调优 |
+| [0005](./docs/adr/0005-composite-tools-stay-deterministic.md) | 复合工具保持确定性（零 LLM、可单测可重放） |
+| [0006](./docs/adr/0006-patch-generation-belongs-to-llm-layer.md) | 补丁生成归 LLM 编排层；确定性工具的 `suggestedPatch` 恒空 |
+| [0007](./docs/adr/0007-deep-links-on-card-flow-not-graph-canvas.md) | 深链落在卡片流，而非图画布 |
+| [0008](./docs/adr/0008-lifecycle-dataflow-await-method-body-evidence.md) | 生命周期数据流：await 方法体证据 |
+| [0009](./docs/adr/0009-story-beats-artifact-only.md) | 分步演播只进自包含 HTML 工件 |
+| [0010](./docs/adr/0010-physical-anchor-pins-commit.md) | 物理锚点钉住 commit，防行号漂移成幽灵锚点 |
+| [0011](./docs/adr/0011-incident-copilot-static-boundary.md) | 排障副驾驶的静态边界（不接 APM / 日志流） |
+| [0012](./docs/adr/0012-copilot-positioning-intent-artifact.md) | copilot 定位：意图 → 单次高密度工件 |
+| [0013](./docs/adr/0013-diagram-geometry-rendered-by-engine.md) | 图谱几何由确定性引擎渲染，LLM 只产图层指令 |
+| [0014](./docs/adr/0014-pattern-ingestion-evidence-anchored.md) | 模式摄取必须带证据锚点 |
+| [0015](./docs/adr/0015-evolution-workbench-freeform-intent.md) | 演进工作台：自由意图入口 |
+| [0016](./docs/adr/0016-mcp-long-ops-return-immediately.md) | MCP 长操作立即返回 + 轮询（含幽灵索引防线） |
+| [0017](./docs/adr/0017-gate-run-history-server-side.md) | 门禁运行史服务端化，而非 CI 遥测 |
+| [0018](./docs/adr/0018-orphan-bucket-semantics.md) | 孤儿桶只声称「可调用符号的零静态调用者」 |
+| [0019](./docs/adr/0019-mcp-audit-log-policy.md) | MCP 审计日志记录入参出参，与 HTTP sink 政策分工 |
+| [0020](./docs/adr/0020-web-workbench-revival.md) | Web 工作台再产品化——双面体再平衡 |
+
+完整决策列表见 [`docs/adr/`](./docs/adr/)，术语表见 [`CONTEXT.md`](./CONTEXT.md)。
+
+---
+
+<a id="quality"></a>
+
+## 🧪 工程质量与测试门禁
+
+```text
+测试套件（vitest，Node 24 本机实跑）：
+  services/control-plane     809 tests / 63 files
+  apps/repoqa-web            406 tests / 39 files
+  packages/bridge-adapters    26 tests /  1 file
+  合计                      1241 tests / 103 files（测试与源码同位放置）
+```
+
+- **确定性断言**：针对「伪造调用链」测试集设立回归锁定，确保已知模式无漏判、无误判；
+- **e2e 门禁**：`python scripts/e2e/closeout_gate.py`，**73 项断言**（v1.3.0 收口基线 73/0）——覆盖多语言 fixture、跨语言桥接、SSE 流、ADR-0003 脱敏门禁、MCP stdio 复合工具往返、CLI diagnose / refactor-plan / export、install --dry-run、golden eval 阈值冒烟，以及版本四处一致性与 MCP 握手版本棘轮；
+- **UI 冒烟**：`scripts/smoke/ui_smoke.mjs`，真 Chromium 六动线走查；
+- **精度工程**：`npm run precision` 对 self / lazygit / petclinic 三仓孤儿数一条命令复跑，`--ratchet` 冻结基线棘轮；基准报表见 [`docs/benchmark.md`](./docs/benchmark.md)；
+- **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.3.0 tag → `e31ea8e`，CI / Release 双绿。
+
+> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.3.0 收口门禁（控制面 809 / web 404 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
+
+运行全量测试：
+
+```bash
+npm test            # 后端 vitest（services/control-plane）
+npm run test:web    # 前端 vitest（apps/repoqa-web）
+npm run test:bridge # 协议适配层 vitest
+npm run e2e         # Python 端到端门禁（需先 npm run build）
+```
+
+> Windows 环境注意：跑测试前先把 `TMPDIR` 设到非系统盘——C 盘满会以 ENOSPC 伪装成测试失败（本机实测教训）。
+
+---
+
+<a id="roadmap"></a>
+
+## 🛣️ 路线图
+
+- [x] **v1.0.0**：17 工具 v1 契约冻结 + 精度边界技术文章（`docs/article-v1-precision-boundary.md`）
+- [x] **v1.1.0**：检索取证与证据诚实（FTS5(trigram) 双路径检索、真仓 top-10 假阳性门）
+- [x] **v1.2.0**：工作台产品化（ADR-0020 双面体再平衡：五面驾驶舱、导入 202 + WS 流式进度）
+- [x] **v1.3.0（当前版本，tag `e31ea8e`）**：「让工具停止编造」——伪造调用链红线修复、`EXTERNAL` 语义、未解析指标去灌水（TS/JS 38%→0%）、僵尸索引每分钟对账回收
+- [ ] **已登记未修（Round5 走查清单，值得立票）**：
+  - [ ] R5-05 chat 流式剩余项：前端停止键 / 已用时显示已落地，服务端进度与慢模型断点提示待深化
+  - [ ] R5-08 用户级 `llm-profiles.json`：模型热切换目前只有 `default` 一档，UI 在而功能空
+  - [ ] R5-09 / R5-11 / R5-13 / R5-14 / R5-16 体验打磨项
+- [ ] **npm 发布积压**：registry 最新为 0.31.0；1.0.0–1.3.0 均未上 npm（发布需本机 token，流程见 `HANDOFF.md`）
+- [ ] **已知缺陷（2026-10-14 本机实测，待立票）**：Diff 影响面的「差异图」恒走源码回退态——`delta.mermaid` 字符串自带 markdown 代码围栏（`mermaid.render` 报 "No diagram type detected"）且 `linkStyle` 含无效的 `color:` 属性，双重阻断渲染；该面的差异概览 / 新增路由 / 折边 / 受影响 API 均正常
+
+当前版本：`v1.3.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.3.0 完整条目）。
+
+---
+
+## 📄 开源许可证
+
+本项目基于 [MIT License](./LICENSE) 协议开源。
+
+---
 
 ## 目录结构
 
 ```
-apps/repoqa-web/            # React 三栏界面（演示与调试面：看板 / 调用链 / 差异 / Inspector）
+apps/repoqa-web/            # React 三栏工作台（驾驶舱与演示调试面）
 services/control-plane/     # 单进程控制面：解析、索引、调用链、桥接、脱敏、导出
-packages/contracts/         # 前后端共享契约
+packages/contracts/         # 前后端共享契约（错误码单一源、文案共表）
 packages/bridge-adapters/   # 协议适配层
 scripts/e2e/                # API 级回归门禁（closeout_gate.py）
+scripts/smoke/              # README 截图生成器 + UI 冒烟（ui_smoke.mjs）
+.github/assets/             # README 截图资产（readme-shots.mjs 生成）
 bin/codecompass.js          # CLI 启动器（thin launcher）
-docker-compose.yml          # 本地容器开发（只读挂载）
 docs/adr/                   # 架构决策记录；术语表见 CONTEXT.md
+docker-compose.yml          # 本地容器开发（只读挂载）
 ```
 
-## 版本
-
-当前版本：`v1.3.0`（单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.3.0 完整条目）。语义化版本规则见 `docs/adr/`。
+<!-- 视觉资产：.github/assets/*.png 由 scripts/smoke/readme-shots.mjs 生成
+     （真 Chromium + 演示 fixture）；UI 大改后重跑刷新，勿手改图片。 -->
