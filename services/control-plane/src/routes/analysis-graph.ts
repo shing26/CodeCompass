@@ -9,6 +9,8 @@ import { runDomainRadar } from '../domain-radar-engine';
 import { runScan } from '../scan-engine';
 import { cockpitBaseUrl } from '../config';
 import { extractSubgraphContext } from '../engine/repoqa-graphrag';
+import { buildDiagnoseArtifact } from '../artifact-report';
+import { locateMermaidScript } from '../export-artifact';
 import { asyncHandler } from '../http-error';
 import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
 
@@ -182,6 +184,23 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
       }
       maxTokens = parsed;
     }
+    // v1.4 票 04 — focus mode: the caller picks how far each direction expands.
+    // Non-integers are rejected; out-of-range values clamp to 0..5 so a stray
+    // query can never blow up the walk.
+    let callerDepth: number | undefined;
+    let calleeDepth: number | undefined;
+    for (const key of ['callerDepth', 'calleeDepth'] as const) {
+      const raw = req.query[key];
+      if (raw === undefined) continue;
+      const text = String(raw).trim();
+      if (!/^\d+$/.test(text)) {
+        res.status(400).json({ error: `${key} must be a non-negative integer` });
+        return;
+      }
+      const clamped = Math.max(0, Math.min(5, Number(text)));
+      if (key === 'callerDepth') callerDepth = clamped;
+      else calleeDepth = clamped;
+    }
 
     try {
       const graph = deps.worker.getSymbolGraph(repo.id);
@@ -194,7 +213,9 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
         root: repo.localPath,
         index: graph.index,
         callerRoots: deps.worker.resolveExactMethodCandidates(repo.id, query),
-        ...(maxTokens === undefined ? {} : { maxTokens })
+        ...(maxTokens === undefined ? {} : { maxTokens }),
+        ...(callerDepth === undefined ? {} : { maxCallerDepth: callerDepth }),
+        ...(calleeDepth === undefined ? {} : { maxCalleeDepth: calleeDepth })
       });
       res.json({ context: maskEventPayload(context) });
     } catch (error) {
@@ -202,6 +223,59 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
       res.status(500).json({ error: message });
     }
   }));
+  /**
+   * v1.4 票 07 — download the single-file HTML report for one symbol.
+   *
+   * Same builder as `codecompass export` (artifact-report.ts), so the Web
+   * button and the CLI write byte-identical artifacts from one engine result.
+   * The mermaid runtime is inlined when available locally; when it is not, the
+   * response carries `x-artifact-warning` so the UI can say so instead of
+   * shipping a quietly online-only file.
+   */
+  app.get('/api/repos/:id/export/html', asyncHandler(async (req, res) => {
+    const repo = requireRepo(deps, res, req.params.id);
+    if (!repo) return;
+    const symbol = typeof req.query.symbol === 'string' ? req.query.symbol.trim() : '';
+    if (!symbol) {
+      res.status(400).json({ error: 'symbol query parameter is required', code: 'request_error' });
+      return;
+    }
+    const resolution = deps.worker.resolveStartSymbolForQuery(repo.id, symbol);
+    if (!resolution) {
+      res.status(404).json({ error: `Start symbol not found: ${symbol}` });
+      return;
+    }
+    try {
+      const graph = deps.worker.getSymbolGraph(repo.id);
+      const host = req.get('host') ?? 'localhost:43110';
+      const { html, traceId } = buildDiagnoseArtifact({
+        repoId: repo.id,
+        repoName: repo.name,
+        entrySymbol: symbol,
+        symbols: graph.symbols,
+        index: graph.index,
+        baseUrl: `${req.protocol}://${host}`,
+        snippetRoot: repo.localPath
+      });
+      const slug = symbol.replace(/[^\w.-]+/g, '-').slice(0, 60) || 'symbol';
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="codecompass-${slug}-${traceId}.html"`
+      );
+      if (!locateMermaidScript()) {
+        res.setHeader(
+          'x-artifact-warning',
+          'mermaid runtime not found locally; artifact falls back to CDN'
+        );
+      }
+      res.send(html);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: maskSensitiveText(message) });
+    }
+  }));
+
   // Issue 14: one-click ONBOARDING.md handover export. Aggregates dashboard +
   // tours into a standard Markdown doc; config values are never indexed
   // (Issue 06), and the text is defensively masked one more time.

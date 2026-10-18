@@ -62,6 +62,13 @@ interface CanvasProps {
   onTraceSymbol?: (symbol: string) => void;
   /** 当前展示链路的发起方，用于给下半部分加来源标注（R4-7「来历不明」）。 */
   traceOrigin?: string | null;
+  /**
+   * v1.4 票 01 — 一键载入内置示例项目（免找本机路径）。只出现在无库空态；
+   * 载入后走既有导入流程（202 + 索引进度条 + 自动示例链路）。
+   */
+  onLoadSample?: (() => void | Promise<unknown>) | undefined;
+  /** v1.4 票 02 — 无库空态直达片段分析（粘贴代码即看图）。 */
+  onTrySnippet?: (() => void) | undefined;
 }
 
 /**
@@ -87,7 +94,9 @@ export function Canvas({
   onRetryDashboard,
   onTraceApi,
   onTraceSymbol,
-  traceOrigin = null
+  traceOrigin = null,
+  onLoadSample,
+  onTrySnippet
 }: CanvasProps) {
   // v0.7 (issue 12) — one-shot highlight of the trace's start node: a Top API
   // click lands here and the focused card flashes once instead of blending in.
@@ -323,8 +332,41 @@ export function Canvas({
       ) : (
         <div data-testid="empty-state" className="flex flex-1 items-center justify-center p-8">
           <div className="max-w-lg text-center">
-            <h2 className="text-lg font-semibold text-ink">三步开始代码架构分析</h2>
-            <div className="mt-4 space-y-3 text-left text-sm text-muted">
+            <h2 className="text-lg font-semibold text-ink">先用 30 秒看看它能干什么</h2>
+            {/* v1.4 票 01 — 零门槛入口：不填路径、不准备仓库，服务端把内置
+                示例小仓落到数据目录后走正常导入流程。 */}
+            {onLoadSample && (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  data-testid="empty-load-sample"
+                  onClick={() => void onLoadSample()}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-canvas hover:opacity-90"
+                >
+                  载入示例项目（一键）
+                </button>
+                <p className="mt-2 text-xs text-muted">
+                  内置一个小型任务看板 API 源码，索引完自动弹出首条调用链，不用准备本机路径。
+                </p>
+              </div>
+            )}
+            {onTrySnippet && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  data-testid="empty-try-snippet"
+                  onClick={onTrySnippet}
+                  className="rounded-md border border-line px-4 py-2 text-sm font-medium text-ink hover:border-accent"
+                >
+                  粘贴一段代码看看
+                </button>
+                <p className="mt-2 text-xs text-muted">
+                  手边只有一段代码？直接粘贴，立刻看到它内部的调用关系，连仓库都不用导入。
+                </p>
+              </div>
+            )}
+            <h3 className="mt-6 text-sm font-semibold text-ink">或者，导入你自己的仓库</h3>
+            <div className="mt-3 space-y-3 text-left text-sm text-muted">
               <p>
                 <strong className="text-ink">① 导入仓库</strong> —
                 顶部「导入仓库」按钮，填本机仓库的完整路径

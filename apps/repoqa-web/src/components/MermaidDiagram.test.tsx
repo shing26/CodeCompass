@@ -1,7 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MermaidDiagram, parseClickBindings, parseDeepLink } from './MermaidDiagram';
+import {
+  MermaidDiagram,
+  parseClickBindings,
+  parseDeepLink,
+  parseLabelBindings
+} from './MermaidDiagram';
 import type { TraceStep } from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
@@ -35,6 +40,30 @@ describe('parse helpers', () => {
     const bindings = parseClickBindings(code);
     expect(bindings.get('OwnerController')).toBe('code://src/OwnerController.java#42-60');
     expect(bindings.has('OwnerRepository')).toBe(false);
+  });
+
+  it('parses the ?symbol= re-center parameter (v1.4 ticket 04)', () => {
+    expect(parseDeepLink('code://src/A.java#12?symbol=addOwner')).toEqual({
+      file: 'src/A.java',
+      line: 12,
+      symbol: 'addOwner'
+    });
+    expect(parseDeepLink('code://src/A.java#12')).toEqual({ file: 'src/A.java', line: 12 });
+  });
+
+  it('indexes hashed-id bindings by rendered label (v1.4 ticket 04)', () => {
+    // The subgraph panel hashes ids (`n<hash>`) while labeling nodes
+    // `name · dN` — the delegation matches on label text, so the direct
+    // id-keyed lookup never matched and its deep links silently died.
+    const code = [
+      'flowchart LR',
+      '  abc["OwnerController · d1"] --> root["addOwner"]',
+      '  click abc "code://src/OwnerController.java#42?symbol=OwnerController"'
+    ].join('\n');
+    const byLabel = parseLabelBindings(code);
+    expect(byLabel.get('OwnerController · d1')).toBe(
+      'code://src/OwnerController.java#42?symbol=OwnerController'
+    );
   });
 });
 
@@ -357,5 +386,63 @@ describe('MermaidDiagram focusRequest (v0.11 Stage 3)', () => {
     await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
     const label = screen.getByText('OwnerController');
     expect(label.style.outline).toBe('');
+  });
+});
+
+describe('MermaidDiagram node click routing (v1.4 ticket 04)', () => {
+  const HASHED = [
+    'flowchart LR',
+    '  h1["OwnerController"] --> h0["addOwner"]',
+    '  click h1 "code://src/OwnerController.java#42?symbol=OwnerController"'
+  ].join('\n');
+
+  beforeEach(() => {
+    mockedRender.mockClear();
+  });
+
+  it('re-centers on plain click and keeps the deep link for Ctrl+click', async () => {
+    const onNavigate = vi.fn();
+    const onNodeSymbol = vi.fn();
+    render(<MermaidDiagram code={HASHED} onNavigate={onNavigate} onNodeSymbol={onNodeSymbol} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    const label = screen.getByText('OwnerController');
+
+    await userEvent.click(label);
+    expect(onNodeSymbol).toHaveBeenCalledWith('src/OwnerController.java', 42, 'OwnerController');
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    fireEvent.click(label, { ctrlKey: true });
+    expect(onNavigate).toHaveBeenCalledWith('src/OwnerController.java', 42);
+    expect(onNodeSymbol).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to plain navigation when no symbol callback is wired', async () => {
+    const onNavigate = vi.fn();
+    render(<MermaidDiagram code={HASHED} onNavigate={onNavigate} />);
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
+    await userEvent.click(screen.getByText('OwnerController'));
+    expect(onNavigate).toHaveBeenCalledWith('src/OwnerController.java', 42);
+  });
+});
+
+describe('MermaidDiagram aggregate expand (v1.4 ticket 04)', () => {
+  beforeEach(() => {
+    mockedRender.mockClear();
+  });
+
+  it('replaces the static maxNodes hint with a real expand action', async () => {
+    const edges: string[] = ['flowchart LR'];
+    for (let index = 0; index < 70; index += 1) {
+      edges.push(`  n${index}["N${index}"] --> n${index + 1}["N${index + 1}"]`);
+    }
+    render(<MermaidDiagram code={edges.join('\n')} />);
+    const notice = await screen.findByTestId('mermaid-notice');
+    expect(notice.textContent).not.toContain('提高 maxNodes');
+    const expand = screen.getByTestId('mermaid-expand');
+    expect(expand).toHaveTextContent('展开被聚合的');
+    await userEvent.click(expand);
+    await waitFor(() =>
+      expect(screen.queryByTestId('mermaid-expand')).not.toBeInTheDocument()
+    );
   });
 });

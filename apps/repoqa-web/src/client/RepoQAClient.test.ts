@@ -322,7 +322,7 @@ describe('RepoQAClient dashboard/tours (issue 13)', () => {
       })
     });
     const client = new RepoQAClient('http://api', fetcher as unknown as typeof fetch);
-    const context = await client.getSubgraphContext('repo-1', 'loadOrders', 1200);
+    const context = await client.getSubgraphContext('repo-1', 'loadOrders', { maxTokens: 1200 });
     expect(context.start.name).toBe('loadOrders');
     expect(fetcher).toHaveBeenCalledWith(
       'http://api/api/repos/repo-1/subgraph-context?query=loadOrders&maxTokens=1200',

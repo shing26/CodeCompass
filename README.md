@@ -2,11 +2,11 @@
 
 # 🧭 CodeCompass
 
-**让工具停止编造，让 Agent 停止猜测。**
+**大模型分析代码时经常把同名方法混在一起；我们用 TypeScript / Java 语法树在索引期把真实的调用关系定死，每个结论都带可点击的 `file:line`。**
 
-本地优先的**多语言代码事实层**：确定性 AST 调用链、跨栈根因穿透、架构影响面，经 Model Context Protocol (MCP) 直达 coding agent。对源码只读、零 LLM 依赖、每个结论带可点击 `file:line` 锚点。
+本地优先的**多语言代码事实层**：确定性调用链、跨栈根因穿透、架构影响面，经 Model Context Protocol (MCP) 直达 coding agent。对源码只读、零 LLM 依赖——推理交给 LLM，「代码到底怎么连的」这种事实查询交给确定性引擎，两者不互相冒充。
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.3.0)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.4.0)
 [![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -17,7 +17,7 @@
 [![npm](https://img.shields.io/badge/npm-%40codecompass%2Fcli%200.31.0-cb3837.svg?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@codecompass/cli)
 [![License](https://img.shields.io/badge/license-MIT-gray.svg?style=flat-square)](./LICENSE)
 
-[为什么](#why) • [产品一览](#gallery) • [核心特性](#features) • [系统架构](#architecture) • [快速上手](#quickstart) • [MCP 接入](#mcp) • [架构治理](#adr) • [质量门禁](#quality) • [路线图](#roadmap)
+[为什么](#why) • [产品一览](#gallery) • [核心特性](#features) • [已知限制](#limitations) • [快速上手](#quickstart) • [MCP 接入](#mcp) • [架构治理](#adr) • [质量门禁](#quality) • [路线图](#roadmap)
 
 </div>
 
@@ -65,7 +65,7 @@ CodeCompass 的立场是「**精确检索工具，不是理解工具**」：把 
 
 | 维度 | 让 LLM 直接推断 | grep / 正则扫描 | CodeCompass |
 | :--- | :--- | :--- | :--- |
-| **调用链拓扑** | ⚠️ 凭名称相似脑补，虚构边 | ⚠️ 文本匹配，无符号语义 | ✅ `@lezer` CST 符号求解，逐边确定性可复现 |
+| **调用链拓扑** | ⚠️ 凭名称相似脑补，虚构边 | ⚠️ 文本匹配，无符号语义 | ✅ 编译期语法树逐边求解（`@lezer` CST），同一份代码永远得到同一张图 |
 | **断链处理** | ❌ 静默补全 | ❌ 无概念 | ✅ 显式标记 **Static Analysis Break**，缺层不硬凑 |
 | **跨语言穿透** | ⚠️ 单文件视角 | ❌ 单语言 | ✅ 前端 `fetch`/`axios` → Spring / Express / Gin / Fiber / FastAPI / Flask 路由连边；Prisma 数据层穿透 |
 | **Agent 接口** | ❌ 纯文本 | ❌ 无标准协议 | ✅ 17 个 `codecompass_*` MCP 工具（stdio，零 LLM） |
@@ -164,6 +164,21 @@ flowchart LR
 
 ---
 
+<a id="limitations"></a>
+
+## ⚠️ 已知限制（Known Limitations）
+
+先把不行的说清楚，再说行的——以下每一条都是当前版本的事实，可以对到 ADR 或实测记录：
+
+1. **只解析静态显式调用。** 运行时 `eval`、`apply` / `call` 动态绑定、反射、依赖注入容器在运行时组装的对象、消息总线，都不在射程内。调用链走到这些位置会**显式停下并标记**（`EXTERNAL` / `DYNAMIC` / `UNRESOLVED`）——这是分析边界，不是链路错误；引擎不会猜测断点之后是什么（ADR-0002、ADR-0005）。
+2. **TS/JS 的模块别名不参与模块路径解析。** 当前版本不解析 import 声明、不读 tsconfig 的 `baseUrl` / `paths`：跨文件关系按符号名绑定（优先 caller 自身文件，其次最早声明），monorepo 中同名符号存在错绑可能；`@/` 别名**不会报错**，这是已知边界。修复登记在 `.scratch/v1.4-usable-tool/issues/08-deferred-ts-module-resolution.md`（含触发线）。
+3. **Go 接口的隐式实现保持 `dynamic`。** Go 没有 `implements` 关键字，方法集推断尚未参与消解，这部分边按设计保持动态、不伪造（ADR-0018）。
+4. **检索是关键词 / 子串匹配，不是语义检索。** 没有 embedding、没有向量库（ADR-0002 的翻案门槛从未被证据触发）；自然语言提问靠符号名与配置 key 锚定，措辞越接近代码里的标识符，命中越好。
+5. **运行时行为不在射程内。** 不接 APM / 日志流，不做线上定位（ADR-0011）：它回答「代码是怎么连的」，不回答「线上为什么慢」。
+6. **环境约束**：Node >= 24 是硬约束（`better-sqlite3` 原生模块 ABI）；控制面无鉴权，默认只监听 `127.0.0.1`；早前装过 IDE 的环境需要重跑一次 `codecompass install` 刷新工具允许列表。
+
+---
+
 <a id="quickstart"></a>
 
 ## 🚀 快速上手
@@ -172,6 +187,11 @@ flowchart LR
 
 - **Node.js >= 24**（`engines` 硬约束，`codecompass doctor` 同约束）：`better-sqlite3` 是原生模块，本地直接运行 `dist` 时 Node 主版本必须与构建时 ABI（NODE_MODULE_VERSION）匹配；Docker 路径在镜像内重新 `npm ci` 重建原生模块，不受此限
 - 首次使用需要构建一次（`bin/codecompass.js` 依赖 `dist/` 产物）
+
+### 30 秒先看看效果（零配置，不需要先找到仓库路径）
+
+- **Web**：`npm run dev` 打开工作台 → 空状态点「**载入示例项目（一键）**」——内置一个很小的任务看板 API 源码，索引完自动弹出首条调用链；或点「**粘贴一段代码看看**」，把一段 TS/JS 直接贴进去，立刻看到它内部的调用关系（服务端内存解析：不落盘、不入库）。
+- **CLI**：`node bin/codecompass.js trace <符号名> /path/to/repo` 直接在终端打出该符号的上游 / 下游调用树。
 
 ### 方式一：CLI（推荐）
 
@@ -194,8 +214,11 @@ npm start -- /path/to/your/repo
 codecompass <path> --port 9000        # 自定义端口（默认 43110 / $MHW_CP_PORT）
 codecompass <path> --data-dir ./data  # 自定义数据目录（默认 ~/.mhw / $MHW_DATA_DIR）
 codecompass <path> --no-browser       # 只启动服务，不自动开浏览器
-codecompass context listOrders /path/to/your/repo   # 导出 Graph RAG Agent 上下文
-codecompass diagnose "POST /api/owners" /path       # 跨栈根因穿透（JSON，CI 可消费）
+codecompass trace login [path]        # 终端调用树：谁调它 / 它调谁（--up/--down 调层数）
+codecompass trace ./src/auth.ts -f login [path]   # 按文件 + 函数名定位后追链
+codecompass context listOrders [path] # 导出 Graph RAG Agent 上下文
+codecompass diagnose "POST /api/owners" [path]    # 跨栈根因穿透（JSON，CI 可消费）
+codecompass export login [path] --output report.html  # 单文件自包含 HTML（--file 同义）
 codecompass diff <base> <head> [path] # PR 架构影响面（支持 --fail-on-auth-impact）
 codecompass doctor --json             # 环境自诊断
 ```
@@ -274,7 +297,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **0.31.0**——1.0.0–1.3.0 尚未发布（见[路线图](#roadmap)）。`npx` 拉起的是 0.31.0；要使用 1.3.0 的全部能力，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **0.31.0**——1.0.0–1.4.0 尚未发布（见[路线图](#roadmap)）。`npx` 拉起的是 0.31.0；要使用 1.4.0 的全部能力，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -333,12 +356,12 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 ```
 
 - **确定性断言**：针对「伪造调用链」测试集设立回归锁定，确保已知模式无漏判、无误判；
-- **e2e 门禁**：`python scripts/e2e/closeout_gate.py`，**73 项断言**（v1.3.0 收口基线 73/0）——覆盖多语言 fixture、跨语言桥接、SSE 流、ADR-0003 脱敏门禁、MCP stdio 复合工具往返、CLI diagnose / refactor-plan / export、install --dry-run、golden eval 阈值冒烟，以及版本四处一致性与 MCP 握手版本棘轮；
+- **e2e 门禁**：`python scripts/e2e/closeout_gate.py`，**73 项断言**（v1.4.0 收口基线 73/0）——覆盖多语言 fixture、跨语言桥接、SSE 流、ADR-0003 脱敏门禁、MCP stdio 复合工具往返、CLI diagnose / refactor-plan / export、install --dry-run、golden eval 阈值冒烟，以及版本四处一致性与 MCP 握手版本棘轮；
 - **UI 冒烟**：`scripts/smoke/ui_smoke.mjs`，真 Chromium 六动线走查；
 - **精度工程**：`npm run precision` 对 self / lazygit / petclinic 三仓孤儿数一条命令复跑，`--ratchet` 冻结基线棘轮；基准报表见 [`docs/benchmark.md`](./docs/benchmark.md)；
-- **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.3.0 tag → `e31ea8e`，CI / Release 双绿。
+- **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.4.0 tag 待推，CI / Release 以 tag 推送后的双绿为准。
 
-> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.3.0 收口门禁（控制面 809 / web 404 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
+> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 843 / web 429 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
 
 运行全量测试：
 
@@ -360,14 +383,15 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **v1.0.0**：17 工具 v1 契约冻结 + 精度边界技术文章（`docs/article-v1-precision-boundary.md`）
 - [x] **v1.1.0**：检索取证与证据诚实（FTS5(trigram) 双路径检索、真仓 top-10 假阳性门）
 - [x] **v1.2.0**：工作台产品化（ADR-0020 双面体再平衡：五面驾驶舱、导入 202 + WS 流式进度）
-- [x] **v1.3.0（当前版本，tag `e31ea8e`）**：「让工具停止编造」——伪造调用链红线修复、`EXTERNAL` 语义、未解析指标去灌水（TS/JS 38%→0%）、僵尸索引每分钟对账回收
+- [x] **v1.3.0（tag `e31ea8e`）**：「让工具停止编造」——伪造调用链红线修复、`EXTERNAL` 语义、未解析指标去灌水（TS/JS 38%→0%）、僵尸索引每分钟对账回收
 - [ ] **已登记未修（Round5 走查清单，值得立票）**：
   - [ ] R5-05 chat 流式剩余项：前端停止键 / 已用时显示已落地，服务端进度与慢模型断点提示待深化
   - [ ] R5-08 用户级 `llm-profiles.json`：模型热切换目前只有 `default` 一档，UI 在而功能空
   - [ ] R5-09 / R5-11 / R5-13 / R5-14 / R5-16 体验打磨项
-- [ ] **npm 发布积压**：registry 最新为 0.31.0；1.0.0–1.3.0 均未上 npm（发布需本机 token，流程见 `HANDOFF.md`）
+- [x] **v1.4.0（当前版本）**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
+- [ ] **npm 发布积压**：registry 最新为 0.31.0；1.0.0–1.4.0 均未上 npm（发布需本机 token，流程见 `HANDOFF.md`）
 
-当前版本：`v1.3.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.3.0 完整条目）。
+当前版本：`v1.4.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.4.0 完整条目）。
 
 ---
 

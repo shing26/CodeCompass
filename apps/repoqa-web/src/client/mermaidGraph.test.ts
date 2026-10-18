@@ -58,7 +58,7 @@ describe('stripMermaidFence / 围栏剥离（v1.3.x 修复）', () => {
     expect(result.stats.totalNodes).toBe(2);
   });
 
-  it('无围栏输入原样返回（Tour chainMermaid / LLM 工件）', () => {
+  it('无围栏输入原样返回（Tour chainMermaid / LLM 生成的 mermaid）', () => {
     const bare = 'flowchart LR\n  a --> b';
     expect(trimMermaidGraph(bare, 60).code).toBe(bare);
   });

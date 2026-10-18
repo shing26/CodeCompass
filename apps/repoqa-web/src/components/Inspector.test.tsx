@@ -300,6 +300,32 @@ describe('Inspector (ticket 05)', () => {
     expect(screen.queryByTestId('copy-agent-context')).not.toBeInTheDocument();
   });
 
+  it('v1.4 ticket 07: exports the single-file HTML report for the focused symbol', async () => {
+    const onExportHtml = vi.fn();
+    render(
+      <Inspector
+        {...baseProps({
+          file: 'src/main/java/OrderController.java',
+          text: 'content',
+          symbolName: 'hello',
+          onExportHtml
+        })}
+      />
+    );
+    const button = screen.getByTestId('export-html-report');
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(onExportHtml).toHaveBeenCalledTimes(1);
+  });
+
+  it('v1.4 ticket 07: hides the HTML export button without a handler or symbol', () => {
+    render(<Inspector {...baseProps({ file: 'a.ts', text: 'x', symbolName: 'hello' })} />);
+    expect(screen.queryByTestId('export-html-report')).not.toBeInTheDocument();
+    render(<Inspector {...baseProps({ file: 'a.ts', text: 'x', onExportHtml: vi.fn() })} />);
+    expect(screen.queryByTestId('export-html-report')).not.toBeInTheDocument();
+  });
+
   it('Issue 31: shows the token budget progress and line range in the header', () => {
     render(
       <Inspector

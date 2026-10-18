@@ -11,12 +11,14 @@ import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { EvolutionView } from './components/EvolutionView';
 import { ChatView } from './components/ChatView';
 import { ScanHealthView } from './components/ScanHealthView';
+import { SnippetView } from './components/SnippetView';
 import { AskDock } from './components/AskDock';
 import { TourPlayer } from './components/TourPlayer';
 import { CommandPalette } from './components/CommandPalette';
 import { PrivacyConsentModal } from './components/PrivacyConsentModal';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { CopyMaskingToast } from './components/CopyMaskingToast';
+import { downloadBlob } from './utils/download';
 import { RepoProvider, useRepo } from './context/RepoContext';
 import { InspectorProvider, useInspectorContext } from './context/InspectorContext';
 import { ChatRuntimeProvider, useChatRuntime } from './context/ChatRuntimeContext';
@@ -61,6 +63,7 @@ function WorkbenchShell() {
     loading,
     error,
     clearError,
+    reportError,
     symbols,
     symbolsLoading,
     tours,
@@ -84,6 +87,7 @@ function WorkbenchShell() {
     setSidebarOpen,
     handleSelectRepo,
     handleImportLocal,
+    handleLoadSample,
     handleCloneRemote,
     handleReindex,
     handleDelete,
@@ -101,6 +105,8 @@ function WorkbenchShell() {
     inspector,
     reverseDeps,
     subgraph,
+    subgraphDepths,
+    setSubgraphDepths,
     inspectorOpen,
     setInspectorOpen,
     paletteFocus,
@@ -141,6 +147,26 @@ function WorkbenchShell() {
   // view switch below derive from it, so they can never drift apart.
   const noRepo = repoId === null;
 
+  // v1.4 票 07 — download the single-file HTML report for the focused symbol.
+  // Same server builder as `codecompass export`; the file lands with an .html
+  // name so a colleague can double-click it without the tool installed.
+  const [exportingHtml, setExportingHtml] = useState(false);
+  const handleExportHtml = async () => {
+    if (!repoId || !inspector.symbolName || exportingHtml) return;
+    setExportingHtml(true);
+    try {
+      const { html, warning } = await client.exportHtmlReport(repoId, inspector.symbolName);
+      downloadBlob(`codecompass-${inspector.symbolName}.html`, html, 'text/html;charset=utf-8');
+      if (warning) {
+        reportError('报告已生成；本机未找到 mermaid 运行时，该文件离线打开需联网加载渲染库');
+      }
+    } catch (err) {
+      reportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportingHtml(false);
+    }
+  };
+
   // v0.11 (Stage 3) — global Cmd/Ctrl+K toggles the palette.
   useEffect(() => {
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -163,6 +189,7 @@ function WorkbenchShell() {
         onDismissError={clearError}
         onSelectRepo={handleSelectRepo}
         onImportLocal={handleImportLocal}
+        onLoadSample={handleLoadSample}
         onPreviewLocal={(path) => client.previewRepo(path)}
         onCloneRemote={handleCloneRemote}
         onExport={handleExport}
@@ -179,6 +206,8 @@ function WorkbenchShell() {
         llmHost={runtime.llm.host}
         // v1.2 票 01 — 未选库时其它视图仍被 topo 引导兜底（深链 inert 教义），
         // 但体检骨架自带「未选库」态：view==='scan' 直传，让 tab-scan 高亮一致。
+        // v1.4 票 02 — 片段视图不属于任何一级 tab：直传 'snippet'（零高亮），
+        // 不再伪装成拓扑页。
         activeView={view === 'tour' || (noRepo && view !== 'scan') ? 'topo' : view}
         onSelectView={handleSelectView}
         onCopyAgentContext={handleCopyAgentContext}
@@ -281,6 +310,9 @@ function WorkbenchShell() {
               the topo guide」的例外）。票 02 接入数据面（scan REST + 精度摘要）。 */}
           {view === 'scan' ? (
             <ScanHealthView repo={currentRepo} client={client} onNavigate={inspector.openFile} />
+          ) : view === 'snippet' ? (
+            /* v1.4 票 02 — 片段分析：无仓库也可达，故置于 noRepo 兜底之前。 */
+            <SnippetView client={client} onBack={() => setView('topo')} />
           ) : noRepo || view === 'topo' ? (
             <Canvas
               repo={currentRepo}
@@ -300,6 +332,8 @@ function WorkbenchShell() {
               onTraceApi={handleTrace}
               onTraceSymbol={traceSymbol}
               traceOrigin={traceOrigin}
+              onLoadSample={handleLoadSample}
+              onTrySnippet={() => setView('snippet')}
             />
           ) : view === 'tour' && activeTour ? (
             <TourPlayer
@@ -401,10 +435,13 @@ function WorkbenchShell() {
           open={inspectorOpen}
           onClose={() => setInspectorOpen(false)}
           onCopyAgentContext={handleCopyAgentContext}
+          onExportHtml={handleExportHtml}
           usage={totalUsage}
           slices={canvasAnchors}
           reverseDeps={reverseDeps}
           subgraph={subgraph}
+          subgraphDepths={subgraphDepths}
+          onSubgraphDepthsChange={setSubgraphDepths}
           onOpenFile={inspector.openFile}
           onBackToDashboard={goTopology}
         />

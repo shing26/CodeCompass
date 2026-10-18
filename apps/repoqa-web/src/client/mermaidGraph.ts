@@ -19,7 +19,7 @@ const CLICK_RE = /^\s*click\s+([A-Za-z_]\w*)\s+"/;
  * type detected"），导致 Diff 影响面的「差异图」恒走源码回退态（v0.6.0 引入，
  * 回退态一直静默兜底所以没暴露）。渲染链路在此统一剥掉首尾围栏：
  * markdown 消费方（pr-summary 报告）拿到的仍是带围栏原文，不受影响。
- * 对无围栏输入（Tour 的 chainMermaid、LLM 工件）原样返回。
+ * 对无围栏输入（Tour 的 chainMermaid、LLM 生成的 mermaid）原样返回。
  */
 export function stripMermaidFence(code: string): string {
   const match = /^```(?:mermaid)?[^\S\n]*\n([\s\S]*?)(?:\n?```)?$/.exec(code.trim());

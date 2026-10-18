@@ -31,7 +31,13 @@ export function useSymbolResource<T>(
   client: RepoQAClient,
   repoId: string | null,
   symbolName: string | null,
-  fetch: (client: RepoQAClient, repoId: string, symbolName: string) => Promise<T>
+  fetch: (client: RepoQAClient, repoId: string, symbolName: string) => Promise<T>,
+  /**
+   * v1.4 票 04 — extra cache key (e.g. subgraph caller/callee depths). When it
+   * changes the resource is refetched, so panels can offer depth controls
+   * without owning their own fetch state.
+   */
+  revisionKey?: string
 ): SymbolResourceState<T> {
   const [state, setState] = useState<SymbolResourceState<T>>({
     result: null,
@@ -63,7 +69,7 @@ export function useSymbolResource<T>(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, repoId, symbolName]);
+  }, [client, repoId, symbolName, revisionKey]);
 
   return state;
 }

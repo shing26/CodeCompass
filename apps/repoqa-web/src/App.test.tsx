@@ -232,7 +232,10 @@ describe('App scaffold and repo connect', () => {
 
   it('shows empty-state guidance while no repo is selected', async () => {
     render(<App client={makeClient()} />);
-    await waitFor(() => expect(screen.getByText(/三步开始代码架构分析/)).toBeInTheDocument());
+    // v1.4 票 01 — 空状态新增零门槛入口，标题改为「先用 30 秒看看它能干什么」。
+    await waitFor(() => expect(screen.getByText(/先用 30 秒看看它能干什么/)).toBeInTheDocument());
+    expect(screen.getByTestId('empty-load-sample')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-try-snippet')).toBeInTheDocument();
   });
 
   it('imports a repo through the dialog and selects it in the TopBar', async () => {

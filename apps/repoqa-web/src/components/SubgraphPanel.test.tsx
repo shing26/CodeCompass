@@ -5,7 +5,18 @@ import { buildSubgraphMermaid, SubgraphPanel } from './SubgraphPanel';
 import type { SubgraphContextResult } from '../types';
 
 vi.mock('../client/mermaidRenderer', () => ({
-  renderMermaid: vi.fn(async () => '<svg />')
+  // v1.4 票 04 — render the labels the code actually declares so node-click
+  // routing (label→binding lookup + re-center) is exercisable in jsdom.
+  renderMermaid: vi.fn(async (_uid: string, code: string) => {
+    const labels = [...code.matchAll(/([A-Za-z_][\w]*)\["([^"]+)"\]/g)].map((match) => match[2]);
+    return (
+      '<svg>' +
+      labels
+        .map((label) => `<g class="node"><text class="label">${label}</text></g>`)
+        .join('') +
+      '</svg>'
+    );
+  })
 }));
 
 const result: SubgraphContextResult = {
@@ -104,5 +115,113 @@ describe('SubgraphPanel (v0.6 closeout)', () => {
     );
     expect(screen.getByTestId('subgraph-error')).toHaveTextContent('暂不可用');
     expect(screen.getByTestId('subgraph-error')).not.toHaveTextContent('未定位到可解析符号');
+  });
+});
+
+describe('SubgraphPanel focus mode (v1.4 ticket 04)', () => {
+  const depths = { up: 1, down: 1 };
+
+  it('shows the center, defaults to 1/1 depths, and reports depth changes', async () => {
+    const user = userEvent.setup();
+    const onDepthsChange = vi.fn();
+    render(
+      <SubgraphPanel
+        state={{ result, loading: false, error: null }}
+        focusName="addOwner"
+        depths={depths}
+        onDepthsChange={onDepthsChange}
+      />
+    );
+    expect(screen.getByTestId('subgraph-center')).toHaveTextContent('中心：addOwner');
+    expect(screen.getByTestId('subgraph-depth-up')).toHaveValue('1');
+    expect(screen.getByTestId('subgraph-depth-down')).toHaveValue('1');
+    await user.selectOptions(screen.getByTestId('subgraph-depth-down'), '3');
+    expect(onDepthsChange).toHaveBeenCalledWith({ up: 1, down: 3 });
+    expect(screen.getByTestId('subgraph-back')).toBeDisabled();
+  });
+
+  it('re-centers on a node click and walks back through visited centers', async () => {
+    const user = userEvent.setup();
+    const onRecenter = vi.fn();
+    const { rerender } = render(
+      <SubgraphPanel
+        state={{ result, loading: false, error: null }}
+        focusName="addOwner"
+        depths={depths}
+        onRecenter={onRecenter}
+      />
+    );
+    await waitFor(() => expect(screen.getByText('OwnerRepository.save · d1')).toBeInTheDocument());
+    await user.click(screen.getByText('OwnerRepository.save · d1'));
+    expect(onRecenter).toHaveBeenCalledWith(
+      'OwnerRepository.save',
+      'src/OwnerRepository.java',
+      55
+    );
+
+    // Parent applies the re-center: new focus arrives with a matching result.
+    const focused: SubgraphContextResult = {
+      ...result,
+      start: { name: 'OwnerRepository.save', file: 'src/OwnerRepository.java', line: 55 },
+      nodes: [
+        { name: 'OwnerRepository.save', file: 'src/OwnerRepository.java', line: 55, distance: 0, direction: 'start', tokens: 90 },
+        { name: 'addOwner', file: 'src/OwnerController.java', line: 30, distance: 1, direction: 'caller', tokens: 100 }
+      ]
+    };
+    rerender(
+      <SubgraphPanel
+        state={{ result: focused, loading: false, error: null }}
+        focusName="OwnerRepository.save"
+        depths={depths}
+        onRecenter={onRecenter}
+      />
+    );
+    expect(screen.getByTestId('subgraph-center')).toHaveTextContent('中心：OwnerRepository.save');
+    const back = screen.getByTestId('subgraph-back');
+    expect(back).toBeEnabled();
+    await user.click(back);
+    // Walks back to the previous center; its file/line come from the graph.
+    expect(onRecenter).toHaveBeenLastCalledWith('addOwner', 'src/OwnerController.java', 30);
+  });
+
+  it('clears the back-trail when the center changes from elsewhere', async () => {
+    const user = userEvent.setup();
+    const onRecenter = vi.fn();
+    const { rerender } = render(
+      <SubgraphPanel
+        state={{ result, loading: false, error: null }}
+        focusName="addOwner"
+        depths={depths}
+        onRecenter={onRecenter}
+      />
+    );
+    await waitFor(() => expect(screen.getByText('OwnerRepository.save · d1')).toBeInTheDocument());
+    await user.click(screen.getByText('OwnerRepository.save · d1'));
+    rerender(
+      <SubgraphPanel
+        state={{ result, loading: false, error: null }}
+        focusName="OwnerRepository.save"
+        depths={depths}
+        onRecenter={onRecenter}
+      />
+    );
+    expect(screen.getByTestId('subgraph-back')).toBeEnabled();
+    // A sidebar/palette selection (not this panel) must not inherit the trail.
+    rerender(
+      <SubgraphPanel
+        state={{ result, loading: false, error: null }}
+        focusName="OwnerUi.openForm"
+        depths={depths}
+        onRecenter={onRecenter}
+      />
+    );
+    expect(screen.getByTestId('subgraph-back')).toBeDisabled();
+  });
+
+  it('surfaces backend budget pruning instead of hiding it', async () => {
+    const pruned: SubgraphContextResult = { ...result, truncated: true, prunedCount: 12 };
+    render(<SubgraphPanel state={{ result: pruned, loading: false, error: null }} />);
+    expect(screen.getByTestId('subgraph-pruned')).toHaveTextContent('另有 12 个节点因上下文预算未入图');
+    await waitFor(() => expect(screen.getByTestId('mermaid-svg')).toBeInTheDocument());
   });
 });

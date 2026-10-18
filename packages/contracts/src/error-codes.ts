@@ -44,6 +44,14 @@ export const ERROR_CODES = {
   clone_branch_invalid: 'clone_branch_invalid',
   clone_git_failed: 'clone_git_failed',
 
+  /** v1.4 票 01 — one-click sample project failed to materialize/import. */
+  sample_import_failed: 'sample_import_failed',
+
+  /** v1.4 票 02 — snippet graph endpoint (in-memory analysis, no repo). */
+  snippet_required: 'snippet_required',
+  snippet_too_large: 'snippet_too_large',
+  snippet_parse_failed: 'snippet_parse_failed',
+
   file_path_required: 'file_path_required',
   path_escape: 'path_escape',
   not_indexed: 'not_indexed',

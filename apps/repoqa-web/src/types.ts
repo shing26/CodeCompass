@@ -357,8 +357,11 @@ export interface ImportRepoInput {
   localPath: string;
 }
 
-export interface RepoPreview {
-  path: string;
+export interface RepoPreview {  path: string;
+  /** v1.4 票 03 — 服务端解析后的绝对路径（相对输入按服务所在目录解析）。 */
+  resolvedPath?: string;
+  /** v1.4 票 03 — 输入是否为相对路径（界面据此说明解析基准）。 */
+  wasRelative?: boolean;
   fileCount: number;
   javaFileCount: number;
   xmlFileCount: number;
@@ -492,6 +495,47 @@ export interface SubgraphContextResult {
   prunedCount: number;
   /** Agent-ready Markdown with masked source slices and class skeletons. */
   text: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* v1.4 票 02 — 粘贴片段的调用图（无仓库上下文，内存解析）              */
+/* ------------------------------------------------------------------ */
+
+export interface SnippetNode {
+  id: string;
+  name: string;
+  kind: string;
+  file: string;
+  line: number;
+  lineEnd: number;
+  inDegree: number;
+  outDegree: number;
+}
+
+export interface SnippetEdge {
+  from: string;
+  to: string;
+  line: number;
+}
+
+export interface SnippetBreakCounts {
+  external: number;
+  unresolved: number;
+  dynamic: number;
+  total: number;
+}
+
+export interface SnippetGraph {
+  nodes: SnippetNode[];
+  edges: SnippetEdge[];
+  breaks: SnippetBreakCounts;
+  stats: {
+    symbols: number;
+    edges: number;
+    truncated: boolean;
+    droppedNodes: number;
+  };
+  mermaid: string;
 }
 
 /* ------------------------------------------------------------------ */

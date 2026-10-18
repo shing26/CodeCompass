@@ -67,4 +67,7 @@
 
 | V12-3 | **evolve 确定性降级在界面无标注**（功能可用性审计 2026-09-30 实测）：LLM 402 时 evolve 走 `parsedBy: "fallback"` 确定性降级、10 个 stage 照常走完并 done——**用户在 PlanCard 上看不出产物是引擎规则解析而非 LLM 工件**。修法=intentEcho.parsedBy=fallback 时 PlanCard/演进头显「引擎规则解析模式（LLM 不可用）」徽章；chat 的同场景已如实报错（设计哲学差异：chat 拒绝编造，evolve 降级有据但需标注）。修法另需裁决：降级产物是否带「完整性降级」水印。 | 功能可用性审计（2026-09-30） | UX+诚实性 |
 
+| V14-1 | **v1.4 上手与可用性手术批（已落地，2026-10-19）**：外部三条批判逐条核实——「画布毛线团」「名为工具实为展示架」两条半已被历史交付覆盖（无全量图渲染；CLI 12 命令 + 单文件 HTML 导出早已存在），只做真缺口：示例项目一键载入 / 粘贴片段即出调用图 / 子图焦点模式（深度可调 + 点击换中心 + 聚合可展开，兼修子图节点深链静默失效）/ `codecompass trace` / `export --output` / Web 导出 HTML / 路径契约 / README Known Limitations。门禁 cp 843 / web 429 / bridge 26 / e2e 73-0。spec = `.scratch/v1.4-usable-tool/spec.md` | 用户 2026-10-19 批判与四步指令 | 可用性 |
+| V14-2 | **TS 模块路径解析显式 deferred（票 08）**：当前 TS 适配器不解析 import 声明、不读 tsconfig `baseUrl`/`paths`，跨文件按符号名绑定 —— monorepo 同名符号可能错绑、`@/` 别名不报错。真实修复是引擎级重构（威胁三仓精度棘轮逐字节约束），v1.4 只做 README 披露。**触发线**：真实别名错绑/断链案例、披露后仍产生错误结论、或 workspaces 感知成为硬需求。立项前置 = 新探针量出「按 import 可消解而未消解」的边数 + 棘轮保护方案 + ADR | v1.4 spec §2.3 | 精度/引擎 |
+
 **明确不做的不在此列**（v0.26 spec「明确不做」持续有效）。

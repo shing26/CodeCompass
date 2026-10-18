@@ -5,6 +5,7 @@ import { monaco } from '../client/monacoSetup';
 import type { InspectorState } from '../hooks/useInspector';
 import type { UseReverseDepsResult } from '../hooks/useReverseDeps';
 import type { UseSubgraphContextResult } from '../hooks/useSubgraphContext';
+import type { SubgraphDepths } from '../hooks/useSubgraphContext';
 import { EMPTY_SYMBOL_RESOURCE, isSymbolResolutionError } from '../hooks/useSymbolResource';
 import { SubgraphPanel } from './SubgraphPanel';
 import { useTheme } from '../hooks/useTheme';
@@ -26,6 +27,8 @@ export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
   onClose: () => void;
   /** Issue 28: copy the Graph RAG agent context for the current file. */
   onCopyAgentContext?: () => void | Promise<void>;
+  /** v1.4 票 07 — 导出当前符号的单文件 HTML 报告（与 CLI export 同源）。 */
+  onExportHtml?: () => void | Promise<void>;
   /** Issue 31: session token usage shown against the Inspector budget. */
   usage?: TokenUsage;
   /** Issue 31: 上下游（1-hop caller / 1..3-hop callee）切片，跟随最近解析出的调用链。 */
@@ -34,6 +37,9 @@ export interface InspectorProps extends Omit<InspectorState, 'symbolName'> {
   reverseDeps?: UseReverseDepsResult;
   /** v0.6 closeout: Graph RAG subgraph state for the focused symbol. */
   subgraph?: UseSubgraphContextResult;
+  /** v1.4 票 04 — 子图焦点模式的展开深度（InspectorContext 持有）。 */
+  subgraphDepths?: SubgraphDepths;
+  onSubgraphDepthsChange?: (depths: SubgraphDepths) => void;
   /** Navigate from a reverse-deps caller chip (same stack as diagram nodes). */
   onOpenFile?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** v0.11 (Stage 4) — repo-name breadcrumb click jumps back to the dashboard. */
@@ -92,10 +98,13 @@ export function Inspector({
   open,
   onClose,
   onCopyAgentContext,
+  onExportHtml,
   usage = { input: 0, output: 0, total: 0, source: 'estimate' },
   slices = [],
   reverseDeps,
   subgraph,
+  subgraphDepths,
+  onSubgraphDepthsChange,
   onOpenFile,
   onBackToDashboard
 }: InspectorProps) {
@@ -248,6 +257,17 @@ export function Inspector({
               className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:border-accent/40 hover:text-accent disabled:opacity-60"
             >
               {copying ? '复制中…' : '复制 Agent 上下文'}
+            </button>
+          )}
+          {/* v1.4 票 07 — 单文件 HTML 报告下载（发给没装工具的人也能双击看）。 */}
+          {symbolName && onExportHtml && (
+            <button
+              type="button"
+              data-testid="export-html-report"
+              onClick={() => void onExportHtml()}
+              className="whitespace-nowrap rounded-md border border-line bg-surface px-2 py-0.5 text-xs text-muted hover:border-accent/40 hover:text-accent"
+            >
+              导出 HTML 报告
             </button>
           )}
           <button
@@ -428,6 +448,14 @@ export function Inspector({
           <SubgraphPanel
             state={subgraph ?? EMPTY_SYMBOL_RESOURCE}
             onOpenFile={onOpenFile}
+            focusName={symbolName}
+            depths={subgraphDepths}
+            onDepthsChange={onSubgraphDepthsChange}
+            /* v1.4 票 04 — 普通点击节点 = 换中心（编辑器跟随）；Ctrl/⌘+点击
+               由 MermaidDiagram 走 onNavigate，仍是纯源码跳转。 */
+            onRecenter={(symbol, targetFile, line) =>
+              onOpenFile?.(targetFile, line, undefined, symbol)
+            }
           />
         </>
       )}

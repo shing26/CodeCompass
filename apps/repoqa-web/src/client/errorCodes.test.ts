@@ -66,6 +66,8 @@ describe('v0.27-B R3: error code contract (frontend)', () => {
     // 防止有人把类型放宽回 Record<string, string> 后静默漏键。
     const copyKeys = Object.keys(ERROR_COPY).sort();
     expect(copyKeys).toEqual([...ERROR_CODE_LIST].sort());
-    expect(copyKeys).toHaveLength(30);
+    // v1.4：30 → 34（示例项目 + 片段分析四面：sample_import_failed /
+    // snippet_required / snippet_too_large / snippet_parse_failed）。
+    expect(copyKeys).toHaveLength(34);
   });
 });

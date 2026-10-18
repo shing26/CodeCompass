@@ -16,10 +16,19 @@ export interface ParsedDeepLink {
 }
 
 /** Parse a `code://<FilePath>#<StartLine>-<EndLine>` deep link. */
+export interface ParsedDeepLink {
+  file: string;
+  line: number;
+  /** v1.4 票 04 — optional symbol the link wants re-centered (subgraph hops). */
+  symbol?: string;
+}
+
+/** Parse a `code://<FilePath>#<StartLine>[-<EndLine>][?symbol=<name>]` link. */
 export function parseDeepLink(url: string): ParsedDeepLink | null {
-  const m = /^code:\/\/(.+?)#(\d+)(?:-(\d+))?$/.exec(url);
+  const m = /^code:\/\/(.+?)#(\d+)(?:-(\d+))?(?:\?symbol=([^?]+))?$/.exec(url);
   if (!m) return null;
-  return { file: m[1], line: Number(m[2]) };
+  const symbol = m[4] !== undefined ? decodeURIComponent(m[4]) : undefined;
+  return { file: m[1], line: Number(m[2]), ...(symbol ? { symbol } : {}) };
 }
 
 /** Extract mermaid `click Node "code://..."` bindings into nodeName → url. */
@@ -33,9 +42,41 @@ export function parseClickBindings(code: string): Map<string, string> {
   return bindings;
 }
 
+/**
+ * v1.4 票 04 — label→url index.
+ *
+ * Click bindings are keyed by node ID, but the delegation below matches the
+ * rendered DOM label text. Trace diagrams name their nodes after the symbol
+ * (id === label) so the direct lookup worked there; the subgraph panel hashes
+ * ids (`n<hash>`) while labeling nodes `name · dN`, so its deep links silently
+ * died. Index the `id[label]` declarations from the source instead of assuming
+ * ids and labels coincide.
+ */
+export function parseLabelBindings(code: string): Map<string, string> {
+  const byId = parseClickBindings(code);
+  const byLabel = new Map<string, string>();
+  if (byId.size === 0) return byLabel;
+  const re = /(?:^|\s)([A-Za-z_][\w]*)\s*\["?([^"\]\n]*)"?\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(code)) !== null) {
+    const url = byId.get(match[1]);
+    if (url !== undefined) {
+      const label = match[2].trim();
+      if (label) byLabel.set(label, url);
+    }
+  }
+  return byLabel;
+}
+
 interface MermaidDiagramProps {
   code: string;
   onNavigate?: (file: string, line: number) => void;
+  /**
+   * v1.4 票 04 — a deep link carrying `?symbol=` means "re-center on this
+   * symbol". Plain click routes here when provided (Ctrl/⌘+click stays a pure
+   * file jump through onNavigate); without this prop both behave as before.
+   */
+  onNodeSymbol?: (file: string, line: number, symbol: string) => void;
   /** v0.7 — render cap; extra nodes collapse into an aggregate node. */
   maxNodes?: number;
   /** v0.7 (issue 12) — symbol name to flash once after render/trace landing. */
@@ -80,6 +121,7 @@ const IDENTITY: View = { scale: 1, tx: 0, ty: 0 };
 export function MermaidDiagram({
   code,
   onNavigate,
+  onNodeSymbol,
   maxNodes = 60,
   highlightNode,
   traceSteps,
@@ -88,7 +130,18 @@ export function MermaidDiagram({
 }: MermaidDiagramProps) {
   const { theme } = useTheme();
   const badgesEnabled = badgesEnabledFromUrl();
-  const trimmed = useMemo(() => trimMermaidGraph(code, maxNodes), [code, maxNodes]);
+  /**
+   * v1.4 票 04 — the old aggregate notice told users to "raise maxNodes", a
+   * code-level knob nobody outside the repo can touch. `showAllNodes` turns it
+   * into a real action; the cap stays generous but finite so a pathological
+   * graph cannot freeze the tab.
+   */
+  const [showAllNodes, setShowAllNodes] = useState(false);
+  const effectiveMaxNodes = showAllNodes ? Math.max(maxNodes, 400) : maxNodes;
+  const trimmed = useMemo(
+    () => trimMermaidGraph(code, effectiveMaxNodes),
+    [code, effectiveMaxNodes]
+  );
   const [svgHtml, setSvgHtml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [view, setView] = useState<View>(IDENTITY);
@@ -164,6 +217,10 @@ export function MermaidDiagram({
 
   const bindings = useRef(parseClickBindings(trimmed.code));
   bindings.current = parseClickBindings(trimmed.code);
+  // v1.4 票 04 — fallback index for diagrams whose node ids are hashed
+  // (subgraph panel): the delegation matches on label text, not on id.
+  const labelBindings = useRef(parseLabelBindings(trimmed.code));
+  labelBindings.current = parseLabelBindings(trimmed.code);
 
   // v0.11 (Stage 2) — inject technology brand badges into node labels from the
   // rendered SVG. Post-render injection (like the Stage 1 trace styling) avoids
@@ -276,7 +333,10 @@ export function MermaidDiagram({
       const labelEl = textEl ?? foreignEl;
       if (!labelEl || !labelEl.textContent) return;
       const name = labelEl.textContent.trim();
-      const url = bindings.current.get(name);
+      const url =
+        bindings.current.get(name) ??
+        labelBindings.current.get(name) ??
+        labelBindings.current.get(name.replace(/\s+/g, ' '));
       if (!url) return;
       const deepLink = parseDeepLink(url);
       if (deepLink) {
@@ -284,12 +344,18 @@ export function MermaidDiagram({
         const label = labelEl as Element;
         label.classList.add('mermaid-node-flash');
         window.setTimeout(() => label.classList.remove('mermaid-node-flash'), 200);
-        onNavigate?.(deepLink.file, deepLink.line);
+        // Ctrl/⌘+click keeps the plain deep link; a plain click on a node that
+        // declared ?symbol= re-centers through the symbol callback when wired.
+        if (deepLink.symbol && !(ev.ctrlKey || ev.metaKey) && onNodeSymbol) {
+          onNodeSymbol(deepLink.file, deepLink.line, deepLink.symbol);
+        } else {
+          onNavigate?.(deepLink.file, deepLink.line);
+        }
       }
     };
     el.addEventListener('click', onClick);
     return () => el.removeEventListener('click', onClick);
-  }, [svgHtml, onNavigate]);
+  }, [svgHtml, onNavigate, onNodeSymbol]);
 
   // Wheel zoom (non-passive so preventDefault sticks); toolbar buttons cover
   // keyboard-only use.
@@ -540,10 +606,25 @@ export function MermaidDiagram({
         </div>
       )}
       {trimmed.stats.hiddenNodes > 0 && (
-        <p data-testid="mermaid-notice" className="mb-1 text-micro text-muted">
-          已聚合 {trimmed.stats.hiddenNodes} 个深层节点、{trimmed.stats.collapsedEdges} 条边
-          （提高 maxNodes 可展开）。
-        </p>
+        <div
+          data-testid="mermaid-notice"
+          className="mb-1 flex flex-wrap items-center gap-2 text-micro text-muted"
+        >
+          <span>
+            已聚合 {trimmed.stats.hiddenNodes} 个深层节点、{trimmed.stats.collapsedEdges} 条边
+            {showAllNodes ? '（仍超出展示上限）' : ''}
+          </span>
+          {!showAllNodes && (
+            <button
+              type="button"
+              data-testid="mermaid-expand"
+              onClick={() => setShowAllNodes(true)}
+              className="rounded border border-line px-1.5 py-0.5 font-medium text-ink hover:border-accent"
+            >
+              展开被聚合的 {trimmed.stats.hiddenNodes} 个节点
+            </button>
+          )}
+        </div>
       )}
       {svgHtml !== null && (
         <div

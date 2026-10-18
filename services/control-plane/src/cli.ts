@@ -22,7 +22,9 @@ import { runDiagnose } from './diagnose-engine';
 import { runBlastRadius } from './blast-radius';
 import { runDomainRadar } from './domain-radar-engine';
 import { runModuleEvolution } from './module-evolution-engine';
-import { renderArtifactHtml, writeArtifactFile, locateMermaidScript, deriveBadges } from './export-artifact';
+import { writeArtifactFile, locateMermaidScript } from './export-artifact';
+import { buildDiagnoseArtifact } from './artifact-report';
+import { buildTraceResult, renderTraceTree, resolveTraceTarget } from './engine/repoqa-trace';
 import { VERSION } from './version';
 
 // V27-25: the version literal moved to ./version.ts (single source shared with
@@ -45,6 +47,7 @@ export interface CliArgs {
     | 'export'
     | 'radar'
     | 'evolve'
+    | 'trace'
     | 'chat';
   /** Positional `codecompass [path]` — local repo directory to import. */
   targetPath?: string;
@@ -82,6 +85,16 @@ export interface CliArgs {
   evolveTarget?: string;
   /** `codecompass evolve --goal <text>` (EXTEND only). */
   evolveGoal?: string;
+  /** `codecompass trace <symbol|file>` — `-f <name>` symbol filter inside a file. */
+  traceFilter?: string;
+  /** `codecompass trace --up <n>` — caller levels (0-5, default 1). */
+  traceUp?: number;
+  /** `codecompass trace --down <n>` — callee levels (0-5, default 2). */
+  traceDown?: number;
+  /** `codecompass trace --ascii` — pure-ASCII tree art. */
+  traceAscii: boolean;
+  /** `codecompass export --output <file>` — alias of `--file` for export only. */
+  outputFile?: string;
   port?: number;
   dataDir?: string;
   noBrowser: boolean;
@@ -106,7 +119,8 @@ Usage:
   codecompass context <query> [repoPath]
   codecompass diagnose <symbol|route> [repoPath]
   codecompass refactor-plan <symbol> [repoPath] [--change-type <t>]
-  codecompass export <symbol|route> [repoPath] [--file <out.html>]
+  codecompass export <symbol|route> [repoPath] [--file|--output <out.html>]
+  codecompass trace <symbol|file> [repoPath] [-f <name>] [--up <n>] [--down <n>] [--ascii] [--json]
   codecompass radar [query] [repoPath]
   codecompass evolve --intent <deprecate|extend> --target <module|symbol> [repoPath]
   codecompass doctor [--data-dir <path>] [--json]
@@ -147,6 +161,13 @@ Subcommands:
   export <symbol>       Render the diagnose result as a single self-contained
                         HTML artifact (inlined mermaid runtime, chain steps,
                         code slices) for offline review and PR archiving.
+  trace <symbol|file>   Deterministic call tree around one symbol: who calls it
+                        (upstream) and what it calls (downstream), printed as a
+                        text tree. With -f <name> the positional is a file path
+                        fragment and the flag picks the symbol inside it.
+                        Unresolved edges are reported as static-analysis breaks,
+                        never guessed. [repoPath] defaults to the current
+                        directory.
   radar [query]         Domain panorama: hub nodes (degree + deterministic
                         PageRank), top external APIs, persistence layer and,
                         with a query, the top-3 intent anchor symbols.
@@ -194,9 +215,14 @@ Options:
   --auto-approve-all    With install: write the full tool registry into the host
                         allowlist; the default omits destructive tools
                         (codecompass_remove_repo)
-  --json                With doctor, emit a structured JSON report
-  --output <fmt>        Diff report format: markdown | json (default: markdown)
-  --file <path>         Write the diff report to a file instead of stdout
+  --json                With doctor or trace, emit structured JSON instead of text
+  --output <fmt|path>   Diff report format (markdown | json), or — with export —
+                        the output HTML file path (alias of --file)
+  --file <path>         Write the report/artifact to a file instead of stdout
+  -f, --function <name> With trace: symbol name to pick inside the <file> target
+  --up <n>              With trace: caller levels to expand (0-5, default 1)
+  --down <n>            With trace: callee levels to expand (0-5, default 2)
+  --ascii               With trace: pure-ASCII tree art (no box-drawing chars)
   --fail-on-impact      With pr-summary, exit 2 when impact is detected
   --max-affected-routes <n>
                         With pr-summary, exit 1 when more than n routes are affected
@@ -218,7 +244,8 @@ export function parseArgs(argv: string[]): ParseResult {
     failOnAuthImpact: false,
     help: false,
     version: false,
-    failOnImpact: false
+    failOnImpact: false,
+    traceAscii: false
   };
 
   const nextValue = (i: number, flag: string, inline?: string): { value?: string; next: number } => {
@@ -415,10 +442,17 @@ export function parseArgs(argv: string[]): ParseResult {
     if (flag === '--output') {
       const { value, next } = nextValue(i, flag, inline);
       i = next;
-      if (value !== 'markdown' && value !== 'json') {
-        return { ok: false, error: '--output expects "markdown" or "json"' };
+      if (value === 'markdown' || value === 'json') {
+        args.diffOutput = value;
+        continue;
       }
-      args.diffOutput = value;
+      // v1.4 票 05 — `codecompass export --output report.html` (the form users
+      // reach for). A non-format value can only be an export file path; which
+      // command it ends up under is validated after the command word is known.
+      if (value === undefined || value === '') {
+        return { ok: false, error: '--output expects "markdown" | "json", or a file path with export' };
+      }
+      args.outputFile = value;
       continue;
     }
     if (flag === '--file') {
@@ -428,6 +462,29 @@ export function parseArgs(argv: string[]): ParseResult {
         return { ok: false, error: '--file expects a report file path' };
       }
       args.diffFile = value;
+      continue;
+    }
+    if (flag === '-f' || flag === '--function') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || value === '') {
+        return { ok: false, error: '-f/--function expects a symbol name' };
+      }
+      args.traceFilter = value;
+      continue;
+    }
+    if (flag === '--up' || flag === '--down') {
+      const { value, next } = nextValue(i, flag, inline);
+      i = next;
+      if (value === undefined || !/^\d+$/.test(value) || Number(value) > 5) {
+        return { ok: false, error: `${flag} expects an integer 0-5` };
+      }
+      if (flag === '--up') args.traceUp = Number(value);
+      else args.traceDown = Number(value);
+      continue;
+    }
+    if (arg === '--ascii') {
+      args.traceAscii = true;
       continue;
     }
     if (arg.startsWith('-')) {
@@ -448,6 +505,7 @@ export function parseArgs(argv: string[]): ParseResult {
           arg === 'export' ||
           arg === 'radar' ||
           arg === 'evolve' ||
+          arg === 'trace' ||
           arg === 'chat'
         )
       ) {
@@ -460,7 +518,7 @@ export function parseArgs(argv: string[]): ParseResult {
       }
       continue;
     }
-    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan' || args.command === 'export' || args.command === 'radar') {
+    if (args.command === 'context' || args.command === 'diagnose' || args.command === 'refactor-plan' || args.command === 'export' || args.command === 'radar' || args.command === 'trace') {
       if (!assignContextPositional(arg)) {
         return { ok: false, error: `Unexpected extra argument: ${arg}` };
       }
@@ -470,6 +528,22 @@ export function parseArgs(argv: string[]): ParseResult {
       return { ok: false, error: `Unexpected extra argument: ${arg}` };
     }
     args.targetPath = arg;
+  }
+
+  // v1.4 票 05 — `--output <path>` is only meaningful for `export`; anything
+  // else must use `--output=markdown|json` (diff) or `--file`.
+  if (args.outputFile !== undefined) {
+    if (args.command !== 'export') {
+      return {
+        ok: false,
+        error:
+          '--output <path> is only valid with "codecompass export" ' +
+          '(diff uses --output=markdown|json; other commands use --file)'
+      };
+    }
+    if (args.diffFile !== undefined) {
+      return { ok: false, error: '--file and --output are the same option for export; pass only one' };
+    }
   }
 
   return { ok: true, args };
@@ -532,36 +606,9 @@ function isQueryCommand(command: CliArgs['command']): boolean {
     command === 'diagnose' ||
     command === 'refactor-plan' ||
     command === 'export' ||
+    command === 'trace' ||
     command === 'radar'
   );
-}
-
-/** Build a Mermaid flowchart from a diagnose chain (BROKEN steps red). */
-function chainMermaid(result: ReturnType<typeof runDiagnose>): string {
-  const lines = ['flowchart LR'];
-  result.verifiedChain.forEach((step, i) => {
-    const label = `${step.layer}: ${step.symbol}`;
-    lines.push(`  n${i}["${label.replace(/"/g, "'")}"]${step.status === 'BROKEN' ? ':::broken' : ''}`);
-    if (i > 0) lines.push(`  n${i - 1} --> n${i}`);
-  });
-  lines.push('  classDef broken stroke:#f7768e,stroke-width:2px,color:#f7768e;');
-  return lines.join('\n');
-}
-
-/** Build a Mermaid sequenceDiagram from a diagnose chain (v0.9 Sequence view). */
-function chainSequence(result: ReturnType<typeof runDiagnose>): string {
-  const lines = ['sequenceDiagram'];
-  result.verifiedChain.forEach((step, i) => {
-    const pid = `P${i}`;
-    lines.push(`  participant ${pid} as ${step.symbol} (${step.layer})`);
-    if (i > 0) {
-      lines.push(`  P${i - 1}->>${pid}: ${step.status === 'BROKEN' ? 'broken call' : 'call'}`);
-    }
-    if (step.status === 'BROKEN') {
-      lines.push(`  Note over ${pid}: ${step.diagnosticNotes ?? 'static analysis break'}`);
-    }
-  });
-  return lines.join('\n');
 }
 
 /** Boot the analysis stack for one-shot commands (context/diagnose/refactor-plan). */
@@ -622,6 +669,58 @@ async function runContextCommand(options: ContextCommandOptions): Promise<void> 
     });
     options.log(context.text);
   });
+}
+
+/**
+ * v1.4 票 05 — `codecompass trace <symbol|file> [repoPath] [-f <name>]`.
+ * Terminal call tree (callers above, callees below) over the same
+ * deterministic graph every other surface reads.
+ */
+async function runTraceCommand(options: {
+  env?: NodeJS.ProcessEnv;
+  dataDir?: string;
+  repoPath: string;
+  query: string;
+  filter?: string;
+  up: number;
+  down: number;
+  json: boolean;
+  ascii: boolean;
+  log: (line: string) => void;
+}): Promise<void> {
+  await withAnalysisStack(
+    { env: options.env, dataDir: options.dataDir, repoPath: options.repoPath, log: options.log },
+    async ({ repoId, worker }) => {
+      const graph = worker.getSymbolGraph(repoId);
+      const fallback = options.filter
+        ? undefined
+        : worker.findStartSymbolForQuery(repoId, options.query);
+      const resolution = resolveTraceTarget(
+        graph.symbols,
+        { query: options.query, filter: options.filter },
+        fallback
+      );
+      if (!resolution.ok) {
+        const list = resolution.candidates
+          .map((symbol) => `  ${symbol.name} — ${symbol.filePath}:${symbol.lineStart ?? 1}`)
+          .join('\n');
+        throw new Error(
+          resolution.reason === 'ambiguous'
+            ? `Multiple symbols match "${options.query}"; narrow it down with -f or pick one of:\n${list}`
+            : `Symbol not found: ${options.query}`
+        );
+      }
+      const result = buildTraceResult(graph.symbols, resolution.symbol, graph.index, {
+        up: options.up,
+        down: options.down
+      });
+      if (options.json) {
+        options.log(JSON.stringify(result, null, 2));
+      } else {
+        options.log(renderTraceTree(result, { ascii: options.ascii }));
+      }
+    }
+  );
 }
 
 /**
@@ -784,6 +883,25 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
     return { server: null, cockpitUrl: null };
   }
 
+  if (args.command === 'trace') {
+    if (!args.contextQuery) {
+      throw new Error(`codecompass trace requires a <symbol|file>\n\n${USAGE}`);
+    }
+    await runTraceCommand({
+      env: ctx.env,
+      dataDir: args.dataDir,
+      repoPath: args.installRepo ?? args.targetPath ?? process.cwd(),
+      query: args.contextQuery,
+      filter: args.traceFilter,
+      up: args.traceUp ?? 1,
+      down: args.traceDown ?? 2,
+      json: args.doctorJson,
+      ascii: args.traceAscii,
+      log
+    });
+    return { server: null, cockpitUrl: null };
+  }
+
   if (args.command === 'export') {
     if (!args.contextQuery) {
       throw new Error(
@@ -802,58 +920,20 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
       async ({ repoId, worker, localPath, repoqa }) => {
         const repo = repoqa.getRepo(repoId)!;
         const graph = worker.getSymbolGraph(repoId);
-        const result = runDiagnose({
+        // v1.4 票 07 — the report assembly lives once in artifact-report.ts;
+        // the Web export endpoint builds the same artifact from the same
+        // engine result, so the two surfaces cannot drift apart.
+        const { html, traceId } = buildDiagnoseArtifact({
           repoId,
+          repoName: repo.name,
           entrySymbol: args.contextQuery!,
           symbols: graph.symbols,
           index: graph.index,
           baseUrl,
           snippetRoot: localPath
         });
-        const chainText = result.verifiedChain
-          .map(
-            (step, i) =>
-              `${i + 1}. [${step.status}] ${step.layer} ${step.symbol} — ${step.filePath}:${step.line}` +
-              (step.diagnosticNotes ? `\n   ${step.diagnosticNotes}` : '')
-          )
-          .join('\n');
-        const html = renderArtifactHtml({
-          title: `Diagnose: ${result.entrySymbol}`,
-          repoName: repo.name,
-          generatedAt: new Date().toISOString(),
-          mermaid: chainMermaid(result),
-          sequence: chainSequence(result),
-          // CONTEXT.md: badges are dependency/config keyword evidence, not
-          // decoration — feed indexed dependency/config symbol names only.
-          badges: deriveBadges(
-            graph.symbols
-              .filter((symbol) => symbol.kind === 'dependency' || symbol.kind === 'config')
-              .map((symbol) => symbol.name)
-              .join(' ')
-          ),
-          storyBeats: result.verifiedChain.map((step, i) => ({
-            label: `Step ${i + 1}: ${step.layer} ${step.symbol}`,
-            detail:
-              `${step.status} — ${step.filePath}:${step.line}` +
-              (step.diagnosticNotes ? ` — ${step.diagnosticNotes}` : ''),
-            ...(step.codeSnippet ? { code: step.codeSnippet } : {})
-          })),
-          summary: result.rootCauseSummary,
-          deepLink: result.cockpitDeepLink,
-          sections: [
-            { heading: 'Chain', body: chainText, kind: 'code' },
-            ...result.verifiedChain
-              .filter((step) => step.codeSnippet)
-              .slice(0, 4)
-              .map((step) => ({
-                heading: `${step.symbol} (${step.filePath}:${step.line})`,
-                body: step.codeSnippet!,
-                kind: 'code' as const
-              }))
-          ]
-        });
         const outPath =
-          args.diffFile ?? `codecompass-diagnose-${result.traceId}.html`;
+          args.diffFile ?? args.outputFile ?? `codecompass-diagnose-${traceId}.html`;
         if (!locateMermaidScript()) {
           log('Warning: local mermaid runtime not found — the artifact falls back to CDN and will not render offline.');
         }

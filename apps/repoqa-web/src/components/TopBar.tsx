@@ -47,10 +47,13 @@ interface TopBarProps {
   onPickFolder?: (
     signal?: AbortSignal
   ) => Promise<{ supported: boolean; canceled?: boolean; path?: string }>;
+  /** v1.4 票 01 — 一键载入内置示例项目，透传给导入弹窗的快捷入口。 */
+  onLoadSample?: () => Promise<Repo | void>;
   llmMode: LlmRuntimeMode;
   llmHost?: string;
-  /** Issue 31: active workbench tab. */
-  activeView: WorkbenchTab;
+  /** Issue 31: active workbench tab. v1.4 票 02 — `snippet` 是无 tab 的视图，
+   *  直传时零 tab 高亮（不为片段视图伪造一个一级入口）。 */
+  activeView: WorkbenchTab | 'snippet';
   onSelectView: (tab: WorkbenchTab) => void;
   /** Issue 28: copy the Graph RAG agent context from the TopBar. */
   onCopyAgentContext: () => void | Promise<void>;
@@ -106,6 +109,7 @@ export function TopBar({
   onImportLocal,
   onPreviewLocal,
   onCloneRemote,
+  onLoadSample,
   onExport,
   onReindex,
   onDelete,
@@ -538,6 +542,7 @@ export function TopBar({
           importingRepo={importingRepo}
           onPickFolder={onPickFolder}
           cloneRetry={cloneRetry}
+          onLoadSample={onLoadSample}
         />
       )}
     </header>

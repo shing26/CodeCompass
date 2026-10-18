@@ -174,6 +174,30 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
 
 
 
+  it('shows the resolved absolute path and the relative-resolution note (v1.4 ticket 03)', async () => {
+    const user = userEvent.setup();
+    const onPreviewLocal = vi.fn().mockResolvedValue({
+      path: 'services/control-plane',
+      resolvedPath: 'D:/CodeCompass/services/control-plane',
+      wasRelative: true,
+      fileCount: 120,
+      javaFileCount: 0,
+      xmlFileCount: 0,
+      skippedDirCount: 1,
+      skippedDirs: ['node_modules']
+    });
+    render(<ImportRepoModal {...baseProps({ onPreviewLocal })} />);
+    await user.type(screen.getByTestId('import-path'), 'services/control-plane');
+    await waitFor(() =>
+      expect(screen.getByTestId('import-preview-resolved')).toHaveTextContent(
+        '将导入：D:/CodeCompass/services/control-plane'
+      )
+    );
+    expect(screen.getByTestId('import-preview-resolved')).toHaveTextContent(
+      '相对路径按服务所在目录解析'
+    );
+  });
+
   it('shows a pre-import preview with file and skipped-dir counts (Round 2 B4)', async () => {
     const user = userEvent.setup();
     const onPreviewLocal = vi.fn().mockResolvedValue({
@@ -403,5 +427,20 @@ describe('ImportRepoModal — repository ingestion hub (Issue 19)', () => {
     render(<ImportRepoModal {...baseProps({ onClose })} />);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('loads the built-in sample and closes once it is accepted (v1.4 ticket 01)', async () => {
+    const user = userEvent.setup();
+    const onLoadSample = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    render(<ImportRepoModal {...baseProps({ onLoadSample, onClose })} />);
+    await user.click(screen.getByTestId('import-sample'));
+    await waitFor(() => expect(onLoadSample).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('hides the sample shortcut when the callback is absent', () => {
+    render(<ImportRepoModal {...baseProps()} />);
+    expect(screen.queryByTestId('import-sample')).not.toBeInTheDocument();
   });
 });

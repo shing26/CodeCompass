@@ -87,6 +87,25 @@ describe('Canvas onboarding copy (ticket 15, QA-06)', () => {
   });
 });
 
+describe('Canvas sample project entry (v1.4 ticket 01)', () => {
+  it('offers the one-click sample load in the empty state and invokes it', async () => {
+    const user = userEvent.setup();
+    const onLoadSample = vi.fn();
+    renderCanvas({ repo: null, onLoadSample });
+    const button = screen.getByTestId('empty-load-sample');
+    expect(button).toHaveTextContent('载入示例项目');
+    await user.click(button);
+    expect(onLoadSample).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the sample entry once a repo is connected or the callback is absent', () => {
+    renderCanvas({ onLoadSample: vi.fn() });
+    expect(screen.queryByTestId('empty-load-sample')).not.toBeInTheDocument();
+    renderCanvas({ repo: null });
+    expect(screen.queryByTestId('empty-load-sample')).not.toBeInTheDocument();
+  });
+});
+
 describe('Canvas topology flow cards (Issue 31)', () => {
   const anchors: Anchor[] = [
     { file: 'src/main/java/OrderController.java', line: 10, symbol: 'listOrders' },

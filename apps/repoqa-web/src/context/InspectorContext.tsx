@@ -2,13 +2,20 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useInspector } from '../hooks/useInspector';
 import { useReverseDeps } from '../hooks/useReverseDeps';
-import { useSubgraphContext } from '../hooks/useSubgraphContext';
+import {
+  DEFAULT_SUBGRAPH_DEPTHS,
+  useSubgraphContext,
+  type SubgraphDepths
+} from '../hooks/useSubgraphContext';
 import { useRepo } from './RepoContext';
 
 interface InspectorContextValue {
   inspector: ReturnType<typeof useInspector>;
   reverseDeps: ReturnType<typeof useReverseDeps>;
   subgraph: ReturnType<typeof useSubgraphContext>;
+  /** v1.4 票 04 — 子图焦点模式的展开深度（面板控件读写，变更即重取）。 */
+  subgraphDepths: SubgraphDepths;
+  setSubgraphDepths: (depths: SubgraphDepths) => void;
   inspectorOpen: boolean;
   setInspectorOpen: (v: boolean) => void;
   paletteFocus: { symbol: string; requestId: number } | null;
@@ -29,7 +36,10 @@ export function InspectorProvider({ children }: { children: ReactNode }) {
   const { client, repoId } = useRepo();
   const inspector = useInspector(client, repoId);
   const reverseDeps = useReverseDeps(client, repoId, inspector.symbolName);
-  const subgraph = useSubgraphContext(client, repoId, inspector.symbolName);
+  // v1.4 票 04 — focus-mode depths live here (not in the panel) so the shared
+  // subgraph hook can key its fetch on them.
+  const [subgraphDepths, setSubgraphDepths] = useState<SubgraphDepths>(DEFAULT_SUBGRAPH_DEPTHS);
+  const subgraph = useSubgraphContext(client, repoId, inspector.symbolName, subgraphDepths);
   // Bug-04: the Inspector drawer on narrow viewports (≤ 375px).
   const [inspectorOpen, setInspectorOpen] = useState(false);
   // v0.11 (Stage 3) — diagram focus request raised by the command palette.
@@ -90,6 +100,8 @@ export function InspectorProvider({ children }: { children: ReactNode }) {
     inspector,
     reverseDeps,
     subgraph,
+    subgraphDepths,
+    setSubgraphDepths,
     inspectorOpen,
     setInspectorOpen,
     paletteFocus,

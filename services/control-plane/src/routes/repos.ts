@@ -14,6 +14,7 @@ import {
 } from '../git-importer';
 import { pickFolderDialog } from '../dialog';
 import { previewRepo } from '../ingest/repoqa-scan';
+import { SAMPLE_PROJECT, sampleFileTarget } from '../ingest/sample-project';
 
 /** v0.25.0 批次 2：仓库目录读取域——GET /api/repos 与 /api/repos/:id。
  * 注册顺序保持原样（catalog 在 analysis 域之前）。 */
@@ -120,17 +121,22 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       // `repoqa.index.progress` 帧 + catalog 轮询（reindex/clone 同款机制），
       // 最长 600s 的同步长挂就此消灭。破坏性契约变更（202 取代 200/201）
       // 在 CHANGELOG 破坏性段登记在案。
-      const stat = await fs.stat(localPath).catch(() => null);
+      // v1.4 票 03 — 相对路径按服务进程目录解析，并把**解析结果**存库：
+      // 存原文会让后续 reindex 换一个 cwd 就指向别处（同一行两次索引不同目录）。
+      const resolvedLocalPath = path.resolve(localPath);
+      const stat = await fs.stat(resolvedLocalPath).catch(() => null);
       if (!stat?.isDirectory()) {
         res.status(400).json({
-          error: `local path is not a directory: ${localPath}`,
+          error:
+            `local path is not a directory: ${localPath}` +
+            (resolvedLocalPath !== localPath ? ` (resolved to ${resolvedLocalPath})` : ''),
           code: 'import_failed'
         });
         return;
       }
       const upsert = deps.repoqa.upsertByLocalPath({
-        name: name ?? deriveLocalRepoName(localPath),
-        localPath,
+        name: name ?? deriveLocalRepoName(resolvedLocalPath),
+        localPath: resolvedLocalPath,
         branch
       });
       const repoId = upsert.repo.id;
@@ -142,7 +148,7 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       // 后台索引尾巴可能晚于 db.close()（优雅关闭/测试 teardown 与 202 赛跑），
       // 在已关库上再写会变成 unhandled rejection 瀑布（CI 三平台实证）。
       void deps.worker
-        .indexRepo({ localPath, branch, name })
+        .indexRepo({ localPath: resolvedLocalPath, branch, name })
         .catch((error: unknown) => guardIndexFailure(deps, repoId, error));
       res.status(202).json({
         repo: deps.repoqa.getRepo(repoId)!,
@@ -159,13 +165,54 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     }
   }));
 
+  /**
+   * v1.4 票 01 — one-click sample project.
+   *
+   * Materializes the built-in sample source tree under `<dataDir>/samples/`
+   * and drives the exact same import path as POST /api/repos (upsert → indexing
+   * → fire-and-forget indexRepo → 202). Idempotent by normalized local path, so
+   * repeat clicks reuse one repo row instead of cloning rows.
+   */
+  app.post('/api/repos/sample', asyncHandler(async (_req, res) => {
+    try {
+      const localPath = path.join(deps.dataDir, 'samples', SAMPLE_PROJECT.slug);
+      await fs.mkdir(localPath, { recursive: true });
+      for (const [relative, content] of Object.entries(SAMPLE_PROJECT.files)) {
+        const target = sampleFileTarget(localPath, relative);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, content, 'utf8');
+      }
+      const upsert = deps.repoqa.upsertByLocalPath({
+        name: SAMPLE_PROJECT.name,
+        localPath
+      });
+      const repoId = upsert.repo.id;
+      // Double-click guard: never start a second index run on a live one
+      // (mirrors the reindex 409 intent without failing the click).
+      if (!upsert.created && upsert.repo.status === 'indexing') {
+        res.status(202).json({ repo: upsert.repo, taskId: `index-${repoId}` });
+        return;
+      }
+      deps.repoqa.updateRepoStatus(repoId, 'indexing');
+      void deps.worker
+        .indexRepo({ localPath, name: SAMPLE_PROJECT.name })
+        .catch((error: unknown) => guardIndexFailure(deps, repoId, error));
+      res.status(202).json({ repo: deps.repoqa.getRepo(repoId)!, taskId: `index-${repoId}` });
+    } catch (error) {
+      res.status(400).json({
+        error: maskSensitiveText(error instanceof Error ? error.message : String(error)),
+        code: 'sample_import_failed'
+      });
+    }
+  }));
+
   // Round 2 B4: read-only pre-import preview. The frontend calls this while
   // the user types a local path so they can see exactly what will be indexed
   // (and which ignored dirs will be skipped) before committing to an import.
   app.post('/api/repos/preview', asyncHandler(async (req, res) => {
+    const body = (req.body ?? {}) as { localPath?: unknown };
+    const localPath = sanitizeLocalPathInput(body.localPath);
     try {
-      const body = (req.body ?? {}) as { localPath?: unknown };
-      const localPath = sanitizeLocalPathInput(body.localPath);
       if (!localPath) {
         res.status(400).json({ error: 'localPath is required', code: 'repo_path_required' });
         return;
@@ -173,10 +220,27 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
       const stats = await previewRepo(localPath);
       // 回显**清洗后**的路径：界面显示的必须是真正被索引的那一条，否则用户
       // 看着输入框里的引号、以为系统吃的是另一个路径。
-      res.json({ preview: { path: localPath, ...stats } });
+      // v1.4 票 03 — 显式给出解析后的绝对路径与"是否相对输入"：相对路径按
+      // 服务进程目录解析这一事实必须可见，而不是藏在实现里。
+      res.json({
+        preview: {
+          path: localPath,
+          resolvedPath: path.resolve(localPath),
+          wasRelative: !path.isAbsolute(localPath),
+          ...stats
+        }
+      });
     } catch (error) {
+      // v1.4 票 03 — 相对输入失败时把解析结果带进消息：否则「路径不存在」
+      // 对着一个用户以为的本地目录说，而实际检查的是服务进程目录下的同名项。
+      const base = error instanceof Error ? error.message : String(error);
+      const resolved = path.resolve(localPath);
+      const detail =
+        !path.isAbsolute(localPath) && !base.includes(resolved)
+          ? `${base} (resolved to ${resolved})`
+          : base;
       res.status(400).json({
-        error: maskSensitiveText(error instanceof Error ? error.message : String(error)),
+        error: maskSensitiveText(detail),
         code: 'repo_path_invalid'
       });
     }

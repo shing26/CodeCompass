@@ -1165,7 +1165,8 @@ describe('Issue 20 MCP CLI wiring', () => {
         failOnAuthImpact: false,
         help: false,
         version: false,
-        failOnImpact: false
+        failOnImpact: false,
+        traceAscii: false
       }
     });
     expect(parseArgs(['mcp', '--data-dir', 'D:/data', 'C:/repos/demo'])).toMatchObject({

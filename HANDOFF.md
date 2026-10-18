@@ -9,6 +9,9 @@
 
 ## 1. 当前状态（一句话版）
 
+**v1.4.0 收口（2026-10-19，「上手与可用性手术」批）**：起因 = 外部三条批判 + 四步手术指令（门槛高 / 画布毛线团 / 名为工具实为展示架 / 包装词与边界）。逐条核实后：**两条半已被历史交付覆盖**（画布从未全量铺开；CLI 与单文件 HTML 导出早已存在），只做实锤缺口——①**示例项目一键载入**（`POST /api/repos/sample`，内嵌 11 文件 TS 小仓，真机 ready=11 文件/32 符号/<10s、3 个 Top API、1 条导览）②**粘贴片段即出调用图**（`POST /api/snippets/graph` 纯内存、不回显源码，Web `?mode=snippet`）③**子图焦点模式**（深度 1–5、点击换中心+返回、聚合可展开；顺带修好子图节点深链静默失效 = 绑定按 id、分发按标签）④**`codecompass trace`**（终端上下游树、`-f` 文件+函数、`--up/--down/--ascii/--json`）+ `export --output` 别名 ⑤**Web 导出 HTML 报告**（与 CLI 同一装配器 `artifact-report.ts`）⑥**路径契约**（preview 回显 resolvedPath，相对路径 resolve 后存库）⑦**README 独立 Known Limitations**（静态边界 / TS 别名不解析 / Go 隐式接口 / 检索非语义 / 运行时不在射程 / 环境约束），首段改人话。**门禁：控制面 843、web 429、bridge 26、e2e 73/0**（typecheck 零错误；e2e 仅 `readme-version` 曾因版本未刷而红，刷新后全绿）。npm 积压更新为 **0.31.0 → 1.4.0**（仍未发布，发布流程见下）。批次 spec 在 `.scratch/v1.4-usable-tool/spec.md`；ticket 08 = TS 模块路径解析（import + tsconfig paths）**显式 deferred**（触发线在票面）。
+**未做（按性质）**：真实 tsconfig `paths` / import specifier 解析（引擎级重构，威胁三仓精度棘轮；只做披露）；G6/交互图库替换 mermaid（全量图场景不存在）；内嵌预解析 SQLite（小样仓索引实测 <10s）。上一批未修项（R5-05/08/09/11/13/14/16）仍在 `.scratch/v027-backlog.md` 与 v1.3 段。
+
 **v1.3.0 收口（2026-10-05，「让工具停止编造」批）**：起因 = Round5 双路走查（2026-10-02，`docs/reports/产品体验报告-Round5.md`；Persona 黑盒 71 次调用 + API/引擎审计 17 仓两轴互证），P0 = **路由入口调用链伪造且标 VERIFIED**（`effectiveStart` 末行取全仓第一个方法符号兜底，91% 路由入口返回同一条 `AnswerBody → useState`）。红线修复五件：伪造兜底删除（无起点即无链路，diagnose 如实报 SUSPECT）、`EXTERNAL` 语义（止于仓库外≠断链）、未解析指标去灌水（「名字全仓不存在」拆出后 TS/JS 38%→0%）、僵尸 indexing 行每分钟对账回收（判据只有「此刻无活任务」，不做超时猜测）、门禁 `broken-chain` 先量基线再判定（<10% 弃权入 `policy.skipped`；测试代码剔除非生产路径）。新增能力：拓扑概览层（R4-7，零新增端点）、内联 handler 调用归属（路由可达率 0%→24%）、Go `net/http` 入口识别（记作 `ANY`）、精度 A 类判定接收者类型感知（四仓真缺陷 741/2571/5102/272 归零）。先测再改三工具：`gate_breakchain_measure` / `edge_resolution_measure` / `edge_unresolved_sample`。门禁：控制面 **809**、web **404**、bridge 26、e2e **73/0**、UI 冒烟 PASS（tag v1.3.0 → e31ea8e，CI/Release 双绿）。**npm 积压**：registry 仍停在 0.31.0（1.1.0/1.2.0/1.3.0 均未上 npm）；v1.3.0 发布因本机 token 401 改交用户跑 `D:\zcode-tmp\publish-1.3.0.cmd`（ASCII+CRLF，npm login → publish 带 OTP → 验证）。**本批评审记录** = Round5 双路走查（两轴互证）+ 回归锁 6 引擎/4 App/3 冒烟（每条验证过回退会红）；正式 code-review 报告格式未走（上一份 09-29 覆盖 v1.1+v1.2.0），按 v1.1 先例挂补审触发线 = 下次收口。**未修（已登记）**：R5-05 chat 流式无进度/无中断（值得立票）、R5-08 llm-profiles.json（用户侧配置才有第二档）、R5-09/11/13/14/16 体验打磨；精度测量余项 = Java 裸 `@PostMapping`、C/D 类主体是内置/构造/类型转换。
 
 **v1.2.0 收口（2026-09-29，工作台产品化批）**：反转 v0.31「Web 只减不增」（**ADR-0020** 双面体再平衡）——一级导航 5 项（chat/代码拓扑/变更审计/Diff 影响面/体检）；体检面接上 scan 引擎（HTTP twin + 五桶 + 精度态势 + 检索命中原样查看）；**导入 202+WS 流化**（`POST /api/repos` 破坏性变更：202 `{repo,taskId}` 取代 200/201 同步 ready；Modal 可关闭后台继续；克隆瞬断重试上屏；关库自保）；视图小债包四件（topApis 引擎降噪/风险色族统一/影响树截断/查调用链名实）+ a11y（aria log + 长回答折叠）。**MCP 主轴与 17 工具冻结不动（双轨制）**。门禁：控制面 **778**、web **368**、bridge 26、e2e **73/0**。**收口顺序（如实）**：文档/版本/ADR 已合 master；**Round4 体验报告与 tag v1.2.0 随后执行**（六动线真 chromium 冒烟已全过：拓扑/chat/gate/韧性/体检/导入流化——Round4 补的是人眼质感走查）；双轴评审（含 v1.1 补审）按补审触发线执行。批次 spec 在 `.scratch/v1.2-workbench-revival/spec.md`。
@@ -36,7 +39,7 @@
 | 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
 | 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线（2026-10-05，v1.3.0 收口） | 控制面 **809**、web **404**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）+ UI 冒烟 `scripts/smoke/ui_smoke.mjs`（真 chromium；新增 1a 段锁 R4-7 首屏：概览层 / 枢纽列表 / 自动示例链路来源标注）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| 门禁基线（2026-10-19，v1.4.0 收口） | 控制面 **843**、web **429**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）+ UI 冒烟 `scripts/smoke/ui_smoke.mjs`（真 chromium；新增 1a 段锁 R4-7 首屏：概览层 / 枢纽列表 / 自动示例链路来源标注）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
 | MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言。installer 的 autoApprove **默认派生自注册表但会过滤掉破坏性工具**（v1.1 票 11 的 `NON_AUTO_APPROVED_TOOLS`，现只列 `codecompass_remove_repo`）——**新增破坏性工具时必须把名字加进这张清单，否则默认安装会重新自动批准它**；`--auto-approve-all` 可写全量 |
 
 ### 2.2 架构不变量（违反即返工）
@@ -66,7 +69,7 @@
 
 ### 2.4 版本演进速查（细节全在 CHANGELOG）
 
-v0.17 index_repo → v0.18 全异步化 + remove_repo + 幽灵防线（ADR-0016 必读）→ v0.19 evolution eval → v0.20 scan 自荐 → v0.21 检索层定位显性化 + Issue 25 演进工作台 → v0.22 scan dogfooding 修复 → v0.23 scan 提纯 → v0.24 chat-merge（对话工作台并入本仓）→ v0.25 工程结构批 → v0.26 门禁运行史 + 问答/演进口心智分离 → v0.27 生产就绪（Docker/版本源/WS 挂死）→ v0.28 契约单一源 + 结构手术 → v0.29 韧性硬化（掩码单尺/重试/深链）→ v0.30 去极客化战役。真实 agent 反馈（BossHunter、codex）已全部消化——**dogfooding 是最高效的需求来源**。
+v0.17 index_repo → v0.18 全异步化 + remove_repo + 幽灵防线（ADR-0016 必读）→ v0.19 evolution eval → v0.20 scan 自荐 → v0.21 检索层定位显性化 + Issue 25 演进工作台 → v0.22 scan dogfooding 修复 → v0.23 scan 提纯 → v0.24 chat-merge（对话工作台并入本仓）→ v0.25 工程结构批 → v0.26 门禁运行史 + 问答/演进口心智分离 → v0.27 生产就绪（Docker/版本源/WS 挂死）→ v0.28 契约单一源 + 结构手术 → v0.29 韧性硬化（掩码单尺/重试/深链）→ v0.30 去极客化战役 → v0.31 精度优先 → v1.0 锚点（17 工具冻结 + npm 首发）→ v1.1 检索取证 → v1.2 工作台再产品化 → v1.3 停止编造（路由伪造链红线）→ **v1.4 上手与可用性手术（示例项目/片段粘贴/子图焦点/trace/已知限制）**。真实 agent 反馈（BossHunter、codex）已全部消化——**dogfooding 是最高效的需求来源**。
 
 ### 2.5 仓库布局与归档纪律（2026-09-16 整理批确立）
 
@@ -102,7 +105,7 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | `scripts/e2e/closeout_gate.py` | e2e 门禁 = 系统能力可执行规格 |
 | agent 持久记忆 | `C:\Users\Shing\.zcode\cli\memories\projects\codecompass-0da1d6bfa4427c13\memory\`（各版发布边界 + Mimosa 机制 + 双 agent 分工） |
 
-## 4. 当前批次：v0.31 精度优先批（**主体已落地**，2026-09-21 刷新）
+## 4. 历史批次：v0.31 精度优先批（主体已落地，2026-09-21 刷新；当前批次见 §1 = v1.4）
 
 **方向裁决**：A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示的工程资产）；**Web 面只减不增**。裁决底稿在 `D:\WorkBuddyData\CodeCompass-方向定位-2026-09-16.md`，落地 spec 在 `.scratch/v031-precision/spec.md`。
 

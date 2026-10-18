@@ -4,6 +4,7 @@ import express from 'express';
 import { registerChatRoutes } from './chat/routes';
 import { registerWorkbenchRoutes, registerWorkbenchLateRoutes } from './routes/workbench';
 import { registerReposCatalogRoutes, registerReposIngestRoutes } from './routes/repos';
+import { registerSnippetRoutes } from './routes/snippet';
 import { registerAnalysisRoutes } from './routes/analysis';
 import { errorMiddleware, requestIdMiddleware } from './http-error';
 import type { HttpDeps } from './routes/deps';
@@ -119,6 +120,9 @@ export function createHttpApp(deps: HttpDeps): express.Express {
   // Repo ingestion（POST 导入/preview/dialog/delete/reindex/clone/file-raw，
   // 原 786-1006 行连续段）。
   registerReposIngestRoutes(app, deps);
+
+  // v1.4 票 02 — 片段分析（无仓库上下文的内存解析；不碰磁盘与数据库）。
+  registerSnippetRoutes(app);
 
   // chat-merge (v0.24.0): 对话式智能体路由——必须在 /api 404 兜底之前注册
   if (deps.chat) {

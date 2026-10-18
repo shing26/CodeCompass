@@ -28,6 +28,8 @@ interface ImportRepoModalProps {
   /** v1.2 票 03 — 最近一次克隆瞬断重试（WS `repoqa.import.clone-retry`），
    * 克隆阶段显示「网络瞬断，重试中」。null/undefined = 无。 */
   cloneRetry?: { attempt: number; backoffMs: number } | null;
+  /** v1.4 票 01 — 一键载入内置示例项目（免路径）。未提供时隐藏入口。 */
+  onLoadSample?: () => Promise<unknown> | void;
 }
 
 type Tab = 'local' | 'remote';
@@ -61,9 +63,11 @@ export function ImportRepoModal({
   repos,
   importingRepo,
   onPickFolder,
-  cloneRetry
+  cloneRetry,
+  onLoadSample
 }: ImportRepoModalProps) {
   const [tab, setTab] = useState<Tab>('local');
+  const [sampleBusy, setSampleBusy] = useState(false);
   // 批次 1 验收：非 Windows 平台隐藏浏览按钮（服务端 supported:false 仍是
   // 最终防线——UA 判断只用于展示层平滑，不作为能力真值）。
   const isWindowsHost =
@@ -415,6 +419,14 @@ export function ImportRepoModal({
                 data-testid="import-preview"
                 className="mb-2 rounded-md border border-line bg-subtle px-2 py-1.5 text-xs text-muted"
               >
+                {/* v1.4 票 03 — 导入前明确显示真正会被读取的绝对路径；相对输入
+                    按服务所在目录解析这一事实写出来，而不是让用户猜。 */}
+                {preview.resolvedPath && (
+                  <div className="mb-1 break-all" data-testid="import-preview-resolved">
+                    将导入：<span className="font-mono text-ink">{preview.resolvedPath}</span>
+                    {preview.wasRelative ? '（相对路径按服务所在目录解析）' : ''}
+                  </div>
+                )}
                 将索引 <span className="font-semibold text-ink">{preview.fileCount}</span> 个文件
                 {preview.javaFileCount > 0
                   ? `（含 ${preview.javaFileCount} 个 Java 文件${
@@ -600,6 +612,26 @@ export function ImportRepoModal({
               </button>
             </div>
           </form>
+        )}
+
+        {/* v1.4 票 01 — 免路径的示例入口：不填任何东西也能先看到产品在干什么。 */}
+        {onLoadSample && (
+          <div className="mt-3 border-t border-line pt-3">
+            <button
+              type="button"
+              data-testid="import-sample"
+              disabled={sampleBusy}
+              onClick={() => {
+                setSampleBusy(true);
+                void Promise.resolve(onLoadSample())
+                  .then(() => onClose())
+                  .catch(() => setSampleBusy(false));
+              }}
+              className="w-full rounded-md border border-line px-3 py-2 text-sm text-muted hover:border-accent hover:text-ink disabled:opacity-50"
+            >
+              {sampleBusy ? '正在准备示例项目…' : '没有现成的仓库？先载入示例项目'}
+            </button>
+          </div>
         )}
       </div>
     </div>

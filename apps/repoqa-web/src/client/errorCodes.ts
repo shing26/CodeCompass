@@ -46,6 +46,11 @@ export const ERROR_COPY: Record<ErrorCode, string> = {
   clone_url_invalid: '这个 Git 地址不被允许（协议或主机不合法）',
   clone_branch_invalid: '分支名不合法',
   clone_git_failed: '克隆失败：检查网络与远端地址后重试',
+  // —— v1.4 票 01/02：示例项目与片段分析
+  sample_import_failed: '示例项目载入失败：检查数据目录是否可写后重试',
+  snippet_required: '先在左侧粘贴一段代码，再点「解析片段」',
+  snippet_too_large: '片段太大了（超过 100KB），请截取要分析的那一段',
+  snippet_parse_failed: '这段代码解析失败：确认是 TS/JS 源码后重试',
   // —— 文件预览面
   file_path_required: '缺少文件路径参数',
   path_escape: '这个文件在仓库范围之外，不提供预览',

@@ -15,7 +15,7 @@ import type {
 } from '../types';
 
 /** Main view state: workbench tabs plus the guided Tour player. */
-export type MainView = WorkbenchTab | 'tour';
+export type MainView = WorkbenchTab | 'tour' | 'snippet';
 
 /**
  * Ticket 16 (QA-07): the single mapping from the URL's ?mode= to a workbench
@@ -37,6 +37,8 @@ function viewFromMode(mode: string | null | undefined): MainView {
   // 记录当前视图（地址栏被清成干净的 `?repo=`）：停在门禁页时把这个链接发出去，
   // 别人只会落到拓扑。两端补齐后才是可分享的深链。
   if (mode === 'gate') return 'gate';
+  // v1.4 票 02 — 片段分析视图（无仓库也可达，深链 ?mode=snippet）。
+  if (mode === 'snippet') return 'snippet';
   return 'topo';
 }
 
@@ -60,6 +62,8 @@ interface RepoContextValue {
   error: string | null;
   /** v1.2.x（R4-4）— 错误条可消。 */
   clearError: () => void;
+  /** v1.4 票 07 — 统一错误上屏通道（HTML 报告导出失败/降级提示复用顶栏错误条）。 */
+  reportError: (message: string) => void;
   /** v1.2.x（Round5）— 删除确认走应用内对话框：原生 confirm 会被屏蔽对话框的
    *  宿主静默吞掉（内置浏览器 / kiosk / 自动化），点删除看起来「没反应」。 */
   pendingDelete: Repo | null;
@@ -98,6 +102,8 @@ interface RepoContextValue {
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
   handleSelectRepo: (id: string) => void;
   handleImportLocal: (name: string, localPath: string) => Promise<Repo>;
+  /** v1.4 票 01 — one-click built-in sample project (no path needed). */
+  handleLoadSample: () => Promise<Repo>;
   handleCloneRemote: (url: string, branch?: string) => Promise<Repo>;
   handleReindex: (repo: Repo) => Promise<void>;
   handleDelete: (repo: Repo) => Promise<void>;
@@ -405,8 +411,19 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     return repo;
   };
 
-  // Issue 19: remote clone — POST /api/repos/clone returns once the clone
-  // lands (repo status `indexing`), then the catalog poll takes over and the
+  // v1.4 票 01 — one-click sample project: same landing as a local import
+  // (refresh catalog → select → topology view); indexing progress rides the
+  // existing WS + catalog polling path, so no dedicated UI state is needed.
+  const handleLoadSample = async (): Promise<Repo> => {
+    const { repo } = await client.importSample();
+    await refresh();
+    selectRepo(repo.id);
+    setActiveTour(null);
+    setView('topo');
+    return repo;
+  };
+
+  // Issue 19: remote clone — POST /api/repos/clone returns once the clone  // lands (repo status `indexing`), then the catalog poll takes over and the
   // import dialog auto-closes when the repo flips to `ready`.
   const handleCloneRemote = async (url: string, branch?: string): Promise<Repo> => {
     const repo = await client.cloneRepo(url, branch);
@@ -511,6 +528,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     loading,
     error,
     clearError,
+    reportError,
     pendingDelete,
     deleting,
     confirmDelete,
@@ -544,6 +562,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     setSidebarOpen,
     handleSelectRepo,
     handleImportLocal,
+    handleLoadSample,
     handleCloneRemote,
     handleReindex,
     handleDelete,

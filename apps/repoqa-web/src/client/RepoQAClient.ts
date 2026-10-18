@@ -19,6 +19,7 @@ import type {
   PrecisionSummary,
   RepoChunkRow,
   ScanResult,
+  SnippetGraph,
   SubgraphContextResult,
   SymbolKind,
   WorkbenchCardRow
@@ -105,6 +106,32 @@ export class RepoQAClient {
   }
 
   /** Round 2 B4: read-only pre-import preview of file/dir counts. */
+  /**
+   * v1.4 票 01 — 一键示例项目：服务端把内置样例源码落到数据目录，再走与本地
+   * 导入完全相同的路径（202 + 后台索引），前端只需处理同样的 202 契约。
+   */
+  async importSample(): Promise<{ repo: Repo; taskId: string }> {
+    const res = await this.fetcher(`${this.baseUrl}/api/repos/sample`, {
+      method: 'POST',
+      timeoutMs: IMPORT_FETCH_TIMEOUT_MS
+    });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`importSample failed: ${res.status}${detail}`);
+    }
+    const body = (await res.json()) as { repo?: Repo; taskId?: string };
+    if (!body.repo) throw new Error('importSample failed: missing repo in response');
+    return { repo: body.repo, taskId: body.taskId ?? `index-${body.repo.id}` };
+  }
+
   async previewRepo(localPath: string): Promise<RepoPreview> {
     const res = await this.fetcher(`${this.baseUrl}/api/repos/preview`, {
       method: 'POST',
@@ -470,10 +497,13 @@ export class RepoQAClient {
   async getSubgraphContext(
     repoId: string,
     query: string,
-    maxTokens?: number
+    options?: { maxTokens?: number; callerDepth?: number; calleeDepth?: number }
   ): Promise<SubgraphContextResult> {
     const params = new URLSearchParams({ query });
-    if (maxTokens !== undefined) params.set('maxTokens', String(maxTokens));
+    if (options?.maxTokens !== undefined) params.set('maxTokens', String(options.maxTokens));
+    // v1.4 票 04 — focus mode: the caller picks how many hops each side expands.
+    if (options?.callerDepth !== undefined) params.set('callerDepth', String(options.callerDepth));
+    if (options?.calleeDepth !== undefined) params.set('calleeDepth', String(options.calleeDepth));
     const res = await this.fetcher(
       `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/subgraph-context?${params.toString()}`,
       { timeoutMs: SYNC_ANALYZE_TIMEOUT_MS }
@@ -484,13 +514,70 @@ export class RepoQAClient {
     return body.context;
   }
 
+  /**
+   * v1.4 票 02 — 片段分析：把一段 TS/JS 源码交给服务端内存解析，拿回函数级
+   * 调用图（不导入仓库、不落盘）。服务端只回符号名与位置，不回源码正文。
+   */
+  async analyzeSnippet(source: string, fileName?: string): Promise<SnippetGraph> {
+    const res = await this.fetcher(`${this.baseUrl}/api/snippets/graph`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(fileName ? { source, fileName } : { source }),
+      timeoutMs: 30_000
+    });
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`analyzeSnippet failed: ${res.status}${detail}`);
+    }
+    const body = (await res.json()) as { graph?: SnippetGraph };
+    if (!body.graph) throw new Error('analyzeSnippet failed: missing graph in response');
+    return body.graph;
+  }
+
   /** Issue 14: fetch the ONBOARDING.md handover document as plain text. */
-  async exportOnboarding(repoId: string): Promise<string> {
-    const res = await this.fetcher(
+  async exportOnboarding(repoId: string): Promise<string> {    const res = await this.fetcher(
       `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/export/onboarding`
     );
     if (!res.ok) throw new Error(`exportOnboarding failed: ${res.status}`);
     return await res.text();
+  }
+
+  /**
+   * v1.4 票 07 — 单文件 HTML 报告（与 `codecompass export` 同源同产物）。
+   * 返回 HTML 文本与运行时可得的降级提示（本地 mermaid 运行时缺失时，
+   * 服务端以响应头如实告知，而不是悄悄给一个必须联网的文件）。
+   */
+  async exportHtmlReport(
+    repoId: string,
+    symbol: string
+  ): Promise<{ html: string; warning: string | null }> {
+    const params = new URLSearchParams({ symbol });
+    const res = await this.fetcher(
+      `${this.baseUrl}/api/repos/${encodeURIComponent(repoId)}/export/html?${params.toString()}`,
+      { timeoutMs: SYNC_ANALYZE_TIMEOUT_MS }
+    );
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const body = (await res.json()) as { error?: unknown };
+        if (typeof body.error === 'string' && body.error !== '') {
+          detail = `: ${body.error}`;
+        }
+      } catch {
+        // non-JSON body — fall back to the status-only message below
+      }
+      throw new Error(`exportHtmlReport failed: ${res.status}${detail}`);
+    }
+    const warning = res.headers?.get?.('x-artifact-warning') ?? null;
+    return { html: await res.text(), warning };
   }
 
   /**

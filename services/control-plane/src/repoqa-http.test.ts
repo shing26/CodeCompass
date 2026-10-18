@@ -1684,10 +1684,90 @@ describe('Issue 28 subgraph context HTTP API', () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  /* v1.4 票 04 — focus mode: the caller (Web panel) picks how many hops each
+     direction expands; out-of-range values clamp, non-integers 400. */
+  it('honours callerDepth/calleeDepth and clamps out-of-range values', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-subgraph-depth-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const shallow = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=hello&calleeDepth=0&callerDepth=0`
+      );
+      expect(shallow.status).toBe(200);
+      const shallowBody = (await shallow.json()) as {
+        context: { nodes: Array<{ name: string; distance: number; direction: string }> };
+      };
+      const shallowNames = shallowBody.context.nodes.map((node) => node.name);
+      expect(shallowNames).toEqual(['hello']);
+
+      const deep = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=hello&calleeDepth=1&callerDepth=1`
+      );
+      const deepBody = (await deep.json()) as {
+        context: { nodes: Array<{ name: string; distance: number }> };
+      };
+      expect(deepBody.context.nodes.map((node) => node.name)).toContain('greet');
+
+      const clamped = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=hello&calleeDepth=99`
+      );
+      expect(clamped.status).toBe(200);
+
+      const bad = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/subgraph-context?query=hello&calleeDepth=x`
+      );
+      expect(bad.status).toBe(400);
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
-describe('RepoPulse onboarding export HTTP API', () => {
-  it('serves a value-free ONBOARDING.md with dashboard + tours sections', async () => {
+describe('v1.4 ticket 07 — single-file HTML report export', () => {
+  it('serves a self-contained HTML artifact for a symbol and 404s for a miss', async () => {
+    const ctx = await startServer();
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-export-html-'));
+    try {
+      await makeJavaRepo(root);
+      const result = await importRepo(ctx.baseUrl, root);
+      const repoId = result.body.repo!.id;
+
+      const missingSymbolParam = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/export/html`
+      );
+      expect(missingSymbolParam.status).toBe(400);
+
+      const notFound = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/export/html?symbol=${encodeURIComponent('nope')}`
+      );
+      expect(notFound.status).toBe(404);
+
+      const res = await fetch(
+        `${ctx.baseUrl}/api/repos/${repoId}/export/html?symbol=${encodeURIComponent('hello')}`
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      expect(res.headers.get('content-disposition')).toContain('attachment');
+      const html = await res.text();
+      expect(html).toContain('Diagnose: hello');
+      // Self-contained: the mermaid runtime is inlined, and the only external
+      // references allowed are the documented CDN fallback none-locally case.
+      expect(html).toContain('mermaid');
+      expect(html).toContain('hello');
+    } finally {
+      await ctx.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('RepoPulse onboarding export HTTP API', () => {  it('serves a value-free ONBOARDING.md with dashboard + tours sections', async () => {
     const ctx = await startServer();
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-export-http-'));
     try {

@@ -3,7 +3,12 @@
  * page: build a Blob URL, click a temporary anchor, then revoke it.
  */
 export function downloadTextFile(fileName: string, text: string): void {
-  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+  downloadBlob(fileName, text, 'text/markdown;charset=utf-8');
+}
+
+/** v1.4 票 07 — same mechanism with an explicit mime (HTML report artifact). */
+export function downloadBlob(fileName: string, text: string, mime: string): void {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;

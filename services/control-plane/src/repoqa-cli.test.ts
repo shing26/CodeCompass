@@ -29,7 +29,8 @@ describe('Issue 16 CLI arg parsing', () => {
         failOnAuthImpact: false,
         help: false,
         version: false,
-        failOnImpact: false
+        failOnImpact: false,
+        traceAscii: false
       }
     });
   });
@@ -80,6 +81,54 @@ describe('Issue 16 CLI arg parsing', () => {
     expect(parseArgs(['--port', '999999']).ok).toBe(false);
     expect(parseArgs(['a', 'b']).ok).toBe(false);
     expect(parseArgs(['--', 'a', 'b']).ok).toBe(false);
+  });
+});
+
+describe('v1.4 ticket 05 — trace args and export --output', () => {
+  it('parses trace with -f, depths and --ascii', () => {
+    expect(
+      parseArgs(['trace', './src/auth.ts', '-f', 'login', '--up', '2', '--down=3', '--ascii', 'D:/repo'])
+    ).toMatchObject({
+      ok: true,
+      args: {
+        command: 'trace',
+        contextQuery: './src/auth.ts',
+        traceFilter: 'login',
+        traceUp: 2,
+        traceDown: 3,
+        traceAscii: true,
+        targetPath: 'D:/repo'
+      }
+    });
+  });
+
+  it('defaults trace depths to the caller (1 up / 2 down handled at dispatch)', () => {
+    const parsed = parseArgs(['trace', 'login']);
+    expect(parsed).toMatchObject({ ok: true, args: { command: 'trace', contextQuery: 'login' } });
+    expect(parsed.ok && parsed.args.traceUp).toBeUndefined();
+    expect(parsed.ok && parsed.args.traceDown).toBeUndefined();
+  });
+
+  it('rejects out-of-range or non-numeric depths', () => {
+    expect(parseArgs(['trace', 'login', '--up', '6']).ok).toBe(false);
+    expect(parseArgs(['trace', 'login', '--down', 'x']).ok).toBe(false);
+    expect(parseArgs(['trace', 'login', '-f']).ok).toBe(false);
+  });
+
+  it('accepts --output <path> as the export file and keeps diff --output=json', () => {
+    expect(parseArgs(['export', 'login', '--output', 'report.html'])).toMatchObject({
+      ok: true,
+      args: { command: 'export', contextQuery: 'login', outputFile: 'report.html' }
+    });
+    expect(parseArgs(['diff', 'main', 'head', '--output=json'])).toMatchObject({
+      ok: true,
+      args: { command: 'diff', diffOutput: 'json' }
+    });
+  });
+
+  it('rejects --output=<path> outside export and --file/--output together', () => {
+    expect(parseArgs(['context', 'login', '--output', 'report.html']).ok).toBe(false);
+    expect(parseArgs(['export', 'login', '--file', 'a.html', '--output', 'b.html']).ok).toBe(false);
   });
 });
 
