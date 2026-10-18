@@ -10,12 +10,7 @@ import {
   badgesEnabledFromUrl
 } from '../brand-marks';
 
-export interface ParsedDeepLink {
-  file: string;
-  line: number;
-}
-
-/** Parse a `code://<FilePath>#<StartLine>-<EndLine>` deep link. */
+/** Parsed `code://<FilePath>#<StartLine>[-<EndLine>][?symbol=<name>]` link. */
 export interface ParsedDeepLink {
   file: string;
   line: number;
@@ -23,11 +18,16 @@ export interface ParsedDeepLink {
   symbol?: string;
 }
 
-/** Parse a `code://<FilePath>#<StartLine>[-<EndLine>][?symbol=<name>]` link. */
 export function parseDeepLink(url: string): ParsedDeepLink | null {
   const m = /^code:\/\/(.+?)#(\d+)(?:-(\d+))?(?:\?symbol=([^?]+))?$/.exec(url);
   if (!m) return null;
-  const symbol = m[4] !== undefined ? decodeURIComponent(m[4]) : undefined;
+  let symbol: string | undefined;
+  try {
+    symbol = m[4] !== undefined ? decodeURIComponent(m[4]) : undefined;
+  } catch {
+    // A malformed escape must never throw inside an event/effect handler.
+    symbol = m[4];
+  }
   return { file: m[1], line: Number(m[2]), ...(symbol ? { symbol } : {}) };
 }
 

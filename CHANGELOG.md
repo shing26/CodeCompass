@@ -48,7 +48,16 @@ CLI 与单文件 HTML 导出早已存在），本批只做核实后仍成立的�
 
 ### 门禁
 
-- 控制面 **809 → 843**、web **404 → 429**、bridge 26、e2e 73 全绿；typecheck 全仓零错误。
+- 控制面 **809 → 846**（含评审修复 3 条）、web **404 → 429**、bridge 26、e2e 73 全绿；typecheck 全仓零错误。
+
+### 发布评审（2026-10-19，tag 重指至评审终态）
+
+独立评审（安全轴 + 契约轴，只读，附可复现实证）结论 **GO WITH NOTES**：0 P0 / 2 P1 / 11 P2。两条 P1 与低成本 P2 已在本 tag 内修掉，tag 重指到评审终态 commit：
+
+- **P1 修复：mermaid `securityLevel: 'loose'` → `'strict'`**。仓库内容可以进入图标签（Express 路由名就是源码字符串字面量），loose 跳过全部净化再经 `dangerouslySetInnerHTML` 落地 = 存储型 XSS；点击导航是 DOM 事件代理，不依赖 mermaid 回调，切 strict 不掉功能。标签生成侧同步剥掉尖括号（纵深防御）。
+- **P1 修复：HTML 报告的两个懒加载视图实际不可用**。`escapeHtml` 被写进 `<script type="text/plain">` / `<script type="application/json">`——script 是 raw-text 元素、实体不解码，Sequence 拿到 `P0-&gt;&gt;P1` 解析失败、Story Beats 的 `JSON.parse` 首行即抛。改为 RCDATA 的 `<textarea>` + JSON 的 `\u003c` 转义，并补结构级测试（直接解析 JSON、断言 `->>` 原文）。
+- **P2 修复**：CLI 后随选项不再被吞成值（`--output --file x` 曾被写成名为 `--file` 的文件）；片段端点独立 1MB JSON 解析（源码 100KB 是字节，JSON 转义会放大报文）；片段出力改为整包 `maskEventPayload`；HTML 深链改用 `cockpitBaseUrl()`（Host 头不作真值）；`decodeURIComponent` 畸形转义不抛；子图返回轨迹存 file/line（跨出半径后不再落空）；CORS 暴露 `x-artifact-warning`；示例项目按内容哈希决定是否重写（用户改过的示例不被静默回滚）；trace 的 `shown-above` 只在子树真展开过时标注；重复接口声明清理。
+- **未修（P2 登记）**：`sampleFileTarget` 不解析符号链接（利用前提为本机用户已能写 dataDir 且自造软链）；CORS 通配为既有本机形态；4 处换行格式卫生。
 
 ## [1.3.0] - 2026-10-05
 

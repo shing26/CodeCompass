@@ -247,14 +247,15 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
     }
     try {
       const graph = deps.worker.getSymbolGraph(repo.id);
-      const host = req.get('host') ?? 'localhost:43110';
       const { html, traceId } = buildDiagnoseArtifact({
         repoId: repo.id,
         repoName: repo.name,
         entrySymbol: symbol,
         symbols: graph.symbols,
         index: graph.index,
-        baseUrl: `${req.protocol}://${host}`,
+        // v1.4.1 评审 P2 — 深链只认 cockpitBaseUrl（0.29 起的单一权威）；
+        // Host 头不是真值（DNS rebinding / 反向代理下可被伪造）。
+        baseUrl: cockpitBaseUrl(),
         snippetRoot: repo.localPath
       });
       const slug = symbol.replace(/[^\w.-]+/g, '-').slice(0, 60) || 'symbol';

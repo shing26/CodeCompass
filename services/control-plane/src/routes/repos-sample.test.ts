@@ -91,6 +91,22 @@ describe('POST /api/repos/sample contract (v1.4 ticket 01)', () => {
     expect(indexRepo).not.toHaveBeenCalled();
     repoStatus = 'ready';
   });
+
+  it('does not roll back user edits unless the bundled content changes (v1.4.1 review P2)', async () => {
+    const root = path.join(dataDir, 'samples', SAMPLE_PROJECT.slug);
+    const serverFile = sampleFileTarget(root, 'src/server.ts');
+    await fs.writeFile(serverFile, '// user edit\n', 'utf8');
+    repoStatus = 'ready';
+    await fetch(`${baseUrl}/api/repos/sample`, { method: 'POST' });
+    await expect(fs.readFile(serverFile, 'utf8')).resolves.toBe('// user edit\n');
+
+    // Removing the stamp forces a refresh (new bundled content / manual reset).
+    await fs.rm(path.join(dataDir, 'samples', `${SAMPLE_PROJECT.slug}.stamp`), { force: true });
+    await fetch(`${baseUrl}/api/repos/sample`, { method: 'POST' });
+    await expect(fs.readFile(serverFile, 'utf8')).resolves.toBe(
+      SAMPLE_PROJECT.files['src/server.ts']
+    );
+  });
 });
 
 describe('sample project indexes into a demo-ready graph (v1.4 ticket 01)', () => {

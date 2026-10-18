@@ -198,7 +198,10 @@ export function renderArtifactHtml(input: ArtifactInput): string {
   ${input.mermaid ? `<div class="card view" id="view-arch"><h2>Architecture</h2><pre class="mermaid">${escapeHtml(input.mermaid)}</pre></div>` : ''}
   ${
     input.sequence
-      ? `<div class="card view" id="view-sequence" style="display:${input.mermaid ? 'none' : 'block'}"><h2>Sequence</h2><pre class="mermaid"></pre><script type="text/plain" id="sequence-src">${escapeHtml(input.sequence)}</script></div>`
+      ? // v1.4.1 评审 P1 — script 是 raw-text 元素，实体不会被解码，此前
+        // escapeHtml 写进 script 的 textContent 让 Sequence 图永远解析失败。
+        // textarea 是 RCDATA：实体照常解码，`</textarea>` 也已被转义。
+        `<div class="card view" id="view-sequence" style="display:${input.mermaid ? 'none' : 'block'}"><h2>Sequence</h2><pre class="mermaid"></pre><textarea hidden readonly id="sequence-src">${escapeHtml(input.sequence)}</textarea></div>`
       : ''
   }`
     : '';
@@ -216,7 +219,7 @@ export function renderArtifactHtml(input: ArtifactInput): string {
     </div>
     <p id="beat-detail" class="beat-detail"></p>
     <pre id="beat-code" class="code"></pre>
-    <script type="application/json" id="story-beats-data">${escapeHtml(JSON.stringify(beats))}</script>
+    <script type="application/json" id="story-beats-data">${JSON.stringify(beats).replace(/</g, '\\u003c')}</script>
   </section>`
     : '';
 

@@ -188,11 +188,14 @@ export function buildTraceResult(
         node.children.push(nodeOf(child, 'cycle'));
         continue;
       }
-      if (downExpanded.has(childId)) {
+      const childWillExpand = depth - 1 > 0;
+      if (childWillExpand && downExpanded.has(childId)) {
+        // v1.4.1 评审 P2 — 只有子树真的被展开过才叫 shown-above；深度触底
+        // 渲染出的叶子不该被标成「上面已经展开过」。
         node.children.push(nodeOf(child, 'shown-above'));
         continue;
       }
-      downExpanded.add(childId);
+      if (childWillExpand) downExpanded.add(childId);
       node.children.push(downWalk(child, depth - 1, nextPath));
     }
     sortNodes(node.children);
@@ -218,11 +221,12 @@ export function buildTraceResult(
         node.children.push(nodeOf(caller, 'cycle'));
         continue;
       }
-      if (upExpanded.has(callerId)) {
+      const callerWillExpand = depth - 1 > 0;
+      if (callerWillExpand && upExpanded.has(callerId)) {
         node.children.push(nodeOf(caller, 'shown-above'));
         continue;
       }
-      upExpanded.add(callerId);
+      if (callerWillExpand) upExpanded.add(callerId);
       node.children.push(upWalk(caller, depth - 1, nextPath));
     }
     sortNodes(node.children);

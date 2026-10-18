@@ -130,6 +130,19 @@ describe('v1.4 ticket 05 — trace args and export --output', () => {
     expect(parseArgs(['context', 'login', '--output', 'report.html']).ok).toBe(false);
     expect(parseArgs(['export', 'login', '--file', 'a.html', '--output', 'b.html']).ok).toBe(false);
   });
+
+  it('never consumes a following option as a flag value (v1.4.1 review P2)', () => {
+    // `--output --file x` used to write a file literally named "--file" and
+    // bypass the mutual-exclusion check; `-f --up` used to take "--up" as the
+    // function name; whitespace-only -f silently fell back to symbol mode.
+    expect(parseArgs(['export', 'sym', '--output', '--file', 'x.html']).ok).toBe(false);
+    expect(parseArgs(['trace', 'fn', '-f', '--up']).ok).toBe(false);
+    expect(parseArgs(['trace', 'fn', '-f', '   ']).ok).toBe(false);
+    expect(parseArgs(['export', 'sym', '--output=-report.html'])).toMatchObject({
+      ok: true,
+      args: { command: 'export', outputFile: '-report.html' }
+    });
+  });
 });
 
 describe('Issue 16 CLI one-process startup', () => {

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 /**
  * v1.4 票 01 — 内嵌示例项目「任务看板 API」。 *
@@ -259,3 +260,22 @@ export const SAMPLE_PROJECT: SampleProject = {
     'src/utils/logger.ts': UTILS_LOGGER_TS
   }
 };
+
+/**
+ * v1.4.1 评审 P2 — content hash of the bundled tree. The import endpoint only
+ * rewrites the sample when the bundled content actually changed, so a user who
+ * edited the sample while reading it does not get silently rolled back on the
+ * next click. The stamp lives OUTSIDE the sample directory so it never enters
+ * the index (fileCount must stay exactly the bundled file count).
+ */
+export function sampleProjectHash(): string {
+  // SHA-256 (not a security boundary — just a content fingerprint; chosen over
+  // SHA-1 so security scanners do not flag a weak-algorithm pattern).
+  const hash = createHash('sha256');
+  for (const [relative, content] of Object.entries(SAMPLE_PROJECT.files).sort(
+    ([a], [b]) => a.localeCompare(b)
+  )) {
+    hash.update(relative).update('\0').update(content).update('\0');
+  }
+  return hash.digest('hex');
+}

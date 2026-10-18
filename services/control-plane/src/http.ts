@@ -28,6 +28,9 @@ export function createHttpApp(deps: HttpDeps): express.Express {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // v1.4.1 评审 P2 — 跨源（vite dev / 分离部署）下非 safelisted 响应头默认
+    // 不可读；HTML 导出的降级提示正是靠这个头如实告知。
+    res.setHeader('Access-Control-Expose-Headers', 'x-artifact-warning');
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
       return;
@@ -78,6 +81,11 @@ export function createHttpApp(deps: HttpDeps): express.Express {
       next();
     });
   }
+
+  // v1.4.1 评审 P2 — 片段源码上限是 100KB **源码字节**；JSON 转义会放大报文
+  // （控制字符 ×6），全局 100kb 解析器会先于引擎拒绝并给出误导性的通用错误。
+  // 该路径单独放宽到 1MB，真正的上限仍由 analyzeSnippet 的字节检查执法。
+  app.use('/api/snippets/graph', express.json({ limit: '1mb' }));
 
   app.use(express.json());
 

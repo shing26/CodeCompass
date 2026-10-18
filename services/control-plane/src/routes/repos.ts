@@ -14,7 +14,7 @@ import {
 } from '../git-importer';
 import { pickFolderDialog } from '../dialog';
 import { previewRepo } from '../ingest/repoqa-scan';
-import { SAMPLE_PROJECT, sampleFileTarget } from '../ingest/sample-project';
+import { SAMPLE_PROJECT, sampleFileTarget, sampleProjectHash } from '../ingest/sample-project';
 
 /** v0.25.0 批次 2：仓库目录读取域——GET /api/repos 与 /api/repos/:id。
  * 注册顺序保持原样（catalog 在 analysis 域之前）。 */
@@ -177,10 +177,19 @@ export function registerReposIngestRoutes(app: express.Express, deps: HttpDeps):
     try {
       const localPath = path.join(deps.dataDir, 'samples', SAMPLE_PROJECT.slug);
       await fs.mkdir(localPath, { recursive: true });
-      for (const [relative, content] of Object.entries(SAMPLE_PROJECT.files)) {
-        const target = sampleFileTarget(localPath, relative);
-        await fs.mkdir(path.dirname(target), { recursive: true });
-        await fs.writeFile(target, content, 'utf8');
+      // v1.4.1 评审 P2 — only rewrite when the bundled content changed. A user
+      // editing the sample while reading it must not be rolled back silently by
+      // the next click. The stamp sits outside the indexed tree.
+      const stampPath = path.join(deps.dataDir, 'samples', `${SAMPLE_PROJECT.slug}.stamp`);
+      const stamp = sampleProjectHash();
+      const currentStamp = await fs.readFile(stampPath, 'utf8').catch(() => '');
+      if (currentStamp !== stamp) {
+        for (const [relative, content] of Object.entries(SAMPLE_PROJECT.files)) {
+          const target = sampleFileTarget(localPath, relative);
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await fs.writeFile(target, content, 'utf8');
+        }
+        await fs.writeFile(stampPath, stamp, 'utf8');
       }
       const upsert = deps.repoqa.upsertByLocalPath({
         name: SAMPLE_PROJECT.name,

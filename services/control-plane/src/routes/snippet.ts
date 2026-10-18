@@ -1,6 +1,6 @@
 import express from 'express';
 import { asyncHandler } from '../http-error';
-import { maskSensitiveText } from '../engine/repoqa-masking';
+import { maskEventPayload, maskSensitiveText } from '../engine/repoqa-masking';
 import { analyzeSnippet } from '../engine/repoqa-snippet';
 
 /**
@@ -27,14 +27,9 @@ export function registerSnippetRoutes(app: express.Express): void {
     }
     try {
       const graph = analyzeSnippet({ source, fileName });
-      res.json({
-        graph: {
-          ...graph,
-          // Rendering text leaves the process: same masking rule as every
-          // other outbound payload (ADR-0003).
-          mermaid: maskSensitiveText(graph.mermaid)
-        }
-      });
+      // v1.4.1 评审 P2 — 与 subgraph-context 同尺：复合载荷整包过掩码
+      // （节点名/文件路径/边都出库），而不是只掩 mermaid 文本。
+      res.json({ graph: maskEventPayload(graph) });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const code = message.includes('exceeds')

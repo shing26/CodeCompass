@@ -70,7 +70,9 @@ function classifyBreak(reason: string): 'external' | 'unresolved' | 'dynamic' {
 
 /** Mermaid-safe id; the graph keeps positional ids (`s0`, `s1`, ...). */
 function mermaidLabel(node: SnippetNode): string {
-  return `${node.name} · L${node.line}`.replace(/["[\]()]/g, '');
+  // v1.4.1 评审 P1 纵深防御 — 标签来自调用方粘贴的源码；剥掉尖括号，配合
+  // 渲染侧 strict 净化，避免任何模式回退时把标签当 HTML。
+  return `${node.name} · L${node.line}`.replace(/["[\]()<>]/g, '');
 }
 
 /**

@@ -40,7 +40,11 @@ export async function renderMermaid(
     mermaid.initialize({
       startOnLoad: false,
       theme: 'default',
-      securityLevel: 'loose',
+      // v1.4.1 评审 P1 — 仓库内容可以进入标签（路由名就是源码里的字符串
+      // 字面量），loose 会跳过 mermaid 的全部净化，再经 innerHTML 落地即
+      // 存储型 XSS。点击导航是本组件的 DOM 事件代理，不依赖 mermaid 的
+      // click 回调，因此切 strict 不掉任何功能。
+      securityLevel: 'strict',
       themeVariables: THEME_VARIABLES[theme]
     });
     initializedTheme = theme;

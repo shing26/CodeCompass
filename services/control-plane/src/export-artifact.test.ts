@@ -80,6 +80,28 @@ describe('export-artifact (v0.8)', () => {
     expect(html).toContain('story-beats-data');
   });
 
+  it('puts raw text where entities actually decode (v1.4.1 review P1)', () => {
+    const html = renderArtifactHtml(baseInput);
+    // `script` is a raw-text element: entities never decode inside it, so the
+    // old escaped-script payloads left both lazy views unable to parse. The
+    // sequence source must live in an RCDATA element (textarea).
+    const seq = /<textarea[^>]*id="sequence-src"[^>]*>([\s\S]*?)<\/textarea>/.exec(html);
+    expect(seq).not.toBeNull();
+    expect(seq![1]).toContain('sequenceDiagram');
+    expect(seq![1]).toContain('-&gt;&gt;'); // escaped in source; the DOM decodes it
+    expect(html).not.toContain('<script type="text/plain" id="sequence-src">');
+
+    // The story-beats payload is raw JSON with only "<" escaped as \u003c.
+    const beats = /<script type="application\/json" id="story-beats-data">([\s\S]*?)<\/script>/.exec(
+      html
+    );
+    expect(beats).not.toBeNull();
+    const parsed = JSON.parse(beats![1]) as Array<{ label: string }>;
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].label).toContain('Step 1');
+    expect(beats![1]).not.toContain('&quot;');
+  });
+
   it('derives badges from dependency keyword evidence', () => {
     expect(deriveBadges('org.mybatis:mybatis org.springframework.boot spring-boot-starter-web')).toEqual([
       'Spring',

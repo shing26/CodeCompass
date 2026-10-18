@@ -251,7 +251,10 @@ export function parseArgs(argv: string[]): ParseResult {
   const nextValue = (i: number, flag: string, inline?: string): { value?: string; next: number } => {
     if (inline !== undefined) return { value: inline, next: i };
     const value = argv[i + 1];
-    if (value === undefined) return { next: i + 1 };
+    // v1.4.1 评审 P2 — 后随选项永远不是本选项的值：`--output --file x` 曾把
+    // “--file” 当成输出文件名并吞掉真正的互斥校验。以 `-` 开头的值请用
+    // `--flag=-value` 的内联形式。
+    if (value === undefined || value.startsWith('-')) return { next: i + 1 };
     return { value, next: i + 1 };
   };
 
@@ -467,10 +470,10 @@ export function parseArgs(argv: string[]): ParseResult {
     if (flag === '-f' || flag === '--function') {
       const { value, next } = nextValue(i, flag, inline);
       i = next;
-      if (value === undefined || value === '') {
+      if (value === undefined || value.trim() === '') {
         return { ok: false, error: '-f/--function expects a symbol name' };
       }
-      args.traceFilter = value;
+      args.traceFilter = value.trim();
       continue;
     }
     if (flag === '--up' || flag === '--down') {

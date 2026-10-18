@@ -27,7 +27,9 @@ function mermaidId(name: string): string {
 }
 
 function mermaidLabel(node: SubgraphContextNode): string {
-  const text = `${node.name} · d${node.distance}`.replace(/["[\]()]/g, '');
+  // v1.4.1 评审 P1 纵深防御 — 标签文本可来自仓库源码；mermaid strict 已净化，
+  // 这里再剥掉尖括号，避免任何渲染模式回退时把标签当 HTML。
+  const text = `${node.name} · d${node.distance}`.replace(/["[\]()<>]/g, '');
   return text;
 }
 
@@ -105,8 +107,10 @@ export function SubgraphPanel({
    * v1.4 票 04 — walk back-trail. Clicks made here push the previous center;
    * a center change from anywhere else (sidebar, chat, palette) resets the
    * trail instead of letting it point at symbols the user never visited.
+   * v1.4.1 评审 P2 — entries carry file/line: resolving the previous center
+   * against the *current* subgraph failed once the hop left its radius.
    */
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<Array<{ name: string; file: string; line: number }>>([]);
   const panelNavRef = useRef<string | null>(null);
   useEffect(() => {
     if (panelNavRef.current !== null && panelNavRef.current === focusName) {
@@ -137,7 +141,13 @@ export function SubgraphPanel({
   };
   const handleRecenter = (symbol: string, file: string, line: number) => {
     if (!centerName || symbol === centerName) return;
-    setHistory((prev) => [...prev, centerName].slice(-20));
+    const current = state.result?.nodes.find((candidate) => candidate.name === centerName);
+    setHistory((prev) =>
+      [
+        ...prev,
+        { name: centerName, file: current?.file ?? state.result?.start.file ?? '', line: current?.line ?? state.result?.start.line ?? 1 }
+      ].slice(-20)
+    );
     panelNavRef.current = symbol;
     if (onRecenter) onRecenter(symbol, file, line);
     else onOpenFile?.(file, line);
@@ -146,9 +156,13 @@ export function SubgraphPanel({
     const previous = history[history.length - 1];
     if (!previous) return;
     setHistory((prev) => prev.slice(0, -1));
-    panelNavRef.current = previous;
-    const node = state.result?.nodes.find((candidate) => candidate.name === previous);
-    if (onRecenter) onRecenter(previous, node?.file ?? '', node?.line ?? 1);
+    panelNavRef.current = previous.name;
+    // A trail entry without a file cannot open the editor; still re-center when
+    // the caller wired the symbol-only path.
+    if (previous.file !== '') {
+      if (onRecenter) onRecenter(previous.name, previous.file, previous.line);
+      else onOpenFile?.(previous.file, previous.line);
+    }
   };
 
   return (
