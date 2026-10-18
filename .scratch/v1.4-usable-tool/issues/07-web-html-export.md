@@ -1,6 +1,6 @@
 # 票 07 — Web 导出单文件 HTML 报告
 
-Status: agent-ready
+Status: closed（已落地，2026-10-19，tag v1.4.0）
 
 ## 背景
 用户第三步后半：一键导出单文件 HTML 报告，发给同事双击就能看。现状：能力已存在（`codecompass export` → 内联 mermaid、断网可渲染），但只有 CLI 入口；Web 顶栏只有 Markdown 导出。用户面「一键」缺位。

@@ -1,6 +1,6 @@
 # 票 03 — 导入路径契约诚实化
 
-Status: agent-ready
+Status: closed（已落地，2026-10-19，tag v1.4.0）
 
 ## 背景
 用户批判①："不知道填绝对路径还是相对路径"。实测：UI 文案要求绝对路径；服务端**不校验 isAbsolute**，相对路径被按服务进程 cwd 隐式解析（`upsertByLocalPath → normalizeLocalPath → path.resolve`）——文案、实现、用户预期三方不一致，且相对路径解析基准（服务 cwd）对用户不可见。

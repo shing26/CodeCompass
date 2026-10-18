@@ -1,6 +1,6 @@
 # 票 06 — README 人话化 + Known Limitations
 
-Status: agent-ready
+Status: closed（已落地，2026-10-19，tag v1.4.0）
 
 ## 背景
 用户第四步：删掉假大空词汇、用人话描述痛点、明确列出已知限制。实测：无独立 Known Limitations 章节；边界散落各处；README 首句仍为口号（「让工具停止编造，让 Agent 停止猜测。」）；`CONTEXT.md:4` 版本滞后（写 1.2.0，实为 1.3.0）。

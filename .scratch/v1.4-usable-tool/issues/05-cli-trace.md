@@ -1,6 +1,6 @@
 # 票 05 — `codecompass trace` + `export --output`
 
-Status: agent-ready
+Status: closed（已落地，2026-10-19，tag v1.4.0）
 
 ## 背景
 用户第三步原文：`npx codecompass trace ./src/auth.ts -f login` 直接在终端用 ASCII 树打印上游和下游调用方。现状：无 `trace` 命令（`context`/`diagnose` 为近似但非该形态）；`export` 只认 `--file`，用户示例的 `--output` 不存在。
