@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.4.2] - 2026-10-20
+
+**对账批收尾：两个真缺口 + 一份配置示例。** v1.4.1 之后的代码现实复测只找到两处
+「文档承诺 vs 实现」缺口，均在此修复；MCP 17 工具面零变化。
+
+### 修复
+
+- **Java 裸映射注解不再漏判为孤儿**：`@PostMapping` / `@GetMapping`（无参数）与
+  `@RequestMapping(method = …)` 现在继承类级前缀（无类级前缀时为根 `/`）并写入
+  `displayPath`——此前路径提取器只认带 `(` 的注解，这类 handler 掉进孤儿桶。
+  新增 `languages/JavaAdapter.test.ts` 6 项（裸注解 / 仅 method 参数 / 显式路径 /
+  无类前缀 / 非控制器类 / 路由类符号）。
+- **R5-13 Top API 空榜说明**：空列表不再渲染裸「—」，改为确定性说明
+  （引擎识别哪些入口注册形态、空榜可能意味着什么，不猜原因）；新增组件测试。
+
+### 文档
+
+- 新增 `docs/llm-profiles.example.json` 与 README「模型档位」小节：文件位置
+  （`<dataDir>/llm-profiles.json`，默认 `~/.mhw`）、字段含义、`apiKeyEnv` 只写
+  环境变量名、`default` 自动补位、热切换语义。
+- README/HANDOFF 门禁计数同步为 **854 / 431 / 26 / 73-0**（控制面 / web / bridge / e2e）。
+
+### 门禁
+
+- 控制面 **854** / web **431** / bridge **26** / e2e **73-0**；typecheck 零错误；生产构建通过。
+
 ## [1.4.1] - 2026-10-19
 
 **定位定稿与死面清理（ADR-0021）。** 用户四项裁决定稿：**MCP/CLI 是唯一对外产品面，

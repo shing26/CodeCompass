@@ -26,7 +26,12 @@ export function TopApiBlock({
     <div>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
       {shown.length === 0 ? (
-        <p className="text-xs text-muted">—</p>
+        // R5-13：空榜不再是裸「—」。只陈述确定性事实——引擎支持哪几类入口注册、
+        // 空榜可能意味着什么，不猜测具体原因。
+        <p data-testid="top-apis-empty" className="text-xs text-muted">
+          没有解析到 HTTP 入口。Java 需要 Spring 映射注解，Express / FastAPI 等需要路由注册；
+          这个仓库可能不是 Web 服务，或入口在静态图谱里没有可识别的注册点。
+        </p>
       ) : (
         <ul data-testid="top-apis" className="space-y-1.5">
           {shown.map((api: TopApiEntry, idx: number) => (

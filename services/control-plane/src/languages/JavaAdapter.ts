@@ -340,6 +340,19 @@ function mappingPathsFromAnnotations(annotationTexts: string[]): string[] {
   return paths;
 }
 
+/**
+ * v1.4.2 — a mapping annotation with **no explicit path** (`@PostMapping`,
+ * `@GetMapping`, or `@RequestMapping(method = GET)`) is still an HTTP entry.
+ * Spring maps it to the class-level prefix; the previous path-collector only
+ * matched annotations followed by `(`, so the bare form yielded no
+ * `displayPath` and the handler was counted as an orphan even though the
+ * framework dispatches to it.
+ */
+function hasMappingAnnotation(annotationTexts: string[]): boolean {
+  const re = new RegExp(`@(?:${MAPPING_ANNOTATIONS.join('|')})\\b`);
+  return annotationTexts.some((text) => re.test(text));
+}
+
 /** Combine a class-level prefix and a method-level path into one URL. */
 export function joinRoutePath(prefix: string | undefined, methodPath: string): string {
   if (!prefix || prefix === '/') return methodPath;
@@ -660,14 +673,19 @@ export function parseJavaSource(
           };
           // Bug-09: methods inside a controller carry the full URL path
           // (class prefix + method mapping), e.g. `/api/owners/{id}`.
+          // v1.4.2 — a bare mapping annotation (no path) inherits the class
+          // prefix: Spring dispatches it to that path, so it is an entry, not an
+          // orphan. With no class-level prefix the path is the root `/`.
+          const methodAnnotations = directAnnotationTexts(node, source);
           if (parentType?.kind === 'route') {
-            const methodPath =
-              mappingPathsFromAnnotations(directAnnotationTexts(node, source))[0];
-            if (methodPath) {
-              const displayPath = joinRoutePath(
-                routeClassPrefix.get(parentType.name),
-                methodPath
-              );
+            const methodPath = mappingPathsFromAnnotations(methodAnnotations)[0];
+            const classPrefix = routeClassPrefix.get(parentType.name);
+            const displayPath = methodPath
+              ? joinRoutePath(classPrefix, methodPath)
+              : hasMappingAnnotation(methodAnnotations)
+                ? (classPrefix ?? '/')
+                : undefined;
+            if (displayPath) {
               symbol.displayPath = displayPath;
               if (!routeFirstMethodPath.has(parentType.name)) {
                 routeFirstMethodPath.set(parentType.name, displayPath);
@@ -677,7 +695,7 @@ export function parseJavaSource(
           // Issue 21: method-level annotations (kept for completeness;
           // @Primary/bean-name annotations matter on classes, injection
           // annotations on fields/parameters).
-          symbol.annotations = directAnnotationTexts(node, source);
+          symbol.annotations = methodAnnotations;
           symbols.push(symbol);
           methodStack.push(symbol);
           const scope: MethodScope = { params: new Map(), locals: new Map() };

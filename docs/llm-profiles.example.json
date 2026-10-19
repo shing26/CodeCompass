@@ -1,0 +1,13 @@
+{
+  "profiles": [
+    {
+      "name": "default"
+    },
+    {
+      "name": "remote-openai-compatible",
+      "baseUrl": "https://api.example.com/v1",
+      "model": "your-model-name",
+      "apiKeyEnv": "REPOQA_LLM_API_KEY"
+    }
+  ]
+}

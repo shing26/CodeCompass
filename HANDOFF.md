@@ -9,6 +9,8 @@
 
 ## 1. 当前状态（一句话版）
 
+**v1.4.2 补丁（2026-10-20，对账批收尾）**：两处真缺口——Java 裸映射注解（`@PostMapping` / `@GetMapping` / `@RequestMapping(method=…)`）现在继承类级前缀并计为 HTTP 入口（此前无 `displayPath` → 误入孤儿桶）；Top API 空榜改为确定性说明文案。另补 `docs/llm-profiles.example.json` 与 README 模型档位用法。门禁 **854/431/26/73-0**。
+
 **v1.4.1 补丁（2026-10-19，定位定稿与死面清理）**：用户四项裁决——**MCP/CLI 是唯一对外产品面，Web 是维护者 dogfooding 驾驶舱与演示面**（ADR-0021，含摇摆终止规则）；同批删除 HTML 工件的 Lifecycle/Dataflow 禁用占位与 Web 侧 incident 死链（服务端能力保留、无 UI 入口），并把 MHW harness 面冻结加注为非产品面。门禁 848/429/26/73-0。
 
 **v1.4.0 收口（2026-10-19，「上手与可用性手术」批）**：起因 = 外部三条批判 + 四步手术指令（门槛高 / 画布毛线团 / 名为工具实为展示架 / 包装词与边界）。逐条核实后：**两条半已被历史交付覆盖**（画布从未全量铺开；CLI 与单文件 HTML 导出早已存在），只做实锤缺口——①**示例项目一键载入**（`POST /api/repos/sample`，内嵌 11 文件 TS 小仓，真机 ready=11 文件/32 符号/<10s、3 个 Top API、1 条导览）②**粘贴片段即出调用图**（`POST /api/snippets/graph` 纯内存、不回显源码，Web `?mode=snippet`）③**子图焦点模式**（深度 1–5、点击换中心+返回、聚合可展开；顺带修好子图节点深链静默失效 = 绑定按 id、分发按标签）④**`codecompass trace`**（终端上下游树、`-f` 文件+函数、`--up/--down/--ascii/--json`）+ `export --output` 别名 ⑤**Web 导出 HTML 报告**（与 CLI 同一装配器 `artifact-report.ts`）⑥**路径契约**（preview 回显 resolvedPath，相对路径 resolve 后存库）⑦**README 独立 Known Limitations**（静态边界 / TS 别名不解析 / Go 隐式接口 / 检索非语义 / 运行时不在射程 / 环境约束），首段改人话。**门禁：控制面 843、web 429、bridge 26、e2e 73/0**（typecheck 零错误；e2e 仅 `readme-version` 曾因版本未刷而红，刷新后全绿；评审修复后复跑 = 846/429/26/73-0）。npm 已发布：registry latest = **1.4.0**（2026-10-19；0.31.0 直接跳到 1.4.0，1.1–1.3 未单独上架）。批次 spec 在 `.scratch/v1.4-usable-tool/spec.md`；ticket 08 = TS 模块路径解析（import + tsconfig paths）**显式 deferred**（触发线在票面）。
@@ -44,7 +46,7 @@
 | 构建产物 | `services/control-plane/dist/`（esbuild，**本地构建不入库**）；改了 src 必须重建 dist 再跑 e2e/CLI 验证 |
 | 本地端口 | 控制面 **43110**（`MHW_CP_PORT` 可配），Web dev 5173 |
 | 测试命令 | `npm test`（services/control-plane）；`npm run test:web`；`npm run test:bridge`；`npm run e2e`（Python 门禁，需先 build） |
-| 门禁基线（2026-10-19，v1.4.0 收口） | 控制面 **848**、web **429**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）+ UI 冒烟 `scripts/smoke/ui_smoke.mjs`（真 chromium；新增 1a 段锁 R4-7 首屏：概览层 / 枢纽列表 / 自动示例链路来源标注）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
+| 门禁基线（2026-10-19，v1.4.0 收口） | 控制面 **854**、web **431**、bridge **26**、e2e **73/0**（含 mcp-handshake-version 棘轮、V31-05 精度棘轮、v1.1 票 06 真仓 top-10 假阳性门、v1.2 票 02 scan HTTP twin）+ UI 冒烟 `scripts/smoke/ui_smoke.mjs`（真 chromium；新增 1a 段锁 R4-7 首屏：概览层 / 枢纽列表 / 自动示例链路来源标注）——全绿是发布前提；跑测试前先设 TMPDIR，见 §2.3 |
 | MCP | **17** 个 `codecompass_*` 工具（`src/mcp/repoqa-mcp.ts` 的 `MCP_TOOLS`）；新增工具需同步：MCP_TOOLS + handlers map + `repoqa-mcp.test.ts` 名单 + `closeout_gate.py` 工具数断言。installer 的 autoApprove **默认派生自注册表但会过滤掉破坏性工具**（v1.1 票 11 的 `NON_AUTO_APPROVED_TOOLS`，现只列 `codecompass_remove_repo`）——**新增破坏性工具时必须把名字加进这张清单，否则默认安装会重新自动批准它**；`--auto-approve-all` 可写全量 |
 
 ### 2.2 架构不变量（违反即返工）
@@ -168,8 +170,8 @@ cd D:/CodeCompass
 git log --oneline -3
 export TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp   # C 盘满对策
 npm run typecheck                        # 全仓零错误
-cd services/control-plane && npm test    # 全绿（848）
-cd ../../apps/repoqa-web && npx vitest run   # 429
+cd services/control-plane && npm test    # 全绿（854）
+cd ../../apps/repoqa-web && npx vitest run   # 431
 cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 73 项（gate 自带 LLM 环境清空，V30-9）
 npm run precision && npm run precision:ratchet   # 三仓孤儿数 + 棘轮（self 12.1% < 17.1%）
 ```

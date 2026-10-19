@@ -8,7 +8,7 @@
 
 > **产品面（唯一权威，ADR-0021）**：**MCP 17 工具 + CLI 是对外承诺面**；Web 工作台是维护者自己的 **dogfooding 驾驶舱与演示面**（内部工具，不是并列的第二产品，不作为对外承诺）。新想法只有两条通道：增强事实面并说清降低哪类误报/提升哪类精度，或改驾驶舱并说清维护者日常怎么用——都答不上来就不做。
 
-[![Version](https://img.shields.io/badge/version-1.4.1-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.4.1)
+[![Version](https://img.shields.io/badge/version-1.4.2-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.4.2)
 [![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -117,6 +117,29 @@ CodeCompass 的立场是「**精确检索工具，不是理解工具**」：把 
 - **索引层**：配置只索引 key，value 从不落盘、从不导出；多模式确定性掩码引擎只重写凭据类字面量赋值；
 - **输出层**：所有导出与 HTTP 响应再经 `maskSensitiveText` 防御性过滤（14-pattern 唯一权威尺，双保险）；
 - **前端可见**：隐私药丸三态（纯本地 / 本地模型 / 远程模型）、会话 Token 预算、消息级来源徽章——远程 LLM 问答默认关闭，需显式同意。
+
+#### 模型档位（`llm-profiles.json`，可选）
+
+默认只有 `default` 一档（直接读 `.env` 里的 `REPOQA_LLM_*`）。要多档热切换，在数据目录（默认 `~/.mhw`，可用 `--data-dir` / `MHW_DATA_DIR` 改）放一个 `llm-profiles.json`：
+
+```json
+{
+  "profiles": [
+    { "name": "default" },
+    {
+      "name": "remote-openai-compatible",
+      "baseUrl": "https://api.example.com/v1",
+      "model": "your-model-name",
+      "apiKeyEnv": "REPOQA_LLM_API_KEY"
+    }
+  ]
+}
+```
+
+- 字段：`name`（必填）、`baseUrl`（OpenAI 兼容端点，自动补 `/chat/completions`）或 `url`（完整端点，优先）、`model`、`apiKeyEnv`（**只写环境变量名，不写密钥本身**）；
+- 未在文件里出现 `default` 时会自动补上；`baseUrl` / `model` / key 缺省时回落到同名 `REPOQA_LLM_*` / `COPILOT_LLM_*` 环境变量；
+- 完整示例见 [`docs/llm-profiles.example.json`](docs/llm-profiles.example.json)；
+- 切换在顶栏模型胶囊完成，**热切换不重启进程、不断连接**，每次切换写入会话日志。
 
 ### 7. 韧性与自诊断
 
@@ -299,7 +322,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **1.4.0**（2026-10-19 发布；节奏是 0.31.0 → 1.4.0，1.1–1.3 未单独上架）。**1.4.1（定位定稿与死面清理）已 tag，等待本机 `npm publish`**。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **1.4.0**（2026-10-19 发布；节奏是 0.31.0 → 1.4.0，1.1–1.3 未单独上架）。**1.4.1 / 1.4.2 已 tag，等待本机 `npm publish`（发布 1.4.2 即可，latest 会直接跳到 1.4.2）**。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -351,10 +374,10 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 
 ```text
 测试套件（vitest，Node 24 本机实跑）：
-  services/control-plane     848 tests / 67 files
-  apps/repoqa-web            429 tests / 40 files
+  services/control-plane     854 tests / 68 files
+  apps/repoqa-web            431 tests / 40 files
   packages/bridge-adapters    26 tests /  1 file
-  合计                      1303 tests / 108 files（测试与源码同位放置）
+  合计                      1311 tests / 109 files（测试与源码同位放置）
 ```
 
 - **确定性断言**：针对「伪造调用链」测试集设立回归锁定，确保已知模式无漏判、无误判；
@@ -363,7 +386,7 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 - **精度工程**：`npm run precision` 对 self / lazygit / petclinic 三仓孤儿数一条命令复跑，`--ratchet` 冻结基线棘轮；基准报表见 [`docs/benchmark.md`](./docs/benchmark.md)；
 - **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.4.0 tag 已推（`9488758`，CI / Release 双绿）。
 
-> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 848 / web 429 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
+> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 854 / web 431 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
 
 运行全量测试：
 
@@ -387,13 +410,14 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **v1.2.0**：工作台产品化（ADR-0020 双面体再平衡：五面驾驶舱、导入 202 + WS 流式进度）
 - [x] **v1.3.0（tag `e31ea8e`）**：「让工具停止编造」——伪造调用链红线修复、`EXTERNAL` 语义、未解析指标去灌水（TS/JS 38%→0%）、僵尸索引每分钟对账回收
 - [x] **v1.4.0**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
-- [x] **v1.4.1（当前版本）**：定位定稿（ADR-0021：MCP/CLI 唯一对外产品面，Web 为维护者驾驶舱）——清理 Lifecycle/Dataflow 禁用占位、Web incident 死链；MHW harness 面冻结标注
+- [x] **v1.4.1**：定位定稿（ADR-0021：MCP/CLI 唯一对外产品面，Web 为维护者驾驶舱）——清理 Lifecycle/Dataflow 禁用占位、Web incident 死链；MHW harness 面冻结标注
+- [x] **v1.4.2（当前版本）**：对账批收尾——Java 裸映射注解（无参数）计为 HTTP 入口；Top API 空榜确定性说明；`llm-profiles.json` 示例与用法
 - [x] **npm 发布**：`@codecompass/cli@1.4.0` 已上架（2026-10-19；0.31.0 → 1.4.0，1.1–1.3 未单独上架）
 - [x] **R5-08 / R5-09 / R5-11 / R5-14 / R5-16（2026-10-19 盘点销项）**：模型多档热切换已实现（默认只带 `default`，用户可自建 `~/.mhw/llm-profiles.json`）；授权后不自动发送=设计取舍并已有草稿提示；恒定焦点计数已删除；流式中断（停止键 / Esc）已落地；长回答折叠已实现（阈值 2400 字）
 - [ ] **R5-05（剩服务端半）**：chat 流式服务端进度与慢模型断点提示
 - [ ] **R5-13（剩兜底半）**：大仓 Top API 空榜 / 无链路的兜底说明文案
 
-当前版本：`v1.4.1`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.4.1 完整条目）。
+当前版本：`v1.4.2`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.4.2 完整条目）。
 
 ---
 
