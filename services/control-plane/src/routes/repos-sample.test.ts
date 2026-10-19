@@ -109,6 +109,26 @@ describe('POST /api/repos/sample contract (v1.4 ticket 01)', () => {
   });
 });
 
+describe('sampleFileTarget containment guard (v1.4 ticket 01)', () => {
+  // Mimosa 的路径穿越规则基于模式匹配，看不穿 helper 间接层；这里把该守卫的
+  // 行为变成可执行断言：任何越出根目录的键（相对逃逸/绝对路径/盘符）都必须
+  // 被拒绝，正常内嵌键必须落在根内。
+  const root = path.resolve(os.tmpdir(), 'sample-root-guard');
+
+  it('rejects relative escapes, absolute paths and drive-qualified paths', () => {
+    expect(() => sampleFileTarget(root, '../escape.ts')).toThrow(/escapes its root/);
+    expect(() => sampleFileTarget(root, 'src/../../escape.ts')).toThrow(/escapes its root/);
+    expect(() => sampleFileTarget(root, '..')).toThrow(/escapes its root/);
+    expect(() => sampleFileTarget(root, path.resolve(os.tmpdir(), 'abs.ts'))).toThrow(
+      /escapes its root/
+    );
+  });
+
+  it('resolves bundled keys inside the root', () => {
+    expect(sampleFileTarget(root, 'src/server.ts')).toBe(path.resolve(root, 'src/server.ts'));
+  });
+});
+
 describe('sample project indexes into a demo-ready graph (v1.4 ticket 01)', () => {
   it('produces the routes, middleware anchor and resolvable chains the demo shows', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sample-index-'));

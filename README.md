@@ -351,10 +351,10 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 
 ```text
 测试套件（vitest，Node 24 本机实跑）：
-  services/control-plane     846 tests / 67 files
+  services/control-plane     848 tests / 67 files
   apps/repoqa-web            429 tests / 40 files
   packages/bridge-adapters    26 tests /  1 file
-  合计                      1301 tests / 108 files（测试与源码同位放置）
+  合计                      1303 tests / 108 files（测试与源码同位放置）
 ```
 
 - **确定性断言**：针对「伪造调用链」测试集设立回归锁定，确保已知模式无漏判、无误判；
@@ -363,7 +363,7 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 - **精度工程**：`npm run precision` 对 self / lazygit / petclinic 三仓孤儿数一条命令复跑，`--ratchet` 冻结基线棘轮；基准报表见 [`docs/benchmark.md`](./docs/benchmark.md)；
 - **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.4.0 tag 已推（`9488758`，CI / Release 双绿）。
 
-> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 846 / web 429 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
+> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 848 / web 429 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
 
 运行全量测试：
 
