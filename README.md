@@ -13,8 +13,8 @@
 [![React](https://img.shields.io/badge/React-19-61dafb.svg?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
 [![MCP](https://img.shields.io/badge/MCP-17%20tools-8b5cf6.svg?style=flat-square)](https://modelcontextprotocol.io/)
 [![ADR](https://img.shields.io/badge/ADRs-20%20records-f59e0b.svg?style=flat-square)](#adr)
-[![Tests](https://img.shields.io/badge/tests-103%20TS%20files-10b981.svg?style=flat-square)](#quality)
-[![npm](https://img.shields.io/badge/npm-%40codecompass%2Fcli%200.31.0-cb3837.svg?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@codecompass/cli)
+[![Tests](https://img.shields.io/badge/tests-108%20TS%20files-10b981.svg?style=flat-square)](#quality)
+[![npm](https://img.shields.io/badge/npm-%40codecompass%2Fcli%201.4.0-cb3837.svg?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@codecompass/cli)
 [![License](https://img.shields.io/badge/license-MIT-gray.svg?style=flat-square)](./LICENSE)
 
 [为什么](#why) • [产品一览](#gallery) • [核心特性](#features) • [已知限制](#limitations) • [快速上手](#quickstart) • [MCP 接入](#mcp) • [架构治理](#adr) • [质量门禁](#quality) • [路线图](#roadmap)
@@ -108,7 +108,7 @@ CodeCompass 的立场是「**精确检索工具，不是理解工具**」：把 
 
 ### 5. Graph RAG Agent Context
 
-`codecompass context <query>` 用与调用链完全一致的确定性入口解析器定位符号，沿内存符号图做 **1-Hop Caller + 1~3 Hop Callee** 双向检索：折叠类骨架、按优先级队列做 Token 预算剪枝、13 类凭据脱敏，产出可直接粘贴给 Agent 的 Markdown。
+`codecompass context <query>` 用与调用链完全一致的确定性入口解析器定位符号，沿内存符号图做 **1-Hop Caller + 1~3 Hop Callee** 双向检索：折叠类骨架、按优先级队列做 Token 预算剪枝、14 类凭据脱敏，产出可直接粘贴给 Agent 的 Markdown。
 
 ### 6. Local-First 隐私与脱敏
 
@@ -229,7 +229,7 @@ codecompass doctor --json             # 环境自诊断
 npm run dev   # vite dev server → http://localhost:5173（API 走 43110）
 ```
 
-三栏布局（clean / cyber 双主题）：左侧 Quick Tours 导览、路由列表与符号树；中央提问即得确定性调用链时序图，看板 / 变更审计 / Diff 影响面 / 体检为独立 Tab；右侧 Inspector 为 Monaco 只读源码 + 反向依赖 / 子图透视。服务默认只监听 `127.0.0.1`（控制面无鉴权）；确需他机访问时设 `MHW_CP_HOST=0.0.0.0`，启动日志会打印 LAN 暴露告警。
+三栏布局（clean / cyber 双主题）：左侧 Quick Tours 导览、路由列表与符号树；中央提问即得确定性调用链时序图，一级导航为 chat / 代码拓扑 / 变更审计 / Diff 影响面 / 体检五项（架构仪表盘与规范演进降入 ⋯ 更多操作与左侧栏入口，v1.2.x R4-13）；右侧 Inspector 为 Monaco 只读源码 + 反向依赖 / 子图透视。服务默认只监听 `127.0.0.1`（控制面无鉴权）；确需他机访问时设 `MHW_CP_HOST=0.0.0.0`，启动日志会打印 LAN 暴露告警。
 
 ### 方式二：Docker（容器开发）
 
@@ -297,7 +297,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **0.31.0**——1.0.0–1.4.0 尚未发布（见[路线图](#roadmap)）。`npx` 拉起的是 0.31.0；要使用 1.4.0 的全部能力，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **1.4.0**（2026-10-19 发布；节奏是 0.31.0 → 1.4.0，1.1–1.3 未单独上架）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -349,19 +349,19 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 
 ```text
 测试套件（vitest，Node 24 本机实跑）：
-  services/control-plane     809 tests / 63 files
-  apps/repoqa-web            406 tests / 39 files
+  services/control-plane     846 tests / 67 files
+  apps/repoqa-web            429 tests / 40 files
   packages/bridge-adapters    26 tests /  1 file
-  合计                      1241 tests / 103 files（测试与源码同位放置）
+  合计                      1301 tests / 108 files（测试与源码同位放置）
 ```
 
 - **确定性断言**：针对「伪造调用链」测试集设立回归锁定，确保已知模式无漏判、无误判；
 - **e2e 门禁**：`python scripts/e2e/closeout_gate.py`，**73 项断言**（v1.4.0 收口基线 73/0）——覆盖多语言 fixture、跨语言桥接、SSE 流、ADR-0003 脱敏门禁、MCP stdio 复合工具往返、CLI diagnose / refactor-plan / export、install --dry-run、golden eval 阈值冒烟，以及版本四处一致性与 MCP 握手版本棘轮；
 - **UI 冒烟**：`scripts/smoke/ui_smoke.mjs`，真 Chromium 六动线走查；
 - **精度工程**：`npm run precision` 对 self / lazygit / petclinic 三仓孤儿数一条命令复跑，`--ratchet` 冻结基线棘轮；基准报表见 [`docs/benchmark.md`](./docs/benchmark.md)；
-- **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.4.0 tag 待推，CI / Release 以 tag 推送后的双绿为准。
+- **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.4.0 tag 已推（`9488758`，CI / Release 双绿）。
 
-> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 843 / web 429 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
+> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 846 / web 429 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
 
 运行全量测试：
 
@@ -384,12 +384,11 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **v1.1.0**：检索取证与证据诚实（FTS5(trigram) 双路径检索、真仓 top-10 假阳性门）
 - [x] **v1.2.0**：工作台产品化（ADR-0020 双面体再平衡：五面驾驶舱、导入 202 + WS 流式进度）
 - [x] **v1.3.0（tag `e31ea8e`）**：「让工具停止编造」——伪造调用链红线修复、`EXTERNAL` 语义、未解析指标去灌水（TS/JS 38%→0%）、僵尸索引每分钟对账回收
-- [ ] **已登记未修（Round5 走查清单，值得立票）**：
-  - [ ] R5-05 chat 流式剩余项：前端停止键 / 已用时显示已落地，服务端进度与慢模型断点提示待深化
-  - [ ] R5-08 用户级 `llm-profiles.json`：模型热切换目前只有 `default` 一档，UI 在而功能空
-  - [ ] R5-09 / R5-11 / R5-13 / R5-14 / R5-16 体验打磨项
 - [x] **v1.4.0（当前版本）**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
-- [ ] **npm 发布积压**：registry 最新为 0.31.0；1.0.0–1.4.0 均未上 npm（发布需本机 token，流程见 `HANDOFF.md`）
+- [x] **npm 发布**：`@codecompass/cli@1.4.0` 已上架（2026-10-19；0.31.0 → 1.4.0，1.1–1.3 未单独上架）
+- [x] **R5-08 / R5-09 / R5-11 / R5-14 / R5-16（2026-10-19 盘点销项）**：模型多档热切换已实现（默认只带 `default`，用户可自建 `~/.mhw/llm-profiles.json`）；授权后不自动发送=设计取舍并已有草稿提示；恒定焦点计数已删除；流式中断（停止键 / Esc）已落地；长回答折叠已实现（阈值 2400 字）
+- [ ] **R5-05（剩服务端半）**：chat 流式服务端进度与慢模型断点提示
+- [ ] **R5-13（剩兜底半）**：大仓 Top API 空榜 / 无链路的兜底说明文案
 
 当前版本：`v1.4.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.4.0 完整条目）。
 

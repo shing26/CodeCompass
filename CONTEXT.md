@@ -30,7 +30,7 @@
 
 | Term | Definition |
 |------|------------|
-| CodeCompass（曾用名 RepoPulse） | 本地优先的只读代码事实层，**主轴 MCP**：导入仓库后生成 AST 符号、调用链、chunks，经 17 个 `codecompass_*` 工具向 coding agent 提供可点击代码证据。Web 界面是**演示与调试面**（肉眼确认引擎结论），不承担产品定位，投入原则只减不增（v0.31 方向裁决）。 |
+| CodeCompass（曾用名 RepoPulse） | 本地优先的只读代码事实层，**主轴 MCP**：导入仓库后生成 AST 符号、调用链、chunks，经 17 个 `codecompass_*` 工具向 coding agent 提供可点击代码证据。Web 界面是**维护者 dogfooding 驾驶舱兼演示面**（ADR-0020 双面体再平衡：MCP 主轴与 17 工具冻结不变；Web 新增须过 dogfooding 论证）。 |
 | Repo Index | 某仓库在指定 commit 下的只读解析快照，包含元数据、symbols、chunks 与索引状态，不写回源码。 |
 | AST Symbol | 静态解析出的可定位代码单元，如 class、method、route、field，必须带 file/line range。 |
 | Call Edge | 静态解析出的调用关系；不等同于运行时链路，也不能推断接口动态绑定。 |
@@ -56,7 +56,7 @@
 | HTML Artifact（诊断工件） | `codecompass export` 输出的单文件自包含 HTML：内联 mermaid 运行时、链路步骤与代码切片，断网可渲染、可随 PR 归档。 |
 | Module Evolution（模块演进） | DEPRECATE（安全下线：模块聚类 + 固定点级联孤立死代码 + 清理 Checklist）与 EXTEND（功能扩展：挂载点 + 事务边界证据 + 解耦模式脚手架）两条确定性推演管线；脚手架是推荐写法而非补丁（ADR-0006）。 |
 | Domain Radar（领域雷达） | 符号图的全景聚合：出入度 + 确定性 PageRank（阻尼 0.85、悬挂节点权重重分配、桥接边计入入度）+ 三栏输出；意图锚点 = 模糊匹配链 + doc-chunk 证据 + 图排名增益，零 embedding。 |
-| Story Beats（分步演播） | 工件内把推演步骤转为 Prev/Next 步进卡片并与代码切片联动；仅落在自包含 HTML 工件端，Web 端需协议扩展，推 v1.0（ADR-0009）。 |
+| Story Beats（分步演播） | 工件内把推演步骤转为 Prev/Next 步进卡片并与代码切片联动；仅落在自包含 HTML 工件端；Web 端不做（ADR-0009 定案，早前「推 v1.0」表述作废）。 |
 | Live Trace Strip（实时演播带） | v0.11 在 Web 驾驶舱 Canvas 底部新增的实时 trace 步进条（Prev / 步骤 N/M / Next），步进时联动画布居中 + Inspector 切片高亮；区别于离线 Story Beats（ADR-0009 的工件端演播），它是 SSE 问答 `done.payload.trace` 的实时消费（见 Stage 4）。 |
 | Brand Badge（品牌徽标） | 依依赖/配置关键词确定性贴标的技术栈 SVG 徽标（Spring/Redis/MySQL 等），是证据标注而非装饰。 |
 | Async Tool Call（异步工具调用） | MCP 长操作的契约：同步部分只做校验与前置门禁（失败即抛、不落库），建行后立即返回 `indexing` 状态，实际工作后台执行，客户端经 `list_repos` 轮询至 `ready`/`error`（error 行带根因摘要）。见 ADR-0016。 |

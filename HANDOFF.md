@@ -9,11 +9,11 @@
 
 ## 1. 当前状态（一句话版）
 
-**v1.4.0 收口（2026-10-19，「上手与可用性手术」批）**：起因 = 外部三条批判 + 四步手术指令（门槛高 / 画布毛线团 / 名为工具实为展示架 / 包装词与边界）。逐条核实后：**两条半已被历史交付覆盖**（画布从未全量铺开；CLI 与单文件 HTML 导出早已存在），只做实锤缺口——①**示例项目一键载入**（`POST /api/repos/sample`，内嵌 11 文件 TS 小仓，真机 ready=11 文件/32 符号/<10s、3 个 Top API、1 条导览）②**粘贴片段即出调用图**（`POST /api/snippets/graph` 纯内存、不回显源码，Web `?mode=snippet`）③**子图焦点模式**（深度 1–5、点击换中心+返回、聚合可展开；顺带修好子图节点深链静默失效 = 绑定按 id、分发按标签）④**`codecompass trace`**（终端上下游树、`-f` 文件+函数、`--up/--down/--ascii/--json`）+ `export --output` 别名 ⑤**Web 导出 HTML 报告**（与 CLI 同一装配器 `artifact-report.ts`）⑥**路径契约**（preview 回显 resolvedPath，相对路径 resolve 后存库）⑦**README 独立 Known Limitations**（静态边界 / TS 别名不解析 / Go 隐式接口 / 检索非语义 / 运行时不在射程 / 环境约束），首段改人话。**门禁：控制面 843、web 429、bridge 26、e2e 73/0**（typecheck 零错误；e2e 仅 `readme-version` 曾因版本未刷而红，刷新后全绿；评审修复后复跑 = 846/429/26/73-0）。npm 积压更新为 **0.31.0 → 1.4.0**（仍未发布，发布流程见下）。批次 spec 在 `.scratch/v1.4-usable-tool/spec.md`；ticket 08 = TS 模块路径解析（import + tsconfig paths）**显式 deferred**（触发线在票面）。
+**v1.4.0 收口（2026-10-19，「上手与可用性手术」批）**：起因 = 外部三条批判 + 四步手术指令（门槛高 / 画布毛线团 / 名为工具实为展示架 / 包装词与边界）。逐条核实后：**两条半已被历史交付覆盖**（画布从未全量铺开；CLI 与单文件 HTML 导出早已存在），只做实锤缺口——①**示例项目一键载入**（`POST /api/repos/sample`，内嵌 11 文件 TS 小仓，真机 ready=11 文件/32 符号/<10s、3 个 Top API、1 条导览）②**粘贴片段即出调用图**（`POST /api/snippets/graph` 纯内存、不回显源码，Web `?mode=snippet`）③**子图焦点模式**（深度 1–5、点击换中心+返回、聚合可展开；顺带修好子图节点深链静默失效 = 绑定按 id、分发按标签）④**`codecompass trace`**（终端上下游树、`-f` 文件+函数、`--up/--down/--ascii/--json`）+ `export --output` 别名 ⑤**Web 导出 HTML 报告**（与 CLI 同一装配器 `artifact-report.ts`）⑥**路径契约**（preview 回显 resolvedPath，相对路径 resolve 后存库）⑦**README 独立 Known Limitations**（静态边界 / TS 别名不解析 / Go 隐式接口 / 检索非语义 / 运行时不在射程 / 环境约束），首段改人话。**门禁：控制面 843、web 429、bridge 26、e2e 73/0**（typecheck 零错误；e2e 仅 `readme-version` 曾因版本未刷而红，刷新后全绿；评审修复后复跑 = 846/429/26/73-0）。npm 已发布：registry latest = **1.4.0**（2026-10-19；0.31.0 直接跳到 1.4.0，1.1–1.3 未单独上架）。批次 spec 在 `.scratch/v1.4-usable-tool/spec.md`；ticket 08 = TS 模块路径解析（import + tsconfig paths）**显式 deferred**（触发线在票面）。
 **未做（按性质）**：真实 tsconfig `paths` / import specifier 解析（引擎级重构，威胁三仓精度棘轮；只做披露）；G6/交互图库替换 mermaid（全量图场景不存在）；内嵌预解析 SQLite（小样仓索引实测 <10s）。上一批未修项（R5-05/08/09/11/13/14/16）仍在 `.scratch/v027-backlog.md` 与 v1.3 段。
 **发布评审（2026-10-19，独立只读 agent，安全轴 + 契约轴）**：**GO WITH NOTES**（0 P0 / 2 P1 / 11 P2），报告 = `docs/reports/code-review-2026-10-19.md`。两条 P1 已随本 tag 修复并重指：① mermaid `loose` → `strict`（仓库内容可进标签 → 存储型 XSS；点击导航是 DOM 代理，不掉功能）② HTML 报告的 Sequence/Story Beats 因把转义写进 raw-text `<script>` 而实际不可用（改 `textarea` + `\u003c`，补结构级测试）。P2 已修 9 条（CLI 吞旗标、片段报文上限/掩码、Host 头深链、畸形转义、返回轨迹、CORS 暴露头、示例覆盖、shown-above 标注、重复声明），登记 2 条（软链纵深、换行卫生）。**tag v1.4.0 已重指至评审终态 commit**（照 v0.31.0 先例）。
 
-**v1.3.0 收口（2026-10-05，「让工具停止编造」批）**：起因 = Round5 双路走查（2026-10-02，`docs/reports/产品体验报告-Round5.md`；Persona 黑盒 71 次调用 + API/引擎审计 17 仓两轴互证），P0 = **路由入口调用链伪造且标 VERIFIED**（`effectiveStart` 末行取全仓第一个方法符号兜底，91% 路由入口返回同一条 `AnswerBody → useState`）。红线修复五件：伪造兜底删除（无起点即无链路，diagnose 如实报 SUSPECT）、`EXTERNAL` 语义（止于仓库外≠断链）、未解析指标去灌水（「名字全仓不存在」拆出后 TS/JS 38%→0%）、僵尸 indexing 行每分钟对账回收（判据只有「此刻无活任务」，不做超时猜测）、门禁 `broken-chain` 先量基线再判定（<10% 弃权入 `policy.skipped`；测试代码剔除非生产路径）。新增能力：拓扑概览层（R4-7，零新增端点）、内联 handler 调用归属（路由可达率 0%→24%）、Go `net/http` 入口识别（记作 `ANY`）、精度 A 类判定接收者类型感知（四仓真缺陷 741/2571/5102/272 归零）。先测再改三工具：`gate_breakchain_measure` / `edge_resolution_measure` / `edge_unresolved_sample`。门禁：控制面 **809**、web **404**、bridge 26、e2e **73/0**、UI 冒烟 PASS（tag v1.3.0 → e31ea8e，CI/Release 双绿）。**npm 积压**：registry 仍停在 0.31.0（1.1.0/1.2.0/1.3.0 均未上 npm）；v1.3.0 发布因本机 token 401 改交用户跑 `D:\zcode-tmp\publish-1.3.0.cmd`（ASCII+CRLF，npm login → publish 带 OTP → 验证）。**本批评审记录** = Round5 双路走查（两轴互证）+ 回归锁 6 引擎/4 App/3 冒烟（每条验证过回退会红）；正式 code-review 报告格式未走（上一份 09-29 覆盖 v1.1+v1.2.0），按 v1.1 先例挂补审触发线 = 下次收口。**未修（已登记）**：R5-05 chat 流式无进度/无中断（值得立票）、R5-08 llm-profiles.json（用户侧配置才有第二档）、R5-09/11/13/14/16 体验打磨；精度测量余项 = Java 裸 `@PostMapping`、C/D 类主体是内置/构造/类型转换。
+**v1.3.0 收口（2026-10-05，「让工具停止编造」批）**：起因 = Round5 双路走查（2026-10-02，`docs/reports/产品体验报告-Round5.md`；Persona 黑盒 71 次调用 + API/引擎审计 17 仓两轴互证），P0 = **路由入口调用链伪造且标 VERIFIED**（`effectiveStart` 末行取全仓第一个方法符号兜底，91% 路由入口返回同一条 `AnswerBody → useState`）。红线修复五件：伪造兜底删除（无起点即无链路，diagnose 如实报 SUSPECT）、`EXTERNAL` 语义（止于仓库外≠断链）、未解析指标去灌水（「名字全仓不存在」拆出后 TS/JS 38%→0%）、僵尸 indexing 行每分钟对账回收（判据只有「此刻无活任务」，不做超时猜测）、门禁 `broken-chain` 先量基线再判定（<10% 弃权入 `policy.skipped`；测试代码剔除非生产路径）。新增能力：拓扑概览层（R4-7，零新增端点）、内联 handler 调用归属（路由可达率 0%→24%）、Go `net/http` 入口识别（记作 `ANY`）、精度 A 类判定接收者类型感知（四仓真缺陷 741/2571/5102/272 归零）。先测再改三工具：`gate_breakchain_measure` / `edge_resolution_measure` / `edge_unresolved_sample`。门禁：控制面 **809**、web **404**、bridge 26、e2e **73/0**、UI 冒烟 PASS（tag v1.3.0 → e31ea8e，CI/Release 双绿）。**npm 积压**：registry 仍停在 0.31.0（1.1.0/1.2.0/1.3.0 均未上 npm）；v1.3.0 发布因本机 token 401 改交用户跑 `D:\zcode-tmp\publish-1.3.0.cmd`（ASCII+CRLF，npm login → publish 带 OTP → 验证）。**该积压已于 2026-10-19 随 v1.4.0 发布结清**（`npm view @codecompass/cli dist-tags` → `latest: 1.4.0`）。**本批评审记录** = Round5 双路走查（两轴互证）+ 回归锁 6 引擎/4 App/3 冒烟（每条验证过回退会红）；正式 code-review 报告格式未走（上一份 09-29 覆盖 v1.1+v1.2.0），按 v1.1 先例挂补审触发线 = 下次收口。**未修（已登记）**：R5-05 chat 流式无进度/无中断（值得立票）、R5-08 llm-profiles.json（用户侧配置才有第二档）、R5-09/11/13/14/16 体验打磨；精度测量余项 = Java 裸 `@PostMapping`、C/D 类主体是内置/构造/类型转换。
 
 **v1.2.0 收口（2026-09-29，工作台产品化批）**：反转 v0.31「Web 只减不增」（**ADR-0020** 双面体再平衡）——一级导航 5 项（chat/代码拓扑/变更审计/Diff 影响面/体检）；体检面接上 scan 引擎（HTTP twin + 五桶 + 精度态势 + 检索命中原样查看）；**导入 202+WS 流化**（`POST /api/repos` 破坏性变更：202 `{repo,taskId}` 取代 200/201 同步 ready；Modal 可关闭后台继续；克隆瞬断重试上屏；关库自保）；视图小债包四件（topApis 引擎降噪/风险色族统一/影响树截断/查调用链名实）+ a11y（aria log + 长回答折叠）。**MCP 主轴与 17 工具冻结不动（双轨制）**。门禁：控制面 **778**、web **368**、bridge 26、e2e **73/0**。**收口顺序（如实）**：文档/版本/ADR 已合 master；**Round4 体验报告与 tag v1.2.0 随后执行**（六动线真 chromium 冒烟已全过：拓扑/chat/gate/韧性/体检/导入流化——Round4 补的是人眼质感走查）；双轴评审（含 v1.1 补审）按补审触发线执行。批次 spec 在 `.scratch/v1.2-workbench-revival/spec.md`。
 
@@ -99,12 +99,13 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 文档 | 内容 |
 |---|---|
 | `CONTEXT.md` | 术语表（含 出库掩码不变式 / 用户文案规范）+ 全部 ADR 索引 |
-| `docs/adr/0001–0019` | 架构决策；**0016（MCP 长操作立即返回+轮询）新工具设计前必读；0018（孤儿桶只声称可调用符号）改 scan 语义前必读** |
+| `docs/adr/0001–0020` | 架构决策（20 份）；**0016（MCP 长操作立即返回+轮询）新工具设计前必读；0018（孤儿桶只声称可调用符号）改 scan 语义前必读；0020（Web 工作台再产品化=双面体再平衡）改 Web 面前必读** |
 | `CHANGELOG.md` | 0.5.x→1.0.0 完整发布条目 |
 | `docs/reports/` | 体验报告 Round1–3（产品缺陷史）与历史评估报告；截图在 `ui-shots/`（本地） |
 | `docs/archive/` | 历史 handoff（v0.3 / 2026-08 / 2026-09）与旧规划文档 |
 | `.scratch/v027-backlog.md` | 跨版本总账：开放项 V27-x/V29-x/V30-x/V31-x 与关闭记录 |
-| `.scratch/v031-precision/spec.md` | **当前方向落地 spec（v0.31 精度优先）**：放弃清单、度量口径 M1–M5、票池 01–06 |
+| `.scratch/v1.4-usable-tool/spec.md` | **当前批次 spec（v1.4 上手与可用性手术）**：范围裁决、票池 01–08、deferred 登记 |
+| `.scratch/v031-precision/spec.md` | 历史：v0.31 精度优先批（放弃清单、度量口径 M1–M5）——其中「不再为 Web 做视觉战役」已被 ADR-0020 取代 |
 | `scripts/e2e/closeout_gate.py` | e2e 门禁 = 系统能力可执行规格 |
 | agent 持久记忆 | `C:\Users\Shing\.zcode\cli\memories\projects\codecompass-0da1d6bfa4427c13\memory\`（各版发布边界 + Mimosa 机制 + 双 agent 分工） |
 
@@ -131,17 +132,20 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 
 > **M1 口径注（v1.1 票 06，2026-09-29）**：M1 = top-10 假阳性率，是**样本相关读数**——top-10 整榜随引擎机制换人（票 22 落地 + `54ae70b` 死码清理后，09-25 的「40%」人群已消失），跨重排的数字不可连成趋势读；三仓现值皆 **100%（`--score` 复算）**，进度判读以**假边条数**为准。门禁新增「**真仓 top-10 假阳性门**」（`scripts/precision/frozen/` ↔ `verdicts/` 账实一致，**零 clone**，**不得外推全仓率**）；它抓不到引擎回归——引擎回归靠**发版前在有 clone 的机器上人工复跑 `--score`**（v1.1 收口清单新增项，spec §6.1）。
 
-**仍开放（非本批，按性质）**：
+**仍开放（非本批，按性质；2026-10-19 盘点刷新——已实现项已划销，证据见括号内代码/提交）**：
 
-1. ~~V27-17 buildTours 对 TS 仓零锚点~~ **已闭（票 17 落地，2026-09-24）**。
-2. ~~精度残余三族~~ **已闭（票 18 三族全落地）**；派生票 19/20/21 亦全部落地（09-24），spec/报告已回写。
-3. **ADR-0018 `deferred`：接口实现方法**（lazygit 620）——**票 20 已落地的是显式 `implements` 那半（Java/TS）**；**Go 隐式接口不在其内**（无 `implements`，需方法集推断，且 ADR-0018 已裁决这 620 条按 ADR-0002 保持 dynamic）。若要动 Go，另立票并先过 ADR-0018 口径。
-4. **`RepoQAClient.getRepo` 死码** + **`ChatMergeClient.*` 五条死 API**（M1 重判后的 6 条真阳性：生产零调用、仅测试替身出现，移除候选——verdicts/self.json 与报告 §16）。
-5. **两族剩余假阳性**（M1 重判后 self 40% 的构成）：**值引用**（`window.addEventListener('keydown', onKeyDown)`，报告 §5 P1 DOM 绑定缺口）与**成员链接收者**（`streamRef.current?.stream.close()`，票 20 §5 登记）——各需一种新边机制，未立票。
-6. **Go 适配器每轮解析两次**（评审 judgement call）——**待测量**后再决定是否开票（"先有度量，再有战役"）。
-7. **V29-1** import/evolve 韧性后半（POST 202 + WS 进度流化，需独立 spec）。
-8. **V30-10** repoqa 旧命名族迁移（含对外契约：SSE 事件名/环境变量/包路径，需破坏面清单）。
-9. **V30-12** branch protection 必过检查名失配（**需用户本机**改 Settings，见 §2.3-8）。
+1. **ADR-0018 `deferred`：接口实现方法**（lazygit 620）——**票 20 已落地的是显式 `implements` 那半（Java/TS）**；**Go 隐式接口不在其内**（无 `implements`，需方法集推断，且 ADR-0018 已裁决这 620 条按 ADR-0002 保持 dynamic）。若要动 Go，另立票并先过 ADR-0018 口径。
+2. **Go 适配器每轮解析两次**（2026-10-19 复核仍存在：`GoAdapter.ts:307` 建包表 parse + `:717` 逐文件 parse）——**待测量**后再决定是否开票（"先有度量，再有战役"）。
+3. **V30-10** repoqa 旧命名族迁移（对外契约面：SSE 事件名 `repoqa.*`、环境变量 `MHW_*`/`REPOQA_LLM_*`、目录与文件名族，需破坏面清单）——与下一次对外契约破坏变更同批。
+4. **V30-12** branch protection 必过检查名失配（**需用户本机**改 Settings，见 §2.3-8；2026-10-19 复核 contexts 仍含 `E2E gate (33 checks)`）。
+5. **v1.4 票 08（deferred）：TS 模块路径解析**（import specifier + tsconfig `paths`/`baseUrl`）——引擎级重构，威胁三仓精度棘轮；触发线见 `.scratch/v1.4-usable-tool/issues/08-deferred-ts-module-resolution.md`。
+6. **v1.1 票 10（deferred）：MCP 探针重跑**——阻塞于 provider 额度（402）；触发线=额度恢复。
+7. **R5-05 剩服务端半**：chat 流式服务端进度与慢模型断点提示（前端停止/已用时已落地）。
+8. **R5-13 剩兜底半**：大仓 Top API 空榜 / 无链路时的说明文案（非 ready 与「无法静态解析」两处已有）。
+9. **V12-1 剩余**：路由级兜底 error 卡未带 `intentEcho`（`routes/analysis-stream.ts:92-100` / `:167-175`；计划内失败已持久化）——小改，可随下批带上。
+10. **无消费方的遗留面待裁决**（2026-10-19 盘点列出；删/冻结未定）：`/api/tasks`、`/api/harnesses`、`/api/workspaces`、`/api/repos/:id/anchor-click`、`/api/repos/:id/feedback`（`routes/workbench.ts`，Web 零调用；harness 执行层是 `packages/bridge-adapters` 模拟桩）；Web 侧 incident 死链（`askIncident`/`submitIncident` 无组件调用，`?mode=incident` 仅 chat 别名）；HTML 工件的 `Lifecycle (v1.0)`/`Dataflow (v1.0)` 禁用占位（ADR-0008 承诺的 v1.0 早已过站）。
+
+**已划销（2026-10-19 盘点，逐条代码核实）**：V27-17、精度残余三族与派生票 19/20/21、`RepoQAClient.getRepo` 死码（`54ae70b` 已删）、`ChatMergeClient.*`（复核为活代码，此前误判）、两族假阳性（值引用 + 成员链接收者，票 22 落地）、V29-1 韧性后半（202 + WS + 克隆重试可感知）、V12-3（evolve 降级徽章 `92cf734`）、R5-08/09/11/14/16、npm 发布积压（1.4.0 已上架）。
 
 ## 5. Suggested skills
 
@@ -160,8 +164,8 @@ cd D:/CodeCompass
 git log --oneline -3
 export TMPDIR=/d/zcode-tmp TMP=/d/zcode-tmp TEMP=/d/zcode-tmp   # C 盘满对策
 npm run typecheck                        # 全仓零错误
-cd services/control-plane && npm test    # 全绿（778）
-cd ../../apps/repoqa-web && npx vitest run   # 368
+cd services/control-plane && npm test    # 全绿（846）
+cd ../../apps/repoqa-web && npx vitest run   # 429
 cd ../.. && npm run build && python scripts/e2e/closeout_gate.py   # 73 项（gate 自带 LLM 环境清空，V30-9）
 npm run precision && npm run precision:ratchet   # 三仓孤儿数 + 棘轮（self 12.1% < 17.1%）
 ```

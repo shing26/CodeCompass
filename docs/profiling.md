@@ -42,8 +42,10 @@ entire project, and the file budget is now configurable via `REPOQA_MAX_FILES`
 
 ## Conclusion
 
-The serial path is production-capable for a project of this size. The next
-hardening step is **parallel parsing via worker_threads** (tracked in
-`.scratch/v1.0-parallel-parse/`), which would cut the 26 s proportionally.
-Priority for the next release: **Prisma data-layer adapter** (delivers the
-"4-layer penetration" promise to TypeScript/Node.js ecosystems).
+The serial path is production-capable for a project of this size. A future
+hardening step would be **parallel parsing via worker_threads** — note that the
+pointer to `.scratch/v1.0-parallel-parse/` was dead (no such ticket exists;
+corrected 2026-10-19), so this is an idea, not a scheduled item. The Prisma
+data-layer adapter listed here as "next" has since shipped
+(`languages/PrismaAdapter.ts`), making the rest of this section historical
+context rather than a backlog.

@@ -173,7 +173,7 @@ export const MCP_TOOLS: McpToolMeta[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        repoId: { type: 'string', description: 'Repo id or name (from codecompass_catalog, GET /api/repos)' },
+        repoId: { type: 'string', description: 'Repo id or name (from codecompass_list_repos, GET /api/repos)' },
         symbolOrMethod: { type: 'string', description: 'Start symbol, e.g. "listOrders" or "OrdersController"' }
       },
       required: ['repoId', 'symbolOrMethod']
