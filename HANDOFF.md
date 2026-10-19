@@ -67,6 +67,8 @@
 7. **e2e gate 已 hermetic（V30-9 已闭，2026-09-21）**：gate 在 spawn HTTP 服务端时显式清空 `REPOQA_LLM_BASE/URL/API_KEY`（`chat/llm.ts:121` 的 `{...dotEnv, ...thisEnv}` 保证进程环境优先 → `!url && !base` 走确定性降级），因此 chat/incident 检查不再依赖远程 LLM；要 eyeball 真实回答时用 `CLOSEOUT_GATE_LIVE_LLM=1 python scripts/e2e/closeout_gate.py`。**历史**：此前 `.env` 在场即实走远程 LLM，外网慢致红位漂移，2026-09-21 更因 provider 额度耗尽（HTTP 402）把门禁染红（同时连带吞掉下游的 `ADR-0010 commit stamp` 断言——incident 无 done payload 时该函数提前 return）
 8. **CI job 名 = branch protection 必过检查 context**（V30-12）：`ci.yml` 的 job `name:` 会以「工作流名 / job 名」（如 `CI / E2E gate`）成为必过项，**永远不要在 job 名里嵌计数/版本号**（「E2E gate (33 checks)」曾失配十一个版本）；改名必须同步 Settings→Branches 重选检查项（agent 令牌无管理权，需用户本机操作）
 9. Windows：jsdom 无 `scrollIntoView`；stdio 测试 kill 后句柄延迟释放
+10. **Node 主版本换了就要重建原生模块（2026-10-19 实证）**：本机 Node 升到 24（ABI 137）后，`services/control-plane/node_modules` 里的 `better-sqlite3` 仍是 ABI 127 构建，**所有涉库测试以 `ERR_DLOPEN_FAILED` 全红**（看起来像代码坏了）。修法 = `npm rebuild better-sqlite3 --prefix services/control-plane`（不必重装全部依赖）。看到「.node 模块报 NODE_MODULE_VERSION 不匹配」先想这条。
+11. **内存紧张时的测试/构建配方（2026-10-19 实证，16GB 机器剩 ~2GB 时）**：web 全量 vitest 会 native abort（`memory allocation of 730400 bytes failed` / `Channel closed`）——在 `apps/repoqa-web` 下用 `npx vitest run --pool=forks --poolOptions.forks.maxForks=2`；控制面全量用 `npx vitest run --no-file-parallelism`；`npm run build` 的 vite 阶段可能报 `[vite:worker] The service was stopped`——加 `NODE_OPTIONS=--max-old-space-size=4096` 重试即可（不是代码问题；`prepublishOnly` 会跑全量构建，npm 发布时同样适用）。
 
 ### 2.4 版本演进速查（细节全在 CHANGELOG）
 
