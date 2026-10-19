@@ -418,8 +418,9 @@ export function EvolutionView({ repo, session, onNavigate, client }: EvolutionVi
   // "latest open, history collapsed" so the newest answer reads first.
   const [openOverrides, setOpenOverrides] = useState<Record<string, boolean>>({});
   const { cards: allCards, running, submit } = session;
-  // Issue 25 / Ticket 01 — the stream is dual-kind; the evolution workbench
-  // renders only evolve cards (incident cards live in the copilot view).
+  // v1.4.x — the evolution workbench renders evolve cards only. Legacy incident
+  // rows can still arrive from the server card stream (hydrate); the Web-side
+  // incident composer was removed, so there is no view that would render them.
   const cards = allCards.filter((card): card is EvolutionCard => card.kind === 'evolve');
 
   const deliver = (target?: string) => {

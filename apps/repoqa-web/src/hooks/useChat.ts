@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Anchor, EvidenceItem, QueryMode, QueryStart, TokenUsage, TraceStep } from '../types';
+import type { Anchor, QueryMode, QueryStart, TokenUsage, TraceStep } from '../types';
 import type { QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
-import { parseEvidenceFromAnswer } from '../components/evidence';
 import { isExternalDispatchReason } from '../../../../packages/contracts/src/index';
 
 export interface ChatMessage {
@@ -24,12 +23,6 @@ export interface ChatMessage {
   usage?: TokenUsage;
   /** v0.10 — ordered trace hops from the SSE done payload (live step strip). */
   traceSteps?: TraceStep[];
-  /** Issue 23 — mode this message was asked in ('incident' for the copilot). */
-  mode?: QueryMode;
-  /** Issue 23 — the stack trace pasted with the incident question. */
-  stack?: string;
-  /** Issue 23 — grounded assertions parsed from the incident answer. */
-  evidence?: EvidenceItem[];
 }
 
 let nextId = 1;
@@ -45,9 +38,13 @@ export interface UseChatResult {
   /** True briefly after a reconnect recovers, so the UI can confirm it. */
   recovered: boolean;
   error: string | null;
-  submit: (question: string, mode?: QueryMode, start?: QueryStart, stack?: string) => void;
-  /** Issue 23 — ask the incident copilot with an optional pasted stack trace. */
-  askIncident: (question: string, stack?: string) => void;
+  /**
+   * v1.4.x（2026-10-19 定位裁决）——incident 排障副驾驶的 Web 入口已移除
+   * （`askIncident` 无任何调用方，属死链）。提交签名保留 mode/start：call-chain
+   * 深链与 Top API 点击仍在用；服务端 incident（`stack` 参数）保持能力，
+   * 但不再有 Web UI 入口。
+   */
+  submit: (question: string, mode?: QueryMode, start?: QueryStart) => void;
   /** Manually re-run the last question after permanent reconnect failure (07). */
   retry: () => void;
   reset: () => void;
@@ -137,7 +134,6 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   const lastQuestionRef = useRef<string | null>(null);
   const lastModeRef = useRef<QueryMode | undefined>(undefined);
   const lastStartRef = useRef<QueryStart | undefined>(undefined);
-  const lastStackRef = useRef<string | undefined>(undefined);
   const historyByRepo = useRef(new Map<string, ChatMessage[]>());
   const usageByRepo = useRef(new Map<string, TokenUsage>());
   const lastRepoRef = useRef<string | null>(null);
@@ -250,15 +246,6 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
             traceSteps
           }));
         }
-        // Issue 23 — incident messages ground their assertions into evidence
-        // cards (VERIFIED/BREAK/SUSPECT) parsed from the answer text plus the
-        // validated anchors. Narrative text without assertions stays unparsed.
-        if (lastModeRef.current === 'incident') {
-          withAssistant((m) => ({
-            ...m,
-            evidence: parseEvidenceFromAnswer(m.text, m.anchors ?? [])
-          }));
-        }
         if (usage) {
           setTotalUsage((prev) => {
             const next = addUsage(prev, usage);
@@ -319,7 +306,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
   }, []);
 
   const submit = useCallback(
-    (question: string, mode?: QueryMode, start?: QueryStart, stack?: string) => {
+    (question: string, mode?: QueryMode, start?: QueryStart) => {
       const q = question.trim();
       if (!q || !repoId || streaming) return;
 
@@ -327,7 +314,6 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
       lastQuestionRef.current = q;
       lastModeRef.current = mode;
       lastStartRef.current = start;
-      lastStackRef.current = stack;
       assistantIdRef.current = null;
       setError(null);
       setReconnecting(false);
@@ -342,25 +328,14 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
         {
           id: userId,
           role: 'user',
-          text: q,
-          ...(mode === 'incident' ? { mode, stack } : {})
+          text: q
         },
         { id: assistantId, role: 'assistant', text: '', status: 'streaming' }
       ]);
 
-      attachStream(
-        client.queryRepo(repoId, q, mode, start, mode === 'incident' ? stack : undefined)
-      );
+      attachStream(client.queryRepo(repoId, q, mode, start));
     },
     [attachStream, cancel, client, repoId, streaming]
-  );
-
-  /** Issue 23 — incident copilot entry: mode='incident' + pasted stack. */
-  const askIncident = useCallback(
-    (question: string, stack?: string) => {
-      submit(question, 'incident', undefined, stack);
-    },
-    [submit]
   );
 
   /** Ticket 07: re-run the last question in place — no duplicate user bubble. */
@@ -385,15 +360,7 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     });
 
     // Keep the original mode (e.g. call-chain from a Top API click) on retry.
-    attachStream(
-      client.queryRepo(
-        repoId,
-        q,
-        lastModeRef.current,
-        lastStartRef.current,
-        lastModeRef.current === 'incident' ? lastStackRef.current : undefined
-      )
-    );
+    attachStream(client.queryRepo(repoId, q, lastModeRef.current, lastStartRef.current));
   }, [attachStream, cancel, client, repoId, streaming]);
 
   const reset = useCallback(() => {
@@ -402,7 +369,6 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     lastQuestionRef.current = null;
     lastModeRef.current = undefined;
     lastStartRef.current = undefined;
-    lastStackRef.current = undefined;
     setMessages([]);
     usageByRepo.current.delete(repoIdRef.current ?? '');
     setTotalUsage(zeroUsage());
@@ -420,7 +386,6 @@ export function useChat(client: RepoQAClient, repoId: string | null): UseChatRes
     recovered,
     error,
     submit,
-    askIncident,
     retry,
     reset,
     totalUsage

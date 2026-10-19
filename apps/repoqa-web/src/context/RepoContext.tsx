@@ -20,13 +20,15 @@ export type MainView = WorkbenchTab | 'tour' | 'snippet';
 /**
  * Ticket 16 (QA-07): the single mapping from the URL's ?mode= to a workbench
  * view — cold load, popstate and repo selection all go through it so the
- * alias table never drifts. `incident` is the canonical value for the chat
- * tab; `chat` is a legacy alias accepted on read, and the URL is normalized
- * back to `incident` by the view-sync effect (documented in HANDOFF).
+ * alias table never drifts.
+ *
+ * v1.4.x（2026-10-19 定位裁决）— `?mode=incident` 的历史别名已删除（incident
+ * 的 Web 入口是死链，见 useChat/useEvolutionSession）：旧书签现在落到拓扑页，
+ * 不再进 chat；chat 的规范 mode 值就是 `chat`。
  */
 function viewFromMode(mode: string | null | undefined): MainView {
   if (mode === 'diff' || mode === 'delta') return 'delta';
-  if (mode === 'incident' || mode === 'chat') return 'chat';
+  if (mode === 'chat') return 'chat';
   // 票 05 — 降级页面的深链入口：`?mode=metrics` / `?mode=evolve`。既有 mode
   // 语义零改，纯增量。
   if (mode === 'metrics') return 'metrics';
@@ -161,10 +163,9 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
   } = useDashboard(client, repoId);
 
   // Issue 31: the three-pane workbench is the default; the dashboard and CI
-  // gate are explicit TopBar tabs. Issue 23: ?mode=incident deep-links the
-  // incident copilot view. Without a repo the deep-linked view still lands in
-  // state (ticket 16): the main-area/topo fallback keeps highlight + content
-  // consistent until a repo exists (see App.tsx noRepo).
+  // gate are explicit TopBar tabs. Without a repo the deep-linked view still
+  // lands in state (ticket 16): the main-area/topo fallback keeps highlight +
+  // content consistent until a repo exists (see App.tsx noRepo).
   const [view, setView] = useState<MainView>(() => viewFromMode(deepLink.mode));
   const [activeTour, setActiveTour] = useState<RepoTour | null>(null);
   const [indexingProgress, setIndexingProgress] = useState<StepperProgress | null>(null);
@@ -348,7 +349,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
   // Bug-08: restore the selected repo when the user navigates back/forward
   // in browser history (the URL is the single source of truth for selection).
   // v0.8: the mode param rides along, so back/forward also restores delta view.
-  // Issue 23: mode=incident restores the incident copilot view.
+  // Issue 23（历史）：mode=incident 曾恢复排障副驾驶视图；v1.4.x 起该别名已删。
   // Ticket 13 (QA-04): the doctrine extended to the negative case — a history
   // entry WITHOUT ?repo means "no repo selected". Back from a repo view to
   // the plain entry deselects through the same state machine the delete flow
@@ -376,7 +377,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
 
   // v0.8 — keep the URL's mode param in step with the workbench tab so a
   // refreshed deep link lands on the same view (delta ↔ mode=diff,
-  // incident ↔ mode=incident). 票 05 — the demoted metrics/evolve pages gain the
+  // chat ↔ mode=chat). 票 05 — the demoted metrics/evolve pages gain the
   // same round-trip: `?mode=metrics` / `?mode=evolve` must SURVIVE while the repo
   // is being selected, or the pending deep link is wiped before it can apply.
   useEffect(() => {
@@ -384,7 +385,7 @@ export function RepoProvider({ client, children }: { client: RepoQAClient; child
     try {
       const url = new URL(window.location.href);
       if (view === 'delta') url.searchParams.set('mode', 'diff');
-      else if (view === 'chat') url.searchParams.set('mode', 'incident');
+      else if (view === 'chat') url.searchParams.set('mode', 'chat');
       else if (view === 'metrics') url.searchParams.set('mode', 'metrics');
       else if (view === 'evolve') url.searchParams.set('mode', 'evolve');
       else if (view === 'scan') url.searchParams.set('mode', 'scan');

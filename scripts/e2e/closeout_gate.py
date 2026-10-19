@@ -1901,12 +1901,16 @@ def check_v09_radar_evolve(node: str, cli: Path, repo_path: Path, data_dir: Path
     export = run("export", "listOwners", str(repo_path), "--file", str(artifact))
     content = artifact.read_text(encoding="utf-8") if artifact.exists() else ""
     record(
-        "v0.9 export artifact carries views, badges, beats and placeholders",
+        "v0.9 export artifact carries views, badges, beats and no dead placeholders",
         export.returncode == 0
         and 'data-view="sequence"' in content
         and 'id="sequence-src"' in content
         and "Story Beats" in content
-        and "Lifecycle (v1.0)" in content,
+        # v1.4.x 定位裁决（ADR-0021）— the Lifecycle/Dataflow "(v1.0)" disabled
+        # tabs were removed (promise four releases overdue). Assert their absence
+        # so nobody re-adds an evergreen placeholder.
+        and "Lifecycle (v1.0)" not in content
+        and "Dataflow (v1.0)" not in content,
         f"bytes={len(content)}",
     )
 

@@ -185,7 +185,7 @@ export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'inciden
 
 /** Top-level workbench tabs rendered by the TopBar segmented control.
  * v1.2 票 01 — `scan`（体检）入列一级；metrics/evolve 保持深链页（不在 TABS）。 */
-export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'incident' | 'evolve' | 'chat' | 'scan';
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'evolve' | 'chat' | 'scan';
 
 /**
  * V27-30 (v029/05): the stepper's narrowed display model. The wire type is

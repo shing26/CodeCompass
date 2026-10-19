@@ -10,7 +10,14 @@ import { llmRuntimeInfo, maskHostname } from '../engine/repoqa-llm';
 import { maskEventPayload } from '../engine/repoqa-masking';
 
 /** Issue 14/16/19/30 + runtime：harness 编排面（tasks/harnesses/workspaces）
- * 与运行时状态。v0.25.0 自 http.ts 按域拆出，注册顺序保持原样。 */
+ * 与运行时状态。v0.25.0 自 http.ts 按域拆出，注册顺序保持原样。
+ *
+ * ⚠️ **冻结面，非产品面（2026-10-19 定位裁决，ADR-0021）**——`/api/tasks*`、
+ * `/api/harnesses*`、`/api/workspaces*`、`anchor-click`、`feedback` 全组
+ * **零 Web 消费方**，执行层是 `packages/bridge-adapters` 的模拟桩（输出
+ * `stub harness started` 之类，不是真实执行）。它们不构成对使用者的任何
+ * 承诺：不得基于它们做宣传、路线图或新功能编排；删除或复活都需先过定位
+ * 规则。`/health`、`/runtime` 等运行时端点是产品面，不受本条限制。 */
 type HealthChecks = { db: 'ok' | 'down' | 'skipped'; dataDir: 'ok' | 'down' };
 
 export function registerWorkbenchRoutes(app: express.Express, deps: HttpDeps): void {

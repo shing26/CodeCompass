@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.4.1] - 2026-10-19
+
+**定位定稿与死面清理（ADR-0021）。** 用户四项裁决定稿：**MCP/CLI 是唯一对外产品面，
+Web 是维护者 dogfooding 驾驶舱与演示面**；同时清理三处「承诺已过站 / 无消费方」的面。
+MCP 17 工具面零变化。
+
+### 定位
+
+- 新增 **ADR-0021**（唯一权威表述 + 摇摆终止规则：新想法只走「降低误报/提升精度」
+  或「维护者日常要用」两条通道，都答不上来=不做并优先清理）。
+- README 顶部、CONTEXT 状态与词条、HANDOFF §1/§4 收敛到该表述；v0.31「Web 只减不增」
+  标注为已被 ADR-0020 覆盖并由 ADR-0021 降格为内部纪律。
+
+### 删除（行为变更）
+
+- HTML 工件移除 `Lifecycle (v1.0)` / `Dataflow (v1.0)` 禁用占位（ADR-0008 的 v1.0
+  承诺作废、标注未排期）；e2e 断言反转为「不得再出现」。
+- Web 侧 incident 死链删除：`askIncident`、`submitIncident`、incident 状态机
+  （running/reconnecting/recovered/error）、`?mode=incident` 别名与 `WorkbenchTab`
+  的 `incident` 值。**服务端 incident 能力（`stack` 参数、query SSE）保留但无 UI
+  入口**，属非承诺能力；历史持久化 incident 卡仍可 hydrate（演进列表会过滤）。
+- 旧 `?mode=incident` 书签现在落到拓扑页（不再偷偷进 chat）。
+
+### 冻结（非产品面）
+
+- `/api/tasks|harnesses|workspaces`、`anchor-click`、`feedback` 与
+  `packages/bridge-adapters` 模拟桩：加注冻结（非产品面、零消费方、不得据此承诺），
+  代码与 26 项测试保留；CONTEXT Open Decisions 的 harness 生态条目同步标注。
+
+### 门禁
+
+- 控制面 **846** / web **429** / bridge **26** / e2e **73-0**；typecheck 零错误；生产构建通过。
+
 ## [1.4.0] - 2026-10-19
 
 **本批主题：上手与可用性手术 —— 把使用成本降到零，把边界摆上台面。** 起因是一份外部批判

@@ -6,7 +6,9 @@
 
 本地优先的**多语言代码事实层**：确定性调用链、跨栈根因穿透、架构影响面，经 Model Context Protocol (MCP) 直达 coding agent。对源码只读、零 LLM 依赖——推理交给 LLM，「代码到底怎么连的」这种事实查询交给确定性引擎，两者不互相冒充。
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.4.0)
+> **产品面（唯一权威，ADR-0021）**：**MCP 17 工具 + CLI 是对外承诺面**；Web 工作台是维护者自己的 **dogfooding 驾驶舱与演示面**（内部工具，不是并列的第二产品，不作为对外承诺）。新想法只有两条通道：增强事实面并说清降低哪类误报/提升哪类精度，或改驾驶舱并说清维护者日常怎么用——都答不上来就不做。
+
+[![Version](https://img.shields.io/badge/version-1.4.1-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.4.1)
 [![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -297,7 +299,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **1.4.0**（2026-10-19 发布；节奏是 0.31.0 → 1.4.0，1.1–1.3 未单独上架）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **1.4.0**（2026-10-19 发布；节奏是 0.31.0 → 1.4.0，1.1–1.3 未单独上架）。**1.4.1（定位定稿与死面清理）已 tag，等待本机 `npm publish`**。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -384,13 +386,14 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **v1.1.0**：检索取证与证据诚实（FTS5(trigram) 双路径检索、真仓 top-10 假阳性门）
 - [x] **v1.2.0**：工作台产品化（ADR-0020 双面体再平衡：五面驾驶舱、导入 202 + WS 流式进度）
 - [x] **v1.3.0（tag `e31ea8e`）**：「让工具停止编造」——伪造调用链红线修复、`EXTERNAL` 语义、未解析指标去灌水（TS/JS 38%→0%）、僵尸索引每分钟对账回收
-- [x] **v1.4.0（当前版本）**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
+- [x] **v1.4.0**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
+- [x] **v1.4.1（当前版本）**：定位定稿（ADR-0021：MCP/CLI 唯一对外产品面，Web 为维护者驾驶舱）——清理 Lifecycle/Dataflow 禁用占位、Web incident 死链；MHW harness 面冻结标注
 - [x] **npm 发布**：`@codecompass/cli@1.4.0` 已上架（2026-10-19；0.31.0 → 1.4.0，1.1–1.3 未单独上架）
 - [x] **R5-08 / R5-09 / R5-11 / R5-14 / R5-16（2026-10-19 盘点销项）**：模型多档热切换已实现（默认只带 `default`，用户可自建 `~/.mhw/llm-profiles.json`）；授权后不自动发送=设计取舍并已有草稿提示；恒定焦点计数已删除；流式中断（停止键 / Esc）已落地；长回答折叠已实现（阈值 2400 字）
 - [ ] **R5-05（剩服务端半）**：chat 流式服务端进度与慢模型断点提示
 - [ ] **R5-13（剩兜底半）**：大仓 Top API 空榜 / 无链路的兜底说明文案
 
-当前版本：`v1.4.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.4.0 完整条目）。
+当前版本：`v1.4.1`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.4.1 完整条目）。
 
 ---
 

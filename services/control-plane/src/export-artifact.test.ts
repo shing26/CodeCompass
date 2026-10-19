@@ -57,16 +57,18 @@ describe('export-artifact (v0.8)', () => {
     expect(html).toContain('&amp; quotes');
   });
 
-  it('renders view tabs with lazy sequence source and honest placeholders', () => {
+  it('renders view tabs with lazy sequence source and no dead placeholders', () => {
     const html = renderArtifactHtml(baseInput);
     expect(html).toContain('data-view="arch"');
     expect(html).toContain('data-view="sequence"');
     // Sequence renders lazily from a raw text source (no zero-width renders).
     expect(html).toContain('id="sequence-src"');
     expect(html).toContain('mermaid.run');
-    // Lifecycle/Dataflow are placeholders until their AST evidence ships.
-    expect(html).toContain('Lifecycle (v1.0)');
-    expect(html).toContain('Dataflow (v1.0)');
+    // v1.4.x 定位裁决 — the Lifecycle/Dataflow disabled placeholders (ADR-0008's
+    // "v1.0" promise, four releases overdue) are gone for good.
+    expect(html).not.toContain('Lifecycle');
+    expect(html).not.toContain('Dataflow');
+    expect(html).not.toContain('class="tab disabled"');
     expect(html).toContain('mermaid.initialize({ startOnLoad: true');
   });
 

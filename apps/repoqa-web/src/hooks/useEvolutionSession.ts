@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EvolveStreamLike, QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
+import type { EvolveStreamLike, RepoQAClient } from '../client/RepoQAClient';
 import { parseEvidenceFromAnswer } from '../components/evidence';
 import type {
   Anchor,
@@ -49,8 +49,12 @@ export interface EvolutionCard {
 
 /**
  * Issue 25 / Ticket 01 — one incident investigation card in the same
- * (repoId, commit) artifact stream. Backed by the query SSE stream in
- * `incident` mode; grounded evidence replaces the evolve artifact set.
+ * (repoId, commit) artifact stream.
+ *
+ * v1.4.x（2026-10-19 定位裁决）——Web 侧 incident 投递入口已移除（无调用方的
+ * 死链）。本类型与 hydrate 路径保留：服务端仍支持 incident（`stack` 参数、
+ * query SSE），历史持久化行回放时仍需被解析与识别（EvolutionView 会将其
+ * 从演进列表过滤掉）。
  */
 export interface IncidentCard {
   kind: 'incident';
@@ -87,25 +91,11 @@ export interface UseEvolutionSessionResult {
   running: boolean;
   /** Deliver a new intent into the current stream (追问 = another delivery). */
   submit: (intent: string, target?: string) => void;
-  /**
-   * Issue 25 / Ticket 01 — deliver an incident investigation into the same
-   * stream (query SSE, mode='incident'). Returns false when the delivery
-   * was rejected (no repo / empty question / a card already streaming).
-   */
-  submitIncident: (question: string, stack?: string) => boolean;
-  /** True while the latest incident card is still streaming. */
-  incidentRunning: boolean;
-  /** Incident stream is auto-reconnecting (transient SSE drop, ticket 07). */
-  incidentReconnecting: boolean;
-  /** True briefly after an incident reconnect recovers, so the UI can confirm. */
-  incidentRecovered: boolean;
-  /** Terminal incident failure surfaced by the copilot view. */
-  incidentError: string | null;
 }
 
-type WorkbenchStream =
-  | { kind: 'evolve'; stream: EvolveStreamLike }
-  | { kind: 'incident'; stream: QueryStreamLike };
+/** v1.4.x — the evolve branch is the only live producer; the query-SSE union
+ * member went away with the incident composer (server capability remains). */
+type WorkbenchStream = { kind: 'evolve'; stream: EvolveStreamLike };
 
 /** Issue 25 / Ticket 03 — narrow a persisted JSON blob before hydrating it. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -185,10 +175,9 @@ function isTokenUsage(value: unknown): value is TokenUsage {
  * v1 keeps buckets in memory only; server-side persistence is Issue 25
  * (the `workbench_cards` table).
  *
- * Issue 25 / Ticket 01 — the stream is dual-kind: evolve deliveries ride the
- * POST /evolve SSE; incident investigations ride the query SSE in
- * `incident` mode (same QueryStreamLike contract) — both land as cards in
- * one timeline. Exactly one card may stream at a time.
+ * v1.4.x（2026-10-19 定位裁决）— 本 hook 现在只有 evolve 一种投递（POST /evolve
+ * SSE）。历史 incident 卡可经 hydrate 回放（服务端仍持久化它们），但 Web 已无
+ * 投递入口；同一时刻仍只允许一张卡在流式。
  *
  * Lives at the App level (like useChat) so the stream survives tab switches.
  */
@@ -198,10 +187,6 @@ export function useEvolutionSession(
 ): UseEvolutionSessionResult {
   const [cards, setCards] = useState<WorkbenchCard[]>([]);
   const [running, setRunning] = useState(false);
-  const [incidentRunning, setIncidentRunning] = useState(false);
-  const [incidentReconnecting, setIncidentReconnecting] = useState(false);
-  const [incidentRecovered, setIncidentRecovered] = useState(false);
-  const [incidentError, setIncidentError] = useState<string | null>(null);
   const bucketsRef = useRef(new Map<string, WorkbenchCard[]>());
   const keyRef = useRef('');
   const repoRef = useRef(repo);
@@ -222,11 +207,6 @@ export function useEvolutionSession(
     );
     bucketsRef.current.set(keyRef.current, next);
     setCards(next);
-  }, []);
-
-  const setIncidentReconnectingState = useCallback((value: boolean) => {
-    reconnectingRef.current = value;
-    setIncidentReconnecting(value);
   }, []);
 
   /**
@@ -281,11 +261,7 @@ export function useEvolutionSession(
     reconnectingRef.current = false;
     keyRef.current = commitKey;
     setRunning(false);
-    setIncidentRunning(false);
-    setIncidentReconnecting(false);
-    setIncidentRecovered(false);
     if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
-    setIncidentError(null);
     setCards(commitKey ? (bucketsRef.current.get(commitKey) ?? []) : []);
     // Issue 25 / Ticket 03 — replay the persisted stream for this bucket.
     if (commitKey && repo) {
@@ -387,163 +363,12 @@ export function useEvolutionSession(
     [client, patchCard]
   );
 
-  const submitIncident = useCallback(
-    (question: string, stack?: string): boolean => {
-      const current = repoRef.current;
-      const text = question.trim();
-      if (!current || !text || runningIdRef.current) return false;
-
-      const cardId = newTempCardId();
-      const card: IncidentCard = {
-        kind: 'incident',
-        id: cardId,
-        intent: text,
-        ...(stack ? { stack } : {}),
-        status: 'streaming',
-        answer: '',
-        anchors: null,
-        diagram: null,
-        evidence: null,
-        commit: null,
-        error: null
-      };
-      const list = bucketsRef.current.get(keyRef.current) ?? [];
-      const next = [...list, card];
-      bucketsRef.current.set(keyRef.current, next);
-      setCards(next);
-
-      runningIdRef.current = cardId;
-      setIncidentRunning(true);
-      setIncidentReconnectingState(false);
-      setIncidentRecovered(false);
-      setIncidentError(null);
-
-      // In-flight content accumulates in closure locals (mirroring useChat)
-      // so the done handler can parse evidence from the full answer.
-      let answer = '';
-      let anchors: Anchor[] = [];
-      let diagram: string | null = null;
-
-      // Ticket 07: a token after a transient drop means the replay arrived —
-      // flip the reconnect notice into a 2s recovery confirmation.
-      const noteArrival = () => {
-        if (!reconnectingRef.current) return;
-        setIncidentReconnectingState(false);
-        setIncidentRecovered(true);
-        if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
-        recoveredTimer.current = setTimeout(() => setIncidentRecovered(false), 2000);
-      };
-
-      const stream = client.queryRepo(current.id, text, 'incident', undefined, stack);
-      streamRef.current = { kind: 'incident', stream };
-      stream.onEvent((event) => {
-        if (event.type === 'token') {
-          noteArrival();
-          answer += event.text;
-          patchCard(cardId, { answer });
-        } else if (event.type === 'mermaid') {
-          noteArrival();
-          diagram = event.code;
-          patchCard(cardId, { diagram: event.code });
-        } else if (event.type === 'anchors') {
-          noteArrival();
-          anchors = event.anchors;
-          patchCard(cardId, { anchors: event.anchors });
-        } else if (event.type === 'done') {
-          noteArrival();
-          const payload = event.payload ?? {};
-          const suggestedAction =
-            typeof payload.suggestedAction === 'string' ? payload.suggestedAction : undefined;
-          const usage = isTokenUsage(payload.usage) ? payload.usage : undefined;
-          const provenance =
-            payload.provenance === 'llm' || payload.provenance === 'static'
-              ? payload.provenance
-              : undefined;
-          const lowConfidence = payload.lowConfidence === true;
-          patchCard(cardId, {
-            // Issue 25 / Ticket 03 — adopt the persisted card id (the hydrate
-            // replay dedupes by id against the server stream).
-            ...(typeof payload.cardId === 'string' && payload.cardId
-              ? { id: payload.cardId }
-              : {}),
-            ...(suggestedAction ? { suggestedAction } : {}),
-            ...(usage ? { usage } : {}),
-            ...(provenance ? { provenance } : {}),
-            ...(lowConfidence ? { lowConfidence } : {}),
-            // Issue 23 — incident answers ground their assertions into
-            // evidence cards (VERIFIED/BREAK/SUSPECT) parsed from the answer
-            // text plus the validated anchors. Narrative text without
-            // assertions stays unparsed (deterministic parse — it never
-            // invents an assertion).
-            evidence: parseEvidenceFromAnswer(answer, anchors)
-          });
-        } else if (event.type === 'error') {
-          // Terminal backend event (ticket 06): the card keeps any in-flight
-          // content and is finalized as a failed card — never a silent
-          // success.
-          setIncidentError(event.error);
-          setIncidentReconnectingState(false);
-          setIncidentRecovered(false);
-          setIncidentRunning(false);
-          runningIdRef.current = null;
-          patchCard(cardId, {
-            // Issue 25 / Ticket 03 — adopt the persisted error-card id.
-            ...(event.cardId ? { id: event.cardId } : {}),
-            status: 'error',
-            error: event.error
-          });
-        }
-      });
-      stream.onError((err) => {
-        const e = (err ?? {}) as { kind?: 'transient' | 'permanent' };
-        if (e.kind === 'permanent') {
-          setIncidentReconnectingState(false);
-          setIncidentRecovered(false);
-          setIncidentError('连接中断，自动重连失败，请手动重试。');
-          setIncidentRunning(false);
-          runningIdRef.current = null;
-          patchCard(cardId, { status: 'error', error: '连接中断，自动重连失败，请手动重试。' });
-        } else {
-          setIncidentReconnectingState(true);
-          setIncidentRecovered(false);
-          // The stream reopens the same URL, so any already-rendered
-          // in-flight content resets and is replayed (same contract as
-          // useChat — completed cards are never touched).
-          answer = '';
-          anchors = [];
-          diagram = null;
-          patchCard(cardId, { answer: '', anchors: null, diagram: null });
-        }
-      });
-      stream.onDone(() => {
-        setIncidentReconnectingState(false);
-        // Safety net: the terminal SSE event already finalized the card; this
-        // only guards a stream that ends without one.
-        if (runningIdRef.current === cardId) {
-          patchCard(cardId, {
-            status: 'done',
-            // Ticket 06: a query that produced neither code evidence nor a
-            // diagram is presented as a break, never as a silent success.
-            break: anchors.length === 0 && !diagram
-          });
-          runningIdRef.current = null;
-          setIncidentRunning(false);
-        }
-      });
-      stream.connect();
-      return true;
-    },
-    [client, patchCard, setIncidentReconnectingState]
-  );
+  // v1.4.x（2026-10-19 定位裁决）— `submitIncident` 及其独占状态已删除：
+  // Web 侧无任何调用方（死链），服务端 incident 能力保持不变。
 
   return {
     cards,
     running,
-    submit,
-    submitIncident,
-    incidentRunning,
-    incidentReconnecting,
-    incidentRecovered,
-    incidentError
+    submit
   };
 }

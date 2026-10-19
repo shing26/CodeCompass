@@ -10,7 +10,6 @@ interface ConsentPending {
   question: string;
   mode?: QueryMode;
   start?: { name: string; file: string };
-  stack?: string;
   chatMessage?: string;
 }
 
@@ -167,19 +166,20 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId, view, dashboardLoading, dashboard]);
 
-  const handleSubmit: typeof submit = (question, mode, start, stack) => {
+  const handleSubmit: typeof submit = (question, mode, start) => {
     if (runtime.llm.mode === 'remote' && !llmConsented) {
-      setConsentPending({ question, mode, start, stack });
+      setConsentPending({ question, mode, start });
       return;
     }
-    submit(question, mode, start, stack);
+    submit(question, mode, start);
   };
 
-  /** chat-merge — chat send guarded by the same LLM consent gate as the
-   * legacy incident composer. Returns null when consent was cancelled so the
-   * ChatView can restore the draft. sessionId 由 ChatView 传入（真实 chat-s*
-   * 行）——v0.25 批3 分片时误把 currentRepo.id 当 sessionId，真实前端全部
-   * 404 unknown session（computer-use 走查抓到，登记 v027-ui 票 03）。 */
+  /** chat-merge — chat send guarded by the same LLM consent gate (the incident
+   * composer that used to share it is gone; see the v1.4.x positioning ruling).
+   * Returns null when consent was cancelled so the ChatView can restore the
+   * draft. sessionId 由 ChatView 传入（真实 chat-s* 行）——v0.25 批3 分片时误把
+   * currentRepo.id 当 sessionId，真实前端全部 404 unknown session
+   * （computer-use 走查抓到，登记 v027-ui 票 03）。 */
   const chatGuardSend = useCallback(
     (
       message: string,
@@ -212,7 +212,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
         setDraftReady(true);
         return;
       }
-      submit(consentPending.question, consentPending.mode, consentPending.start, consentPending.stack);
+      submit(consentPending.question, consentPending.mode, consentPending.start);
     }
     setConsentPending(null);
   };

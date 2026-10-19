@@ -6,9 +6,10 @@ import { existsSync } from 'node:fs';
  * v0.9.0 — Multi-view self-contained HTML artifact export (Archify-style
  * single file). Extends the v0.8 single-diagram artifact with:
  *
- *  - view tabs: Architecture + Sequence (both data-backed); Lifecycle and
- *    Dataflow render an honest "no evidence yet" placeholder instead of
- *    inventing graphs (their AST sources ship in a later release),
+ *  - view tabs: Architecture + Sequence — both data-backed. The Lifecycle /
+ *    Dataflow placeholder tabs were removed (2026-10-19 定位裁决): the
+ *    "drop of v1.0" promise in ADR-0008 was four releases past its station,
+ *    and a disabled tab that never lights up is not honest disclosure.
  *  - lazy rendering: the Sequence view is stored as raw text and rendered
  *    through mermaid.run() only when its tab is first activated — rendering
  *    a hidden display:none container yields zero-width SVGs,
@@ -192,8 +193,6 @@ export function renderArtifactHtml(input: ArtifactInput): string {
   <div class="tabs">
     ${input.mermaid ? `<button class="tab active" data-view="arch">Architecture</button>` : ''}
     ${input.sequence ? `<button class="tab${input.mermaid ? '' : ' active'}" data-view="sequence">Sequence</button>` : ''}
-    <button class="tab disabled" disabled title="Lifecycle / Dataflow 需要方法体级证据，规划于 v1.0">Lifecycle (v1.0)</button>
-    <button class="tab disabled" disabled title="Lifecycle / Dataflow 需要方法体级证据，规划于 v1.0">Dataflow (v1.0)</button>
   </div>
   ${input.mermaid ? `<div class="card view" id="view-arch"><h2>Architecture</h2><pre class="mermaid">${escapeHtml(input.mermaid)}</pre></div>` : ''}
   ${

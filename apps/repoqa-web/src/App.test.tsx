@@ -394,7 +394,7 @@ describe('v0.27-UI ticket 02: AskDock global bar (问现状入口)', () => {
     await user.click(screen.getByTestId('ask-dock-send'));
     await waitFor(() => expect(screen.getByTestId('chat-question')).toHaveValue('A 库的问题'));
 
-    // chat 视图内切库：URL mode=incident→chat 使视图不离开 chat（RepoContext 语义），
+    // chat 视图内切库：mode=chat 往返使视图不离开 chat（RepoContext 语义），
     // 草稿带 repoId 归属 + key 重挂载——B 库 composer 必须干净。
     await user.selectOptions(screen.getByTestId('repo-select'), 'repo-2');
     await waitFor(() => expect(screen.getByTestId('chat-session-title')).toHaveTextContent('other-repo'));
@@ -712,8 +712,7 @@ describe('Issue 31 workbench tab switching (topo / metrics / gate)', () => {
       'repo-1',
       'listOrders 的完整调用链是怎样的？',
       'call-chain',
-      { name: 'listOrders', file: 'src/main/java/OrderController.java' },
-      undefined
+      { name: 'listOrders', file: 'src/main/java/OrderController.java' }
     );
     expect(screen.queryByTestId('back-to-dashboard')).not.toBeInTheDocument();
   });
@@ -989,7 +988,7 @@ describe('Sprint 1 remote LLM privacy consent', () => {
     );
     await selectRepo(user);
 
-    // Issue 25 / Ticket 01 — free-form questions ride the incident composer.
+    // chat 面：自由提问走 chat 流（v0.24 chat-merge 取代 incident composer）。
     await user.click(screen.getByTestId('tab-chat'));
     await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
     await user.type(screen.getByTestId('chat-question'), 'architecture overview');
@@ -1069,7 +1068,7 @@ describe('chat-merge: chat view replaces the incident copilot (v0.24.0)', () => 
     window.history.replaceState(null, '', '/');
   });
 
-  it('opens the chat view from the TopBar tab and syncs mode=incident', async () => {
+  it('opens the chat view from the TopBar tab and syncs mode=chat', async () => {
     const user = userEvent.setup();
     render(<App client={makeClient()} />);
     await selectRepo(user);
@@ -1077,13 +1076,16 @@ describe('chat-merge: chat view replaces the incident copilot (v0.24.0)', () => 
     await user.click(screen.getByTestId('tab-chat'));
     await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
     expect(screen.getByTestId('chat-session-list')).toBeInTheDocument();
-    expect(window.location.search).toContain('mode=incident');
+    expect(window.location.search).toContain('mode=chat');
   });
 
-  it('lands on the chat view via the legacy ?mode=incident deep link (B3: not 404)', async () => {
+  it('treats the removed ?mode=incident alias as an unknown mode (falls back to topo)', async () => {
+    // v1.4.x 定位裁决：incident 的 Web 入口是死链，别名随之删除——旧书签不再
+    // 偷偷进 chat，而是落到拓扑页（唯一诚实的行为：那个视图已不存在）。
     window.history.replaceState(null, '', '/?repo=repo-1&mode=incident');
     render(<App client={makeClient()} />);
-    await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('canvas')).toBeInTheDocument());
+    expect(screen.queryByTestId('chat-view')).not.toBeInTheDocument();
   });
 
   it('sends a chat turn through the client.chat stream (Q1 承接)', async () => {
@@ -1340,13 +1342,14 @@ describe('tickets 13+16 (QA-04 / QA-07): URL is the single source of truth', () 
     expect(screen.getByTestId('tab-delta')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('?mode=chat cold load lands on the chat view and normalizes the URL to incident', async () => {
+  it('?mode=chat cold load lands on the chat view and keeps mode=chat in the URL', async () => {
     window.history.replaceState(null, '', '/?repo=repo-1&mode=chat');
     render(<App client={makeClient()} />);
     await waitFor(() => expect(screen.getByTestId('chat-view')).toBeInTheDocument());
-    // Alias normalization is established behavior (maintainer ruling): the
-    // shared viewFromMode map accepts chat, the URL converges to incident.
-    await waitFor(() => expect(window.location.search).toContain('mode=incident'));
+    // v1.4.x 定位裁决：`incident` 不再是 chat 的规范 mode 值（那个别名已删），
+    // URL 收敛到 mode=chat，刷新/分享都落在同一个视图。
+    await waitFor(() => expect(window.location.search).toContain('mode=chat'));
+    expect(window.location.search).not.toContain('mode=incident');
     expect(screen.getByTestId('tab-chat')).toHaveAttribute('aria-pressed', 'true');
   });
 });

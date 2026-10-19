@@ -9,6 +9,8 @@
 
 ## 1. 当前状态（一句话版）
 
+**v1.4.1 补丁（2026-10-19，定位定稿与死面清理）**：用户四项裁决——**MCP/CLI 是唯一对外产品面，Web 是维护者 dogfooding 驾驶舱与演示面**（ADR-0021，含摇摆终止规则）；同批删除 HTML 工件的 Lifecycle/Dataflow 禁用占位与 Web 侧 incident 死链（服务端能力保留、无 UI 入口），并把 MHW harness 面冻结加注为非产品面。门禁 846/429/26/73-0。
+
 **v1.4.0 收口（2026-10-19，「上手与可用性手术」批）**：起因 = 外部三条批判 + 四步手术指令（门槛高 / 画布毛线团 / 名为工具实为展示架 / 包装词与边界）。逐条核实后：**两条半已被历史交付覆盖**（画布从未全量铺开；CLI 与单文件 HTML 导出早已存在），只做实锤缺口——①**示例项目一键载入**（`POST /api/repos/sample`，内嵌 11 文件 TS 小仓，真机 ready=11 文件/32 符号/<10s、3 个 Top API、1 条导览）②**粘贴片段即出调用图**（`POST /api/snippets/graph` 纯内存、不回显源码，Web `?mode=snippet`）③**子图焦点模式**（深度 1–5、点击换中心+返回、聚合可展开；顺带修好子图节点深链静默失效 = 绑定按 id、分发按标签）④**`codecompass trace`**（终端上下游树、`-f` 文件+函数、`--up/--down/--ascii/--json`）+ `export --output` 别名 ⑤**Web 导出 HTML 报告**（与 CLI 同一装配器 `artifact-report.ts`）⑥**路径契约**（preview 回显 resolvedPath，相对路径 resolve 后存库）⑦**README 独立 Known Limitations**（静态边界 / TS 别名不解析 / Go 隐式接口 / 检索非语义 / 运行时不在射程 / 环境约束），首段改人话。**门禁：控制面 843、web 429、bridge 26、e2e 73/0**（typecheck 零错误；e2e 仅 `readme-version` 曾因版本未刷而红，刷新后全绿；评审修复后复跑 = 846/429/26/73-0）。npm 已发布：registry latest = **1.4.0**（2026-10-19；0.31.0 直接跳到 1.4.0，1.1–1.3 未单独上架）。批次 spec 在 `.scratch/v1.4-usable-tool/spec.md`；ticket 08 = TS 模块路径解析（import + tsconfig paths）**显式 deferred**（触发线在票面）。
 **未做（按性质）**：真实 tsconfig `paths` / import specifier 解析（引擎级重构，威胁三仓精度棘轮；只做披露）；G6/交互图库替换 mermaid（全量图场景不存在）；内嵌预解析 SQLite（小样仓索引实测 <10s）。上一批未修项（R5-05/08/09/11/13/14/16）仍在 `.scratch/v027-backlog.md` 与 v1.3 段。
 **发布评审（2026-10-19，独立只读 agent，安全轴 + 契约轴）**：**GO WITH NOTES**（0 P0 / 2 P1 / 11 P2），报告 = `docs/reports/code-review-2026-10-19.md`。两条 P1 已随本 tag 修复并重指：① mermaid `loose` → `strict`（仓库内容可进标签 → 存储型 XSS；点击导航是 DOM 代理，不掉功能）② HTML 报告的 Sequence/Story Beats 因把转义写进 raw-text `<script>` 而实际不可用（改 `textarea` + `\u003c`，补结构级测试）。P2 已修 9 条（CLI 吞旗标、片段报文上限/掩码、Host 头深链、畸形转义、返回轨迹、CORS 暴露头、示例覆盖、shown-above 标注、重复声明），登记 2 条（软链纵深、换行卫生）。**tag v1.4.0 已重指至评审终态 commit**（照 v0.31.0 先例）。
@@ -21,8 +23,10 @@
 
 **v0.30.0 收口（2026-09-16，历史背景）**：v0.30.0 去极客化战役全批收口（G0–G8 全闭，门禁全绿）：双文案哨共表（中文 23 词 + 英文 38 词入 `packages/contracts` 跨包权威）+ 字号两档语义化（111 处任意值 → `text-xs`/`text-micro`）+ chrome 中英混排人话化（~55 短语）+ 枚举展示映射（`statusLabel` 表 C）+ Badge/CountPill 双件（9 徽章族归一）+ 黑话双端清扫 + `styles.css` 销号 + 命名族归一（「拆除计划」→「下线方案」，同义触发词保留、工具灵敏度零回归）。前置批次：v0.29 韧性硬化（出库掩码单尺 `maskSensitiveText`、clone 重试分类器、MCP 深链单一源）、v0.28 结构手术（web→contracts 单一源、control-plane 目录归组 ingest/engine/mcp/eval）、v0.27 生产就绪（Docker 修复、版本单一源、WS 优雅关闭挂死真 bug 修复）。各战役 spec 在 `.scratch/<feature>/`。
 
-**方向已定（2026-09-16，2026-09-24 复核重申）**：**A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示资产），Web 面只减不增**——落地 spec 与票池（01–20）见 `.scratch/v031-precision/spec.md`，下一步整体切到 §4。此前「连续五个版本做卫生不做产品」的漂移已诊断归因（定位文档 §1），本批的完成定义写死在度量口径 M1–M5。
-**2026-09-24 定位口径对齐（用户提出）**：README 首句此前仍自称「多语言代码理解**工作台**」，与"主轴是 MCP、Web 只是演示调试面"矛盾——已改首句为「多语言代码**事实层**，主轴是 **MCP**」并显式写明消费面主次；`CONTEXT.md` 的 CodeCompass 身份词条同步。**Web 界面确实长期搁置（v0.30 后无新功能，v0.31 起"只减不增"）**，文档不得再把它写成产品面。
+**定位定稿（2026-10-19，用户四选一裁决）——`ADR-0021`：MCP/CLI 是唯一对外产品面，Web 是维护者 dogfooding 驾驶舱与演示面**（非并列产品、不作对外承诺；ADR-0020 的 Web 门禁降格为内部纪律）。**摇摆终止规则**：新想法只走两通道——增强事实面并说清「降低哪类误报/提升哪类精度」，或改驾驶舱并说清「维护者日常怎么用」；都答不上来=不做并优先清理。同批落地：HTML 工件移除 `Lifecycle (v1.0)`/`Dataflow (v1.0)` 禁用占位（ADR-0008 的 v1.0 承诺作废）、Web 侧 incident 死链（`askIncident`/`submitIncident`/状态机/`?mode=incident` 别名）删除（服务端 incident 能力保留，无 UI 入口）、MHW harness 面（`/api/tasks|harnesses|workspaces` + `bridge-adapters` 桩）冻结并加注为非产品面。**已取代**：v0.31 的「Web 面只减不增」（被 ADR-0020 覆盖，又被 ADR-0021 降格为内部纪律）。
+
+**方向已定（2026-09-16，2026-09-24 复核重申；2026-10-19 由 ADR-0021 统一取代）**：**A 主轴（给 coding agent 的确定性代码事实层，MCP-first）+ D 交付（可展示资产）**——落地 spec 与票池（01–20）见 `.scratch/v031-precision/spec.md`。此前「连续五个版本做卫生不做产品」的漂移已诊断归因（定位文档 §1），本批的完成定义写死在度量口径 M1–M5。
+**2026-09-24 定位口径对齐（用户提出，历史）**：README 首句此前仍自称「多语言代码理解**工作台**」，与"主轴是 MCP、Web 只是演示调试面"矛盾——已改首句为「多语言代码**事实层**，主轴是 **MCP**」并显式写明消费面主次；`CONTEXT.md` 的 CodeCompass 身份词条同步。
 
 **2026-09-24 精度残余族收口**：票 18 三族全落地（(g) 09-21；(f) 两半 + (e) 09-24），self top-10 的 `RepoQAClient.*` **7 → 1**（仅真阳性 `getRepo`），self 孤儿 **248 → 246**，lazygit 1807 / petclinic 13 **逐字节不变**。派生两票已立：**19**（多行模板串未掩码 → 幻影声明；修法必须两阶段，一行正则自伤）、**20**（接口→实现关系表 = ADR-0018 `deferred` 的 A′ step 2；self 流订阅族与 lazygit 620 条同源）。
 
@@ -99,7 +103,7 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 | 文档 | 内容 |
 |---|---|
 | `CONTEXT.md` | 术语表（含 出库掩码不变式 / 用户文案规范）+ 全部 ADR 索引 |
-| `docs/adr/0001–0020` | 架构决策（20 份）；**0016（MCP 长操作立即返回+轮询）新工具设计前必读；0018（孤儿桶只声称可调用符号）改 scan 语义前必读；0020（Web 工作台再产品化=双面体再平衡）改 Web 面前必读** |
+| `docs/adr/0001–0021` | 架构决策（21 份）；**0016（MCP 长操作立即返回+轮询）新工具设计前必读；0018（孤儿桶只声称可调用符号）改 scan 语义前必读；0021（定位：MCP/CLI 唯一对外产品面）任何新想法立项前必读** |
 | `CHANGELOG.md` | 0.5.x→1.0.0 完整发布条目 |
 | `docs/reports/` | 体验报告 Round1–3（产品缺陷史）与历史评估报告；截图在 `ui-shots/`（本地） |
 | `docs/archive/` | 历史 handoff（v0.3 / 2026-08 / 2026-09）与旧规划文档 |
@@ -143,7 +147,7 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 7. **R5-05 剩服务端半**：chat 流式服务端进度与慢模型断点提示（前端停止/已用时已落地）。
 8. **R5-13 剩兜底半**：大仓 Top API 空榜 / 无链路时的说明文案（非 ready 与「无法静态解析」两处已有）。
 9. **V12-1 剩余**：路由级兜底 error 卡未带 `intentEcho`（`routes/analysis-stream.ts:92-100` / `:167-175`；计划内失败已持久化）——小改，可随下批带上。
-10. **无消费方的遗留面待裁决**（2026-10-19 盘点列出；删/冻结未定）：`/api/tasks`、`/api/harnesses`、`/api/workspaces`、`/api/repos/:id/anchor-click`、`/api/repos/:id/feedback`（`routes/workbench.ts`，Web 零调用；harness 执行层是 `packages/bridge-adapters` 模拟桩）；Web 侧 incident 死链（`askIncident`/`submitIncident` 无组件调用，`?mode=incident` 仅 chat 别名）；HTML 工件的 `Lifecycle (v1.0)`/`Dataflow (v1.0)` 禁用占位（ADR-0008 承诺的 v1.0 早已过站）。
+10. **无消费方的遗留面（2026-10-19 定位裁决已处置）**：① `Lifecycle (v1.0)`/`Dataflow (v1.0)` 禁用占位——**已删**（ADR-0008 的 v1.0 承诺作废并标注未排期）；② Web 侧 incident 死链（`askIncident`/`submitIncident`/状态机/`?mode=incident` 别名）——**已删**，服务端 incident（`stack` 参数、query SSE）保留但**无 UI 入口**，属非承诺能力；③ MHW harness 面（`/api/tasks|harnesses|workspaces`、`anchor-click`、`feedback` + `packages/bridge-adapters` 桩）——**冻结并加注**（`routes/workbench.ts`、`bridge-adapters/src/index.ts` 头注：非产品面、零消费方、不得据此承诺）。
 
 **已划销（2026-10-19 盘点，逐条代码核实）**：V27-17、精度残余三族与派生票 19/20/21、`RepoQAClient.getRepo` 死码（`54ae70b` 已删）、`ChatMergeClient.*`（复核为活代码，此前误判）、两族假阳性（值引用 + 成员链接收者，票 22 落地）、V29-1 韧性后半（202 + WS + 克隆重试可感知）、V12-3（evolve 降级徽章 `92cf734`）、R5-08/09/11/14/16、npm 发布积压（1.4.0 已上架）。
 

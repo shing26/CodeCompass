@@ -137,7 +137,7 @@ function WorkbenchShell() {
   const { toggleTheme } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
   // v0.27-UI ticket 02 (U3)：AskDock 提交的问题经此草稿通道预填进 chat composer。
-  // 草稿带 repoId 归属（review P1-1）：viewFromMode('incident')→chat 让切库不离开
+  // 草稿带 repoId 归属（review P1-1）：切库时不再离开 chat 视图让草稿错位归属
   // chat 视图，无归属时 A 库的预填会静默残留进 B 库 composer。
   const [askDraft, setAskDraft] = useState<{ repoId: string; text: string } | null>(null);
   const clearAskDraft = useCallback(() => setAskDraft(null), []);
