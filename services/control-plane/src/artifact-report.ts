@@ -24,6 +24,8 @@ export interface DiagnoseArtifactInput {
   baseUrl: string;
   /** Repo root enabling code snippets in chain steps. */
   snippetRoot?: string;
+  /** v1.5 票 03 — 锚点所属 commit（repo.commit），写进工件的重放校验块。 */
+  commit?: string;
   /** Injectable clock for tests. */
   now?: () => Date;
 }
@@ -103,6 +105,11 @@ export function buildDiagnoseArtifact(input: DiagnoseArtifactInput): DiagnoseArt
     })),
     summary: result.rootCauseSummary,
     deepLink: result.cockpitDeepLink,
+    replay: {
+      repoId: input.repoId,
+      ...(input.commit ? { commit: input.commit } : {}),
+      command: `codecompass export "${input.entrySymbol}"`
+    },
     sections: [
       { heading: 'Chain', body: chainText, kind: 'code' },
       ...result.verifiedChain

@@ -933,7 +933,8 @@ export async function runCli(argv: string[], ctx: CliContext = {}): Promise<CliR
           symbols: graph.symbols,
           index: graph.index,
           baseUrl,
-          snippetRoot: localPath
+          snippetRoot: localPath,
+          commit: repo.commit
         });
         const outPath =
           args.diffFile ?? args.outputFile ?? `codecompass-diagnose-${traceId}.html`;

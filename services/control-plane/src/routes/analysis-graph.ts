@@ -256,7 +256,8 @@ export function registerGraphRoutes(app: express.Express, deps: HttpDeps): void 
         // v1.4.1 评审 P2 — 深链只认 cockpitBaseUrl（0.29 起的单一权威）；
         // Host 头不是真值（DNS rebinding / 反向代理下可被伪造）。
         baseUrl: cockpitBaseUrl(),
-        snippetRoot: repo.localPath
+        snippetRoot: repo.localPath,
+        commit: repo.commit
       });
       const slug = symbol.replace(/[^\w.-]+/g, '-').slice(0, 60) || 'symbol';
       res.setHeader('Content-Type', 'text/html; charset=utf-8');

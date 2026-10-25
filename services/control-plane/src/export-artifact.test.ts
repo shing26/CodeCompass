@@ -124,3 +124,24 @@ describe('export-artifact (v0.8)', () => {
     }
   }, 30_000);
 });
+
+describe('export-artifact replay stamp (v1.5 ticket 03)', () => {
+  it('embeds repoId, commit and the local replay command when replay is provided', () => {
+    const html = renderArtifactHtml({
+      ...baseInput,
+      replay: {
+        repoId: 'repo-7',
+        commit: '9488758a',
+        command: 'codecompass export "handleLike"'
+      }
+    });
+    expect(html).toContain('重放校验');
+    expect(html).toContain('repo-7');
+    expect(html).toContain('9488758a');
+    expect(html).toContain('codecompass export &quot;handleLike&quot;');
+  });
+
+  it('omits the replay block entirely when no replay metadata is given', () => {
+    expect(renderArtifactHtml(baseInput)).not.toContain('重放校验');
+  });
+});

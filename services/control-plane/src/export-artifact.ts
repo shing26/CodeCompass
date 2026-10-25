@@ -36,6 +36,14 @@ export interface ArtifactInput {
   title: string;
   repoName: string;
   generatedAt?: string;
+  /** v1.5 票 03 — 重放校验入口：工件脱离引擎环境后，读者据此回到可验证
+   * 状态（本地重放命令 + 锚点所属 commit）。缺省不渲染该块。 */
+  replay?: {
+    repoId: string;
+    commit?: string;
+    /** 本地可复制的重放命令（如 codecompass export <symbol>）。 */
+    command: string;
+  };
   /** Architecture view (flowchart). */
   mermaid?: string;
   /** Sequence view (mermaid sequenceDiagram), rendered lazily. */
@@ -228,6 +236,14 @@ export function renderArtifactHtml(input: ArtifactInput): string {
   const deepLink = input.deepLink
     ? `<p class="deeplink">Cockpit: <a href="${escapeHtml(input.deepLink)}">${escapeHtml(input.deepLink)}</a></p>`
     : '';
+  const replayBlock = input.replay
+    ? `<div class="card replay"><h2>重放校验</h2>` +
+      `<p>本工件由确定性引擎生成；file:line 锚点以生成时的仓库状态为准。` +
+      `仓库 <code>${escapeHtml(input.replay.repoId)}</code>` +
+      (input.replay.commit ? ` · commit <code>${escapeHtml(input.replay.commit)}</code>` : '') +
+      `。在本地同一份代码上重放：</p>` +
+      `<pre class="code">${escapeHtml(input.replay.command)}</pre></div>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -277,6 +293,7 @@ ${badges ? `<div class="badges">${badges}</div>` : ''}
 ${offlineWarning}
 ${summary}
 ${deepLink}
+${replayBlock}
 ${viewsBlock}
 ${beatsBlock}
 ${sections}

@@ -19,6 +19,10 @@ interface ChatRuntimeContextValue {
   /** 最近一条 assistant 消息的锚点/调用链步骤——Canvas 与 Inspector 上下游切片面板共用。 */
   canvasAnchors: Anchor[];
   canvasTraceSteps: TraceStep[] | null;
+  /** v1.5 票 04（R5-13 剩余半）— 最近一次链路解析完成但零锚点（useChat 已把
+   * 该消息标 break=true）。Canvas 据此把骨架屏换成确定性兜底文案，而不是
+   * 让「当前链路」整段消失、看起来永远在加载。 */
+  canvasTraceEmpty: boolean;
   evolutionSession: ReturnType<typeof useEvolutionSession>;
   consentPending: ConsentPending | null;
   setConsentPending: (v: ConsentPending | null) => void;
@@ -238,12 +242,24 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     }
     return null;
   }, [messages]);
+  // v1.5 票 04（R5-13）— 「已解析完成但零锚点」是可判定状态：最近一条已完成
+  // 的 assistant 消息 break=true 且无锚点无图（useChat onDone 的判据）。这与
+  // 「尚在解析」不同——前者该出兜底文案，后者才该出骨架屏。
+  const canvasTraceEmpty = useMemo<boolean>(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.role !== 'assistant' || message.status !== 'done') continue;
+      return message.break === true && !message.anchors?.length && !message.diagram;
+    }
+    return false;
+  }, [messages]);
 
   const value: ChatRuntimeContextValue = {
     runtime,
     totalUsage,
     canvasAnchors,
     canvasTraceSteps,
+    canvasTraceEmpty,
     evolutionSession,
     consentPending,
     setConsentPending,

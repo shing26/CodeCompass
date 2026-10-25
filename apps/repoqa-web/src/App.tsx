@@ -120,6 +120,7 @@ function WorkbenchShell() {
     totalUsage,
     canvasAnchors,
     canvasTraceSteps,
+    canvasTraceEmpty,
     evolutionSession,
     consentPending,
     setConsentPending,
@@ -318,6 +319,7 @@ function WorkbenchShell() {
               repo={currentRepo}
               anchors={canvasAnchors}
               traceSteps={canvasTraceSteps}
+              traceEmpty={canvasTraceEmpty}
               onNavigate={inspector.openFile}
               deepLinkFocus={deepLink.focus}
               deepLinkTraceId={deepLink.traceId}

@@ -26,6 +26,8 @@ interface CanvasProps {
   anchors?: Anchor[] | null;
   /** Live trace steps of the latest resolved trace (App-derived). */
   traceSteps?: TraceStep[] | null;
+  /** v1.5 票 04（R5-13）— 最近一次链路解析完成但零锚点：骨架屏换确定性兜底文案。 */
+  traceEmpty?: boolean;
   /** code:// deep link routing; wired to the Inspector in ticket 05. */
   onNavigate?: (file: string, line: number, lineEnd?: number, symbolName?: string) => void;
   /** Issue 18: pinned "back to dashboard" entry inside the canvas. */
@@ -82,6 +84,7 @@ export function Canvas({
   repo,
   anchors = null,
   traceSteps = null,
+  traceEmpty = false,
   onNavigate,
   onBackToDashboard,
   deepLinkFocus = null,
@@ -257,7 +260,25 @@ export function Canvas({
                 flashSymbol={deepLinkFlash ? deepLinkFocus : focusSymbol}
               />
             )}
-            {flowAnchors.length === 0 && <FlowSkeleton />}
+            {flowAnchors.length === 0 && traceEmpty && (
+              // v1.5 票 04（R5-13 剩余半）— 链路解析完成但零锚点：不再渲染
+              // 骨架屏（看起来像永远在加载、「当前链路」整段消失），改说确定性
+              // 事实。口径与 TopApiBlock 空榜文案一致：陈述引擎能识别什么、
+              // 空结果可能意味着什么，不猜具体原因。
+              <div
+                data-testid="flow-empty"
+                className="mx-auto mb-4 flex max-w-2xl items-start gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-xs text-muted"
+              >
+                <span aria-hidden="true">🔎</span>
+                <span>
+                  这条链路没有解析到任何静态调用边——引擎只解析静态可判定的显式调用。
+                  起点符号可能是静态图谱里的叶子（没有静态调用出边）、入口注册形态
+                  不在识别范围内、或调用经由运行时机制发生。这是分析边界，不是错误；
+                  可在左侧符号树选择其他符号重新发起追踪。
+                </span>
+              </div>
+            )}
+            {flowAnchors.length === 0 && !traceEmpty && <FlowSkeleton />}
             <div
               data-testid="offline-hint"
               className="mx-auto mb-3 flex max-w-2xl items-start gap-2 rounded-md border border-line bg-subtle px-3 py-2 text-xs text-muted"

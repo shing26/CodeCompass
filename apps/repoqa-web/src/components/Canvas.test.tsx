@@ -130,6 +130,21 @@ describe('Canvas topology flow cards (Issue 31)', () => {
     expect(screen.getByTestId('flow-skeleton')).toBeInTheDocument();
     expect(screen.queryByTestId('flow-card')).not.toBeInTheDocument();
   });
+
+  // v1.5 票 04（R5-13 剩余半）— 链路解析完成但零锚点：骨架屏换兜底文案。
+  it('renders the deterministic empty-trace copy instead of the skeleton once a trace resolved empty', () => {
+    renderCanvas({ traceEmpty: true });
+    expect(screen.queryByTestId('flow-skeleton')).not.toBeInTheDocument();
+    const empty = screen.getByTestId('flow-empty');
+    expect(empty).toHaveTextContent('没有解析到任何静态调用边');
+    expect(empty).toHaveTextContent('分析边界');
+  });
+
+  it('keeps the skeleton while the trace is still resolving (traceEmpty=false)', () => {
+    renderCanvas({ traceEmpty: false });
+    expect(screen.getByTestId('flow-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('flow-empty')).not.toBeInTheDocument();
+  });
 });
 
 describe('Canvas Top API focus flash (v0.7 issue 12)', () => {
