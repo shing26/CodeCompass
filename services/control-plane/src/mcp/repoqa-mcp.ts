@@ -31,6 +31,7 @@ import {
   validateGitUrl
 } from '../git-importer';
 import { VERSION } from '../version';
+import { buildVerificationReceipt } from './output-contract';
 
 /**
  * Issue 20 — Model Context Protocol (MCP) server.
@@ -1136,6 +1137,29 @@ export function createMcpServer(deps: McpDeps): McpServer {
     logger.info('mcp', 'tool_call', fields);
   };
 
+  /* v1.5 票 02 — 对象载荷在出库前附 verification 回执（增量字段，17 个
+   * 输入签名零变化）。root 解析失败不阻塞交付：回执退 UNCHECKED。 */
+  const withVerificationReceipt = async (
+    tool: string,
+    args: McpToolHandlerArgs,
+    value: unknown
+  ): Promise<unknown> => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+    let root: string | undefined;
+    const repoId = (args as { repoId?: unknown }).repoId;
+    if (typeof repoId === 'string' && repoId) {
+      try {
+        root = resolveMcpRepo(deps, repoId).localPath;
+      } catch {
+        root = undefined;
+      }
+    }
+    const repoPath = (args as { repoPath?: unknown }).repoPath;
+    if (!root && typeof repoPath === 'string' && repoPath) root = path.resolve(repoPath);
+    const verification = await buildVerificationReceipt({ tool, value, root });
+    return { ...(value as Record<string, unknown>), verification };
+  };
+
   const registerPlain = (
     meta: McpToolMeta,
     handler: (args: McpToolHandlerArgs) => unknown | Promise<unknown>
@@ -1146,7 +1170,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
       async (args: McpToolHandlerArgs) => {
         const startedAt = performance.now();
         try {
-          const value = await handler(args);
+          const value = await withVerificationReceipt(meta.name, args, await handler(args));
           audit(meta.name, args, { ok: true, value }, startedAt);
           return textResult(value);
         } catch (error) {
