@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.5.0] - 2026-10-25
+
+**交付也可验证：verification 回执 + 重放戳 + R5-13 收尾。** 把「宁可标记断链，
+绝不编造」从引擎内部纪律延伸为对外契约的一部分（ADR-0021 通道 A：降低 agent
+对返回体误读这类误报）。**MCP 17 个工具的输入签名零变化**——回执是返回体的
+增量字段。
+
+### 新增
+
+- **MCP 返回体 verification 回执**：每个对象载荷在出库前（`textResult` 前的
+  唯一 chokepoint）附 `verification` 字段——锚点存在性（载荷内全部 (file, line)
+  对照仓库根做物理校验，与 chat 侧 raw-file 校验同判据）、断链标记计数
+  （BREAK/BROKEN/EXTERNAL/DYNAMIC/UNRESOLVED/SUSPECT 逐字段清点）、
+  verdict（VERIFIED / ANCHORS_MISSING / UNCHECKED / NO_EVIDENCE）与带 JSON
+  路径的 diagnostics。任一项不通过都明确写明，绝不静默交付。新模块
+  `services/control-plane/src/mcp/output-contract.ts`（+6 单测）。
+- **export HTML 重放校验入口**：单文件工件内嵌「重放校验」块——repoId、
+  锚点所属 commit 与本地重放命令（`codecompass export <symbol>`）。工件脱离
+  引擎环境后，读者仍知道如何回到可验证状态。CLI 与 Web 端点共用同一
+  builder，两面板字一致。
+- **TS/JS 模块解析探针**：`scripts/precision/import_resolution_probe.ts`
+  （v1.4 票 08 前置条件「先量」）。self 仓实测：跨文件调用 4055 条，同名
+  歧义 3274 条，**import 解析可唯一钉死 1301 条（40%）**——数字已登记进
+  票 08，供 v1.6 是否开模块解析战役的裁决。
+
+### 修复
+
+- **R5-13 剩余兜底半**：链路解析完成但零锚点时，画布不再永远渲染骨架屏
+  （「当前链路」整段消失、看似卡在加载），改为确定性兜底文案（口径同
+  TopApiBlock 空榜：陈述引擎能识别什么，不猜原因）。`ChatRuntimeContext`
+  新增 `canvasTraceEmpty`（消费 useChat 已有的 break 判据）。
+
+### 登记
+
+- Go 的 chunk 检索覆盖缺口登记为 deferred 票（Go 是 AST 面四种承诺语言
+  之一、检索面缺席；触发线与立项先修见
+  `.scratch/v1.5-deliverable-verification/issues/05-go-chunk-coverage.md`）。
+
+### 门禁
+
+- 控制面 **862** / web **433** / bridge **26** / e2e **73-0**；typecheck 零错误；
+  生产构建通过。
+
 ## [1.4.2] - 2026-10-20
 
 **对账批收尾：两个真缺口 + 一份配置示例。** v1.4.1 之后的代码现实复测只找到两处

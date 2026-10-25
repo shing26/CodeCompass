@@ -25,3 +25,5 @@ Status: deferred
 （登记于 2026-10-19，v1.4 spec §2.3 放弃清单对应项）
 
 v1.4 已落地的**披露侧**：README `Known Limitations` 第 2 条明确写出「不解析 import 声明、不读 tsconfig baseUrl/paths；按符号名绑定；同名可能错绑；别名不报错」。本票只登记真实修复，不在 v1.4 实现。
+
+- **2026-10-25 前置条件 1（先量）已完成**：探针 `scripts/precision/import_resolution_probe.ts` 在 self 仓（commit 38deb70）实测：跨文件调用 4055 条，其中**同名多文件声明歧义 3274 条**；若解析 import 声明（仅相对导入——self 未用任何 `@/` 别名、无 tsconfig paths），**1301 条可被唯一钉死（40%）**。报表 `scripts/precision/out/import_probe_self.json`。数字跨过「先有度量」门槛：按本票「立项时必须先做的事」第 2、3 条（三仓棘轮基线冻结 + 消解语义 ADR）可开战役，建议批次 v1.6；lazygit（Go）/petclinic（Java）不受影响，战役前后应逐字节不变。

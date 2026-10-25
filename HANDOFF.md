@@ -147,7 +147,7 @@ docs/archive/           # 历史：dated handoff、旧规划（repoqa-prd/plan/r
 5. **v1.4 票 08（deferred）：TS 模块路径解析**（import specifier + tsconfig `paths`/`baseUrl`）——引擎级重构，威胁三仓精度棘轮；触发线见 `.scratch/v1.4-usable-tool/issues/08-deferred-ts-module-resolution.md`。
 6. **v1.1 票 10（deferred）：MCP 探针重跑**——阻塞于 provider 额度（402）；触发线=额度恢复。
 7. **R5-05 剩服务端半**：chat 流式服务端进度与慢模型断点提示（前端停止/已用时已落地）。
-8. **R5-13 剩兜底半**：大仓 Top API 空榜 / 无链路时的说明文案（非 ready 与「无法静态解析」两处已有）。
+8. **R5-13 剩兜底半**：~~大仓 Top API 空榜 / 无链路时的说明文案~~（**已落地 v1.5.0**：无链路兜底文案 + `canvasTraceEmpty`，见 CHANGELOG [1.5.0]）。
 9. **V12-1 剩余**：路由级兜底 error 卡未带 `intentEcho`（`routes/analysis-stream.ts:92-100` / `:167-175`；计划内失败已持久化）——小改，可随下批带上。
 10. **无消费方的遗留面（2026-10-19 定位裁决已处置）**：① `Lifecycle (v1.0)`/`Dataflow (v1.0)` 禁用占位——**已删**（ADR-0008 的 v1.0 承诺作废并标注未排期）；② Web 侧 incident 死链（`askIncident`/`submitIncident`/状态机/`?mode=incident` 别名）——**已删**，服务端 incident（`stack` 参数、query SSE）保留但**无 UI 入口**，属非承诺能力；③ MHW harness 面（`/api/tasks|harnesses|workspaces`、`anchor-click`、`feedback` + `packages/bridge-adapters` 桩）——**冻结并加注**（`routes/workbench.ts`、`bridge-adapters/src/index.ts` 头注：非产品面、零消费方、不得据此承诺）。
 
