@@ -1,6 +1,6 @@
 # 票 08 — 登记 deferred：TS 模块路径解析（import + tsconfig paths）
 
-Status: in_progress
+Status: deferred
 
 ## 背景
 用户批判①括注："一旦遇到 Monorepo 或 tsconfig.json 里配了 @/ 路径别名，解析器可能直接静默报错或断链，用户毫无获得感。"
@@ -31,3 +31,8 @@ v1.4 已落地的**披露侧**：README `Known Limitations` 第 2 条明确写�
 - **2026-10-26 战役判定：开（批次 v1.6），分阶段**——评审依据见 `docs/reports/code-review-2026-10-26.md`「v1.6」节。①只做 import/export 声明解析 + 相对路径模块表；②再谈 tsconfig `baseUrl`/`paths`；③最后谈 workspaces。理由：self 仓不含别名，别名覆盖度在本次度量里是**零样本**，一步到位等于把未测量的面当已测量。硬停条件：lazygit/petclinic 前后字节不变，3274 条歧义只能下降、不得用「更聪明的猜测」换数字（`CONTEXT.md:40`）。诚实披露：触发线 1 尚未出现，本战役是机会驱动而非事故驱动；`README` Known Limitations 的现有披露在战役落地前保留。立项第一步须重跑探针复核 1301/3274（探针 `TS_EXT` 的正则点号未转义，可能影响读数）。
 
 - **2026-10-26 战役已开线（本票转 in_progress）**：执行面搬到 `.scratch/v1.6-ts-module-resolution/spec.md`（调用面/决策/文件面/票 01–06），语义裁决落 `docs/adr/0022-ts-module-resolution-semantics.md`。本票从此作为**立项登记与触发线记录**，不再承载执行细节。三项前置：先量（票 01 修正探针后于 `13b1a34` 复核 4061 / 3280 / **1301**，头条数字不变）、消解语义 ADR（票 03，accepted）、棘轮基线（票 02，pending）。
+- **2026-10-26 战役收口（v1.6.0）**：L1（相对 import）落地，含 Phase 1 钉死与 Phase 2 歧义显式化；
+  L2（tsconfig `baseUrl`/`paths`）与 L3（workspaces）**未做**，本票据实收窄为「L1 已完成，
+  L2/L3 待触发」——保持 `in_progress` 不合适，改为 `deferred` 并把触发线保留给 L2/L3：
+  出现真实可复现的「别名导致错绑/断链」案例，或需要按包边界做影响面分析时再开。
+  实测口径见 `docs/reports`/CHANGELOG：1301 是候选歧义上界，实际 tiebreak 暴露面 246。

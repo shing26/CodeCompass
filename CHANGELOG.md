@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.6.0] - 2026-10-26
+
+**TS/JS 模块路径消解（L1）：能确定的钉死，确定不了的标存疑。** 这一版回答 v1.4 票 06
+披露的已知边界——「不解析 import 声明，跨文件调用按符号名 + caller 文件优先 + 最早声明绑定，
+monorepo 同名符号可能错绑」。**17 个工具输入签名与返回体结构仍不变**；新增的只是
+`reason` 字段的一个取值。
+
+### 新增
+
+- **L1 模块消解表（索引期产物）**：`engine/repoqa-module-resolution.ts` 解析 import/export
+  声明，把相对路径 specifier 解析到仓内文件，产出 `caller → 本地名 → 声明文件` 表，
+  落库 `repo_module_imports`（带 `export *` 展开与循环护栏；type-only 声明跳过；
+  bare specifier / tsconfig 别名 / 出仓路径一律不解析）。热重载跟随、删仓级联清理。
+  旧索引缺表即降级回 v1.5 行为。
+- **import 钉死绑定（ADR-0022 Phase 1）**：同文件未命中后，若该名字在 caller 文件里被
+  具名 import 唯一绑定、且目标文件确实声明它，直接绑过去——不再落到「最早声明」的任意选择。
+  `default` / `namespace` 导入不参与（前者绑的是模块默认导出，后者给的是模块对象）。
+- **歧义显式化（ADR-0022 Phase 2）**：TS/JS 上名字跨多个仓内文件声明、且 import 钉不住时，
+  不再静默绑最早声明，改为标 `reason: '[Static Analysis Break: ambiguous target]'`；
+  诊断面映射既有 `SUSPECT`，Web 走既有「存疑」文案。**Go/Java 不受影响**（绑定规则不在
+  本战役射程，读数逐字节不变是本批的硬回归断言）。
+
+### 实测（self 仓，`scripts/precision/pin_effect.ts`）
+
+- 17485 条调用 → 裸名分支 9881 → 同文件未命中且有全局候选 1387 → **名字多文件声明 246**；
+- 其中 **230 条标歧义**、**16 条被 import 声明救回**（0 条回退）；
+- 三仓棘轮基线（`scripts/precision/campaign-baselines/`）：`lazygit`/`petclinic`
+  **逐字节不变**，self 的漂移逐项可归因。
+
+### 口径澄清（重要）
+
+立项时的探针读数「1301 条可被 import 唯一钉死」是**名字层面候选歧义的上界**，不等于
+实际错绑面：绝大多数候选边由类型化接收者 / 动态分派 / 跨语言桥分支先处理，根本走不到
+按名绑定。真正暴露在 tiebreak 下的是 246 条。本版按实测值披露，不再沿用 1301 的叙事。
+
 ## [1.5.1] - 2026-10-26
 
 **回执的两处「自称校验、其实没校验」。** v1.5.0 的 verification 回执 + 代码评审

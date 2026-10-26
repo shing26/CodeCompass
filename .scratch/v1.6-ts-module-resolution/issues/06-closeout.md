@@ -1,6 +1,6 @@
 # 票 06 — 精度复核与收口（v1.6.0）
 
-Status: pending
+Status: done
 
 ## 内容
 
@@ -19,3 +19,13 @@ Status: pending
 ## Comments
 
 - 2026-10-26 立项。
+## Comments
+
+- 2026-10-26 完成。版本五处 = 1.6.0；CHANGELOG `[1.6.0]` 含实测数字与「1301 是上界」的口径
+  澄清；README `Known Limitations` 第 2 条改写为「只解析相对 import（L1），别名/包名互引仍是
+  边界」；README 徽章与「当前版本」同步，npm 实情仍写 1.5.1 已上架 + 工作树 1.6.0 未上架。
+- 门禁：cp tsc 0、71 文件 899 测试；web tsc 0、41 文件 433 测试；bridge 26；build 四前缀 0；
+  e2e 73/0（含 version-consistency / readme-version / /health 三门 1.6.0 一致）；
+  三仓 compare `lazygit`/`petclinic` IDENTICAL。
+- `HANDOFF.md` 与 `CONTEXT.md` 未动：本批没有开放项要移交，术语定义（Call Edge / Anchor /
+  Static Analysis Break）也未改变语义——歧义是既有「必须标记」纪律的延伸，不是新术语。
