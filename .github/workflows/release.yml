@@ -83,6 +83,13 @@ jobs:
           export function loadOwners() { return api.get('/owners'); }
           TS
           node services/control-plane/dist/cli.js export listOwners --repo "$DEMO" --file dist-release/architecture-artifact.html
+      # v1.7 — 工件浏览器验收（Artifact Browser Gate）：真 Chromium 打开工件，验
+      # 可渲染 / 可交互 / 无运行时错误 / 无外部依赖；退出码 2=UNCHECKED 同样不算绿
+      # （ADR-0023）。chromium 复用上一步 UI smoke 已安装的版本。
+      - name: Artifact browser gate
+        timeout-minutes: 5
+        # --require-full：release 工件不允许任何 SKIPPED（模板/钩子漂移即红，ADR-0023 决定 5）
+        run: node scripts/smoke/artifact_browser_check.mjs dist-release/architecture-artifact.html --require-full --json
       # npm publish 有意缺席（2026-09-04 v0.19.0 裁决切 B：内测期不发 npm，
       # ENEEDAUTH 首曝于 v0.19.0 Release run 33841695684）。恢复公开发布时
       # 重新加入 publish 步骤并配置 NPM_TOKEN secret。
@@ -91,5 +98,6 @@ jobs:
         with:
           files: |
             dist-release/architecture-artifact.html
+            dist-release/architecture-artifact.html.browser-check.json
             scripts/e2e/e2e-result.json
           generate_release_notes: true

@@ -9,6 +9,8 @@
 
 ## 1. 当前状态（一句话版）
 
+**v1.7.0 收口（2026-10-26，工件浏览器验收批）**：给唯一离开引擎环境、直达读者的交付物（单文件 HTML 工件）补上浏览器门——真 Chromium `file://` 打开，9 条 fail-closed 检查（自包含 / 可见 mermaid 非零宽 / Sequence 懒渲染 / Story Beats 步进 / 深链 / 0 pageerror / 0 console error / 0 外部请求），产出旁车回执 `<artifact>.browser-check.json`（schema `artifact-browser-check@1`，三态退出码 0/1/2，**UNCHECKED 永不算绿**），并接进 release 门、回执随工件发布（ADR-0023）。先红证据：三份构造坏工件（残缺 mermaid / 删懒渲染 / 删演播带）在旧 e2e 字符串断言与 10 条单测下**全绿**，真浏览器里确实坏；新门对三份 bad 精确判红（4/4 自检）。顺带清掉工件元数据里硬编码的 `CodeCompass v0.9`（评审已登记假事实），并给被检节点加 `data-check` 钩子。**17 个工具输入签名与返回体结构零变化**，CI 不加浏览器步骤（release-only，成本裁决）。门禁 **903/433/26、e2e 73/0**；批次 spec 在 `.scratch/v1.7-artifact-browser-gate/spec.md`。**评审状态**：2026-10-27 双轴 code-review（fixed point `150b4ec`，报告 `docs/reports/code-review-2026-10-27.md`）：Standards 8 条（3 硬违规）/ Spec 8 条；硬违规与可修项已随本批修（`--require-full`、模板漂移判红、Story Beats 以 label 变化为准、回执负例、selector 回填），重复实现类 3 项登记 deferred。release 工件以 `--require-full` 跑（任何 SKIPPED 即红）。
+
 **v1.4.2 补丁（2026-10-20，对账批收尾）**：两处真缺口——Java 裸映射注解（`@PostMapping` / `@GetMapping` / `@RequestMapping(method=…)`）现在继承类级前缀并计为 HTTP 入口（此前无 `displayPath` → 误入孤儿桶）；Top API 空榜改为确定性说明文案。另补 `docs/llm-profiles.example.json` 与 README 模型档位用法。门禁 **854/431/26/73-0**。
 
 **v1.4.1 补丁（2026-10-19，定位定稿与死面清理）**：用户四项裁决——**MCP/CLI 是唯一对外产品面，Web 是维护者 dogfooding 驾驶舱与演示面**（ADR-0021，含摇摆终止规则）；同批删除 HTML 工件的 Lifecycle/Dataflow 禁用占位与 Web 侧 incident 死链（服务端能力保留、无 UI 入口），并把 MHW harness 面冻结加注为非产品面。门禁 848/429/26/73-0。

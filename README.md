@@ -8,7 +8,7 @@
 
 > **产品面（唯一权威，ADR-0021）**：**MCP 17 工具 + CLI 是对外承诺面**；Web 工作台是维护者自己的 **dogfooding 驾驶舱与演示面**（内部工具，不是并列的第二产品，不作为对外承诺）。新想法只有两条通道：增强事实面并说清降低哪类误报/提升哪类精度，或改驾驶舱并说清维护者日常怎么用——都答不上来就不做。
 
-[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.6.0)
+[![Version](https://img.shields.io/badge/version-1.7.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.7.0)
 [![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -201,6 +201,7 @@ flowchart LR
 4. **检索是关键词 / 子串匹配，不是语义检索。** 没有 embedding、没有向量库（ADR-0002 的翻案门槛从未被证据触发）；自然语言提问靠符号名与配置 key 锚定，措辞越接近代码里的标识符，命中越好。
 5. **运行时行为不在射程内。** 不接 APM / 日志流，不做线上定位（ADR-0011）：它回答「代码是怎么连的」，不回答「线上为什么慢」。
 6. **环境约束**：Node >= 24 是硬约束（`better-sqlite3` 原生模块 ABI）；控制面无鉴权，默认只监听 `127.0.0.1`；早前装过 IDE 的环境需要重跑一次 `codecompass install` 刷新工具允许列表。
+7. **工件浏览器门只验「能不能用」，不验「对不对」。** release 门用真 Chromium 打开导出的单文件 HTML，检查可渲染 / 可交互 / 无运行时错误 / 无外部依赖（ADR-0023）；工件正文的语义正确性（锚点是否真实、结论是否成立）不在这道门的射程内——那由引擎测试与 MCP `verification` 回执负责。
 
 ---
 
@@ -322,7 +323,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **1.5.1**（2026-10-26 发布；节奏是 0.31.0 → 1.4.0 → 1.5.0 → 1.5.1，中间版本未单独上架）。本仓库工作树已到 **1.6.0**（模块路径消解，见 CHANGELOG；**未上架**）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **1.5.0**（2026-10-25 发布）。1.4.1 / 1.4.2 / 1.5.1 / 1.6.0 **只有 git tag，未单独上架**（节奏：0.31.0 → 1.4.0 → 1.5.0）。本仓库工作树已到 **1.7.0**（工件浏览器验收，见 CHANGELOG；**未上架**）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -339,7 +340,7 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 
 ## 📐 架构治理（ADR）
 
-本项目严格采用架构决策记录指导技术选型与边界演进，仓库内沉淀 **20 份 ADR**（ADR-0001–0020，均为已生效决策）：
+本项目严格采用架构决策记录指导技术选型与边界演进，仓库内沉淀 **23 份 ADR**（ADR-0001–0023，均为已生效决策）：
 
 | ADR | 核心决策 |
 | --- | --- |
@@ -363,6 +364,9 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 | [0018](./docs/adr/0018-orphan-bucket-semantics.md) | 孤儿桶只声称「可调用符号的零静态调用者」 |
 | [0019](./docs/adr/0019-mcp-audit-log-policy.md) | MCP 审计日志记录入参出参，与 HTTP sink 政策分工 |
 | [0020](./docs/adr/0020-web-workbench-revival.md) | Web 工作台再产品化——双面体再平衡 |
+| [0021](./docs/adr/0021-mcp-cli-is-the-only-public-surface.md) | MCP/CLI 是唯一对外产品面，Web 为维护者驾驶舱 |
+| [0022](./docs/adr/0022-ts-module-resolution-semantics.md) | TS/JS 模块路径消解：只认代码自己的声明 |
+| [0023](./docs/adr/0023-artifact-browser-gate-boundary.md) | 工件浏览器验收：只回答「能不能用」，不冒充「对不对」 |
 
 完整决策列表见 [`docs/adr/`](./docs/adr/)，术语表见 [`CONTEXT.md`](./CONTEXT.md)。
 
@@ -374,19 +378,20 @@ codecompass install --ide all   # 一键写入 6 家 IDE 的 MCP 配置
 
 ```text
 测试套件（vitest，Node 24 本机实跑）：
-  services/control-plane     854 tests / 68 files
-  apps/repoqa-web            431 tests / 40 files
+  services/control-plane     903 tests / 72 files
+  apps/repoqa-web            433 tests / 41 files
   packages/bridge-adapters    26 tests /  1 file
-  合计                      1311 tests / 109 files（测试与源码同位放置）
+  合计                      1362 tests / 114 files（测试与源码同位放置）
 ```
 
 - **确定性断言**：针对「伪造调用链」测试集设立回归锁定，确保已知模式无漏判、无误判；
 - **e2e 门禁**：`python scripts/e2e/closeout_gate.py`，**73 项断言**（v1.4.0 收口基线 73/0）——覆盖多语言 fixture、跨语言桥接、SSE 流、ADR-0003 脱敏门禁、MCP stdio 复合工具往返、CLI diagnose / refactor-plan / export、install --dry-run、golden eval 阈值冒烟，以及版本四处一致性与 MCP 握手版本棘轮；
 - **UI 冒烟**：`scripts/smoke/ui_smoke.mjs`，真 Chromium 六动线走查；
+- **工件浏览器门**：`scripts/smoke/artifact_browser_check.mjs`，release 门用真 Chromium 打开导出的单文件 HTML 工件（9 条检查 + 旁车回执，ADR-0023）；`--self-test` 用三份坏工件验门本身有效；
 - **精度工程**：`npm run precision` 对 self / lazygit / petclinic 三仓孤儿数一条命令复跑，`--ratchet` 冻结基线棘轮；基准报表见 [`docs/benchmark.md`](./docs/benchmark.md)；
 - **CI**：`ci.yml`（typecheck + 单测 + e2e gate）、`release.yml`、`architecture-diff.yml`；v1.4.0 tag 已推（`9488758`，CI / Release 双绿）。
 
-> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.4.0 收口门禁（控制面 854 / web 431 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
+> **本机实跑备注**：上表为收集总数。在负载异常的机器上（如系统盘将满、换页严重），个别 5s/15s 超时类用例会瞬时失败（git daemon 拉起、eval harness、incident 传输），失败集随负载浮动、复跑可绿——权威基线以 CI 与 v1.7.0 收口门禁（控制面 903 / web 433 / bridge 26、e2e 73/0，见 `CHANGELOG.md` 与 `HANDOFF.md`）为准。
 
 运行全量测试：
 
@@ -412,14 +417,15 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **v1.4.0**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
 - [x] **v1.4.1**：定位定稿（ADR-0021：MCP/CLI 唯一对外产品面，Web 为维护者驾驶舱）——清理 Lifecycle/Dataflow 禁用占位、Web incident 死链；MHW harness 面冻结标注
 - [x] **v1.4.2**：对账批收尾——Java 裸映射注解（无参数）计为 HTTP 入口；Top API 空榜确定性说明；`llm-profiles.json` 示例与用法
-- [x] **npm 发布**：`@codecompass/cli@1.5.1` 已上架（2026-10-26；此前 1.5.0 @ 2026-10-25、1.4.0 @ 2026-10-19）
+- [x] **npm 发布**：`@codecompass/cli@1.5.0` 已上架（2026-10-25；此前 1.4.0 @ 2026-10-19）；1.4.1 / 1.4.2 / 1.5.1 / 1.6.0 **未上架**（只有 git tag）
 - [x] **R5-08 / R5-09 / R5-11 / R5-14 / R5-16（2026-10-19 盘点销项）**：模型多档热切换已实现（默认只带 `default`，用户可自建 `~/.mhw/llm-profiles.json`）；授权后不自动发送=设计取舍并已有草稿提示；恒定焦点计数已删除；流式中断（停止键 / Esc）已落地；长回答折叠已实现（阈值 2400 字）
 - [ ] **R5-05（剩服务端半）**：chat 流式服务端进度与慢模型断点提示
 - [x] **v1.5.0**：交付也可验证——MCP 返回体 `verification` 回执（锚点存在性 + 断链标记 + 带路径 diagnostics，17 工具签名零变化）；export HTML 重放校验入口；R5-13 无链路兜底文案收尾；TS/JS 模块解析探针（self 仓 3274 条同名歧义边中 1301 条可被 import 解析唯一钉死，数字进 v1.4 票 08 触发线判定）
 - [x] **v1.5.1**：回执读数修正——断链标记接回 trace 断口的线上真形态（此前 `breakMarkers` 恒空）；锚点校验从「只认文件」升级到「文件 + 行号物理校验」；超 500 条锚点的截断与无仓库根的跳过都进 diagnostics，不再静默
-- [x] **v1.6.0（当前版本）**：TS/JS 模块路径消解（L1）——索引期模块表 + import 钉死跨文件绑定；多文件同名且钉不住的边标「存疑」而非猜绑定（self 仓实测：246 条歧义边 = 230 标存疑 + 16 救回，0 回退；Go/Java 读数逐字节不变）
+- [x] **v1.6.0**：TS/JS 模块路径消解（L1）——索引期模块表 + import 钉死跨文件绑定；多文件同名且钉不住的边标「存疑」而非猜绑定（self 仓实测：246 条歧义边 = 230 标存疑 + 16 救回，0 回退；Go/Java 读数逐字节不变）
+- [x] **v1.7.0（当前版本）**：工件交付也可验证——真 Chromium 工件门（9 条 fail-closed 检查）+ 旁车回执（三态退出码，UNCHECKED 不算绿）+ release 接线；`data-check` 钩子；工件元数据版本串收口（ADR-0023）
 
-当前版本：`v1.6.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.6.0 完整条目）。
+当前版本：`v1.7.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.7.0 完整条目）。
 
 ---
 

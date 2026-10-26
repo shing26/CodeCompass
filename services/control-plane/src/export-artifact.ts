@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
+import { VERSION } from './version';
 
 /**
  * v0.9.0 — Multi-view self-contained HTML artifact export (Archify-style
@@ -177,7 +178,7 @@ export function renderArtifactHtml(input: ArtifactInput): string {
 
   const offlineWarning = offlineReady
     ? ''
-    : `<div class="offline-warning">⚠️ 本文件未找到本地 mermaid 运行时，已回退 CDN 加载：断网打开时拓扑图不会渲染。在仓库内构建后重新导出即可自包含。</div>`;
+    : `<div class="offline-warning" data-check="offline-warning">⚠️ 本文件未找到本地 mermaid 运行时，已回退 CDN 加载：断网打开时拓扑图不会渲染。在仓库内构建后重新导出即可自包含。</div>`;
 
   const badges = (input.badges ?? []).map(badgeSvg).join('');
 
@@ -202,13 +203,13 @@ export function renderArtifactHtml(input: ArtifactInput): string {
     ${input.mermaid ? `<button class="tab active" data-view="arch">Architecture</button>` : ''}
     ${input.sequence ? `<button class="tab${input.mermaid ? '' : ' active'}" data-view="sequence">Sequence</button>` : ''}
   </div>
-  ${input.mermaid ? `<div class="card view" id="view-arch"><h2>Architecture</h2><pre class="mermaid">${escapeHtml(input.mermaid)}</pre></div>` : ''}
+  ${input.mermaid ? `<div class="card view" id="view-arch" data-check="view-arch"><h2>Architecture</h2><pre class="mermaid" data-check="diagram">${escapeHtml(input.mermaid)}</pre></div>` : ''}
   ${
     input.sequence
       ? // v1.4.1 评审 P1 — script 是 raw-text 元素，实体不会被解码，此前
         // escapeHtml 写进 script 的 textContent 让 Sequence 图永远解析失败。
         // textarea 是 RCDATA：实体照常解码，`</textarea>` 也已被转义。
-        `<div class="card view" id="view-sequence" style="display:${input.mermaid ? 'none' : 'block'}"><h2>Sequence</h2><pre class="mermaid"></pre><textarea hidden readonly id="sequence-src">${escapeHtml(input.sequence)}</textarea></div>`
+        `<div class="card view" id="view-sequence" data-check="view-sequence" style="display:${input.mermaid ? 'none' : 'block'}"><h2>Sequence</h2><pre class="mermaid" data-check="diagram"></pre><textarea hidden readonly id="sequence-src">${escapeHtml(input.sequence)}</textarea></div>`
       : ''
   }`
     : '';
@@ -216,9 +217,9 @@ export function renderArtifactHtml(input: ArtifactInput): string {
   const beats = input.storyBeats ?? [];
   const beatsBlock = beats.length
     ? `
-  <section class="card" id="story-beats">
+  <section class="card" id="story-beats" data-check="story-beats">
     <h2>Story Beats</h2>
-    <div class="beat-bar">
+    <div class="beat-bar" data-check="beat-bar">
       <button id="beat-prev">◀ Prev</button>
       <span id="beat-counter">1 / ${beats.length}</span>
       <button id="beat-next">Next ▶</button>
@@ -234,10 +235,10 @@ export function renderArtifactHtml(input: ArtifactInput): string {
     ? `<p class="summary">${escapeHtml(input.summary)}</p>`
     : '';
   const deepLink = input.deepLink
-    ? `<p class="deeplink">Cockpit: <a href="${escapeHtml(input.deepLink)}">${escapeHtml(input.deepLink)}</a></p>`
+    ? `<p class="deeplink" data-check="deeplink">Cockpit: <a href="${escapeHtml(input.deepLink)}">${escapeHtml(input.deepLink)}</a></p>`
     : '';
   const replayBlock = input.replay
-    ? `<div class="card replay"><h2>重放校验</h2>` +
+    ? `<div class="card replay" data-check="replay"><h2>重放校验</h2>` +
       `<p>本工件由确定性引擎生成；file:line 锚点以生成时的仓库状态为准。` +
       `仓库 <code>${escapeHtml(input.replay.repoId)}</code>` +
       (input.replay.commit ? ` · commit <code>${escapeHtml(input.replay.commit)}</code>` : '') +
@@ -288,7 +289,7 @@ ${mermaidTag}
 </head>
 <body>
 <h1>${escapeHtml(input.title)}</h1>
-<p class="meta">repo ${escapeHtml(input.repoName)} · generated ${escapeHtml(input.generatedAt ?? new Date().toISOString())} · CodeCompass v0.9</p>
+<p class="meta">repo ${escapeHtml(input.repoName)} · generated ${escapeHtml(input.generatedAt ?? new Date().toISOString())} · CodeCompass v${VERSION}</p>
 ${badges ? `<div class="badges">${badges}</div>` : ''}
 ${offlineWarning}
 ${summary}

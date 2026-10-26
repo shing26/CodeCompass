@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.7.0] - 2026-10-26
+
+**工件交付也可验证：真浏览器打开、判红、留回执。** 此前门禁对单文件 HTML 工件只到字符串断言
+（`"mermaid" in content` + `<!DOCTYPE html>`），v1.4 的两条 P1（mermaid `loose` XSS、
+Sequence/Story Beats 实际不可用）正是这种门抓不到的浏览器层事故。本版给唯一离开引擎环境、
+直达读者的交付物补上浏览器门；**17 个工具输入签名与返回体结构零变化**，不加 Web 面，
+playwright 不进 CLI 运行时依赖（ADR-0023）。
+
+### 新增
+
+- **工件浏览器验收**（`scripts/smoke/artifact_browser_check.mjs`）：真 Chromium `file://`
+  打开工件，9 条 fail-closed 检查——可读性、静态自包含（无外链脚本/样式、无 CDN 回退）、
+  可见 mermaid 非零宽渲染、Sequence 懒渲染激活后可渲染、Story Beats 可步进可回退、
+  深链可读、0 pageerror、0 console error、0 外部请求。
+- **机器可校验回执**（`<artifact>.browser-check.json`，schema
+  `codecompass/artifact-browser-check@1`）：verdict / checks / diagnostics / sha256 /
+  浏览器版本；三态退出码 `0=PASS / 1=FAIL / 2=UNCHECKED`，UNCHECKED 永不算绿。
+- **fixture 生成器**（`scripts/smoke/make-artifact-fixtures.mjs`）：真实 CLI 产 good，
+  再注入三种已知事故（残缺 mermaid / 删懒渲染脚本 / 删演播带脚本）；`--self-test` 逐条验
+  「good 绿、bad 精确红」（4/4）。
+- **release 门接线**：工件生成后跑浏览器门，回执随 release 资产发布。
+
+### 修复
+
+- **工件元数据版本串**：`export-artifact.ts` 里硬编码的 `CodeCompass v0.9` 改为单一源
+  `VERSION`（评审 `docs/reports/code-review-2026-10-26.md` 已登记的假事实）。
+- **稳定检查钩子**：工件被检节点加 `data-check` 属性，门优先用钩子、CSS 类名只作回退。
+- **门自身加固（2026-10-27 双轴评审）**：`--require-full`——release 工件任何 SKIPPED 直接判红，
+  「模板声称有图但 DOM 找不到可见容器」判 `DIAGRAM_TARGET_MISSING`；Story Beats 以
+  `.beat-label` 文本变化为判据（counter 单动不再算过）；懒渲染改 `waitForFunction` 等非零 SVG；
+  回执/诊断回填实际命中的 selector；`--self-test` 增 3 个畸形回执负例与 id 唯一性断言。
+- **回执仓库根收窄**（v1.6.1 票 01 / 评审 L3）：`verification` 回执此前对所有工具接受
+  `args.repoPath` 当仓库根，任意路径可改写锚点校验基准；现在只认唯一声明该参数的
+  `codecompass_get_pr_impact`，其余工具拿同名参数一律忽略（回执退 `UNCHECKED`）。
+
+### 门禁（本机实跑）
+
+- 控制面 **903 tests / 72 files**、web **433 / 41**、bridge **26 / 1**，合计 **1362 / 114**；
+- e2e **73/0**；typecheck 零错误；工件门自检 4/4；
+- 单工件浏览器检查实测 **1.8–2.0s**（3.58MB 内联工件）。
+
 ## [1.6.0] - 2026-10-26
 
 **TS/JS 模块路径消解（L1）：能确定的钉死，确定不了的标存疑。** 这一版回答 v1.4 票 06

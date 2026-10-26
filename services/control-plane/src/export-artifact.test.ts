@@ -9,6 +9,7 @@ import {
   writeArtifactFile,
   type ArtifactInput
 } from './export-artifact';
+import { VERSION } from './version';
 
 const baseInput: ArtifactInput = {
   title: 'Diagnose: handleLike',
@@ -110,6 +111,33 @@ describe('export-artifact (v0.8)', () => {
       'MyBatis'
     ]);
     expect(deriveBadges('no stack here')).toEqual([]);
+  });
+
+  it('exposes stable data-check hooks and an honest engine version (v1.7)', () => {
+    const html = renderArtifactHtml({
+      ...baseInput,
+      replay: {
+        repoId: 'repo-7',
+        commit: '9488758a',
+        command: 'codecompass export "handleLike"'
+      }
+    });
+    for (const hook of [
+      'view-arch',
+      'view-sequence',
+      'diagram',
+      'story-beats',
+      'beat-bar',
+      'deeplink',
+      'replay'
+    ]) {
+      expect(html).toContain('data-check="' + hook + '"');
+    }
+    // v1.7 — the artifact used to hard-code "CodeCompass v0.9"; the version
+    // string must come from the single source (version.ts), like every other
+    // surface. A fabricated version is a fabricated fact on the artifact.
+    expect(html).toContain('CodeCompass v' + VERSION);
+    expect(html).not.toContain('CodeCompass v0.9');
   });
 
   it('writes the artifact to disk', async () => {
