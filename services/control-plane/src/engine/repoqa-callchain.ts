@@ -73,6 +73,11 @@ export interface SymbolIndex {
   methodsByFile: Map<string, Map<string, RepoSymbol[]>>;
   /** method name → method symbols (legacy global resolution). */
   methodsByName: Map<string, RepoSymbol[]>;
+  /**
+   * v1.6 票 05（ADR-0022 Phase 1）— L1 模块消解表：caller 文件 → 本地名 → 绑定文件。
+   * 缺省即回退 v1.5 的按名绑定（旧索引、测试、未接线的调用方都不受影响）。
+   */
+  moduleImports?: Map<string, Map<string, { target: string; kind: string }>>;
 }
 
 function identity(symbol: RepoSymbol): string {
@@ -323,7 +328,10 @@ export function applyImplicitInterfaces(symbols: RepoSymbol[]): void {
   }
 }
 
-export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
+export function buildCallIndex(
+  symbols: RepoSymbol[],
+  moduleImports?: Map<string, Map<string, { target: string; kind: string }>>
+): SymbolIndex {
   const types = new Map<string, TypeInfo>();
   const implsOfInterface = new Map<string, string[]>();
   const mapperStatements = new Map<string, RepoSymbol[]>();
@@ -411,7 +419,8 @@ export function buildCallIndex(symbols: RepoSymbol[]): SymbolIndex {
     prismaStatements,
     routesByPath,
     methodsByFile,
-    methodsByName
+    methodsByName,
+    ...(moduleImports ? { moduleImports } : {})
   };
 }
 
@@ -697,6 +706,17 @@ function resolveCall(
     if (sameFile && sameFile.length > 0) {
       // Issue 15: deterministic overload pick — same file, smallest lineStart.
       return { target: pickOverload(sameFile, call.file) };
+    }
+    /* v1.6 票 05 / ADR-0022 Phase 1 — import 声明钉死：这个名字在 caller 文件里被
+     * 具名 import 唯一绑定到某个文件时，那才是词法事实，优先于下面的全局按名绑定。
+     * 只认 kind==='named'：default 导入绑定的是「模块的默认导出」而不一定是这个名字；
+     * namespace 导入给的是模块对象，也不能据此钉名字。表缺省（旧索引）时整段跳过。 */
+    const pinned = index.moduleImports?.get(call.file)?.get(call.method);
+    if (pinned && pinned.kind === 'named') {
+      const pinnedSymbols = index.methodsByFile.get(pinned.target)?.get(call.method);
+      if (pinnedSymbols && pinnedSymbols.length > 0) {
+        return { target: pickOverload(pinnedSymbols, call.file) };
+      }
     }
     const global = index.methodsByName.get(call.method);
     if (global && global.length > 0) {

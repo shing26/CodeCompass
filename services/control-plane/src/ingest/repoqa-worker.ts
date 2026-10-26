@@ -214,7 +214,7 @@ export class RepoQAWorker {
     // setSymbolGraph, or a cold process serves unannotated symbols.
     applyImplicitInterfaces(symbols);
     applyModuleScopes(symbols);
-    const graph = { symbols, index: buildCallIndex(symbols) };
+    const graph = { symbols, index: buildCallIndex(symbols, this.repoqa.getModuleImports(repoId)) };
     this.symbolCache.set(repoId, graph);
     return graph;
   }
@@ -346,7 +346,11 @@ export class RepoQAWorker {
     applyImplicitInterfaces(symbols);
     // v0.7 — Module Scope: annotate multi-module repos at graph-build time.
     applyModuleScopes(symbols);
-    this.symbolCache.set(repoId, { symbols, index: buildCallIndex(symbols) });
+    // v1.6 票 05 — 消解表随图一起进索引，绑定处直接消费（表为空即回退 v1.5 行为）。
+    this.symbolCache.set(repoId, {
+      symbols,
+      index: buildCallIndex(symbols, this.repoqa.getModuleImports(repoId))
+    });
   }
 
   /**
