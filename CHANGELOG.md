@@ -40,6 +40,9 @@ playwright 不进 CLI 运行时依赖（ADR-0023）。
 - 控制面 **903 tests / 72 files**、web **433 / 41**、bridge **26 / 1**，合计 **1362 / 114**；
 - e2e **73/0**；typecheck 零错误；工件门自检 4/4；
 - 单工件浏览器检查实测 **1.8–2.0s**（3.58MB 内联工件）。
+- **发布**：`@codecompass/cli@1.7.0` 已上架（2026-10-27）；Release
+  [#40393242362](https://github.com/shing26/CodeCompass/actions/runs/40393242362) 全绿（含
+  Artifact browser gate，CI 侧真 Chromium PASS），资产含工件与 `browser-check.json` 回执。
 
 ## [1.6.0] - 2026-10-26
 

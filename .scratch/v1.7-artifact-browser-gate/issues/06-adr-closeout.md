@@ -49,4 +49,7 @@ Status: done
   3 项重复实现类 judgement deferred（UNCHECKED 回执字面量 / loadChromium 与 ui_smoke 重复 /
   release.yml demo 仓重复），理由见报告「处置」。
   复核：真实 release 工件 `--require-full` PASS 9/9；钩子+类名同时漂移的工件 FAIL 退出 1。
+- **发布完成（2026-10-27）**：commit `fe89599`、tag `v1.7.0` 已推；Release #40393242362
+  全绿（Artifact browser gate 步骤 success = CI verdict PASS）；资产含工件与回执；
+  npm `@codecompass/cli@1.7.0` 上架（2026-10-26T22:34Z，registry latest=1.7.0）。归档本票。
 

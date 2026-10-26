@@ -181,3 +181,6 @@ release 门新增 ≤ 1 min。**实测**：单工件 1.8–2.0s（3.58MB 内联�
   Standards 8 条（3 硬违规）/ Spec 8 条；硬违规与可修项已随本批修（`--require-full`、
   模板漂移判红、label 判定、回执负例、selector 回填），重复实现类 3 项 deferred；
   复核证据：真实 release 工件 `--require-full` PASS 9/9，构造钩子漂移工件 FAIL 退出 1。
+- 2026-10-27 发布完成：commit `fe89599` / tag `v1.7.0`；Release #40393242362 全绿（含
+  Artifact browser gate），资产含工件 + 回执；npm `@codecompass/cli@1.7.0` 已上架
+  （2026-10-26T22:34Z，latest=1.7.0）；README/HANDOFF 已回写。

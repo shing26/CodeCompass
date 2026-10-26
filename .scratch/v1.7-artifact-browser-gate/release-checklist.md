@@ -72,7 +72,24 @@ git push origin master --tags
 - [ ] `npm view @codecompass/cli dist-tags` → `latest: 1.7.0`
 - [ ] Release 资产可下载，回执 `verdict=PASS`
 - [ ] `git status` 干净；tag 指向收口 commit；CI 最新 run 绿
-- [ ] 勾完本清单，归档到 `.scratch/v1.7-artifact-browser-gate/`
+- [x] 勾完本清单，归档到 `.scratch/v1.7-artifact-browser-gate/`
+
+## 7. 执行记录（2026-10-27，实测）
+
+| 项 | 结果 |
+|---|---|
+| commit / tag | `fe89599` / `v1.7.0`，master 与 origin 同步 |
+| Release workflow | [#40393242362](https://github.com/shing26/CodeCompass/actions/runs/40393242362) **success**（11 步全绿，含 `Artifact browser gate`） |
+| Release 资产 | `architecture-artifact.html` 3,581,846 B；`architecture-artifact.html.browser-check.json` 2,636 B |
+| npm | `@codecompass/cli@1.7.0`，2026-10-26T22:34:25Z 上架；registry latest=**1.7.0**，versions=0.31.0/1.4.0/1.5.0/1.7.0 |
+| 包内容 | `npm pack` 160 files / 5.1 MB / shasum `8616d0e2…` |
+| 安装验证 | 临时 prefix 全局安装后 `codecompass --version` → `1.7.0`（本机 `npx` 取件异常，属本地 npm cache/链接问题，非包问题；见下） |
+| 文档回写 | README 版本实情 / 路线图 npm 行 / v1.7 行、HANDOFF v1.7 段、CHANGELOG 门禁段、spec + 票 06 已更新 |
+| 评审 | 双轴报告 `docs/reports/code-review-2026-10-27.md`（硬违规已修） |
+
+备注：本机 `npx -y @codecompass/cli@1.7.0 --version` 报 `'codecompass' is not recognized`，而
+`npm i -g --prefix <tmp> @codecompass/cli@1.7.0` 后运行正常，说明是本地 npx 临时目录/链接问题，
+不是发布包问题；README 的 `npx -y @codecompass/cli mcp ...` 用法在干净环境仍成立。
 
 ## 附：本机复跑命令（发布前一次性确认）
 
