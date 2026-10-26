@@ -500,6 +500,24 @@ export function resolveMcpRepo(deps: McpDeps, repoId?: unknown): Repo {
   throw new Error(`Repo not found: ${raw}`);
 }
 
+/**
+ * v1.6.1 票 01（评审 L3）— verification 回执的仓库根只能来自两处：
+ * ① 工具输入里的 `repoId`（经 resolveMcpRepo 解析成 repo.localPath）；
+ * ② `codecompass_get_pr_impact` 的 `repoPath`——它是**唯一**声明了该参数的工具。
+ *
+ * 此前对所有工具都接受 `repoPath` 兜底：任意调用方塞一个路径就能改写锚点校验的基准，
+ * 等于替调用方猜仓库。其余工具拿到同名参数一律忽略（回执退 UNCHECKED，不静默换基准）。
+ */
+export function receiptRootFromRepoPath(
+  tool: string,
+  args: McpToolHandlerArgs
+): string | undefined {
+  if (tool !== 'codecompass_get_pr_impact') return undefined;
+  const repoPath = (args as { repoPath?: unknown }).repoPath;
+  if (typeof repoPath !== 'string' || !repoPath.trim()) return undefined;
+  return path.resolve(repoPath);
+}
+
 function requireReady(repo: Repo): Repo {
   if (repo.status !== 'ready') {
     throw new Error(`Repo "${repo.name}" is not ready (status=${repo.status})`);
@@ -1154,8 +1172,9 @@ export function createMcpServer(deps: McpDeps): McpServer {
         root = undefined;
       }
     }
-    const repoPath = (args as { repoPath?: unknown }).repoPath;
-    if (!root && typeof repoPath === 'string' && repoPath) root = path.resolve(repoPath);
+    // v1.6.1 票 01（评审 L3）— repoPath 只存在于 codecompass_get_pr_impact 的输入里。
+    // 其余工具拿到同名参数不得据此当仓库根：那等于替调用方猜仓库，锚点校验基准就不可信了。
+    if (!root) root = receiptRootFromRepoPath(tool, args);
     const verification = await buildVerificationReceipt({ tool, value, root });
     return { ...(value as Record<string, unknown>), verification };
   };
