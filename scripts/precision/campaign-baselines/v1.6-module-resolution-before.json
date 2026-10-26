@@ -1,0 +1,249 @@
+{
+  "campaign": "v1.6-ts-module-resolution",
+  "purpose": "战役棘轮基线：Phase 1/2 改跨文件绑定后，Go/Java 两仓必须与 baseline 逐字节相等，self 的每条差异必须能归因到消解。",
+  "metric_direction": "inverse",
+  "sampling": "top-n",
+  "reproduction": "npm run precision -- lazygit petclinic self（复用 ~/.mhw/clones 的 v0.21 克隆；petclinic 需在 PRECISION_DIR 下建 junction），然后 capture 本文件。",
+  "fixedPoint": "v1.5.1 之后、v1.6 实现之前",
+  "capturedAt": "2026-10-26",
+  "mustMatch": [
+    "lazygit",
+    "petclinic"
+  ],
+  "samples": {
+    "lazygit": {
+      "commit": "c07f4d3",
+      "fileCount": 1228,
+      "symbolCount": 10523,
+      "orphanTotal": 1828,
+      "ratio": 0.173715,
+      "buckets": [
+        {
+          "id": "orphanedPublic",
+          "total": 1828,
+          "listed": 10,
+          "wiredExcluded": 7
+        },
+        {
+          "id": "hubs",
+          "total": 5217,
+          "listed": 10,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "oversized",
+          "total": 10,
+          "listed": 10,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "deepChains",
+          "total": 0,
+          "listed": 0,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "oversizedFiles",
+          "total": 10,
+          "listed": 10,
+          "wiredExcluded": 0
+        }
+      ],
+      "orphanCensus": {
+        "zeroCallers": 1712,
+        "testOnly": 116,
+        "candidatesBeforeRules": 2830,
+        "excluded": [
+          {
+            "rule": "type-declaration",
+            "count": 623
+          },
+          {
+            "rule": "interface-member",
+            "count": 379
+          },
+          {
+            "rule": "interface-implementation",
+            "count": 0
+          }
+        ]
+      },
+      "contamination": {
+        "vendor": 0,
+        "testPath": 0
+      },
+      "sample": {
+        "seed": 20260916,
+        "size": 10,
+        "keys": [
+          "pkg/app/app.go:290:App.Close",
+          "pkg/app/daemon/daemon.go:123:deserializeInstruction",
+          "pkg/app/daemon/daemon.go:142:ExitImmediatelyInstruction.Kind",
+          "pkg/app/daemon/daemon.go:146:ExitImmediatelyInstruction.SerializedInstructions",
+          "pkg/app/daemon/daemon.go:150:ExitImmediatelyInstruction.run",
+          "pkg/app/daemon/daemon.go:160:RemoveUpdateRefsForCopiedBranchInstruction.Kind",
+          "pkg/app/daemon/daemon.go:164:RemoveUpdateRefsForCopiedBranchInstruction.SerializedInstructions",
+          "pkg/app/daemon/daemon.go:168:RemoveUpdateRefsForCopiedBranchInstruction.run",
+          "pkg/app/daemon/daemon.go:188:ChangeTodoActionsInstruction.Kind",
+          "pkg/app/daemon/daemon.go:192:ChangeTodoActionsInstruction.SerializedInstructions"
+        ]
+      }
+    },
+    "petclinic": {
+      "commit": "3858f9c",
+      "fileCount": 206,
+      "symbolCount": 595,
+      "orphanTotal": 13,
+      "ratio": 0.021849,
+      "buckets": [
+        {
+          "id": "orphanedPublic",
+          "total": 13,
+          "listed": 10,
+          "wiredExcluded": 38
+        },
+        {
+          "id": "hubs",
+          "total": 185,
+          "listed": 10,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "oversized",
+          "total": 0,
+          "listed": 0,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "deepChains",
+          "total": 8,
+          "listed": 8,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "oversizedFiles",
+          "total": 0,
+          "listed": 0,
+          "wiredExcluded": 0
+        }
+      ],
+      "orphanCensus": {
+        "zeroCallers": 13,
+        "testOnly": 0,
+        "candidatesBeforeRules": 45,
+        "excluded": [
+          {
+            "rule": "type-declaration",
+            "count": 31
+          },
+          {
+            "rule": "interface-member",
+            "count": 1
+          },
+          {
+            "rule": "interface-implementation",
+            "count": 0
+          }
+        ]
+      },
+      "contamination": {
+        "vendor": 0,
+        "testPath": 0
+      },
+      "sample": {
+        "seed": 20260916,
+        "size": 10,
+        "keys": [
+          "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java:54:OwnerDetailsBuilder.anOwnerDetails",
+          "spring-petclinic-api-gateway/src/main/java/org/springframework/samples/petclinic/api/dto/OwnerDetails.java:93:OwnerDetailsBuilder.build",
+          "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:16:toggleChatbox",
+          "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:61:handleKeyPress",
+          "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:69:saveChatMessages",
+          "spring-petclinic-api-gateway/src/main/resources/static/scripts/genai/chat.js:75:loadChatMessages",
+          "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Owner.java:88:Owner.toString",
+          "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Pet.java:58:Pet.toString",
+          "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Pet.java:110:Pet.equals",
+          "spring-petclinic-customers-service/src/main/java/org/springframework/samples/petclinic/customers/model/Pet.java:121:Pet.hashCode"
+        ]
+      }
+    },
+    "self": {
+      "commit": "d892a09",
+      "fileCount": 2108,
+      "symbolCount": 2271,
+      "orphanTotal": 173,
+      "ratio": 0.076178,
+      "buckets": [
+        {
+          "id": "orphanedPublic",
+          "total": 173,
+          "listed": 10,
+          "wiredExcluded": 9
+        },
+        {
+          "id": "hubs",
+          "total": 1828,
+          "listed": 10,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "oversized",
+          "total": 10,
+          "listed": 10,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "deepChains",
+          "total": 33,
+          "listed": 10,
+          "wiredExcluded": 0
+        },
+        {
+          "id": "oversizedFiles",
+          "total": 10,
+          "listed": 10,
+          "wiredExcluded": 0
+        }
+      ],
+      "orphanCensus": {
+        "zeroCallers": 171,
+        "testOnly": 2,
+        "candidatesBeforeRules": 638,
+        "excluded": [
+          {
+            "rule": "type-declaration",
+            "count": 465
+          },
+          {
+            "rule": "interface-member",
+            "count": 0
+          },
+          {
+            "rule": "interface-implementation",
+            "count": 0
+          }
+        ]
+      },
+      "contamination": {
+        "vendor": 0,
+        "testPath": 0
+      },
+      "sample": {
+        "seed": 20260916,
+        "size": 10,
+        "keys": [
+          "apps/repoqa-web/src/client/RepoQAClient.ts:960:EvolveStream.close",
+          "apps/repoqa-web/src/components/TopBar.tsx:162:onKeyDown",
+          "apps/repoqa-web/src/context/ChatRuntimeContext.tsx:173:handleSubmit",
+          "apps/repoqa-web/src/context/RepoContext.tsx:516:handleExport",
+          "packages/bridge-adapters/src/browser.ts:9:BrowserAdapter.connect",
+          "packages/bridge-adapters/src/browser.ts:13:BrowserAdapter.disconnect",
+          "packages/bridge-adapters/src/browser.ts:25:BrowserAdapter.submit",
+          "packages/bridge-adapters/src/coding.ts:9:CodingAdapter.connect",
+          "packages/bridge-adapters/src/coding.ts:13:CodingAdapter.disconnect",
+          "packages/bridge-adapters/src/coding.ts:17:CodingAdapter.status"
+        ]
+      }
+    }
+  }
+}
