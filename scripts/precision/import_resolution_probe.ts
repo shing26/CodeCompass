@@ -23,7 +23,11 @@ const execFileAsync = promisify(execFile);
  * 只扫 .ts/.tsx/.js/.jsx/.mjs；Go/Java 仓自动报零并说明原因（不掺入读数）。
  */
 
-const TS_EXT = /.(tsx?|jsx?|mjs)$/;
+/** 只扫 TS/JS 家族——Go/Java 仓自动报零（不掺入读数）。点号必须转义：未转义的
+ * `/.(tsx?|jsx?|mjs)$/` 会连 `robots`/`charts` 这类以 ts/js 结尾的非 TS 文件一起收进来。 */
+const TS_EXT = /\.(tsx?|jsx?|mjs)$/;
+/** 与 TS_EXT 同一条扩展名清单——去后缀用，别在两处各写一份。 */
+const TS_EXT_STRIP = /\.(ts|tsx|js|jsx|mjs)$/;
 
 interface TsConfigPaths {
   baseUrl?: string;
@@ -83,7 +87,7 @@ async function resolveSpecifier(fromFile: string, spec: string, root: string, cf
     const candidate = base + suffix;
     try {
       const stat = await fs.stat(path.join(root, candidate));
-      if (stat.isFile()) return candidate.replace(/\.(ts|tsx|js|jsx|mjs)$/, '');
+      if (stat.isFile()) return candidate.replace(TS_EXT_STRIP, '');
     } catch {
       /* try next */
     }
@@ -134,7 +138,7 @@ async function probe(name: string, root: string): Promise<void> {
   // 声明表：去后缀文件名 → 符号名集合；符号名 → 声明文件集合（去后缀）。
   const declsByFile = new Map<string, Set<string>>();
   const filesByName = new Map<string, Set<string>>();
-  const stripExt = (file: string): string => file.replace(/\.(ts|tsx|js|jsx|mjs)$/, '');
+  const stripExt = (file: string): string => file.replace(TS_EXT_STRIP, '');
   for (const symbol of symbols) {
     if (!TS_EXT.test(symbol.filePath)) continue;
     if (symbol.kind === 'method' || symbol.kind === 'class' || symbol.kind === 'service') {
@@ -149,8 +153,7 @@ async function probe(name: string, root: string): Promise<void> {
   let crossFileCalls = 0;
   let ambiguousNameCalls = 0;
   let pinnableViaImports = 0;
-  let aliasCalls = 0;
-  const aliasSamples: string[] = [];
+  const pinnableSamples: string[] = [];
 
   for (const symbol of symbols) {
     if (!TS_EXT.test(symbol.filePath) || !symbol.calls) continue;
@@ -169,8 +172,7 @@ async function probe(name: string, root: string): Promise<void> {
       const candidates = [...declared].filter((file) => imports.has(file));
       if (candidates.length === 1) {
         pinnableViaImports += 1;
-        aliasSamples.push(`${callerFile} → ${call.method} (唯一可钉: ${candidates[0]})`);
-        if (aliasSamples.length <= 10) aliasCalls = aliasSamples.length;
+        pinnableSamples.push(`${callerFile} → ${call.method} (唯一可钉: ${candidates[0]})`);
       }
     }
   }
@@ -186,7 +188,7 @@ async function probe(name: string, root: string): Promise<void> {
     headline: pinnableViaImports === 0
       ? 'import 解析可唯一钉死的歧义边为 0 —— 按票 08 触发线，无需开战役'
       : `import 解析可唯一钉死 ${pinnableViaImports} / ${ambiguousNameCalls} 条同名歧义跨文件边 —— 数字进票 08 触发线判定`,
-    samples: aliasSamples.slice(0, 10)
+    samples: pinnableSamples.slice(0, 10)
   };
   console.log(JSON.stringify(report, null, 2));
   const outDir = path.join(process.cwd(), 'scripts/precision/out');

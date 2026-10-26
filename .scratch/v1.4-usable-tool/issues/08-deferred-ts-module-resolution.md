@@ -1,6 +1,6 @@
 # 票 08 — 登记 deferred：TS 模块路径解析（import + tsconfig paths）
 
-Status: deferred
+Status: in_progress
 
 ## 背景
 用户批判①括注："一旦遇到 Monorepo 或 tsconfig.json 里配了 @/ 路径别名，解析器可能直接静默报错或断链，用户毫无获得感。"
@@ -29,3 +29,5 @@ v1.4 已落地的**披露侧**：README `Known Limitations` 第 2 条明确写�
 - **2026-10-25 前置条件 1（先量）已完成**：探针 `scripts/precision/import_resolution_probe.ts` 在 self 仓（commit 38deb70）实测：跨文件调用 4055 条，其中**同名多文件声明歧义 3274 条**；若解析 import 声明（仅相对导入——self 未用任何 `@/` 别名、无 tsconfig paths），**1301 条可被唯一钉死（40%）**。报表 `scripts/precision/out/import_probe_self.json`。数字跨过「先有度量」门槛：按本票「立项时必须先做的事」第 2、3 条（三仓棘轮基线冻结 + 消解语义 ADR）可开战役，建议批次 v1.6；lazygit（Go）/petclinic（Java）不受影响，战役前后应逐字节不变。
 
 - **2026-10-26 战役判定：开（批次 v1.6），分阶段**——评审依据见 `docs/reports/code-review-2026-10-26.md`「v1.6」节。①只做 import/export 声明解析 + 相对路径模块表；②再谈 tsconfig `baseUrl`/`paths`；③最后谈 workspaces。理由：self 仓不含别名，别名覆盖度在本次度量里是**零样本**，一步到位等于把未测量的面当已测量。硬停条件：lazygit/petclinic 前后字节不变，3274 条歧义只能下降、不得用「更聪明的猜测」换数字（`CONTEXT.md:40`）。诚实披露：触发线 1 尚未出现，本战役是机会驱动而非事故驱动；`README` Known Limitations 的现有披露在战役落地前保留。立项第一步须重跑探针复核 1301/3274（探针 `TS_EXT` 的正则点号未转义，可能影响读数）。
+
+- **2026-10-26 战役已开线（本票转 in_progress）**：执行面搬到 `.scratch/v1.6-ts-module-resolution/spec.md`（调用面/决策/文件面/票 01–06），语义裁决落 `docs/adr/0022-ts-module-resolution-semantics.md`。本票从此作为**立项登记与触发线记录**，不再承载执行细节。三项前置：先量（票 01 修正探针后于 `13b1a34` 复核 4061 / 3280 / **1301**，头条数字不变）、消解语义 ADR（票 03，accepted）、棘轮基线（票 02，pending）。

@@ -322,7 +322,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **1.5.0**（2026-10-25 发布；节奏是 0.31.0 → 1.4.0 → 1.5.0，中间版本未单独上架）。本仓库工作树已到 **1.5.1**（修掉回执的两处读数问题，见 CHANGELOG；**未上架**）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **1.5.1**（2026-10-26 发布；节奏是 0.31.0 → 1.4.0 → 1.5.0 → 1.5.1，中间版本未单独上架）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -412,7 +412,7 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **v1.4.0**：上手与可用性手术——示例项目一键载入、片段粘贴即出调用图、子图焦点模式、`codecompass trace`、README 已知限制章节
 - [x] **v1.4.1**：定位定稿（ADR-0021：MCP/CLI 唯一对外产品面，Web 为维护者驾驶舱）——清理 Lifecycle/Dataflow 禁用占位、Web incident 死链；MHW harness 面冻结标注
 - [x] **v1.4.2**：对账批收尾——Java 裸映射注解（无参数）计为 HTTP 入口；Top API 空榜确定性说明；`llm-profiles.json` 示例与用法
-- [x] **npm 发布**：`@codecompass/cli@1.5.0` 已上架（2026-10-25；此前 1.4.0，2026-10-19）
+- [x] **npm 发布**：`@codecompass/cli@1.5.1` 已上架（2026-10-26；此前 1.5.0 @ 2026-10-25、1.4.0 @ 2026-10-19）
 - [x] **R5-08 / R5-09 / R5-11 / R5-14 / R5-16（2026-10-19 盘点销项）**：模型多档热切换已实现（默认只带 `default`，用户可自建 `~/.mhw/llm-profiles.json`）；授权后不自动发送=设计取舍并已有草稿提示；恒定焦点计数已删除；流式中断（停止键 / Esc）已落地；长回答折叠已实现（阈值 2400 字）
 - [ ] **R5-05（剩服务端半）**：chat 流式服务端进度与慢模型断点提示
 - [x] **v1.5.0**：交付也可验证——MCP 返回体 `verification` 回执（锚点存在性 + 断链标记 + 带路径 diagnostics，17 工具签名零变化）；export HTML 重放校验入口；R5-13 无链路兜底文案收尾；TS/JS 模块解析探针（self 仓 3274 条同名歧义边中 1301 条可被 import 解析唯一钉死，数字进 v1.4 票 08 触发线判定）
