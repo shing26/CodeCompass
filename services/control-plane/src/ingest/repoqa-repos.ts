@@ -611,6 +611,7 @@ export class RepoQARepos {
       this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
       this.deleteChunkRows(repoId);
       this.db.prepare('DELETE FROM repo_files WHERE repo_id = ?').run(repoId);
+      this.db.prepare('DELETE FROM repo_module_imports WHERE repo_id = ?').run(repoId);
     });
     tx();
   }
@@ -624,6 +625,7 @@ export class RepoQARepos {
       this.db.prepare('DELETE FROM repo_symbols WHERE repo_id = ?').run(repoId);
       this.deleteChunkRows(repoId);
       this.db.prepare('DELETE FROM repo_files WHERE repo_id = ?').run(repoId);
+      this.db.prepare('DELETE FROM repo_module_imports WHERE repo_id = ?').run(repoId);
       this.db.prepare('DELETE FROM repos WHERE id = ?').run(repoId);
     });
     tx();
@@ -660,6 +662,86 @@ export class RepoQARepos {
       .prepare('SELECT COUNT(*) AS count FROM repo_files WHERE repo_id = ?')
       .get(repoId) as { count: number };
     return row.count;
+  }
+
+  /** v1.6 票 04 — 全部仓库文件（仓根相对 posix）——增量重解析要拿全量上下文重建消解表。 */
+  listRepoFiles(repoId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT path FROM repo_files WHERE repo_id = ? ORDER BY path')
+      .all(repoId) as Array<{ path: string }>;
+    return rows.map((row) => row.path);
+  }
+
+  /** v1.6 票 04 — 整仓替换模块消解表（索引收尾时一次性写）。 */
+  replaceModuleImports(
+    repoId: string,
+    rows: Array<{ filePath: string; localName: string; targetPath: string; kind: string }>
+  ): void {
+    const insert = this.db.prepare(
+      `INSERT OR REPLACE INTO repo_module_imports (repo_id, file_path, local_name, target_path, kind)
+       VALUES (?, ?, ?, ?, ?)`
+    );
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM repo_module_imports WHERE repo_id = ?').run(repoId);
+      for (const row of rows) {
+        insert.run(repoId, row.filePath, row.localName, row.targetPath, row.kind);
+      }
+    });
+    tx();
+  }
+
+  /** v1.6 票 04 — 热重载：只替换一个文件的绑定。 */
+  replaceFileModuleImports(
+    repoId: string,
+    filePath: string,
+    rows: Array<{ localName: string; targetPath: string; kind: string }>
+  ): void {
+    const insert = this.db.prepare(
+      `INSERT OR REPLACE INTO repo_module_imports (repo_id, file_path, local_name, target_path, kind)
+       VALUES (?, ?, ?, ?, ?)`
+    );
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare('DELETE FROM repo_module_imports WHERE repo_id = ? AND file_path = ?')
+        .run(repoId, filePath);
+      for (const row of rows) {
+        insert.run(repoId, filePath, row.localName, row.targetPath, row.kind);
+      }
+    });
+    tx();
+  }
+
+  deleteModuleImportsForFile(repoId: string, filePath: string): void {
+    this.db
+      .prepare('DELETE FROM repo_module_imports WHERE repo_id = ? AND file_path = ?')
+      .run(repoId, filePath);
+  }
+
+  /**
+   * v1.6 票 05 的查询面：callerFile → localName → 绑定。
+   * 表为空（v1.5 旧索引）时返回空 Map——调用方据此降级，不得假装已消解。
+   */
+  getModuleImports(repoId: string): Map<string, Map<string, { target: string; kind: string }>> {
+    const rows = this.db
+      .prepare(
+        'SELECT file_path, local_name, target_path, kind FROM repo_module_imports WHERE repo_id = ?'
+      )
+      .all(repoId) as Array<{
+      file_path: string;
+      local_name: string;
+      target_path: string;
+      kind: string;
+    }>;
+    const table = new Map<string, Map<string, { target: string; kind: string }>>();
+    for (const row of rows) {
+      let byName = table.get(row.file_path);
+      if (!byName) {
+        byName = new Map();
+        table.set(row.file_path, byName);
+      }
+      byName.set(row.local_name, { target: row.target_path, kind: row.kind });
+    }
+    return table;
   }
 
   countSymbols(repoId: string): number {

@@ -20,6 +20,7 @@ import {
   mavenSourceRoots
 } from './repoqa-scan';
 import { adapterFor, buildParseContext, buildParseContextForFile } from './repoqa-parser';
+import { buildModuleImportTable } from '../engine/repoqa-module-resolution';
 import { extractConfigSymbols, matchConfigSymbols } from './repoqa-config';
 import { extractMapperSymbols } from './repoqa-mapper';
 import { parseLargeFileTier3 } from '../large-file';
@@ -395,6 +396,19 @@ export class RepoQAWorker {
     this.repoqa.replaceFileSymbols(repoId, relative, allSymbols);
     this.repoqa.replaceFileChunks(repoId, relative, chunks);
     this.repoqa.addRepoFile(repoId, relative);
+    // v1.6 票 04 — 消解表跟着热重载走。用全仓文件列表重建：`export *` 展开需要
+    // 邻接文件的声明，只喂单个文件会把 barrel 的 pin 退化成 barrel 本身。
+    const moduleRows = await this.buildModuleImportRows(
+      root,
+      this.repoqa.listRepoFiles(repoId).map((file) => path.join(root, file))
+    );
+    this.repoqa.replaceFileModuleImports(
+      repoId,
+      relative,
+      moduleRows
+        .filter((row) => row.filePath === relative)
+        .map((row) => ({ localName: row.localName, targetPath: row.targetPath, kind: row.kind }))
+    );
     this.rebuildRepoCounts(repoId);
     return { repoId, file: relative, action: 'update' };
   }
@@ -408,6 +422,7 @@ export class RepoQAWorker {
     const relative = this.toRepoRelativePath(root, absolute);
     this.repoqa.deleteSymbolsForFile(repoId, relative);
     this.repoqa.deleteChunksForFile(repoId, relative);
+    this.repoqa.deleteModuleImportsForFile(repoId, relative);
     this.repoqa.removeRepoFile(repoId, relative);
     this.rebuildRepoCounts(repoId);
     return { repoId, file: relative, action: 'remove' };
@@ -583,6 +598,9 @@ export class RepoQAWorker {
           })
         });
       }
+      // v1.6 票 04 — L1 模块消解表（ADR-0022）：索引期构建并落库，查询期只读。
+      // 本票只产出表、不接线；票 05 才把跨文件绑定切到它上面。
+      const moduleImportRows = await this.buildModuleImportRows(localPath, stats.files);
       this.broadcast(taskId, {
         type: 'repoqa.index.progress',
         payload: {
@@ -623,6 +641,7 @@ export class RepoQAWorker {
       }
       this.repoqa.upsertSymbols(allSymbols);
       this.repoqa.upsertChunks(chunks);
+      this.repoqa.replaceModuleImports(repoId, moduleImportRows);
       this.repoqa.updateRepoStatus(repoId, 'ready', stats.fileCount, allSymbols.length);
       this.setSymbolGraph(repoId, allSymbols);
       if (modules.length > 0) {
@@ -2122,6 +2141,33 @@ export class RepoQAWorker {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * v1.6 票 04 — 构建 L1 模块消解表并拍平成行（落库用）。
+   * 只扫 TS/JS 家族；Go/Java 的跨文件关系走包结构，本表不管（ADR-0022 决定 5）。
+   */
+  private async buildModuleImportRows(
+    root: string,
+    files: string[]
+  ): Promise<Array<{ filePath: string; localName: string; targetPath: string; kind: string }>> {
+    const relative = files.map((file) => path.relative(root, file).split(path.sep).join('/'));
+    const table = await buildModuleImportTable({
+      files: relative,
+      readFile: async (file) => fs.readFile(path.join(root, file), 'utf8').catch(() => '')
+    });
+    const rows: Array<{ filePath: string; localName: string; targetPath: string; kind: string }> = [];
+    for (const [filePath, byName] of table.imports) {
+      for (const binding of byName.values()) {
+        rows.push({
+          filePath,
+          localName: binding.localName,
+          targetPath: binding.target,
+          kind: binding.kind
+        });
+      }
+    }
+    return rows;
   }
 
   private async parseRepo(

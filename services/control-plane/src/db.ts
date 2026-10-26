@@ -129,6 +129,20 @@ CREATE TABLE IF NOT EXISTS repo_files (
 );
 CREATE INDEX IF NOT EXISTS idx_repo_files_repo ON repo_files(repo_id);
 
+-- v1.6 票 04 — L1 模块消解表（ADR-0022）。索引期产物：调用方文件里某个本地名
+-- 由 import 声明绑到哪个文件。target_path 已把 'export * from' 展开到真正声明处。
+-- 表缺失（旧索引）时降级回 v1.5 的按名绑定，不报错。
+CREATE TABLE IF NOT EXISTS repo_module_imports (
+  repo_id TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  local_name TEXT NOT NULL,
+  target_path TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  PRIMARY KEY (repo_id, file_path, local_name),
+  FOREIGN KEY (repo_id) REFERENCES repos(id)
+);
+CREATE INDEX IF NOT EXISTS idx_repo_module_imports_repo ON repo_module_imports(repo_id);
+
 CREATE TABLE IF NOT EXISTS repoqa_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   repo_id TEXT,
