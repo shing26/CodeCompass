@@ -1,5 +1,10 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import {
+  STATIC_ANALYSIS_BREAK_DYNAMIC,
+  STATIC_ANALYSIS_BREAK_EXTERNAL,
+  STATIC_ANALYSIS_BREAK_UNRESOLVED
+} from '../../../../packages/contracts/src/index';
 import { VERSION } from '../version';
 
 /**
@@ -12,23 +17,40 @@ import { VERSION } from '../version';
  *   - 锚点存在性：递归提取 (file, line) 对，对照仓库根做物理校验——与
  *     chat 侧 raw-file 校验同一判据；
  *   - 断链标记：BREAK / EXTERNAL / DYNAMIC 等枚举值逐字段清点，消费者
- *     读到的是「这批结论里有多少条静态证据断口」的确定性读数；
+ *     读到的是「这批结论里有多少条静态证据断口」的确定性读数。计数认两种
+ *     线上形态：diagnose 的裸枚举值（`status: 'BROKEN'`），以及 trace hop 的
+ *     `break: true` + 整句 `reason`（v1.5.1 票 01 修正——后者此前漏计）；
  *   - verdict 任一项不通过都明确写明（diagnostics 逐条带 JSON 路径），
  *     绝不静默交付——「宁可标记，绝不编造」的对外延伸。
  *
  * 回执是增量字段：不修改载荷、不改工具签名，消费方可以选择忽略。
  */
 
-/** 静态证据断口的枚举值——出现即计数，语义见 ADR-0002 / ADR-0005。 */
+/** 静态证据断口的裸枚举值——载荷里直接出现的值即计数，语义见 ADR-0002 / ADR-0005。
+ *  'STATIC_ANALYSIS_BREAK' 不在表内：它不是线上值，而是 contracts 里三个整句常量的
+ *  概念名（v1.5.1 票 01 删死键）。 */
 const BREAK_MARKER_VALUES = new Set([
   'BREAK',
   'BROKEN',
   'EXTERNAL',
   'DYNAMIC',
   'UNRESOLVED',
-  'SUSPECT',
-  'STATIC_ANALYSIS_BREAK'
+  'SUSPECT'
 ]);
+
+/**
+ * trace hop 的真实断口形态是 `break: true` + 整句 `reason`（见
+ * packages/contracts/v1.ts 的 RepoQaTraceHop），reason 取值为 contracts 的
+ * 三个整句常量之一（可能带 ` HTTP GET /x` 后缀）。按常量归类到 spec 的枚举
+ * 读数——不另写一份字符串，否则就是第二把尺。
+ */
+function classifyBreakReason(reason: unknown): string {
+  if (typeof reason !== 'string') return 'BREAK';
+  if (reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC)) return 'DYNAMIC';
+  if (reason.includes(STATIC_ANALYSIS_BREAK_EXTERNAL)) return 'EXTERNAL';
+  if (reason.includes(STATIC_ANALYSIS_BREAK_UNRESOLVED)) return 'UNRESOLVED';
+  return 'BREAK';
+}
 
 /** 载荷中被视为锚点的字段名（file 侧 / line 侧各取首个命中）。 */
 const FILE_KEYS = ['file', 'filePath'] as const;
@@ -95,6 +117,12 @@ export function extractEvidence(value: unknown, base = ''): Extracted {
       visit(child, childPath);
     }
     const record = node as Record<string, unknown>;
+    // v1.5.1 票 01 — trace hop 的断口不是裸枚举值，而是 break:true + 整句 reason，
+    // 等值匹配永远落空。按 reason 归到 spec 的枚举读数；无 reason 也算断口。
+    if (record.break === true) {
+      const marker = classifyBreakReason(record.reason);
+      breakMarkers[marker] = (breakMarkers[marker] ?? 0) + 1;
+    }
     const fileKey = FILE_KEYS.find((k) => typeof record[k] === 'string' && record[k]);
     if (fileKey) {
       const lineKey = LINE_KEYS.find((k) => typeof record[k] === 'number');
