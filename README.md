@@ -8,7 +8,7 @@
 
 > **产品面（唯一权威，ADR-0021）**：**MCP 17 工具 + CLI 是对外承诺面**；Web 工作台是维护者自己的 **dogfooding 驾驶舱与演示面**（内部工具，不是并列的第二产品，不作为对外承诺）。新想法只有两条通道：增强事实面并说清降低哪类误报/提升哪类精度，或改驾驶舱并说清维护者日常怎么用——都答不上来就不做。
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.5.0)
+[![Version](https://img.shields.io/badge/version-1.5.1-blue.svg?style=flat-square)](https://github.com/shing26/CodeCompass/releases/tag/v1.5.1)
 [![CI](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml/badge.svg)](https://github.com/shing26/CodeCompass/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6.svg?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -322,7 +322,7 @@ CodeCompass 原生支持 **Model Context Protocol**（stdio / JSON-RPC），可�
 
 ### 版本实情（重要）
 
-npm registry 上 `@codecompass/cli` 最新为 **1.5.0**（2026-10-25 发布；节奏是 0.31.0 → 1.4.0 → 1.5.0，中间版本未单独上架）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
+npm registry 上 `@codecompass/cli` 最新为 **1.5.0**（2026-10-25 发布；节奏是 0.31.0 → 1.4.0 → 1.5.0，中间版本未单独上架）。本仓库工作树已到 **1.5.1**（修掉回执的两处读数问题，见 CHANGELOG；**未上架**）。`npx -y @codecompass/cli mcp /path/to/your/repo` 即得全部 17 个工具；若要用比 npm 更新的工作树提交，按上文 clone + `npm run build` 后：
 
 ```bash
 node bin/codecompass.js mcp /path/to/your/repo
@@ -415,9 +415,10 @@ npm run e2e         # Python 端到端门禁（需先 npm run build）
 - [x] **npm 发布**：`@codecompass/cli@1.5.0` 已上架（2026-10-25；此前 1.4.0，2026-10-19）
 - [x] **R5-08 / R5-09 / R5-11 / R5-14 / R5-16（2026-10-19 盘点销项）**：模型多档热切换已实现（默认只带 `default`，用户可自建 `~/.mhw/llm-profiles.json`）；授权后不自动发送=设计取舍并已有草稿提示；恒定焦点计数已删除；流式中断（停止键 / Esc）已落地；长回答折叠已实现（阈值 2400 字）
 - [ ] **R5-05（剩服务端半）**：chat 流式服务端进度与慢模型断点提示
-- [x] **v1.5.0（当前版本）**：交付也可验证——MCP 返回体 `verification` 回执（锚点存在性 + 断链标记 + 带路径 diagnostics，17 工具签名零变化）；export HTML 重放校验入口；R5-13 无链路兜底文案收尾；TS/JS 模块解析探针（self 仓 3274 条同名歧义边中 1301 条可被 import 解析唯一钉死，数字进 v1.4 票 08 触发线判定）
+- [x] **v1.5.0**：交付也可验证——MCP 返回体 `verification` 回执（锚点存在性 + 断链标记 + 带路径 diagnostics，17 工具签名零变化）；export HTML 重放校验入口；R5-13 无链路兜底文案收尾；TS/JS 模块解析探针（self 仓 3274 条同名歧义边中 1301 条可被 import 解析唯一钉死，数字进 v1.4 票 08 触发线判定）
+- [x] **v1.5.1（当前版本）**：回执读数修正——断链标记接回 trace 断口的线上真形态（此前 `breakMarkers` 恒空）；锚点校验从「只认文件」升级到「文件 + 行号物理校验」；超 500 条锚点的截断与无仓库根的跳过都进 diagnostics，不再静默
 
-当前版本：`v1.5.0`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.5.0 完整条目）。
+当前版本：`v1.5.1`（版本单一源 `services/control-plane/src/version.ts`；CHANGELOG 含 0.5.x–1.5.1 完整条目）。
 
 ---
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.1] - 2026-10-26
+
+**回执的两处「自称校验、其实没校验」。** v1.5.0 的 verification 回执 + 代码评审
+（`docs/reports/code-review-2026-10-26.md`）暴露出两个读数不可信：断链标记在 trace
+载荷上恒为空，锚点校验只认文件不认行号。两处都在回执模块内修掉，**17 个工具输入
+签名仍未变**。
+
+### 修复
+
+- **断链标记计数接回线上真形态**：trace hop 的断口是 `break: true` + 整句 `reason`
+  （contracts 的 `STATIC_ANALYSIS_BREAK_*` 常量，可能带 ` HTTP GET /x` 后缀），此前按
+  裸枚举等值匹配，断口最密的那类载荷 `breakMarkers` 恒为 `{}`。改为按 contracts
+  单一源常量归类到 DYNAMIC / EXTERNAL / UNRESOLVED，无 reason 归 BREAK；diagnose 的
+  `status` 裸枚举计数不回退；删掉无发射方的死键 `'STATIC_ANALYSIS_BREAK'`。
+- **锚点行号进入物理校验**：`VERIFIED` 此前只 `stat` 文件、从不验行号，等于为没做过
+  的校验背书（`CONTEXT.md` 要求 file:line 过 raw-file 物理校验）。现在文件必须存在，
+  且载荷给出的行号必须落在文件行数内（按 64KB 块读到目标行为止，不整读大文件）；
+  行号越界 → 新诊断码 `ANCHOR_LINE_OUT_OF_RANGE`，负数/非整数 → 此前声明却从不发射
+  的 `ANCHOR_FIELD_INVALID` 接上；`null`/`0` 视为未知，只验文件（`RepoQaTraceHop`
+  的 `callLine` 用 0 表示未知，不能当越界）。
+- **锚点上限不再静默截断**：回执新增 `anchorsTotal`；超 `MAX_ANCHORS_CHECKED=500` 写
+  `ANCHORS_TRUNCATED` 诊断并退 `UNCHECKED`（`ANCHORS_MISSING` 优先）。无仓库根时
+  `anchorsChecked` 不再虚增，另发 `ANCHORS_UNCHECKED` 回执级诊断。
+
+### 测试
+
+- `output-contract` 单测 6 → **14**：断口真形态、HTTP 后缀变体、行号越界/非法/未知、
+  501 条截断、无仓库根。控制面全量 69 文件 / 870 测试全绿；`tsc --noEmit` 零错。
+
 ## [1.5.0] - 2026-10-25
 
 **交付也可验证：verification 回执 + 重放戳 + R5-13 收尾。** 把「宁可标记断链，
