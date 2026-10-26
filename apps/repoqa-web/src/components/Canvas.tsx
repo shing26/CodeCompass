@@ -323,6 +323,16 @@ export function Canvas({
                           {statusLabel('EXTERNAL')}
                         </span>
                       )}
+                      {/* v1.6 票 05 — 仓内目标名不唯一：不是缺陷、也不是边界，而是「不确定」，
+                          用警示色提醒看一眼，与 BROKEN 的危险色区分。 */}
+                      {visibleTraceStep.status === 'SUSPECT' && (
+                        <span
+                          className="ml-1.5 text-warning"
+                          title="目标名在多个仓内文件都有声明，且没有 import 声明可唯一钉死——不确定，不是解析失败"
+                        >
+                          {statusLabel('SUSPECT')}
+                        </span>
+                      )}
                       {visibleTraceStep.httpMethod && (
                         <span
                           className={`ml-1.5 ${

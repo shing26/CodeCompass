@@ -3,9 +3,14 @@ import {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
   STATIC_ANALYSIS_BREAK_EXTERNAL,
+  STATIC_ANALYSIS_BREAK_AMBIGUOUS,
   isExternalDispatchReason,
+  isAmbiguousDispatchReason,
   type RepoQaTraceHop
 } from '../../../../packages/contracts/src/index';
+
+/** v1.6 票 05 Phase 2 的射程：只对 TS/JS 标歧义——Go/Java 的绑定规则不在本战役。 */
+const TS_JS_FILE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
 
 /**
  * Issue 05 — Deterministic call-chain query.
@@ -29,7 +34,9 @@ export {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_UNRESOLVED,
   STATIC_ANALYSIS_BREAK_EXTERNAL,
-  isExternalDispatchReason
+  STATIC_ANALYSIS_BREAK_AMBIGUOUS,
+  isExternalDispatchReason,
+  isAmbiguousDispatchReason
 };
 
 const TYPE_KINDS = new Set<RepoSymbol['kind']>([
@@ -735,6 +742,13 @@ function resolveCall(
         if (sameDir.length > 0) {
           return { target: pickOverload(sameDir, call.file) };
         }
+      }
+      /* v1.6 票 05 / ADR-0022 Phase 2 — TS/JS 上名字在多文件声明、且 import 声明也钉不住时，
+       * 「绑最早声明」是任意选择，不是事实。静默交付等于让下游拿一条不确定的边当证据；
+       * 按零幻觉合约改为标歧义（诊断面映射成既有的 SUSPECT，展示层「存疑」）。
+       * Go/Java 不受影响：它们的绑定规则（包结构 / 类型）不在本战役射程，读数必须逐字节不变。 */
+      if (TS_JS_FILE.test(call.file) && new Set(global.map((candidate) => candidate.filePath)).size > 1) {
+        return { reason: STATIC_ANALYSIS_BREAK_AMBIGUOUS };
       }
       // Issue 15: across modules a bare method name can collide; prefer the
       // caller's own file, otherwise the earliest declaration — never the

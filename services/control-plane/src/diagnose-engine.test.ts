@@ -334,3 +334,44 @@ describe('runBlastRadius', () => {
     ).toThrow(/not found/);
   });
 });
+describe('v1.6 票 05 — 仓内目标歧义映射到 SUSPECT', () => {
+  it('renders an ambiguous TS hop as SUSPECT with a deterministic note (not BROKEN)', () => {
+    const caller: RepoSymbol = {
+      repoId: 'r1',
+      kind: 'method',
+      name: 'main',
+      filePath: 'src/caller.ts',
+      lineStart: 1,
+      lineEnd: 5,
+      calls: [{ file: 'src/caller.ts', method: 'run', line: 3 }]
+    };
+    const implA: RepoSymbol = {
+      repoId: 'r1',
+      kind: 'method',
+      name: 'run',
+      filePath: 'src/implA.ts',
+      lineStart: 10,
+      lineEnd: 12
+    };
+    const implB: RepoSymbol = {
+      repoId: 'r1',
+      kind: 'method',
+      name: 'run',
+      filePath: 'src/implB.ts',
+      lineStart: 20,
+      lineEnd: 22
+    };
+    const symbols = [caller, implA, implB];
+    const result = runDiagnose({
+      repoId: 'r1',
+      entrySymbol: 'main',
+      symbols,
+      index: buildCallIndex(symbols)
+    });
+    const steps = result.verifiedChain;
+    const ambiguous = steps.find((step) => step.status === 'SUSPECT');
+    expect(ambiguous).toBeTruthy();
+    expect(ambiguous?.diagnosticNotes).toContain('不确定');
+    expect(steps.some((step) => step.status === 'BROKEN')).toBe(false);
+  });
+});

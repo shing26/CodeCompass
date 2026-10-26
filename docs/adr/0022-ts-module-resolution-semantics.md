@@ -23,10 +23,18 @@ status: accepted
    - **Phase 1（钉死）**：L1/L2 唯一命中的边改绑到声明文件；其余保持现状（caller 文件优先 → 最早声明）。这一阶段只让能确定的更确定，**不新增 BREAK**。
    - **Phase 2（把任意性显式化）**：名字在多文件声明、且 import 无法唯一钉死的边，从「静默绑定最早声明」改为显式 `SUSPECT`（不是 `BREAK`：调用确实存在，只是目标不确定），读数变化逐条解释 + 棘轮显式更新。**Phase 2 是零幻觉合约的要求，不是可选项**；拆两阶段只为让每次读数变化能单独归因。
 5. **多语言边界**：只对 TS/JS 生效。Go（`go.mod`）/ Java（Maven module）各有包结构，本战役不动；lazygit / petclinic 读数前后**逐字节不变**是本战役最硬的回归断言。
-6. **不新增对外契约**：17 个 MCP 工具输入签名与返回体结构不变；被消解的仍是同一批边，只是 `file:line` 更准。Phase 2 的 `SUSPECT` 沿用既有枚举，不加新值。
+6. **不新增对外契约**：17 个 MCP 工具输入签名与返回体结构不变；被消解的仍是同一批边，只是 `file:line` 更准。
+   ~~Phase 2 的 `SUSPECT` 沿用既有枚举，不加新值。~~ **2026-10-26 修正**：trace 面只有
+   `break` + `reason`，没有 `SUSPECT`（那是 `DiagnoseChainStep.status` 的枚举），所以「不加新值」
+   在 trace 面无法落地。改为新增**一个** `reason` 取值 `STATIC_ANALYSIS_BREAK_AMBIGUOUS`，
+   并在诊断面把它映射成既有 `SUSPECT`、Web 走既有「存疑」文案——即：不新增枚举类型、
+   不新增工具签名，只给既有 `reason` 字段加一个取值。
 
 ## 后果
 
 - 索引时间与 DB 体积增加（每个 TS 文件一条 import 表）；旧索引必须重建才能启用（表缺失即降级，不报错）。
 - Phase 2 会让「可疑」计数上升——这是把既有任意性搬到台面上，不是精度回退；M1 口径读法不变（看假边条数与逐条归因）。
 - 走包名互引的 monorepo（workspaces）覆盖不到，那属 Phase 3，本 ADR 不给承诺。
+- Phase 2 落地后，「歧义」在 trace 上表现为一条 `break` 并带新 `reason`；它与「仓库外调用」
+  （EXTERNAL）语义不同，**不得**被 `isExternalDispatchReason` 吞进去——展示层要能区分
+  「正常止于仓外」与「名字在仓里但不唯一」。

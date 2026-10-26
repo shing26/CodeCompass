@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Anchor, QueryMode, QueryStart, TokenUsage, TraceStep } from '../types';
 import type { QueryStreamLike, RepoQAClient } from '../client/RepoQAClient';
-import { isExternalDispatchReason } from '../../../../packages/contracts/src/index';
+import {
+  isAmbiguousDispatchReason,
+  isExternalDispatchReason
+} from '../../../../packages/contracts/src/index';
 
 export interface ChatMessage {
   id: string;
@@ -106,9 +109,13 @@ function parseTraceSteps(payload: Record<string, unknown> | undefined): TraceSte
       status:
         h.break !== true
           ? 'VERIFIED'
-          : isExternalDispatchReason(typeof h.reason === 'string' ? h.reason : undefined)
-            ? 'EXTERNAL'
-            : 'BROKEN',
+          : // v1.6 票 05 — 仓内目标歧义映射到既有 SUSPECT（文案「存疑」），
+            // 与「止于仓外」（EXTERNAL）和「解析失败」（BROKEN）区分开。
+            isAmbiguousDispatchReason(typeof h.reason === 'string' ? h.reason : undefined)
+            ? 'SUSPECT'
+            : isExternalDispatchReason(typeof h.reason === 'string' ? h.reason : undefined)
+              ? 'EXTERNAL'
+              : 'BROKEN',
       ...(h.async === true ? { async: true } : {}),
       ...(typeof h.http?.method === 'string' ? { httpMethod: h.http.method } : {})
     });

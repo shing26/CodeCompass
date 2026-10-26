@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import {
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_EXTERNAL,
-  STATIC_ANALYSIS_BREAK_UNRESOLVED
+  STATIC_ANALYSIS_BREAK_UNRESOLVED,
+  STATIC_ANALYSIS_BREAK_AMBIGUOUS
 } from '../../../../packages/contracts/src/index';
 import { VERSION } from '../version';
 
@@ -49,6 +50,7 @@ function classifyBreakReason(reason: unknown): string {
   if (reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC)) return 'DYNAMIC';
   if (reason.includes(STATIC_ANALYSIS_BREAK_EXTERNAL)) return 'EXTERNAL';
   if (reason.includes(STATIC_ANALYSIS_BREAK_UNRESOLVED)) return 'UNRESOLVED';
+  if (reason.includes(STATIC_ANALYSIS_BREAK_AMBIGUOUS)) return 'AMBIGUOUS';
   return 'BREAK';
 }
 

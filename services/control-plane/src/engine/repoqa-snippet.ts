@@ -5,6 +5,7 @@ import {
   symbolIdentity,
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_EXTERNAL,
+  STATIC_ANALYSIS_BREAK_AMBIGUOUS,
   type SymbolIndex
 } from './repoqa-callchain';
 import type { RepoSymbol } from '../ingest/repoqa-repos';
@@ -45,6 +46,8 @@ export interface SnippetBreakCounts {
   external: number;
   unresolved: number;
   dynamic: number;
+  /** v1.6 票 05 — 仓内目标名不唯一（ADR-0022 Phase 2）。 */
+  ambiguous: number;
   total: number;
 }
 
@@ -62,9 +65,10 @@ export interface SnippetGraph {
   mermaid: string;
 }
 
-function classifyBreak(reason: string): 'external' | 'unresolved' | 'dynamic' {
+function classifyBreak(reason: string): 'external' | 'unresolved' | 'dynamic' | 'ambiguous' {
   if (reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC)) return 'dynamic';
   if (reason.includes(STATIC_ANALYSIS_BREAK_EXTERNAL)) return 'external';
+  if (reason.includes(STATIC_ANALYSIS_BREAK_AMBIGUOUS)) return 'ambiguous';
   return 'unresolved';
 }
 
@@ -104,7 +108,7 @@ export function analyzeSnippet(input: {
   });
 
   const edges: SnippetEdge[] = [];
-  const breaks: SnippetBreakCounts = { external: 0, unresolved: 0, dynamic: 0, total: 0 };
+  const breaks: SnippetBreakCounts = { external: 0, unresolved: 0, dynamic: 0, ambiguous: 0, total: 0 };
   const inDegree = new Map<string, number>();
   const outDegree = new Map<string, number>();
   for (const symbol of graphSymbols) {

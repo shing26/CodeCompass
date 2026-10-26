@@ -262,7 +262,8 @@ export interface TraceStep {
    * 注入入口）：**分析边界，代码正常**。`BROKEN` 才是真正的解析失败。绝大多数仓
    * 的最后一跳都属前者，此前一律标 BROKEN，让正常代码看起来像坏了。
    */
-  status: 'BROKEN' | 'VERIFIED' | 'EXTERNAL';
+  /** v1.6 票 05 — 加 SUSPECT：仓内目标名不唯一、且 import 钉不住（与 BROKEN/EXTERNAL 区分）。 */
+  status: 'BROKEN' | 'VERIFIED' | 'EXTERNAL' | 'SUSPECT';
   /** v0.7 — hop entered via a goroutine dispatch. */
   async?: boolean;
   /** v0.10 — browser HTTP bridge method (GET/POST) when the hop is bridged. */

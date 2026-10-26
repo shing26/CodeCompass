@@ -141,6 +141,19 @@ export const STATIC_ANALYSIS_BREAK_EXTERNAL =
   '[Static Analysis Break: outside this repository]';
 
 /**
+ * v1.6 票 05 / ADR-0022 Phase 2 — 名字在**多个**仓内文件都有声明，且 import 声明无法
+ * 唯一钉死：目标存在但不唯一，任何绑定都是任意选择。
+ *
+ * 与 UNRESOLVED 的区别是实质的：UNRESOLVED 是「仓里根本没有这个名字」，歧义是「名字在，
+ * 但不知道是哪一个」。与 EXTERNAL 的区别是方向：EXTERNAL 是分析止于仓外（正常代码），
+ * 歧义是仓内可分析信息不足（需要人看一眼）——所以 `isExternalDispatchReason` 不含它。
+ *
+ * 诊断面（`DiagnoseChainStep.status`）映射为既有 `SUSPECT`，展示层文案是「存疑」。
+ */
+export const STATIC_ANALYSIS_BREAK_AMBIGUOUS =
+  '[Static Analysis Break: ambiguous target]';
+
+/**
  * v1.2.x（Round5 用户报障「很多仓库到最后一跳都有断链」）— `true` 表示这条终止是
  * **静态分析的边界**，不是解析失败。
  *
@@ -154,6 +167,11 @@ export const STATIC_ANALYSIS_BREAK_EXTERNAL =
  *
  * 用 `includes` 而非等值：HTTP 变体会在后面追加 ` HTTP GET /x`。
  */
+/** 判定某个 break reason 是否属于「仓内目标歧义」（ADR-0022 Phase 2）。 */
+export function isAmbiguousDispatchReason(reason: string | undefined | null): boolean {
+  return typeof reason === 'string' && reason.includes(STATIC_ANALYSIS_BREAK_AMBIGUOUS);
+}
+
 export function isExternalDispatchReason(reason: string | undefined | null): boolean {
   if (typeof reason !== 'string') return false;
   // 「止于仓库外」有两种成因：已知是动态/外部分派（receiver/dynamic 标记），以及

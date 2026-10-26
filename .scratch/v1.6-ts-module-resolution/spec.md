@@ -35,6 +35,12 @@ agent 拿到错误的 `file:line` 再据此下结论。
    并让诊断说明「本次未启用模块消解」。
 3. **Phase 1 钉死 / Phase 2 歧义显式化（SUSPECT）**，两阶段分开归因；Phase 2 是零幻觉合约要求。
 4. **只作用于 TS/JS**；Go/Java 读数逐字节不变是硬断言。
+5. **Phase 2 需要一个 wire 标记**（2026-10-26 裁决，替代 ADR-0022 原先的「不加新值」）：
+   名字在多文件声明、import 声明也无法唯一钉死的 TS/JS 边，标 `STATIC_ANALYSIS_BREAK_AMBIGUOUS`
+   （`'[Static Analysis Break: ambiguous target]'`）。理由：trace 面只有 `break`+`reason`，
+   没有 `SUSPECT`；不新增标记就只能继续静默绑最早声明，违反零幻觉合约。诊断面把它映射为
+   `SUSPECT`（既有枚举），Web 走既有「存疑」文案——**工具输入签名与返回体结构不变**，
+   只是 `reason` 多一个取值。
 
 ## 文件面（开线声明）
 
@@ -44,8 +50,10 @@ agent 拿到错误的 `file:line` 再据此下结论。
 - `scripts/precision/import_resolution_probe.ts` + 消解前后对比探针
 - `docs/adr/0022-ts-module-resolution-semantics.md`
 - 共享区（CHANGELOG / README Known Limitations / 版本五处）：只在收口票（06）动
-- **不触碰**：17 个工具输入 schema、`packages/contracts` 镜像类型、Go/Java adapter、
-  e2e 断言数（只增不删）
+- **契约面（本批唯一一处，2026-10-26 裁决）**：`packages/contracts/src/repoqa.ts` 增
+  `STATIC_ANALYSIS_BREAK_AMBIGUOUS` 常量 + `isAmbiguousDispatchReason` 判定；镜像类型与
+  17 个工具输入 schema 不动（`reason` 是既有字段，只是多一个取值）
+- **不触碰**：17 个工具输入 schema、Go/Java adapter、e2e 断言数（只增不删）
 
 ## 票清单
 

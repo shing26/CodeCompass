@@ -12,6 +12,7 @@ import {
   symbolIdentity,
   isTestPath,
   isExternalDispatchReason,
+  isAmbiguousDispatchReason,
   type SymbolIndex
 } from './engine/repoqa-callchain';
 import { maskSensitiveText } from './engine/repoqa-masking';
@@ -292,15 +293,20 @@ export function runDiagnose(input: DiagnoseEngineInput): DiagnoseResult {
       // 仓库外调用，代码完全正常，标成 BROKEN 会让它看起来像坏了。真正的解析失败
       // （目标不在索引且无动态解释）仍归 BROKEN。
       const external = isExternalDispatchReason(hop.reason);
+      // v1.6 票 05 / ADR-0022 Phase 2 — 「仓内名字不唯一」既不是仓外边界、也不是解析失败：
+      // 目标存在但无法确定是哪一个，映射到既有 SUSPECT（展示层文案「存疑」）。
+      const ambiguous = isAmbiguousDispatchReason(hop.reason);
       steps.push({
         layer: previousLayer,
         symbol: hop.method,
         filePath: hop.file,
         line: hop.line ?? 1,
-        status: external ? 'EXTERNAL' : 'BROKEN',
-        diagnosticNotes: external
-          ? `止于仓库外的调用（${hop.reason}）——父类/运行时/框架方法不在本仓索引内，属分析边界而非缺陷。`
-          : (hop.reason ?? 'Static analysis break')
+        status: ambiguous ? 'SUSPECT' : external ? 'EXTERNAL' : 'BROKEN',
+        diagnosticNotes: ambiguous
+          ? `目标名在多个仓内文件都有声明，且无 import 声明可唯一钉死（${hop.reason}）——不确定，不是解析失败。`
+          : external
+            ? `止于仓库外的调用（${hop.reason}）——父类/运行时/框架方法不在本仓索引内，属分析边界而非缺陷。`
+            : (hop.reason ?? 'Static analysis break')
       });
       return;
     }

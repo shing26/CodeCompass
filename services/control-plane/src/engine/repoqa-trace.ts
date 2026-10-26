@@ -6,6 +6,7 @@ import {
   symbolIdentity,
   STATIC_ANALYSIS_BREAK_DYNAMIC,
   STATIC_ANALYSIS_BREAK_EXTERNAL,
+  STATIC_ANALYSIS_BREAK_AMBIGUOUS,
   type SymbolIndex
 } from './repoqa-callchain';
 
@@ -22,6 +23,8 @@ export interface TraceBreakCounts {
   external: number;
   unresolved: number;
   dynamic: number;
+  /** v1.6 票 05 — 仓内目标名不唯一（ADR-0022 Phase 2）。 */
+  ambiguous: number;
 }
 
 export interface TraceNode {
@@ -132,6 +135,7 @@ export function resolveTraceTarget(
 function classifyBreak(reason: string): keyof TraceBreakCounts {
   if (reason.includes(STATIC_ANALYSIS_BREAK_DYNAMIC)) return 'dynamic';
   if (reason.includes(STATIC_ANALYSIS_BREAK_EXTERNAL)) return 'external';
+  if (reason.includes(STATIC_ANALYSIS_BREAK_AMBIGUOUS)) return 'ambiguous';
   return 'unresolved';
 }
 
@@ -161,7 +165,7 @@ export function buildTraceResult(
   const resolvedIndex = index ?? buildCallIndex(symbols);
   const resolver = new CallResolver(symbols, resolvedIndex);
   const full = buildFullCallersIndex(symbols, resolvedIndex);
-  const breaks: TraceBreakCounts = { external: 0, unresolved: 0, dynamic: 0 };
+  const breaks: TraceBreakCounts = { external: 0, unresolved: 0, dynamic: 0, ambiguous: 0 };
 
   const downExpanded = new Set<string>();
   const downWalk = (symbol: RepoSymbol, depth: number, path: Set<string>): TraceNode => {
@@ -303,6 +307,7 @@ export function renderTraceTree(result: TraceResult, options: RenderTraceOptions
   if (result.breaks.external > 0) breakParts.push(`EXTERNAL x${result.breaks.external}`);
   if (result.breaks.dynamic > 0) breakParts.push(`DYNAMIC x${result.breaks.dynamic}`);
   if (result.breaks.unresolved > 0) breakParts.push(`UNRESOLVED x${result.breaks.unresolved}`);
+  if (result.breaks.ambiguous > 0) breakParts.push(`AMBIGUOUS x${result.breaks.ambiguous}`);
   lines.push('');
   lines.push(
     breakParts.length > 0
