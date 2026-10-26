@@ -10,12 +10,12 @@ import {
 import { buildVerificationReceipt, extractEvidence } from './output-contract';
 
 /** 真实临时目录做物理存在性校验——回执的判据是文件系统事实，不是内存断言。 */
-function fixture(files: string[]): string {
+function fixture(files: string[], contents: Record<string, string> = {}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'output-contract-'));
   for (const file of files) {
     const target = path.join(root, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.writeFileSync(target, 'fixture');
+    fs.writeFileSync(target, contents[file] ?? 'fixture');
   }
   return root;
 }
@@ -120,5 +120,85 @@ describe('buildVerificationReceipt', () => {
     });
     expect(receipt.verdict).toBe('NO_EVIDENCE');
     expect(receipt.anchorsChecked).toBe(0);
+    expect(receipt.anchorsTotal).toBe(0);
+  });
+
+  /* v1.5.1 票 02（评审 S-2）——VERIFIED 必须同时验到行号：只 stat 文件等于为
+   * 没做过的校验背书，而 file:line 才是 Anchor 的定义（CONTEXT.md:39）。 */
+  it('verifies a line that exists in the file', async () => {
+    const root = fixture(['src/A.ts'], { 'src/A.ts': 'one\ntwo\nthree' });
+    const receipt = await buildVerificationReceipt({
+      tool: 'codecompass_trace_call_chain',
+      value: { hops: [{ file: 'src/A.ts', line: 3 }] },
+      root
+    });
+    expect(receipt.verdict).toBe('VERIFIED');
+    expect(receipt.anchorsChecked).toBe(1);
+    expect(receipt.diagnostics).toEqual([]);
+  });
+
+  it('fails an anchor whose line is past the end of the file', async () => {
+    const root = fixture(['src/A.ts'], { 'src/A.ts': 'one\ntwo' });
+    const receipt = await buildVerificationReceipt({
+      tool: 'codecompass_trace_call_chain',
+      value: { hops: [{ file: 'src/A.ts', line: 9 }] },
+      root
+    });
+    expect(receipt.verdict).toBe('ANCHORS_MISSING');
+    expect(receipt.diagnostics[0]).toMatchObject({
+      path: 'hops[0]',
+      code: 'ANCHOR_LINE_OUT_OF_RANGE'
+    });
+  });
+
+  it('reports a malformed line as an invalid field instead of verifying the file only', async () => {
+    const root = fixture(['src/A.ts'], { 'src/A.ts': 'one\ntwo' });
+    const receipt = await buildVerificationReceipt({
+      tool: 'codecompass_trace_call_chain',
+      value: { hops: [{ file: 'src/A.ts', line: -3 }] },
+      root
+    });
+    expect(receipt.verdict).toBe('ANCHORS_MISSING');
+    expect(receipt.diagnostics[0]).toMatchObject({
+      path: 'hops[0]',
+      code: 'ANCHOR_FIELD_INVALID'
+    });
+  });
+
+  it('treats line 0 as unknown — file-level check, no false failure', async () => {
+    // RepoQaTraceHop.callLine 用 0 表示未知；那不是越界，别造噪音诊断。
+    const root = fixture(['src/A.ts'], { 'src/A.ts': 'one' });
+    const receipt = await buildVerificationReceipt({
+      tool: 'codecompass_trace_call_chain',
+      value: { hops: [{ file: 'src/A.ts', callLine: 0 }] },
+      root
+    });
+    expect(receipt.verdict).toBe('VERIFIED');
+    expect(receipt.diagnostics).toEqual([]);
+  });
+
+  /* v1.5.1 票 02（评审 S-3）——超过上限的锚点不得静默消失。 */
+  it('records truncation instead of silently verifying past the anchor cap', async () => {
+    const root = fixture(['src/A.ts'], { 'src/A.ts': 'one' });
+    const hops = Array.from({ length: 501 }, () => ({ file: 'src/A.ts', line: 1 }));
+    const receipt = await buildVerificationReceipt({
+      tool: 'codecompass_scan',
+      value: { hops },
+      root
+    });
+    expect(receipt.anchorsTotal).toBe(501);
+    expect(receipt.anchorsChecked).toBe(500);
+    expect(receipt.verdict).toBe('UNCHECKED');
+    expect(receipt.diagnostics.some((d) => d.code === 'ANCHORS_TRUNCATED')).toBe(true);
+  });
+
+  it('records skipped anchors when no repository root is available', async () => {
+    const receipt = await buildVerificationReceipt({
+      tool: 'codecompass_trace_call_chain',
+      value: { hops: [{ file: 'src/A.ts', line: 1 }] }
+    });
+    expect(receipt.verdict).toBe('UNCHECKED');
+    expect(receipt.anchorsChecked).toBe(0);
+    expect(receipt.diagnostics[0]).toMatchObject({ path: 'anchors', code: 'ANCHORS_UNCHECKED' });
   });
 });

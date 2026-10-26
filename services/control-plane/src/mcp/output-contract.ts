@@ -64,19 +64,29 @@ export interface EvidenceAnchor {
 }
 
 export type VerificationVerdict =
-  /** 有锚点且全部通过物理存在性校验。 */
+  /** 有锚点且全部通过物理校验——文件存在，且载荷给出的行号落在文件行数内。 */
   | 'VERIFIED'
-  /** 有锚点未通过校验——diagnostics 逐条给出缺失位置。 */
+  /** 有锚点未通过校验——diagnostics 逐条给出位置（缺文件 / 行号越界 / 字段非法）。 */
   | 'ANCHORS_MISSING'
-  /** 有锚点但无法校验（仓库根不可得 / 文件系统不可达）。 */
+  /** 有锚点但没能校验完：仓库根不可得，或锚点数超上限（截断量见 diagnostics）。 */
   | 'UNCHECKED'
   /** 载荷中没有任何锚点——确定性陈述，不是失败。 */
   | 'NO_EVIDENCE';
 
+/**
+ * 回执内部的诊断码。注意：这不是 HTTP 错误面（`{error, code}` 那套在
+ * packages/contracts/src/error-codes.ts），而是回执自带的证据诊断码，
+ * 命名同风格但不进 HTTP 码表——它从不出现在 HTTP 响应体里。
+ */
 export interface VerificationDiagnostic {
-  /** JSON 路径，如 "hops[2].file"。 */
+  /** JSON 路径，如 "hops[2].file"；回执级诊断用 "anchors"。 */
   path: string;
-  code: 'ANCHOR_FILE_MISSING' | 'ANCHOR_FIELD_INVALID';
+  code:
+    | 'ANCHOR_FILE_MISSING'
+    | 'ANCHOR_LINE_OUT_OF_RANGE'
+    | 'ANCHOR_FIELD_INVALID'
+    | 'ANCHORS_UNCHECKED'
+    | 'ANCHORS_TRUNCATED';
   message: string;
 }
 
@@ -84,7 +94,10 @@ export interface VerificationReceipt {
   engineVersion: string;
   tool: string;
   verdict: VerificationVerdict;
+  /** 载荷中提取到的锚点总数——与 anchorsChecked 的差额就是没校验到的量。 */
+  anchorsTotal: number;
   anchorsChecked: number;
+  /** 未通过校验的锚点（缺文件 / 行号越界 / 字段非法）。 */
   anchorsMissing: { path: string; file: string; line: number | null }[];
   breakMarkers: Record<string, number>;
   diagnostics: VerificationDiagnostic[];
@@ -138,16 +151,68 @@ export function extractEvidence(value: unknown, base = ''): Extracted {
   return { anchors, breakMarkers };
 }
 
-/** 校验单个锚点文件是否在仓库根下物理存在（绝对路径直接查，相对路径贴根解析）。 */
-async function anchorFileExists(root: string | undefined, file: string): Promise<boolean | null> {
-  if (typeof file !== 'string' || file.length === 0) return null;
+/** 单条锚点的校验结局。unchecked 表示环境不够（无仓库根），不是失败。 */
+type AnchorOutcome =
+  | { kind: 'verified' }
+  | { kind: 'unchecked' }
+  | { kind: 'file_missing' }
+  | { kind: 'line_out_of_range'; line: number }
+  | { kind: 'line_invalid'; line: number };
+
+/**
+ * 目标行是否落在文件行数内——按 64KB 块读到目标行为止，不整读大文件
+ * （出库路径上的上限是 500 条锚点，整读会把延迟放大一个量级）。
+ *
+ * 行数口径：以 \n 计数；末尾换行不额外算一行。文件末行带换行时，比真实
+ * 行数大 1 的行号会被放过——宁可漏判一次越界，也不误杀合法锚点。
+ */
+async function lineExistsInFile(target: string, line: number): Promise<boolean> {
+  const handle = await fs.open(target, 'r');
   try {
-    const target = path.isAbsolute(file) ? file : root ? path.join(root, file) : null;
-    if (!target) return null;
-    const stat = await fs.stat(target);
-    return stat.isFile();
+    const buffer = Buffer.alloc(64 * 1024);
+    let newlines = 0;
+    let position = 0;
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (bytesRead === 0) return false;
+      position += bytesRead;
+      for (let i = 0; i < bytesRead; i += 1) {
+        if (buffer[i] === 0x0a) {
+          newlines += 1;
+          if (newlines >= line - 1) return true;
+        }
+      }
+      if (newlines >= line - 1) return true;
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+/** 单条锚点的物理校验：文件存在，且载荷给出的行号真的存在（行号缺失/0=未知则只验文件）。 */
+async function validateAnchor(root: string | undefined, anchor: EvidenceAnchor): Promise<AnchorOutcome> {
+  const target = path.isAbsolute(anchor.file)
+    ? anchor.file
+    : root
+      ? path.join(root, anchor.file)
+      : null;
+  if (!target) return { kind: 'unchecked' };
+  if (anchor.line !== null && anchor.line !== 0) {
+    if (!Number.isInteger(anchor.line) || anchor.line < 0) {
+      return { kind: 'line_invalid', line: anchor.line };
+    }
+    try {
+      return (await lineExistsInFile(target, anchor.line))
+        ? { kind: 'verified' }
+        : { kind: 'line_out_of_range', line: anchor.line };
+    } catch {
+      return { kind: 'file_missing' };
+    }
+  }
+  try {
+    return (await fs.stat(target)).isFile() ? { kind: 'verified' } : { kind: 'file_missing' };
   } catch {
-    return false;
+    return { kind: 'file_missing' };
   }
 }
 
@@ -166,6 +231,7 @@ export async function buildVerificationReceipt(options: {
     engineVersion: VERSION,
     tool,
     verdict: 'NO_EVIDENCE',
+    anchorsTotal: anchors.length,
     anchorsChecked: 0,
     anchorsMissing: [],
     breakMarkers,
@@ -174,26 +240,57 @@ export async function buildVerificationReceipt(options: {
   if (anchors.length === 0) return receipt;
 
   const sample = anchors.slice(0, MAX_ANCHORS_CHECKED);
-  let missingRoot = false;
+  const truncated = anchors.length > sample.length;
+  let unchecked = 0;
   for (const anchor of sample) {
-    const exists = await anchorFileExists(root, anchor.file);
-    receipt.anchorsChecked += 1;
-    if (exists === null) {
-      missingRoot = true;
+    const outcome = await validateAnchor(root, anchor);
+    if (outcome.kind === 'unchecked') {
+      // v1.5.1 票 02 — 没校验到的不算 checked，也不再静默：见下面的回执级诊断。
+      unchecked += 1;
       continue;
     }
-    if (!exists) {
-      receipt.anchorsMissing.push({ path: anchor.path, file: anchor.file, line: anchor.line });
+    receipt.anchorsChecked += 1;
+    if (outcome.kind === 'verified') continue;
+    receipt.anchorsMissing.push({ path: anchor.path, file: anchor.file, line: anchor.line });
+    if (outcome.kind === 'file_missing') {
       receipt.diagnostics.push({
         path: anchor.path,
         code: 'ANCHOR_FILE_MISSING',
         message: `anchor file not found on disk: ${anchor.file}`
       });
+    } else if (outcome.kind === 'line_out_of_range') {
+      receipt.diagnostics.push({
+        path: anchor.path,
+        code: 'ANCHOR_LINE_OUT_OF_RANGE',
+        message: `anchor line ${outcome.line} is past the end of ${anchor.file}`
+      });
+    } else {
+      receipt.diagnostics.push({
+        path: anchor.path,
+        code: 'ANCHOR_FIELD_INVALID',
+        message: `anchor line is not a positive integer: ${String(outcome.line)}`
+      });
     }
+  }
+  // 回执级诊断：环境不足与截断都不是「锚点有问题」，但都必须可见——
+  // 「绝不静默交付」的前提是消费者能看见自己拿到的是部分校验。
+  if (unchecked > 0) {
+    receipt.diagnostics.push({
+      path: 'anchors',
+      code: 'ANCHORS_UNCHECKED',
+      message: `${unchecked} anchor(s) skipped: no repository root available`
+    });
+  }
+  if (truncated) {
+    receipt.diagnostics.push({
+      path: 'anchors',
+      code: 'ANCHORS_TRUNCATED',
+      message: `only the first ${sample.length} of ${anchors.length} anchors were checked`
+    });
   }
   if (receipt.anchorsMissing.length > 0) {
     receipt.verdict = 'ANCHORS_MISSING';
-  } else if (missingRoot) {
+  } else if (unchecked > 0 || truncated) {
     receipt.verdict = 'UNCHECKED';
   } else {
     receipt.verdict = 'VERIFIED';
