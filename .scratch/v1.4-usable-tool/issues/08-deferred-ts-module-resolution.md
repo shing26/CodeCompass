@@ -27,3 +27,5 @@ Status: deferred
 v1.4 已落地的**披露侧**：README `Known Limitations` 第 2 条明确写出「不解析 import 声明、不读 tsconfig baseUrl/paths；按符号名绑定；同名可能错绑；别名不报错」。本票只登记真实修复，不在 v1.4 实现。
 
 - **2026-10-25 前置条件 1（先量）已完成**：探针 `scripts/precision/import_resolution_probe.ts` 在 self 仓（commit 38deb70）实测：跨文件调用 4055 条，其中**同名多文件声明歧义 3274 条**；若解析 import 声明（仅相对导入——self 未用任何 `@/` 别名、无 tsconfig paths），**1301 条可被唯一钉死（40%）**。报表 `scripts/precision/out/import_probe_self.json`。数字跨过「先有度量」门槛：按本票「立项时必须先做的事」第 2、3 条（三仓棘轮基线冻结 + 消解语义 ADR）可开战役，建议批次 v1.6；lazygit（Go）/petclinic（Java）不受影响，战役前后应逐字节不变。
+
+- **2026-10-26 战役判定：开（批次 v1.6），分阶段**——评审依据见 `docs/reports/code-review-2026-10-26.md`「v1.6」节。①只做 import/export 声明解析 + 相对路径模块表；②再谈 tsconfig `baseUrl`/`paths`；③最后谈 workspaces。理由：self 仓不含别名，别名覆盖度在本次度量里是**零样本**，一步到位等于把未测量的面当已测量。硬停条件：lazygit/petclinic 前后字节不变，3274 条歧义只能下降、不得用「更聪明的猜测」换数字（`CONTEXT.md:40`）。诚实披露：触发线 1 尚未出现，本战役是机会驱动而非事故驱动；`README` Known Limitations 的现有披露在战役落地前保留。立项第一步须重跑探针复核 1301/3274（探针 `TS_EXT` 的正则点号未转义，可能影响读数）。
