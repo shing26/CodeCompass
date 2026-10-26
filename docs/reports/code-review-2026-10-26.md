@@ -53,6 +53,8 @@
 
 两轴**独立收敛到同一处**（`output-contract.ts` 的断链标记表）。这是两条独立路径各自发现的同一事实，不是合并后的单一结论。
 
+**修复状态（2026-10-26 当日）**：S-1 → `18a76a0`（`.scratch/v1.5.1-receipt-fixes/issues/01-break-marker-counting.md`）；S-2 + S-3 + 票 02 的 skipped 要求 → `22ff3cc`（`issues/02-anchor-line-and-truncation.md`）。Spec 轴其余 10 条（`UNCHECKED` 口径、票 03 重放命令与生成时间、`repoPath` 越界、e2e 断言改写追认等）仍未动。
+
 ## Lead 核验（独立复算，非子代理结论）
 
 - **已证实并加精确化**：`packages/contracts/v1.ts:132-151` `RepoQaTraceHop` 的断口是 `break?: true`（布尔）+ `reason?: string`（整句），两者都不进 `BREAK_MARKER_VALUES` 的裸字符串匹配——**trace 类载荷的 `breakMarkers` 确实恒为 `{}`**；但 `DiagnoseChainStep.status`（`repoqa.ts:179`）的 `BROKEN / SUSPECT / EXTERNAL` 是裸枚举值，**会被正常计数**。故 S-1 的准确表述是「trace 面恒空、diagnose 面部分命中」，不是「永远为空」。
