@@ -1,5 +1,50 @@
 # Changelog
 
+## [1.8.0] - 2026-10-27
+
+**chat 流式可感知：服务端进度、心跳与慢模型断点提示。** R5-05 的后端半此前是空的——
+一次 ReAct 轮次只有 `delta` 一种信号，模型思考/工具执行整段静默；v1.8 票 01 实测慢首字
+20s 场景下最大静默 **20.4s**、CLI REPL 同样 20.4s 零输出。本版把「服务端在干什么」变成
+可观测事件，**只提示、绝不替用户做决定**；17 个工具输入签名与返回体零变化（ADR-0024）。
+
+### 新增
+
+- **三个增量 SSE 事件**（ADR-0024、`packages/contracts/src/chat.ts`）：`progress`
+  （model/tool 起止/synthesis/retry，带 turnId+elapsedMs）、`hint`（慢首字 15s/45s、
+  慢工具 10s，只给建议）、`heartbeat`（5s 保底）。未知事件消费方忽略；`done` 仍是终态权威。
+- **ChatView 进度行与慢提示**：busy 时显示「模型思考中（第 N 步）」「正在调用
+  codecompass_scan」等一行状态（`role=status aria-live=polite`）；慢提示在多档位时才建议
+  「切换档位」；首个 delta 到达或轮次结束即清空，不留假状态。
+- **CLI REPL 进度**：`formatProgressLine` + stderr 单行进度（TTY 门控，
+  `REPOQA_CHAT_PROGRESS=1/0` 可覆盖）；非 TTY 输出与修前逐字节一致。
+- **观测工具**：`scripts/smoke/stub-llm.mjs` scripted 模式（工具回合/慢首字/长答案，默认行为不变）+
+  `scripts/smoke/chat-progress-probe.mjs`（逐帧 SSE 时间线 + wire 统计）。
+
+### 加固
+
+- **模型调用有硬上界**：每次 `llm.chat` 传 `timeoutMs`（`REPOQA_CHAT_LLM_TIMEOUT_MS`，默认 180s），
+  超时映射 `error code=chat_llm_timeout`——此前 provider 挂起时静默无上限。
+- **无 LLM 的确定性 fallback 不声称进度**：e2e 反向封条（fallback 轮次不得出现 progress/hint）。
+
+### 实测（票 01 修前 → 票 03 修后）
+
+| 场景 | 修前最大静默 gap | 修后 | 事件 |
+|---|---|---|---|
+| fast | 407ms | 379ms | progress=1 |
+| 工具回合 | 2,742ms | 2,365ms | progress=5（起止齐全） |
+| 慢首字 20s | **20,421ms** | **5,002–5,011ms**（心跳周期+调度抖动） | heartbeat=4、hint=1 @15.0s |
+| CLI REPL 慢首字 | 首输出 20,413ms | 强制进度路径 4ms 出「模型思考中」 | 默认非 TTY 仍静默 |
+
+wire 开销（4KB 答案样本）：slow **2.1%**（396B）、tool **2.5%**（705B），低于 10% 目标。
+
+### 门禁（本机实跑）
+
+- 控制面 **907 tests / 72 files**、web **441 / 41**、bridge **26 / 1**，合计 **1374 / 114**；
+- e2e **74/0**（新增「fallback 不得声称进度」断言）；UI smoke 新增「进度行出现」断言；
+- 双轴 code-review（fixed point `41c4de5`）报告 `docs/reports/code-review-2026-10-27-v18.md`：
+  硬违规 1（`chat_llm_timeout` 未入三处同动契约）已修，judgement 修 5 / 部分 1 / deferred 1。
+- typecheck 零错误；`src/chat/` + `error-code-guard` **32/32**；定向 web（ChatView / RepoQAClient / errorCodes / copy-guard）**76/76**。
+
 ## [1.7.0] - 2026-10-26
 
 **工件交付也可验证：真浏览器打开、判红、留回执。** 此前门禁对单文件 HTML 工件只到字符串断言
