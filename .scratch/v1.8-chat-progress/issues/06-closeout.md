@@ -25,5 +25,7 @@ Status: pending
 - 双轴评审 `docs/reports/code-review-2026-10-27-v18.md`：硬违规 1 已修（错误码三处同动 + guard 三元形状），
   judgement 修 5 / 部分 1 / deferred 1；Spec 修 6 / 部分 1。
 - 门禁（本机实跑）：cp **907/72**、web **441/41**、bridge 26、e2e **74/0**、UI smoke PASS、typecheck 0。
-- 发布沿用 v1.7 的 [release-checklist](../v1.7-artifact-browser-gate/release-checklist.md)；
-  `D:\zcode-tmp\publish-1.7.0.cmd` 换版本号即可复用（登录 → publish → 校验）。
+- 发布：tag `v1.8.0`（`9d3ea36`）→ Release workflow #40430029303 **success**（含 Artifact browser gate），
+  资产含工件 + 回执；npm 用 `D:\zcode-tmp\publish-1.8.0.cmd`（已按 1.8.0 生成，ASCII+CRLF 已验证）。
+  发布后回写 README「版本实情」（latest → 1.8.0、工作树「已上架」）。
+- npm：`@codecompass/cli@1.8.0` 已发布（2026-10-27T01:26:05Z；latest → 1.8.0；临时前缀安装 `--version` = 1.8.0）。

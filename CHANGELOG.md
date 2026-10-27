@@ -43,6 +43,11 @@ wire 开销（4KB 答案样本）：slow **2.1%**（396B）、tool **2.5%**（70
 - e2e **74/0**（新增「fallback 不得声称进度」断言）；UI smoke 新增「进度行出现」断言；
 - 双轴 code-review（fixed point `41c4de5`）报告 `docs/reports/code-review-2026-10-27-v18.md`：
   硬违规 1（`chat_llm_timeout` 未入三处同动契约）已修，judgement 修 5 / 部分 1 / deferred 1。
+- **Release**：tag `v1.8.0`（`9d3ea36`）→ workflow
+  [#40430029303](https://github.com/shing26/CodeCompass/actions/runs/40430029303) **success**
+  （11 步全绿，含 Artifact browser gate）；资产含工件 + `browser-check.json`（2,635 B）+ `e2e-result.json`。
+- **npm**：`@codecompass/cli@1.8.0` 已发布（2026-10-27T01:26:05Z；dist-tag `latest` 已指向 1.8.0，
+  临时前缀安装 `codecompass --version` = 1.8.0）。
 - typecheck 零错误；`src/chat/` + `error-code-guard` **32/32**；定向 web（ChatView / RepoQAClient / errorCodes / copy-guard）**76/76**。
 
 ## [1.7.0] - 2026-10-26
