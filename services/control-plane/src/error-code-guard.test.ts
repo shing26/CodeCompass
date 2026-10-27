@@ -42,15 +42,21 @@ function collectTsFiles(dir: string, out: string[] = []): string[] {
  * the same emission and must not slip past the guard (2026-09-21 review). */
 const CODE_LITERAL_RE = /code:\s*['"]([a-z][a-z_]+)['"]/g;
 
+/** v1.8 评审补 — 三元赋值形态 `code = cond ? 'a' : 'b'`：此前会绕过上面那条
+ * `code:` 形状的扫描（`chat_llm_timeout` 曾借此漏掉契约三处同动）。 */
+const CODE_TERNARY_RE = /\bcode\s*[:=][^;\n]*\?\s*['"]([a-z][a-z_]+)['"]/g;
+
 describe('error-code guard (issue 10)', () => {
   it('every emitted `code:` literal is in the contracts table', () => {
     const offenders: Array<{ file: string; line: number; code: string }> = [];
     for (const file of collectTsFiles(SRC)) {
       const text = readFileSync(file, 'utf-8');
-      for (const match of text.matchAll(CODE_LITERAL_RE)) {
-        if (!ERROR_CODE_LIST.includes(match[1] as never)) {
-          const line = text.slice(0, match.index ?? 0).split('\n').length;
-          offenders.push({ file: file.replace(SRC, 'src'), line, code: match[1] });
+      for (const re of [CODE_LITERAL_RE, CODE_TERNARY_RE]) {
+        for (const match of text.matchAll(re)) {
+          if (!ERROR_CODE_LIST.includes(match[1] as never)) {
+            const line = text.slice(0, match.index ?? 0).split('\n').length;
+            offenders.push({ file: file.replace(SRC, 'src'), line, code: match[1] });
+          }
         }
       }
     }
@@ -75,6 +81,11 @@ describe('error-code guard (issue 10)', () => {
     // Both quote styles count as an emission (hardened after the 2026-09-21
     // review: a double-quoted `code:` used to slip past the guard entirely).
     expect(literal('res.status(400).json({ error: "x", code: "made_up_code" });')).toBe('made_up_code');
+    // v1.8 评审补：三元赋值同样是一种发射形态，必须被看见。
+    const ternary = (s: string) => new RegExp(CODE_TERNARY_RE.source).exec(s)?.[1];
+    expect(ternary("const code = isTimeout ? 'chat_llm_timeout' : 'chat_run_failed';")).toBe(
+      'chat_llm_timeout'
+    );
   });
 
   it('every contract code appears in the CONTEXT.md Error Code Contract table (issue 10)', () => {

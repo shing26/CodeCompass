@@ -2212,6 +2212,14 @@ def check_chat_merge(node: str, base: str, repo_id: str) -> None:
             core_ok and bool(answer),
             f"events={events} answer_len={len(answer)}",
         )
+        # ADR-0024：无 LLM 的确定性 fallback 轮次不得声称模型/工具进度
+        # （正面的 progress 断言在 UI smoke 的真 stub 流里，e2e 这里是反向封条）。
+        no_fake_progress = "progress" not in events and "hint" not in events
+        record(
+            "chat fallback claims no model/tool progress (ADR-0024)",
+            core_ok and bool(answer) and no_fake_progress,
+            f"events={events}",
+        )
 
     try:
         body = http_json("GET", f"{base}/api/chat/sessions/{session_id}/messages")

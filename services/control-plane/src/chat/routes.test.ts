@@ -7,6 +7,10 @@ import { registerChatRoutes, type ChatRuntime } from './routes';
 import { ChatStore } from './store';
 import type { ReActAgent } from './agent.js';
 
+let store: ChatStore;
+let baseUrl = '';
+const agents = new Map<string, ReActAgent>();
+
 /**
  * v0.27-B R3 — 路由级错误契约（不拉起整服务器）：五面中的 chat 面。
  * 钉：404/400 带稳定 code；runSerialized 炸掉时 SSE error 帧带
@@ -16,10 +20,7 @@ import type { ReActAgent } from './agent.js';
 const DSN_SECRET = 'super-secret-pw';
 
 describe('chat routes error contract (R3)', () => {
-  let baseUrl = '';
   let server: http.Server;
-  let store: ChatStore;
-  const agents = new Map<string, ReActAgent>();
 
   beforeAll(async () => {
     const db = openDb(':memory:');
@@ -45,7 +46,8 @@ describe('chat routes error contract (R3)', () => {
       } as unknown as ChatRuntime['llm'],
       mcp: { connected: false, toolCount: 0 } as unknown as ChatRuntime['mcp'],
       log: { write: () => {} } as unknown as ChatRuntime['log'],
-      agents
+      agents,
+      timings: { heartbeatMs: 25, slowFirstTokenMs: 40, verySlowFirstTokenMs: 60, toolLongMs: 20 }
     };
     const app = express();
     app.use(express.json());
@@ -163,5 +165,88 @@ describe('chat routes error contract (R3)', () => {
     expect(body.code).toBe('chat_run_failed');
     expect(body.error).not.toContain('ghp_');
     expect(body.error).toContain('history explode');
+  });
+});
+
+// ---------- v1.8 chat progress / heartbeat / hints (ADR-0024) ----------
+
+describe('v1.8 chat progress stream (ADR-0024)', () => {
+  let srv: http.Server;
+  let url = '';
+
+  beforeAll(async () => {
+    const runtime: ChatRuntime = {
+      store,
+      llm: {
+        configured: () => true,
+        activeProfileName: 'default',
+        profileNames: ['default'],
+        switchTo: () => {}
+      } as unknown as ChatRuntime['llm'],
+      mcp: { connected: false, toolCount: 0 } as unknown as ChatRuntime['mcp'],
+      log: { write: () => {} } as unknown as ChatRuntime['log'],
+      agents,
+      timings: { heartbeatMs: 25, slowFirstTokenMs: 40, verySlowFirstTokenMs: 60, toolLongMs: 20 }
+    };
+    const app = express();
+    app.use(express.json());
+    registerChatRoutes(app, runtime);
+    srv = http.createServer(app);
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', resolve));
+    url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  });
+  it('streams progress, heartbeat and slow hints with injected timings', async () => {
+    store.createSession('s4', 'repo-x', '进度会话');
+    agents.set('s4', {
+      setSessionRepo: () => {},
+      seedHistory: () => {},
+      runSerialized: async (_msg: string, opts: { onProgress?: (e: unknown) => void }) => {
+        const turnId = 's4:1';
+        opts.onProgress?.({ phase: 'model', step: 1, turnId, elapsedMs: 0 });
+        await new Promise((r) => setTimeout(r, 95));
+        opts.onProgress?.({ phase: 'tool', step: 1, tool: 'codecompass_scan', turnId, elapsedMs: 95 });
+        await new Promise((r) => setTimeout(r, 80));
+        opts.onProgress?.({ phase: 'tool', step: 1, tool: 'codecompass_scan', toolMs: 80, turnId, elapsedMs: 175 });
+        return { answer: 'ok', citations: [], steps: 1, fallback: false, turnId };
+      }
+    } as unknown as ReActAgent);
+
+    const res = await fetch(`${url}/api/chat/sessions/s4/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: '进度' })
+    });
+    expect(res.status).toBe(200);
+    const raw = await res.text();
+    const frames = raw
+      .split('\n\n')
+      .filter(Boolean)
+      .map((frame) => {
+        const event = frame
+          .split('\n')
+          .find((line) => line.startsWith('event:'))!
+          .slice(6)
+          .trim();
+        const data = frame
+          .split('\n')
+          .find((line) => line.startsWith('data:'))!
+          .slice(5)
+          .trim();
+        return { event, payload: JSON.parse(data) as Record<string, unknown> };
+      });
+    const names = frames.map((f) => f.event);
+    expect(names.filter((n) => n === 'progress').length).toBeGreaterThanOrEqual(3);
+    expect(names.filter((n) => n === 'heartbeat').length).toBeGreaterThanOrEqual(2);
+    const hints = frames.filter((f) => f.event === 'hint').map((f) => f.payload.code);
+    expect(hints).toContain('SLOW_FIRST_TOKEN');
+    expect(hints).toContain('VERY_SLOW_FIRST_TOKEN');
+    expect(hints).toContain('TOOL_LONG_RUNNING');
+    const firstHint = frames.find((f) => f.event === 'hint')!;
+    expect(firstHint.payload.profilesAvailable).toBe(1);
+    expect(firstHint.payload.profile).toBe('default');
   });
 });

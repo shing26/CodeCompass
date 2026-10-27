@@ -68,6 +68,7 @@ describe('v0.27-B R3: error code contract (frontend)', () => {
     expect(copyKeys).toEqual([...ERROR_CODE_LIST].sort());
     // v1.4：30 → 34（示例项目 + 片段分析四面：sample_import_failed /
     // snippet_required / snippet_too_large / snippet_parse_failed）。
-    expect(copyKeys).toHaveLength(34);
+    // v1.8：34 → 35（ADR-0024 模型硬超时 chat_llm_timeout）。
+    expect(copyKeys).toHaveLength(35);
   });
 });

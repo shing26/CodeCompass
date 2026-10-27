@@ -664,3 +664,106 @@ describe('ReActAgent turn correlation (ticket 08)', () => {
     expect(healthy.consistent).toBe(true);
   });
 });
+
+// ---------- v1.8 chat progress (ADR-0024) ----------
+
+describe('v1.8 chat progress events (ADR-0024)', () => {
+  const toolCallChunk = {
+    choices: [
+      {
+        delta: {
+          tool_calls: [
+            { index: 0, id: 'call_p', function: { name: 'codecompass_scan', arguments: '{"repoId":"repo-1"}' } }
+          ]
+        }
+      }
+    ]
+  };
+
+  it('emits model -> tool(start/end) -> model progress with turnId + elapsed, and passes a timeout signal', async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    let calls = 0;
+    const fetchImpl = (async (_url: unknown, init?: { signal?: AbortSignal }) => {
+      signals.push(init?.signal);
+      calls += 1;
+      return calls === 1
+        ? sseResponse([toolCallChunk])
+        : sseResponse([{ choices: [{ delta: { content: '结论' } }] }]);
+    }) as unknown as typeof fetch;
+    const agent = new ReActAgent({
+      mcp: makeMcp(),
+      llm: makeLlm(llmEnv),
+      log: noopLog,
+      onDelta: () => {},
+      fetchImpl,
+      sessionId: 's1'
+    });
+    const events: Array<{ phase: string; step: number; tool?: string; toolMs?: number; turnId: string; elapsedMs: number }> = [];
+    await agent.run('scan', { onProgress: (e) => events.push(e as never) });
+
+    // 第 3 次 chat 是既有 M3-01 强制合成轮（最后一条消息是 tool 结果时补一轮），
+    // 因此进度序列是 model → tool → tool → model → synthesis。
+    expect(events.map((e) => e.phase).join(',')).toBe('model,tool,tool,model,synthesis');
+    expect(events[0]!.step).toBe(1);
+    expect(events[1]!.tool).toBe('codecompass_scan');
+    expect(events[1]!.toolMs).toBeUndefined();
+    expect(typeof events[2]!.toolMs).toBe('number');
+    expect(events[3]!.step).toBe(2);
+    for (const e of events) {
+      expect(e.turnId).toBe('s1:1');
+      expect(typeof e.elapsedMs).toBe('number');
+    }
+    expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
+  });
+
+  it('turns a hanging provider into a TimeoutError (routes map it to chat_llm_timeout)', async () => {
+    vi.stubEnv('REPOQA_CHAT_LLM_TIMEOUT_MS', '20');
+    try {
+      const fetchImpl = ((_url: unknown, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const signal = init?.signal;
+          const fail = () =>
+            reject(
+              Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+            );
+          if (!signal) return;
+          if (signal.aborted) return fail();
+          signal.addEventListener('abort', fail, { once: true });
+        })) as unknown as typeof fetch;
+      const agent = new ReActAgent({ mcp: makeMcp(), llm: makeLlm(llmEnv), log: noopLog, onDelta: () => {}, fetchImpl });
+      await expect(agent.run('慢')).rejects.toMatchObject({ name: 'TimeoutError' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+// ---------- v1.8 CLI REPL progress formatting (ADR-0024) ----------
+
+describe('v1.8 REPL progress line (ADR-0024)', () => {
+  it('formats every phase as a single Chinese line', async () => {
+    const { formatProgressLine } = await import('./repl.js');
+    expect(formatProgressLine({ phase: 'model', step: 2, turnId: 's:1', elapsedMs: 5 })).toBe(
+      '· 模型思考中（第 2 步）'
+    );
+    expect(
+      formatProgressLine({ phase: 'tool', step: 2, tool: 'codecompass_scan', turnId: 's:1', elapsedMs: 9 })
+    ).toBe('· 正在调用 codecompass_scan');
+    expect(
+      formatProgressLine({
+        phase: 'tool',
+        step: 2,
+        tool: 'codecompass_scan',
+        toolMs: 42,
+        turnId: 's:1',
+        elapsedMs: 51
+      })
+    ).toBe('· 已返回 codecompass_scan（42ms）');
+    expect(formatProgressLine({ phase: 'synthesis', step: 3, turnId: 's:1', elapsedMs: 60 })).toBe(
+      '· 正在汇总结论'
+    );
+    expect(formatProgressLine({ phase: 'retry', step: 4, turnId: 's:1', elapsedMs: 70 })).toBe(
+      '· 正在重试生成'
+    );
+  });
+});

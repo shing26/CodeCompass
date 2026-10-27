@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { ChatView } from './ChatView';
 import { ApiError } from '../client/errorCodes';
 import type { RepoQAClient, ChatTurnResult } from '../client/RepoQAClient';
+import type { ChatHintEvent, ChatProgressEvent } from '../../../../packages/contracts/src/index';
 
 function makeChatClient(overrides: Partial<RepoQAClient['chat']> = {}): RepoQAClient['chat'] {
   const defaults = {
@@ -42,7 +43,11 @@ function renderChat(
   chatClientOverrides: Partial<RepoQAClient['chat']> = {},
   onSendImpl?: (
     message: string,
-    handlers: { onDelta: (t: string) => void },
+    handlers: {
+      onDelta: (t: string) => void;
+      onProgress?: (e: ChatProgressEvent) => void;
+      onHint?: (e: ChatHintEvent) => void;
+    },
     sessionId: string,
     signal?: AbortSignal
   ) => Promise<ChatTurnResult | null>,
@@ -345,5 +350,87 @@ describe('v1.2 票 05 a11y（V27-15）', () => {
       expect(screen.getByTestId('chat-expand-answer')).toHaveAttribute('aria-expanded', 'true')
     );
     expect(screen.getByTestId('chat-messages').textContent).not.toContain('[cite:');
+  });
+});
+// ---------- v1.8 chat 进度与慢提示（ADR-0024） ----------
+
+describe('v1.8 服务端进度与慢提示（ADR-0024）', () => {
+  function progressSend(hint: ChatHintEvent) {
+    return (
+      _m: string,
+      handlers: {
+        onDelta: (t: string) => void;
+        onProgress?: (e: ChatProgressEvent) => void;
+        onHint?: (e: ChatHintEvent) => void;
+      },
+      _sid: string,
+      signal?: AbortSignal
+    ) =>
+      new Promise<ChatTurnResult>((_resolve, reject) => {
+        handlers.onProgress?.({ phase: 'tool', step: 2, tool: 'codecompass_scan', turnId: 't', elapsedMs: 10 });
+        handlers.onHint?.(hint);
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+  }
+
+  async function startTurn() {
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('chat-new-session'));
+    await user.type(screen.getByTestId('chat-question'), '慢慢想');
+    await user.click(screen.getByTestId('chat-send'));
+    return user;
+  }
+
+  it('进度行如实显示正在调用的工具与步号', async () => {
+    renderChat({}, progressSend({ code: 'SLOW_FIRST_TOKEN', elapsedMs: 15000, profile: 'default', profilesAvailable: 2 }));
+    await startTurn();
+    const line = await screen.findByTestId('chat-progress');
+    expect(line).toHaveTextContent('正在调用 codecompass_scan（第 2 步）');
+  });
+
+  it('慢提示在多档位时给出「切换档位」建议', async () => {
+    renderChat({}, progressSend({ code: 'SLOW_FIRST_TOKEN', elapsedMs: 15000, profile: 'default', profilesAvailable: 2 }));
+    await startTurn();
+    const hint = await screen.findByTestId('chat-hint');
+    expect(hint).toHaveTextContent('模型响应较慢');
+    expect(hint).toHaveTextContent('切换档位');
+  });
+
+  it('只有单档位时不建议切换档位', async () => {
+    renderChat({}, progressSend({ code: 'VERY_SLOW_FIRST_TOKEN', elapsedMs: 45000, profile: 'default', profilesAvailable: 1 }));
+    await startTurn();
+    const hint = await screen.findByTestId('chat-hint');
+    expect(hint).toHaveTextContent('模型响应很慢');
+    expect(hint).not.toHaveTextContent('切换档位');
+  });
+
+  it('轮次结束后进度行与提示都清空（不残留成假状态）', async () => {
+    renderChat({}, async (_m, handlers) => {
+      handlers.onProgress?.({ phase: 'model', step: 1, turnId: 't', elapsedMs: 0 });
+      return { answer: '完成', citations: [], steps: 1, fallback: false };
+    });
+    await startTurn();
+    await waitFor(() => expect(screen.getByText('完成')).toBeInTheDocument());
+    expect(screen.queryByTestId('chat-progress')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('chat-hint')).not.toBeInTheDocument();
+  });
+});
+describe('v1.8 进度行在答案开始流式输出后退场（ADR-0024）', () => {
+  it('首个 delta 到达后 chat-progress 消失（busy 仍为真）', async () => {
+    const user = userEvent.setup();
+    renderChat({}, (_m, handlers, _sid, signal) =>
+      new Promise<ChatTurnResult>((_resolve, reject) => {
+        handlers.onProgress?.({ phase: 'model', step: 1, turnId: 't', elapsedMs: 0 });
+        window.setTimeout(() => handlers.onDelta('答案片段'), 300);
+        signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      })
+    );
+    await user.click(await screen.findByTestId('chat-new-session'));
+    await user.type(screen.getByTestId('chat-question'), '慢慢想');
+    await user.click(screen.getByTestId('chat-send'));
+    expect(await screen.findByTestId('chat-progress')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/答案片段/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('chat-progress')).not.toBeInTheDocument());
+    expect(screen.getByTestId('chat-stop')).toBeInTheDocument();
   });
 });

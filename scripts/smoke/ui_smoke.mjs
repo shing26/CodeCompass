@@ -491,6 +491,15 @@ async function main() {
       .waitForFunction(() => (document.querySelector('[data-testid="chat-question"]')?.value || '').includes('冒烟'), { timeout: 5000 })
       .then(() => true)
       .catch(() => false));
+    // ADR-0024：进度行会在首个 delta 到达时清空（~300ms 窗口），用 MutationObserver
+    // 记录「出现过」，避免 waitForSelector 与清空赛跑产生假红。
+    await page.evaluate(() => {
+      window.__sawChatProgress = false;
+      const mo = new MutationObserver(() => {
+        if (document.querySelector('[data-testid="chat-progress"]')) window.__sawChatProgress = true;
+      });
+      mo.observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
     await page.click('[data-testid="chat-send"]');
     // v1.2.x（R5-05）流式可感知/可中断进 Release 门：修前整轮只有一个禁用的「…」，
     // 用户既看不出在跑还是坏了也叫不停（Round5 走查：68s 一轮无任何出口）。
@@ -543,6 +552,10 @@ async function main() {
       'stub 流式回答到达（含跨帧重组）',
       answered,
       answered ? '' : `err=${answered ? '' : (await errBox.count()) ? await errBox.innerText() : 'timeout'}`
+    );
+    step(
+      '服务端进度行出现（ADR-0024）',
+      await page.evaluate(() => Boolean(window.__sawChatProgress)).catch(() => false)
     );
     await page.click('[data-testid="chat-back"]');
 

@@ -68,7 +68,9 @@ export const ERROR_CODES = {
   chat_title_required: 'chat_title_required',
   chat_message_required: 'chat_message_required',
   invalid_model: 'invalid_model',
-  chat_run_failed: 'chat_run_failed'
+  chat_run_failed: 'chat_run_failed',
+  /** v1.8 ADR-0024 — 单次模型调用超过 REPOQA_CHAT_LLM_TIMEOUT_MS（默认 180s）。 */
+  chat_llm_timeout: 'chat_llm_timeout'
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

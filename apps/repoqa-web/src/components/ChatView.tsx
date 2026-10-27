@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import type { RepoQAClient, ChatCitation, ChatTurnResult, ChatPlanCard } from '../client/RepoQAClient';
 import { describeError } from '../client/errorCodes';
 import { PlanCardView } from './PlanCardView';
+import type { ChatHintEvent, ChatProgressEvent } from '../../../../packages/contracts/src/index';
 
 /** 改造 3：快捷交互卡片——标题 + 副标题（意图），点击直发请求。 */
 const STARTER_CARDS = [
@@ -28,6 +29,26 @@ const STARTER_CARDS = [
     prompt: '分析这个仓库的变更风险：哪些方法改动影响面最大？'
   }
 ];
+
+/** ADR-0024 — 进度事件 → 一行中文状态（服务端只给机器字段，文案在客户端）。 */
+export function progressLabel(event: ChatProgressEvent): string {
+  const tool = event.tool ?? '工具';
+  if (event.phase === 'tool') {
+    return typeof event.toolMs === 'number'
+      ? `工具已返回：${tool}（${(event.toolMs / 1000).toFixed(1)}s）`
+      : `正在调用 ${tool}（第 ${event.step} 步）`;
+  }
+  if (event.phase === 'synthesis') return `正在汇总结论（第 ${event.step} 步）`;
+  if (event.phase === 'retry') return `正在重试生成（第 ${event.step} 步）`;
+  return `模型思考中（第 ${event.step} 步）`;
+}
+
+/** ADR-0024 — 慢提示文案；仅多档位时才给「切换档位」建议。 */
+export function hintLabel(event: ChatHintEvent): string {
+  if (event.code === 'TOOL_LONG_RUNNING') return '工具执行较久，可继续等待或停止';
+  const base = event.code === 'VERY_SLOW_FIRST_TOKEN' ? '模型响应很慢' : '模型响应较慢';
+  return event.profilesAvailable > 1 ? `${base}，可继续等待、停止或切换档位` : `${base}，可继续等待或停止`;
+}
 
 interface ChatEntry {
   key: string;
@@ -239,6 +260,9 @@ export function ChatView(props: {
       onDelta: (text: string) => void;
       onRegenerate?: () => void;
       onPlan?: (cards: ChatPlanCard[]) => void;
+      /** ADR-0024 — 服务端进度 / 慢提示（聊天面直通，不参与 consent）。 */
+      onProgress?: (event: ChatProgressEvent) => void;
+      onHint?: (event: ChatHintEvent) => void;
     },
     /** 真实会话 id（chat-s*）——调用方需要它来 POST /sessions/:id/messages */
     sessionId: string,
@@ -286,6 +310,9 @@ export function ChatView(props: {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [firstTokenMs, setFirstTokenMs] = useState<number | null>(null);
   const [stopped, setStopped] = useState(false);
+  // ADR-0024 — 服务端进度行与慢提示（只提示；动作仍由用户按停止/切档）。
+  const [progressLine, setProgressLine] = useState<string | null>(null);
+  const [slowHint, setSlowHint] = useState<ChatHintEvent | null>(null);
   const startedAtRef = useRef(0);
   const sawTokenRef = useRef(false);
 
@@ -416,6 +443,8 @@ export function ChatView(props: {
         setStopped(false);
         setFirstTokenMs(null);
         setElapsedMs(0);
+        setProgressLine(null);
+        setSlowHint(null);
         startedAtRef.current = Date.now();
         sawTokenRef.current = false;
         abortRef.current = controller;
@@ -430,12 +459,17 @@ export function ChatView(props: {
           onDelta: (text) => {
             if (!sawTokenRef.current) {
               sawTokenRef.current = true;
+              setSlowHint(null);
+              // 答案开始流式输出后进度行即退场（它回答的是「还没出字时在干嘛」）。
+              setProgressLine(null);
               setFirstTokenMs(Date.now() - startedAtRef.current);
             }
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: e.content + text } : e)));
           },
           onRegenerate: () =>
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, content: '', regenerating: true } : e))),
+          onProgress: (event) => setProgressLine(progressLabel(event)),
+          onHint: (event) => setSlowHint(event),
           onPlan: (cards: ChatPlanCard[]) =>
             setEntries((prev) => prev.map((e) => (e.key === streamKey ? { ...e, planCards: cards } : e)))
         }, session.id, controller.signal);
@@ -480,6 +514,8 @@ export function ChatView(props: {
       } finally {
         setEntries((prev) => prev.map((e) => ({ ...e, streaming: false, regenerating: false })));
         setBusy(false);
+        setProgressLine(null);
+        setSlowHint(null);
         abortRef.current = null;
       }
     },
@@ -706,6 +742,16 @@ export function ChatView(props: {
               className="mx-auto mt-1 flex w-full max-w-3xl items-center gap-2 text-micro text-muted"
             >
               {busy && <span>已用 {(elapsedMs / 1000).toFixed(1)}s</span>}
+              {busy && progressLine && (
+                <span data-testid="chat-progress" role="status" aria-live="polite">
+                  {progressLine}
+                </span>
+              )}
+              {busy && slowHint && (
+                <span data-testid="chat-hint" role="status" className="text-warning">
+                  {hintLabel(slowHint)}
+                </span>
+              )}
               {firstTokenMs !== null && <span>首字 {(firstTokenMs / 1000).toFixed(1)}s</span>}
               {stopped && <span className="text-warning">已停止——以上是中断前收到的部分内容</span>}
             </div>

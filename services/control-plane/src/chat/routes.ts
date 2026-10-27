@@ -1,12 +1,43 @@
 import type express from 'express';
 import { asyncHandler } from '../http-error';
 import { maskSensitiveText } from '../engine/repoqa-masking';
+import {
+  CHAT_HEARTBEAT_MS,
+  CHAT_SLOW_FIRST_TOKEN_MS,
+  CHAT_VERY_SLOW_FIRST_TOKEN_MS,
+  CHAT_TOOL_LONG_RUNNING_MS,
+  ERROR_CODES,
+  type ChatHintEvent,
+  type ChatProgressEvent
+} from '../../../../packages/contracts/src/index';
 import { randomUUID } from 'node:crypto';
 import { ReActAgent } from './agent.js';
 import type { ChatStore } from './store.js';
 import type { LlmManager } from './llm.js';
 import type { InProcessMcpClient } from './client.js';
 import type { SessionLogger } from './log.js';
+
+/** ADR-0024 — 计时参数（测试可注入更小的值；默认取 contracts 共用常量）。 */
+export interface ChatTimings {
+  heartbeatMs: number;
+  slowFirstTokenMs: number;
+  verySlowFirstTokenMs: number;
+  toolLongMs: number;
+}
+
+const DEFAULT_TIMINGS: ChatTimings = {
+  heartbeatMs: CHAT_HEARTBEAT_MS,
+  slowFirstTokenMs: CHAT_SLOW_FIRST_TOKEN_MS,
+  verySlowFirstTokenMs: CHAT_VERY_SLOW_FIRST_TOKEN_MS,
+  toolLongMs: CHAT_TOOL_LONG_RUNNING_MS
+};
+
+/** ADR-0024 — 模型超时（AbortSignal.timeout）的判别；映射到 chat_llm_timeout。 */
+function isTimeoutError(err: unknown): boolean {
+  // 单一判别源：AbortSignal.timeout 抛出的 DOMException/Error name 恒为 TimeoutError。
+  // 不再嗅探 message（provider 原文含 "timeout" 会被误判成我们自己的硬超时）。
+  return err instanceof Error && err.name === 'TimeoutError';
+}
 
 /** Runtime handed to the chat HTTP routes (wired in server.ts). */
 export interface ChatRuntime {
@@ -18,6 +49,8 @@ export interface ChatRuntime {
   agents: Map<string, ReActAgent>;
   /** Test seam. */
   fetchImpl?: typeof fetch;
+  /** ADR-0024 — 计时参数覆盖（测试用）。 */
+  timings?: Partial<ChatTimings>;
 }
 
 const wantsJson = (req: express.Request): boolean =>
@@ -98,6 +131,7 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
     let closed = false;
     res.on('close', () => {
       closed = true;
+      cleanupTurn();
     });
     const send = (event: string, data: unknown) => {
       if (closed || res.writableEnded || res.destroyed) return;
@@ -105,7 +139,64 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       } catch {
         closed = true;
+        cleanupTurn();
       }
+    };
+
+    // ADR-0024 — 轮次进度/心跳/慢提示。计时参数可被测试注入；sent 前先 open，
+    // 因此这里只准备状态与函数，真正的 start 在 send('open') 之后。
+    const timings = { ...DEFAULT_TIMINGS, ...(chat.timings ?? {}) };
+    const turnStart = Date.now();
+    let sawFirstDelta = false;
+    let toolTimer: ReturnType<typeof setTimeout> | undefined;
+    let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let slowTimer: ReturnType<typeof setTimeout> | undefined;
+    let verySlowTimer: ReturnType<typeof setTimeout> | undefined;
+    const hint = (code: ChatHintEvent['code']) => {
+      send('hint', {
+        code,
+        elapsedMs: Date.now() - turnStart,
+        profile: chat.llm.activeProfileName,
+        profilesAvailable: chat.llm.profileNames.length
+      } satisfies ChatHintEvent);
+    };
+    const clearToolTimer = () => {
+      if (toolTimer) {
+        clearTimeout(toolTimer);
+        toolTimer = undefined;
+      }
+    };
+    function cleanupTurn() {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (slowTimer) clearTimeout(slowTimer);
+      if (verySlowTimer) clearTimeout(verySlowTimer);
+      clearToolTimer();
+      heartbeatTimer = undefined;
+      slowTimer = undefined;
+      verySlowTimer = undefined;
+    }
+    const noteFirstDelta = () => {
+      if (sawFirstDelta) return;
+      sawFirstDelta = true;
+      if (slowTimer) clearTimeout(slowTimer);
+      if (verySlowTimer) clearTimeout(verySlowTimer);
+      slowTimer = undefined;
+      verySlowTimer = undefined;
+    };
+    const startTurnTimers = () => {
+      heartbeatTimer = setInterval(() => send('heartbeat', { elapsedMs: Date.now() - turnStart }), timings.heartbeatMs);
+      slowTimer = setTimeout(() => hint('SLOW_FIRST_TOKEN'), timings.slowFirstTokenMs);
+      verySlowTimer = setTimeout(() => hint('VERY_SLOW_FIRST_TOKEN'), timings.verySlowFirstTokenMs);
+    };
+    const handleProgress = (event: ChatProgressEvent) => {
+      send('progress', event);
+      if (event.phase !== 'tool') return;
+      if (typeof event.toolMs === 'number') {
+        clearToolTimer();
+        return;
+      }
+      clearToolTimer();
+      toolTimer = setTimeout(() => hint('TOOL_LONG_RUNNING'), timings.toolLongMs);
     };
 
     // R2-02: batch streamed deltas — per-char deltas flooded the wire (393
@@ -123,6 +214,7 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
       }
     };
     const onDelta = (t: string) => {
+      noteFirstDelta();
       deltaBuf += t;
       if (deltaBuf.length >= 200) flushDelta();
       else if (!deltaTimer) deltaTimer = setTimeout(flushDelta, 40);
@@ -161,15 +253,18 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
         connection: 'keep-alive',
       });
       send('open', { sessionId });
+      startTurnTimers();
 
       const turn = await agent.runSerialized(message, {
         onDelta,
+        onProgress: handleProgress,
         onRegenerate: () => {
           flushDelta();
           send('regenerate', {});
         },
       });
       flushDelta();
+      cleanupTurn();
       // CM-04: planCards 结构化下线方案随 citations JSON 列一并持久化（勾选状态在客户端）
       chat.store.addMessage(sessionId, 'assistant', turn.answer, {
         citations: turn.citations,
@@ -194,6 +289,8 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
       // touches ANY egress— the persisted note, the 500 JSON, and the SSE
       // error frame alike—and carries the stable `chat_run_failed` code so the
       // frontend can render human guidance instead of a raw string (V27-12).
+      cleanupTurn();
+      const errorCode = isTimeoutError(err) ? ERROR_CODES.chat_llm_timeout : ERROR_CODES.chat_run_failed;
       const reason = maskSensitiveText(
         err instanceof Error ? err.message : String(err)
       );
@@ -201,9 +298,9 @@ export function registerChatRoutes(app: express.Express, chat: ChatRuntime): voi
         chat.store.addMessage(sessionId, 'assistant', `（回答未完成：${reason}）`);
       }
       if (!res.headersSent) {
-        res.status(500).json({ error: reason, code: 'chat_run_failed' });
+        res.status(500).json({ error: reason, code: errorCode });
       } else {
-        send('error', { error: reason, code: 'chat_run_failed' });
+        send('error', { error: reason, code: errorCode });
         if (!closed) res.end();
         else try { res.end(); } catch { /* socket already gone */ }
       }

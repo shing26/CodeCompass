@@ -33,6 +33,7 @@ import {
   type TimedFetch
 } from './timeout';
 import { ApiError } from './errorCodes';
+import type { ChatHintEvent, ChatProgressEvent } from '../../../../packages/contracts/src/index';
 
 /**
  * RepoQAClient — thin typed wrapper over the Control Plane RepoQA API.
@@ -1026,6 +1027,10 @@ export interface ChatSendHandlers {
   onDelta: (text: string) => void;
   onRegenerate?: () => void;
   onPlan?: (cards: ChatPlanCard[]) => void;
+  /** ADR-0024 — 阶段进度（model/tool/synthesis/retry）。未知事件忽略。 */
+  onProgress?: (event: ChatProgressEvent) => void;
+  /** ADR-0024 — 慢模型/慢工具提示（只提示，客户端不自动动作）。 */
+  onHint?: (event: ChatHintEvent) => void;
 }
 
 export class ChatMergeClient {
@@ -1162,6 +1167,12 @@ export class ChatMergeClient {
         }
         if (event === 'delta' && payload.text !== undefined) {
           handlers.onDelta(String(payload.text));
+        } else if (event === 'progress' && handlers.onProgress) {
+          handlers.onProgress(payload as unknown as ChatProgressEvent);
+        } else if (event === 'hint' && handlers.onHint) {
+          handlers.onHint(payload as unknown as ChatHintEvent);
+        } else if (event === 'heartbeat') {
+          // ADR-0024 — 心跳只证明「服务端仍在线」；UI 不消费，也不得落入 error。
         } else if (event === 'regenerate' && handlers.onRegenerate) {
           handlers.onRegenerate();
         } else if (event === 'plan' && handlers.onPlan) {

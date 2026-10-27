@@ -1,5 +1,6 @@
 export * from '../v1';
 export * from './repoqa';
+export * from './chat';
 export * from './copy-blacklist';
 export * from './error-codes';
 export type {

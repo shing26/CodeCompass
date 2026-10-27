@@ -191,6 +191,9 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
         onDelta: (text: string) => void;
         onRegenerate?: () => void;
         onPlan?: (cards: ChatPlanCard[]) => void;
+        /** ADR-0024 — 进度/慢提示直通 chatSend（本层不消费）。 */
+        onProgress?: (event: import('../../../../packages/contracts/src/index').ChatProgressEvent) => void;
+        onHint?: (event: import('../../../../packages/contracts/src/index').ChatHintEvent) => void;
       },
       sessionId: string,
       signal?: AbortSignal

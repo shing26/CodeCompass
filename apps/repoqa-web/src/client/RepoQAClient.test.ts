@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QueryStream, RepoQAClient } from './RepoQAClient';
+import { ChatMergeClient, QueryStream, RepoQAClient } from './RepoQAClient';
 import type { QueryEvent } from '../types';
 
 /**
@@ -628,5 +628,88 @@ describe('v0.27-B R2: endpoint→budget map (review P2-7b lock)', () => {
     client.listRepos().catch(() => (settled = 'rejected'));
     await vi.advanceTimersByTimeAsync(15_001);
     expect(settled).toBe('rejected');
+  });
+});
+// ---------- v1.8 ChatMergeClient 进度/提示解析（ADR-0024） ----------
+
+describe('ChatMergeClient progress frames (ADR-0024)', () => {
+  it('parses progress/hint and ignores unknown heartbeat frames', async () => {
+    const encoder = new TextEncoder();
+    const frames = [
+      'event: open\ndata: {"sessionId":"s"}\n\n',
+      'event: progress\ndata: {"phase":"model","step":1,"turnId":"s:1","elapsedMs":5}\n\n',
+      'event: heartbeat\ndata: {"elapsedMs":5000}\n\n',
+      'event: hint\ndata: {"code":"SLOW_FIRST_TOKEN","elapsedMs":15000,"profile":"default","profilesAvailable":2}\n\n',
+      'event: delta\ndata: {"text":"答案"}\n\n',
+      'event: done\ndata: {"answer":"答案","citations":[],"steps":1,"fallback":false}\n\n'
+    ].join('');
+    const fetcher = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(frames));
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      )) as unknown as typeof fetch;
+    const client = new ChatMergeClient('http://x', fetcher);
+    const progress: unknown[] = [];
+    const hints: unknown[] = [];
+    const deltas: string[] = [];
+    const turn = await client.chatSend('s', 'hi', {
+      onDelta: (t) => deltas.push(t),
+      onProgress: (e) => progress.push(e),
+      onHint: (e) => hints.push(e)
+    });
+    expect(progress).toEqual([{ phase: 'model', step: 1, turnId: 's:1', elapsedMs: 5 }]);
+    expect(hints).toEqual([
+      { code: 'SLOW_FIRST_TOKEN', elapsedMs: 15000, profile: 'default', profilesAvailable: 2 }
+    ]);
+    expect(deltas.join('')).toBe('答案');
+    expect(turn.answer).toBe('答案');
+  });
+});
+describe('ChatMergeClient terminal-event authority (ADR-0024)', () => {
+  function streamOf(frames: string[]) {
+    const encoder = new TextEncoder();
+    const fetcher = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(frames.join('')));
+            controller.close();
+          }
+        }),
+        { status: 200 }
+      )) as unknown as typeof fetch;
+    return new ChatMergeClient('http://x', fetcher);
+  }
+
+  it('done stays authoritative when progress/heartbeat arrive after it', async () => {
+    const client = streamOf([
+      'event: open\ndata: {"sessionId":"s"}\n\n',
+      'event: done\ndata: {"answer":"终态答案","citations":[],"steps":1,"fallback":false}\n\n',
+      'event: heartbeat\ndata: {"elapsedMs":9000}\n\n',
+      'event: progress\ndata: {"phase":"model","step":2,"turnId":"s:1","elapsedMs":9001}\n\n'
+    ]);
+    const progress: unknown[] = [];
+    const turn = await client.chatSend('s', 'hi', {
+      onDelta: () => {},
+      onProgress: (e) => progress.push(e)
+    });
+    expect(turn.answer).toBe('终态答案');
+    // 迟到的进度帧被解析，但绝不改写终态。
+    expect(progress).toHaveLength(1);
+  });
+
+  it('ignores genuinely unknown event names without erroring', async () => {
+    const client = streamOf([
+      'event: open\ndata: {"sessionId":"s"}\n\n',
+      'event: brand_new_event\ndata: {"x":1}\n\n',
+      'event: done\ndata: {"answer":"ok","citations":[],"steps":1,"fallback":false}\n\n'
+    ]);
+    const turn = await client.chatSend('s', 'hi', { onDelta: () => {} });
+    expect(turn.answer).toBe('ok');
   });
 });

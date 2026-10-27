@@ -1,12 +1,26 @@
 import type { ToolSummary, ToolCallOutcome } from './types.js';
 import type { ChatMessage, LlmManager, ToolSpec } from './llm.js';
 import { maskSensitiveText } from '../engine/repoqa-masking';
+import { CHAT_LLM_TIMEOUT_MS, type ChatProgressEvent } from '../../../../packages/contracts/src/index';
 import type { SessionLogger } from './log.js';
 
 /** Proven parameters from CodeCompass repoqa-llm.ts (chat-merge: 抄答案不抄代码). */
 const MAX_STEPS = 3;
 const TOOL_RESULT_CHAR_CAP = 4_000;
 const HISTORY_KEEP = 8;
+
+/** ADR-0024 — 单次模型调用的硬上界（env 可覆盖；测试用极小值制造超时）。 */
+function resolveLlmTimeoutMs(): number {
+  const raw = Number(process.env.REPOQA_CHAT_LLM_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : CHAT_LLM_TIMEOUT_MS;
+}
+
+interface RunOptions {
+  onDelta?: (text: string) => void;
+  onRegenerate?: () => void;
+  /** ADR-0024 — 阶段进度（routes 转 SSE progress 帧；REPL 打单行）。 */
+  onProgress?: (event: ChatProgressEvent) => void;
+}
 
 const SYSTEM_PROMPT = `你是 compass-copilot：以 CodeCompass MCP（17 个确定性工具）为唯一事实源的对话式副驾。
 
@@ -145,7 +159,7 @@ export class ReActAgent {
    * session waits for the in-flight one instead of interleaving history. */
   runSerialized(
     intent: string,
-    opts: { onDelta?: (text: string) => void; onRegenerate?: () => void } = {},
+    opts: RunOptions = {},
   ): Promise<AgentTurn> {
     const next = this.inFlight.then(() => this.run(intent, opts));
     this.inFlight = next.catch(() => undefined);
@@ -154,12 +168,21 @@ export class ReActAgent {
 
   async run(
     intent: string,
-    opts: { onDelta?: (text: string) => void; onRegenerate?: () => void } = {},
+    opts: RunOptions = {},
   ): Promise<AgentTurn> {
     // Ticket 08 (v1.1) — one correlation key per question: it rides every
     // citation, both JSONL rows and the done payload, so the whole tool
     // sequence of a turn is retrievable as a unit by `turnId`.
     const turnId = `${this.deps.sessionId ?? 'session'}:${++this.turnSeq}`;
+    const turnStart = Date.now();
+    const emitProgress = (
+      phase: ChatProgressEvent['phase'],
+      step: number,
+      extra: { tool?: string; toolMs?: number } = {}
+    ) => {
+      opts.onProgress?.({ phase, step, ...extra, turnId, elapsedMs: Date.now() - turnStart });
+    };
+    const llmTimeoutMs = resolveLlmTimeoutMs();
     if (!this.deps.llm.configured()) return this.fallback(intent, turnId);
     const tools = this.deps.mcp.connected ? toToolSpecs(this.deps.mcp.toolsDetail) : [];
     const onDelta = opts.onDelta ?? this.deps.onDelta;
@@ -182,11 +205,13 @@ export class ReActAgent {
 
     while (steps < MAX_STEPS) {
       steps++;
+      emitProgress('model', steps);
       const res = await this.deps.llm.chat(
         messages,
         {
           tools: this.deps.mcp.connected ? tools : undefined,
           onDelta,
+          timeoutMs: llmTimeoutMs,
         },
         this.deps.fetchImpl,
       );
@@ -205,6 +230,7 @@ export class ReActAgent {
         } catch {
           args = { _raw: tc.function.arguments.slice(0, 200) };
         }
+        emitProgress('tool', steps, { tool: tc.function.name });
         const t0 = Date.now();
         let content: string;
         try {
@@ -224,6 +250,7 @@ export class ReActAgent {
             `tool error: ${err instanceof Error ? err.message : String(err)}`
           );
         }
+        emitProgress('tool', steps, { tool: tc.function.name, toolMs: Date.now() - t0 });
         n += 1;
         // R1 egress invariant (ticket 08 验收②): citation args are masked at
         // the source — stringify→mask→parse, the established parse-safe
@@ -256,7 +283,8 @@ export class ReActAgent {
     // rounds, the model never got a synthesis turn — the user saw an empty
     // answer despite successful tool results. Force one final no-tools chat.
     if (messages[messages.length - 1]?.role === 'tool') {
-      const synthesis = await this.deps.llm.chat(messages, { onDelta }, this.deps.fetchImpl);
+      emitProgress('synthesis', steps + 1);
+      const synthesis = await this.deps.llm.chat(messages, { onDelta, timeoutMs: llmTimeoutMs }, this.deps.fetchImpl);
       answer = synthesis.content;
       steps += 1;
     }
@@ -279,7 +307,8 @@ export class ReActAgent {
         role: 'user',
         content: '请基于以上工具结果直接输出文字结论；不要再尝试调用任何工具，不要输出工具调用语法，也不要重复之前的内容。',
       });
-      const retry = await this.deps.llm.chat(messages, { onDelta }, this.deps.fetchImpl);
+      emitProgress('retry', steps + 1);
+      const retry = await this.deps.llm.chat(messages, { onDelta, timeoutMs: llmTimeoutMs }, this.deps.fetchImpl);
       answer = stripTextToolCalls(retry.content);
       steps += 1;
     }
