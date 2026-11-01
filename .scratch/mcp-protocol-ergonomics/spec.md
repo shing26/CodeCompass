@@ -52,3 +52,4 @@ v1.8.0 双轴评审后的改进批:17 工具契约冻结(ADR-0021)不动,改进�
 
 - 2026-11-01 实施完毕(01–04 done,05 wontfix)。验证:控制面 921/921(73 文件)、web 444/444(42 文件)、双包 typecheck 绿、e2e closeout 门禁 74/0(含 MCP tools/list 17 工具名棘轮,annotations 未破坏签名)。
 - 2026-11-01 收口完毕(用户指示):版本五处推进 1.9.0、CHANGELOG 顶部条目、README(徽章/路线图/版本实情/套件计数/基线)、HANDOFF v1.9.0 条目。双轴 code-review(fixed point `58d7a26`)见 `docs/reports/code-review-2026-11-01-v19.md`:0 硬违规;处置 7 修 1 如实化 3 披露——其中票 02 前提如实化(SDK 既有 isError 行为,本批为加性结构化)、audit 出库掩码扩为全字段、invalid_argument wire 测试补齐。门禁终态:控制面 921+/web 444+/bridge 26、e2e 74/0。commit 按 Mimosa 约定留给用户 shell;tag `v1.9.0` 与 npm 发布待用户执行。
+- 2026-11-01 发布完毕:commit `b97b700` / tag `v1.9.0` 已推,Release workflow #41262518929 **success**(含 Artifact browser gate);npm `@codecompass/cli@1.9.0` 已发布(2026-11-01T02:01:20Z,`latest` = 1.9.0,临时前缀安装校验 1.9.0);README/CHANGELOG/HANDOFF 发布回写。

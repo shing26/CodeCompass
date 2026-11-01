@@ -40,6 +40,11 @@
 控制面 922/922（73 文件）、web 444/444（42 文件）、双包 typecheck 绿、e2e closeout
 门禁 74/0（MCP tools/list 17 工具名棘轮在 annotations 下零漂移；golden eval 幻觉率 0%）。
 控制面首轮全量曾出现 1 例负载敏感瞬时失败（README「本机实跑备注」所记形态），复跑全绿。
+- **Release**：tag `v1.9.0`（`b97b700`）→ workflow
+  [#41262518929](https://github.com/shing26/CodeCompass/actions/runs/41262518929) **success**
+  （全绿，含 Artifact browser gate）；资产含工件 + `browser-check.json`（2,636 B）+ `e2e-result.json`（12,679 B）。
+- **npm**：`@codecompass/cli@1.9.0` 已发布（2026-11-01T02:01:20Z；dist-tag `latest` 已指向 1.9.0，
+  临时前缀安装 `codecompass --version` = 1.9.0）。
 
 ## [1.8.0] - 2026-10-27
 
