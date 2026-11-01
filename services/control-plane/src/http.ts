@@ -5,6 +5,7 @@ import { registerChatRoutes } from './chat/routes';
 import { registerWorkbenchRoutes, registerWorkbenchLateRoutes } from './routes/workbench';
 import { registerReposCatalogRoutes, registerReposIngestRoutes } from './routes/repos';
 import { registerSnippetRoutes } from './routes/snippet';
+import { registerAuditRoutes } from './routes/audit';
 import { registerAnalysisRoutes } from './routes/analysis';
 import { errorMiddleware, requestIdMiddleware } from './http-error';
 import type { HttpDeps } from './routes/deps';
@@ -131,6 +132,9 @@ export function createHttpApp(deps: HttpDeps): express.Express {
 
   // v1.4 票 02 — 片段分析（无仓库上下文的内存解析；不碰磁盘与数据库）。
   registerSnippetRoutes(app);
+
+  // 票 04 — MCP 审计读数（dogfooding：agent 与引擎交互形态的只读聚合）。
+  registerAuditRoutes(app, deps);
 
   // chat-merge (v0.24.0): 对话式智能体路由——必须在 /api 404 兜底之前注册
   if (deps.chat) {

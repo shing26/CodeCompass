@@ -184,8 +184,28 @@ export interface RepoSymbol {
 export type QueryMode = 'architecture' | 'call-chain' | 'environment' | 'incident';
 
 /** Top-level workbench tabs rendered by the TopBar segmented control.
- * v1.2 票 01 — `scan`（体检）入列一级；metrics/evolve 保持深链页（不在 TABS）。 */
-export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'evolve' | 'chat' | 'scan';
+ * v1.2 票 01 — `scan`（体检）入列一级；metrics/evolve 保持深链页（不在 TABS）。
+ * 票 04（mcp-protocol-ergonomics）— `audit`（Agent 活动）同 metrics：更多操作
+ * 菜单 + 深链 `?mode=audit`，不占一级导航（ADR-0021 维护者驾驶舱）。 */
+export type WorkbenchTab = 'topo' | 'metrics' | 'gate' | 'delta' | 'evolve' | 'chat' | 'scan' | 'audit';
+
+/** 票 04 — `GET /api/audit/mcp/summary` 的载荷：MCP tool_call 审计读数。 */
+export interface McpAuditSummary {
+  logsPresent: boolean;
+  window: { files: number; sinceTs: string | null };
+  totals: { calls: number; ok: number; failed: number; okRate: number | null };
+  byTool: Array<{
+    tool: string;
+    calls: number;
+    ok: number;
+    failed: number;
+    okRate: number;
+    p50Ms: number;
+    p95Ms: number;
+  }>;
+  recentFailures: Array<{ ts: string; tool: string; repoId?: string; error: string }>;
+  recentCalls: Array<{ ts: string; tool: string; repoId?: string; ok: boolean; durationMs: number }>;
+}
 
 /**
  * V27-30 (v029/05): the stepper's narrowed display model. The wire type is

@@ -118,6 +118,12 @@ export interface McpDeps {
    * serializer — the R1 masking invariant extends to this surface.
    */
   logger?: ServerLogger;
+  /**
+   * 票 03 — event bus shared with the worker. Absent in unit tests on purpose:
+   * no bus ⇒ no progress notifications, tests stay hermetic. runMcpServer
+   * injects the same instance the worker was built with.
+   */
+  eventBus?: EventBus;
 }
 
 /** Handlers shared by worker + MCP tests; JSON is the wire format for tool results. */
@@ -152,6 +158,56 @@ export interface McpToolMeta {
   description: string;
   /** JSON Schema (rendered by the SDK from the zod shape) — used by tests. */
   inputSchema: { type: 'object'; properties: Record<string, { type: string; description?: string }>; required: string[] };
+  /** Assigned once to every entry by the loop after MCP_TOOLS (票 01). */
+  annotations?: McpToolAnnotations;
+}
+
+/**
+ * 票 01 — protocol-level hints hosts use for their own permission UX. The tool
+ * face stays frozen (ADR-0021): annotations change no signature, they only let
+ * hosts infer what the install-time autoApprove lists previously hand-coded.
+ */
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+}
+
+/**
+ * 票 02 — recoverable failures travel as isError results with a
+ * machine-readable payload (code + hint). Honest baseline: the SDK ALREADY
+ * converts any thrown handler error into a bare-text isError result, so this
+ * is an additive classification layer — agents can now branch on `code` —
+ * not a move from protocol error to isError. Non-McpToolError failures keep
+ * the SDK's bare-text default.
+ */
+export type McpToolErrorCode =
+  | 'invalid_argument'
+  | 'repo_not_found'
+  | 'repo_not_ready'
+  | 'symbol_not_found';
+
+export class McpToolError extends Error {
+  readonly code: McpToolErrorCode;
+  readonly hint?: string;
+
+  constructor(code: McpToolErrorCode, message: string, hint?: string) {
+    super(message);
+    this.name = 'McpToolError';
+    this.code = code;
+    this.hint = hint;
+  }
+}
+
+/**
+ * 票 03 — the slice of the SDK's RequestHandlerExtra this server consumes.
+ * Kept structural (not the SDK type) so handlers stay unit-testable without
+ * constructing a protocol request; registerPlain forwards the real object.
+ */
+export interface McpToolExtra {
+  _meta?: { progressToken?: unknown };
+  sendNotification?: (notification: { method: string; params?: unknown }) => Promise<void>;
+  signal?: AbortSignal;
 }
 
 export const MCP_TOOLS: McpToolMeta[] = [
@@ -485,6 +541,23 @@ export const MCP_TOOLS: McpToolMeta[] = [
   },
 ];
 
+/* 票 01 — everything indexes/reads the evidence plane except two write-side
+ * tools. remove_repo cascades index data away (the install autoApprove list
+ * already excludes it for the same reason); index_repo re-indexes the same
+ * path on repeat calls, so it is not idempotent.
+ * AGING RULE: this default means a FUTURE write-side tool added to MCP_TOOLS
+ * will silently advertise readOnlyHint unless it is named here. Adding a
+ * tool therefore requires editing this loop AND the e2e tool-name ratchet —
+ * neither may be skipped. */
+for (const meta of MCP_TOOLS) {
+  meta.annotations =
+    meta.name === 'codecompass_remove_repo'
+      ? { destructiveHint: true }
+      : meta.name === 'codecompass_index_repo'
+        ? { idempotentHint: false }
+        : { readOnlyHint: true };
+}
+
 /* ------------------------------------------------------------------ */
 /* Pure tool handlers (deterministic, unit-testable)                   */
 /* ------------------------------------------------------------------ */
@@ -492,12 +565,16 @@ export const MCP_TOOLS: McpToolMeta[] = [
 /** Resolve a repo from an id or, as a convenience for agents, its display name. */
 export function resolveMcpRepo(deps: McpDeps, repoId?: unknown): Repo {
   const raw = String(repoId ?? '').trim();
-  if (!raw) throw new Error('repoId is required');
+  if (!raw) throw new McpToolError('invalid_argument', 'repoId is required', 'Pass the repoId from codecompass_list_repos.');
   const byId = deps.repoqa.getRepo(raw);
   if (byId) return byId;
   const byName = deps.repoqa.listRepos().find((repo) => repo.name === raw);
   if (byName) return byName;
-  throw new Error(`Repo not found: ${raw}`);
+  throw new McpToolError(
+    'repo_not_found',
+    `Repo not found: ${raw}`,
+    'Call codecompass_list_repos to see indexed repos, or codecompass_index_repo to import one.'
+  );
 }
 
 /**
@@ -520,7 +597,11 @@ export function receiptRootFromRepoPath(
 
 function requireReady(repo: Repo): Repo {
   if (repo.status !== 'ready') {
-    throw new Error(`Repo "${repo.name}" is not ready (status=${repo.status})`);
+    throw new McpToolError(
+      'repo_not_ready',
+      `Repo "${repo.name}" is not ready (status=${repo.status})`,
+      'Poll codecompass_list_repos until status is ready or error (ADR-0016 async contract).'
+    );
   }
   return repo;
 }
@@ -566,9 +647,15 @@ export function mcpTraceCallChain(
 }> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const symbolOrMethod = String(args.symbolOrMethod ?? '').trim();
-  if (!symbolOrMethod) throw new Error('symbolOrMethod is required');
+  if (!symbolOrMethod) throw new McpToolError('invalid_argument', 'symbolOrMethod is required', 'Pass an exact method/class name, e.g. "listOrders".');
   const start = deps.worker.findStartSymbolForQuery(repo.id, symbolOrMethod);
-  if (!start) throw new Error(`Start symbol not found: ${symbolOrMethod}`);
+  if (!start) {
+    throw new McpToolError(
+      'symbol_not_found',
+      `Start symbol not found: ${symbolOrMethod}`,
+      'Names are exact identifiers; use codecompass_scan or codecompass_get_dashboard to find the exact symbol name.'
+    );
+  }
   const graph = deps.worker.getSymbolGraph(repo.id);
   const trace = resolveCallChain(graph.symbols, start, 4, graph.index);
   return trace.map((hop) => ({
@@ -676,10 +763,14 @@ export async function mcpGetPrImpact(deps: McpDeps, args: McpToolHandlerArgs): P
   const base = String(args.base ?? '').trim();
   const head = String(args.head ?? '').trim();
   if (!repoPath || !base || !head) {
-    throw new Error('repoPath, base and head are required');
+    throw new McpToolError('invalid_argument', 'repoPath, base and head are required', 'Pass a local git directory inside an indexed repo plus two git refs.');
   }
   if (!(await isTrustedRepoPath(deps, repoPath))) {
-    throw new Error('repoPath is outside the indexed repos; import the repository first');
+    throw new McpToolError(
+      'invalid_argument',
+      'repoPath is outside the indexed repos; import the repository first',
+      'Call codecompass_index_repo with this directory as localPath first.'
+    );
   }
   return (await analyzeDiff({ repoPath, base, head })) as unknown as Record<string, unknown>;
 }
@@ -690,20 +781,26 @@ export async function mcpGetSubgraphContext(
 ): Promise<{ context: SubgraphContextResult }> {
   const repo = requireReady(resolveMcpRepo(deps, args.repoId));
   const query = String(args.query ?? '').trim();
-  if (!query) throw new Error('query is required');
+  if (!query) throw new McpToolError('invalid_argument', 'query is required', 'Pass a start symbol or a phrase containing one, e.g. "listOrders".');
 
   let maxTokens: number | undefined;
   if (args.maxTokens !== undefined) {
     const parsed = Number(args.maxTokens);
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100_000) {
-      throw new Error('maxTokens must be a positive integer (1..100000)');
+      throw new McpToolError('invalid_argument', 'maxTokens must be a positive integer (1..100000)');
     }
     maxTokens = parsed;
   }
 
   const graph = deps.worker.getSymbolGraph(repo.id);
   const resolution = deps.worker.resolveStartSymbolForQuery(repo.id, query);
-  if (!resolution) throw new Error(`Start symbol not found: ${query}`);
+  if (!resolution) {
+    throw new McpToolError(
+      'symbol_not_found',
+      `Start symbol not found: ${query}`,
+      'Names are exact identifiers; use codecompass_scan or codecompass_get_dashboard to find the exact symbol name.'
+    );
+  }
   const context = await extractSubgraphContext(graph.symbols, resolution.symbol, {
     root: repo.localPath,
     index: graph.index,
@@ -852,7 +949,7 @@ export function mcpPlanEvolution(deps: McpDeps, args: McpToolHandlerArgs): Recor
   const graph = deps.worker.getSymbolGraph(repo.id);
   const intentType = String(args.intentType ?? '');
   if (intentType !== 'EXTEND' && intentType !== 'DEPRECATE') {
-    throw new Error('intentType must be EXTEND or DEPRECATE');
+    throw new McpToolError('invalid_argument', 'intentType must be EXTEND or DEPRECATE');
   }
   // V27-22: cockpit base via the shared rule (display host follows bind
   // host) — the old hardcoded `http://localhost` dead-linked whenever the
@@ -884,6 +981,51 @@ export function mcpPlanEvolution(deps: McpDeps, args: McpToolHandlerArgs): Recor
 }
 
 /**
+ * 票 03 — best-effort progress forwarding. While the client asked for a
+ * progressToken, worker `repoqa.index.progress` events for this repo are
+ * re-emitted as notifications/progress. Honest boundary: index_repo answers
+ * before indexing finishes, so these notifications arrive after the response
+ * and some clients drop them — the ADR-0016 polling contract stays the
+ * authority; this channel is additive and can never fail the call.
+ */
+export function forwardIndexProgress(
+  deps: McpDeps,
+  extra: McpToolExtra | undefined,
+  repoId: string,
+  indexing: Promise<unknown>
+): void {
+  const token = extra?._meta?.progressToken;
+  if (!deps.eventBus || token === undefined || !extra?.sendNotification) return;
+  const progressToken = token;
+  const sendNotification = extra.sendNotification;
+  const send = (progress: number, message: string): void => {
+    if (extra.signal?.aborted) return;
+    void sendNotification({
+      method: 'notifications/progress',
+      params: { progressToken, progress, total: 100, message }
+    }).catch(() => {
+      // Best-effort by design: a dropped notification must not fail the call.
+    });
+  };
+  const detach = deps.eventBus.on((event) => {
+    if (event.type !== 'repoqa.index.progress') return;
+    const payload = event.payload as {
+      repoId?: string;
+      percent?: number;
+      phaseLabel?: string;
+      detail?: string;
+    };
+    if (payload.repoId !== repoId) return;
+    const message = [payload.phaseLabel, payload.detail].filter(Boolean).join(' — ');
+    send(payload.percent ?? 0, message || 'indexing');
+  });
+  void indexing.finally(() => {
+    detach();
+    send(100, 'indexing settled — poll codecompass_list_repos for the result');
+  });
+}
+
+/**
  * v0.18.0 — index a new repo from a local path or git URL, asynchronously.
  *
  * ADR-0016: MCP long operations return immediately. The synchronous portion of
@@ -897,7 +1039,8 @@ export function mcpPlanEvolution(deps: McpDeps, args: McpToolHandlerArgs): Recor
  */
 export async function mcpIndexRepo(
   deps: McpDeps,
-  args: McpToolHandlerArgs
+  args: McpToolHandlerArgs,
+  extra?: McpToolExtra
 ): Promise<Record<string, unknown>> {
   const url = typeof args.url === 'string' ? args.url.trim() : '';
   const localPath = typeof args.localPath === 'string' ? args.localPath.trim() : '';
@@ -905,17 +1048,17 @@ export async function mcpIndexRepo(
   const name = typeof args.name === 'string' ? args.name.trim() : undefined;
 
   if (url && localPath) {
-    throw new Error('Provide either url or localPath, not both');
+    throw new McpToolError('invalid_argument', 'Provide either url or localPath, not both');
   }
   if (!url && !localPath) {
-    throw new Error('Either url (git repository URL) or localPath (local directory) is required');
+    throw new McpToolError('invalid_argument', 'Either url (git repository URL) or localPath (local directory) is required');
   }
 
   // Fast-fail URL/branch validation before any clone side effect, matching the
   // http.ts entry-point convention (cloneGitRepo re-validates as a guard).
   if (url) {
     const urlCheck = validateGitUrl(url);
-    if (!urlCheck.ok) throw new Error(urlCheck.error);
+    if (!urlCheck.ok) throw new McpToolError('invalid_argument', urlCheck.error, 'Use a git repository URL, e.g. https://github.com/org/repo.git');
   }
   const validatedBranch = validateGitBranch(branch);
 
@@ -934,10 +1077,10 @@ export async function mcpIndexRepo(
     // with the real error only visible to the background task.
     const stat = await fs.stat(localPath).catch(() => null);
     if (!stat?.isDirectory()) {
-      throw new Error(`local path is not a directory: ${localPath}`);
+      throw new McpToolError('invalid_argument', `local path is not a directory: ${localPath}`);
     }
     await fs.access(localPath, fs.constants.R_OK).catch(() => {
-      throw new Error(`local path is not readable: ${localPath}`);
+      throw new McpToolError('invalid_argument', `local path is not readable: ${localPath}`);
     });
     targetPath = localPath;
   }
@@ -965,7 +1108,7 @@ export async function mcpIndexRepo(
   // guarded too — the background tail may land after db.close()
   // (shutdown/teardown race, v1.2 ticket 03 review P2: symmetric with the
   // HTTP side's guardIndexFailure).
-  void deps.worker
+  const indexing = deps.worker
     .indexRepo({ localPath: targetPath, branch: validatedBranch, name: effectiveName })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -975,6 +1118,9 @@ export async function mcpIndexRepo(
         // db already closed — nothing left to record on
       }
     });
+  void indexing;
+
+  forwardIndexProgress(deps, extra, repoId, indexing);
 
   return {
     repoId,
@@ -995,7 +1141,8 @@ export async function mcpIndexRepo(
 export function mcpRemoveRepo(deps: McpDeps, args: McpToolHandlerArgs): Record<string, unknown> {
   const repo = resolveMcpRepo(deps, args.repoId);
   if (repo.status === 'indexing') {
-    throw new Error(
+    throw new McpToolError(
+      'repo_not_ready',
       `Repo "${repo.name}" is still indexing; poll codecompass_list_repos until ready or error first`
     );
   }
@@ -1081,6 +1228,21 @@ export function textResult(value: unknown) {
   return { content: [{ type: 'text' as const, text }] };
 }
 
+/** 票 02 — isError envelope for McpToolError; mask keeps the R1 egress invariant. */
+export function errorResult(error: McpToolError) {
+  const payload = {
+    error: {
+      code: error.code,
+      message: error.message,
+      ...(error.hint ? { hint: error.hint } : {})
+    }
+  };
+  return {
+    isError: true as const,
+    content: [{ type: 'text' as const, text: maskSensitiveText(JSON.stringify(payload, null, 2)) }]
+  };
+}
+
 /** Build the stdio MCP server with all CodeCompass tools registered. */
 export function createMcpServer(deps: McpDeps): McpServer {
   const server = new McpServer(
@@ -1088,7 +1250,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     { capabilities: { tools: {} }, instructions: MCP_SERVER_INSTRUCTIONS }
   );
 
-  const handlers: Record<string, (args: McpToolHandlerArgs) => unknown | Promise<unknown>> = {
+  const handlers: Record<string, (args: McpToolHandlerArgs, extra?: McpToolExtra) => unknown | Promise<unknown>> = {
     codecompass_list_repos: () => mcpListRepos(deps),
     codecompass_trace_call_chain: (args) => mcpTraceCallChain(deps, args),
     codecompass_get_dashboard: (args) => mcpGetDashboard(deps, args),
@@ -1101,7 +1263,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     codecompass_module_evolution: (args) => mcpModuleEvolution(deps, args),
     codecompass_diagnose: (args) => mcpDiagnose(deps, args),
     codecompass_refactor_plan: (args) => mcpRefactorPlan(deps, args),
-    codecompass_index_repo: (args) => mcpIndexRepo(deps, args),
+    codecompass_index_repo: (args, extra) => mcpIndexRepo(deps, args, extra),
     codecompass_remove_repo: (args) => mcpRemoveRepo(deps, args),
     codecompass_scan: (args) => mcpScan(deps, args),
     codecompass_get_conventions: (args) => mcpGetConventions(deps, args),
@@ -1181,20 +1343,28 @@ export function createMcpServer(deps: McpDeps): McpServer {
 
   const registerPlain = (
     meta: McpToolMeta,
-    handler: (args: McpToolHandlerArgs) => unknown | Promise<unknown>
+    handler: (args: McpToolHandlerArgs, extra?: McpToolExtra) => unknown | Promise<unknown>
   ) => {
     (server.registerTool as any)(
       meta.name,
-      { description: meta.description, inputSchema: zodShapeFor(meta) },
-      async (args: McpToolHandlerArgs) => {
+      {
+        description: meta.description,
+        inputSchema: zodShapeFor(meta),
+        annotations: meta.annotations
+      },
+      async (args: McpToolHandlerArgs, extra?: McpToolExtra) => {
         const startedAt = performance.now();
         try {
-          const value = await withVerificationReceipt(meta.name, args, await handler(args));
+          const value = await withVerificationReceipt(meta.name, args, await handler(args, extra));
           audit(meta.name, args, { ok: true, value }, startedAt);
           return textResult(value);
         } catch (error) {
-          // Audit then rethrow: the protocol behaviour must not change.
+          // Audit then classify (票 02): McpToolError becomes a structured
+          // isError payload so agents can branch on code + hint; anything
+          // else falls through to the SDK's bare-text isError default. The
+          // audit row records both paths alike.
           audit(meta.name, args, { ok: false, error }, startedAt);
+          if (error instanceof McpToolError) return errorResult(error);
           throw error;
         }
       }
@@ -1247,7 +1417,8 @@ export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<v
   ensureDefaultWorkspace(db, config.dataDir);
   const repoqa = new RepoQARepos(db);
   repoqa.resetInterrupted();
-  const worker = new RepoQAWorker(repoqa, new EventBus());
+  const eventBus = new EventBus();
+  const worker = new RepoQAWorker(repoqa, eventBus);
 
   try {
     if (options.targetPath) {
@@ -1266,7 +1437,7 @@ export async function runMcpServer(options: RunMcpServerOptions = {}): Promise<v
     // Issue 12 — the audit sink exists only on the real serving path: unit
     // tests inject nothing and therefore write no files.
     const logger = new ServerLogger(config.dataDir, env.MHW_LOG_LEVEL);
-    const server = createMcpServer({ repoqa, worker, dataDir: config.dataDir, logger });
+    const server = createMcpServer({ repoqa, worker, dataDir: config.dataDir, logger, eventBus });
     const done = new Promise<void>((resolve) => {
       server.server.onclose = () => resolve();
       server.server.onerror = () => resolve();

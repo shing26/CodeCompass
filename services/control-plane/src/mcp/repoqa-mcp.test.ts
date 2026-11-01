@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { openDb, ensureDefaultWorkspace } from '../db';
@@ -11,12 +11,16 @@ import { RepoQAWorker } from '../ingest/repoqa-worker';
 import { git } from '../engine/repoqa-diff';
 import {
   createMcpServer,
+  errorResult,
+  forwardIndexProgress,
+  McpToolError,
   resolveMcpRepo,
   MCP_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
   runMcpServer,
   textResult,
-  type McpDeps
+  type McpDeps,
+  type McpToolExtra
 } from './repoqa-mcp';
 import { parseArgs, runCli } from '../cli';
 import { ServerLogger } from '../log-sink';
@@ -227,9 +231,14 @@ async function rawInitialize(transport: InMemoryTransport): Promise<RawResponse>
 async function rawCallTool(
   transport: InMemoryTransport,
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  meta?: Record<string, unknown>
 ): Promise<{ response: RawResponse; text: string }> {
-  const response = await rawRequest(transport, 'tools/call', { name, arguments: args });
+  const response = await rawRequest(transport, 'tools/call', {
+    name,
+    arguments: args,
+    ...(meta === undefined ? {} : { _meta: meta })
+  });
   expect(response.error).toBeUndefined();
   const content = response.result.content as Array<{ type: string; text?: string }>;
   expect(content[0].type).toBe('text');
@@ -1422,6 +1431,239 @@ describe('Issue 12 MCP audit log (评估维 E-M12)', () => {
         .then((files) => files.filter((file) => file.endsWith('.jsonl')).length)
         .catch(() => 0);
       expect(exists).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 票 01 — tool annotations                                            */
+/* ------------------------------------------------------------------ */
+
+describe('票 01 MCP tool annotations', () => {
+  it('annotates 15 read-only tools, remove_repo destructive, index_repo non-idempotent', () => {
+    for (const tool of MCP_TOOLS) {
+      if (tool.name === 'codecompass_remove_repo') {
+        expect(tool.annotations).toEqual({ destructiveHint: true });
+      } else if (tool.name === 'codecompass_index_repo') {
+        expect(tool.annotations).toEqual({ idempotentHint: false });
+      } else {
+        expect(tool.annotations).toEqual({ readOnlyHint: true });
+      }
+    }
+  });
+
+  it('ships annotations on the tools/list wire payload', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const response = await rawRequest(clientTransport, 'tools/list', {});
+      const tools = response.result.tools as Array<{
+        name: string;
+        annotations?: Record<string, unknown>;
+      }>;
+      const byName = new Map(tools.map((tool) => [tool.name, tool.annotations]));
+      expect(byName.get('codecompass_list_repos')).toEqual({ readOnlyHint: true });
+      expect(byName.get('codecompass_remove_repo')).toEqual({ destructiveHint: true });
+      expect(byName.get('codecompass_index_repo')).toEqual({ idempotentHint: false });
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 票 02 — isError error contract                                      */
+/* ------------------------------------------------------------------ */
+
+describe('票 02 isError error contract', () => {
+  it('returns isError with a machine-readable payload for an unknown repoId', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { response, text } = await rawCallTool(clientTransport, 'codecompass_trace_call_chain', {
+        repoId: 'no-such-repo',
+        symbolOrMethod: 'listOrders'
+      });
+      expect(response.result.isError).toBe(true);
+      const payload = JSON.parse(text) as { error: { code: string; message: string; hint?: string } };
+      expect(payload.error.code).toBe('repo_not_found');
+      expect(payload.error.message).toContain('no-such-repo');
+      expect(payload.error.hint).toContain('codecompass_list_repos');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('classifies a missing start symbol as symbol_not_found with a discovery hint', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { response, text } = await rawCallTool(clientTransport, 'codecompass_trace_call_chain', {
+        repoId: repo.id,
+        symbolOrMethod: 'definitelyNotAMethodXYZ'
+      });
+      expect(response.result.isError).toBe(true);
+      const payload = JSON.parse(text) as { error: { code: string; hint?: string } };
+      expect(payload.error.code).toBe('symbol_not_found');
+      expect(payload.error.hint).toContain('codecompass_scan');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('classifies a bad argument as invalid_argument over the wire (bad maxTokens)', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { response, text } = await rawCallTool(clientTransport, 'codecompass_get_subgraph_context', {
+        repoId: repo.id,
+        query: 'listOrders',
+        maxTokens: -3
+      });
+      expect(response.result.isError).toBe(true);
+      const payload = JSON.parse(text) as { error: { code: string; message: string } };
+      expect(payload.error.code).toBe('invalid_argument');
+      expect(payload.error.message).toContain('maxTokens');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('errorResult keeps the R1 egress invariant and wraps exactly the structured fields', () => {
+    const result = errorResult(
+      new McpToolError('invalid_argument', 'repoId is required', 'Pass the repoId from codecompass_list_repos.')
+    );
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0].text) as {
+      error: { code: string; message: string; hint: string };
+    };
+    expect(payload.error).toEqual({
+      code: 'invalid_argument',
+      message: 'repoId is required',
+      hint: 'Pass the repoId from codecompass_list_repos.'
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 票 03 — index progress notifications                                */
+/* ------------------------------------------------------------------ */
+
+describe('票 03 index progress notifications', () => {
+  it('forwards bus events for the target repo and detaches once indexing settles', async () => {
+    const bus = new EventBus();
+    const sent: Array<{ method: string; params: Record<string, unknown> }> = [];
+    let settle!: () => void;
+    const indexing = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const extra: McpToolExtra = {
+      _meta: { progressToken: 'tok-42' },
+      sendNotification: async (notification) => {
+        sent.push(notification as { method: string; params: Record<string, unknown> });
+      }
+    };
+
+    forwardIndexProgress({ eventBus: bus } as McpDeps, extra, 'repo-1', indexing);
+
+    // Forwarded: matching repo. Dropped: other repo, other event type.
+    bus.emit({
+      type: 'repoqa.index.progress',
+      payload: { repoId: 'repo-1', percent: 42, phaseLabel: '解析源码', detail: 'fixture' }
+    } as never);
+    bus.emit({
+      type: 'repoqa.index.progress',
+      payload: { repoId: 'repo-other', percent: 99 }
+    } as never);
+    bus.emit({ type: 'repoqa.evolve.stage', payload: {} } as never);
+
+    settle();
+    // Flush the finally-callback microtasks before asserting.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+
+    const progress = sent.filter((n) => n.method === 'notifications/progress');
+    expect(progress).toHaveLength(2);
+    expect(progress[0].params).toEqual({
+      progressToken: 'tok-42',
+      progress: 42,
+      total: 100,
+      message: '解析源码 — fixture'
+    });
+    expect(progress[1].params).toMatchObject({ progressToken: 'tok-42', progress: 100 });
+
+    // After settle the listener is detached: no further forwarding.
+    bus.emit({
+      type: 'repoqa.index.progress',
+      payload: { repoId: 'repo-1', percent: 77 }
+    } as never);
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(sent).toHaveLength(2);
+  });
+
+  it('wires the settle notification through the real SDK stack under the caller token', async () => {
+    const { deps: baseDeps } = await setupIndexedRepo();
+    const deps = { ...baseDeps, eventBus: new EventBus() };
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const progress: Array<{ progressToken?: unknown; progress?: number }> = [];
+      const inner = clientTransport.onmessage;
+      clientTransport.onmessage = (message: unknown, extra: unknown) => {
+        const msg = message as { method?: string; params?: { progressToken?: unknown; progress?: number } };
+        if (msg?.method === 'notifications/progress') progress.push(msg.params ?? {});
+        return (inner as (m: unknown, e: unknown) => void)?.(message, extra);
+      };
+
+      const dir2 = await fs.mkdtemp(path.join(os.tmpdir(), 'repoqa-mcp-progress-'));
+      await makeSpringRepo(path.join(dir2, 'repo2'));
+      registerCleanup(async () => fs.rm(dir2, { recursive: true, force: true }));
+
+      const { response } = await rawCallTool(
+        clientTransport,
+        'codecompass_index_repo',
+        { localPath: path.join(dir2, 'repo2') },
+        { progressToken: 'tok-42' }
+      );
+      expect(response.result.isError).toBeUndefined();
+
+      // Polling stays the authority; the additive channel settles with 100.
+      await vi.waitFor(
+        () => {
+          expect(progress.some((p) => p.progressToken === 'tok-42' && p.progress === 100)).toBe(true);
+        },
+        { timeout: 15000 }
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('sends nothing when the client did not ask for a progress token', async () => {
+    const { deps: baseDeps, repo } = await setupIndexedRepo();
+    const eventBus = new EventBus();
+    const deps = { ...baseDeps, eventBus };
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const progress: Array<unknown> = [];
+      const inner = clientTransport.onmessage;
+      clientTransport.onmessage = (message: unknown, extra: unknown) => {
+        if ((message as { method?: string })?.method === 'notifications/progress') progress.push(message);
+        return (inner as (m: unknown, e: unknown) => void)?.(message, extra);
+      };
+
+      eventBus.emit({
+        type: 'repoqa.index.progress',
+        payload: { repoId: repo.id, percent: 50, phaseLabel: '解析源码' }
+      } as never);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(progress).toEqual([]);
     } finally {
       await server.close();
     }

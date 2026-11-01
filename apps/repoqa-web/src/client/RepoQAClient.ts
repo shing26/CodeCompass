@@ -6,6 +6,7 @@ import type {
   GateRunPolicyOptions,
   GateRunRow,
   ImportRepoInput,
+  McpAuditSummary,
   QueryEvent,
   QueryMode,
   QueryStart,
@@ -73,6 +74,14 @@ export class RepoQAClient {
     const res = await this.fetcher(`${this.baseUrl}/api/runtime`);
     if (!res.ok) throw new Error(`getRuntime failed: ${res.status}`);
     return (await res.json()) as RuntimeInfo;
+  }
+
+  /** 票 04 — MCP tool_call 审计读数（驾驶舱 dogfooding：agent 用量形态）。 */
+  async fetchAuditSummary(limit = 200): Promise<McpAuditSummary> {
+    // 服务端默认 200——客户端总是显式传，避免把服务端默认硬编码进省略逻辑。
+    const res = await this.fetcher(`${this.baseUrl}/api/audit/mcp/summary?limit=${limit}`);
+    if (!res.ok) throw new Error(`fetchAuditSummary failed: ${res.status}`);
+    return (await res.json()) as McpAuditSummary;
   }
 
   async importRepo(input: ImportRepoInput): Promise<{ repo: Repo; taskId: string }> {

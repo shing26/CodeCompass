@@ -41,6 +41,8 @@ function viewFromMode(mode: string | null | undefined): MainView {
   if (mode === 'gate') return 'gate';
   // v1.4 票 02 — 片段分析视图（无仓库也可达，深链 ?mode=snippet）。
   if (mode === 'snippet') return 'snippet';
+  // 票 04 — Agent 活动视图（工作台级读数，不依赖选中仓库，深链 ?mode=audit）。
+  if (mode === 'audit') return 'audit';
   return 'topo';
 }
 

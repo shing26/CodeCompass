@@ -304,6 +304,19 @@ export function TopBar({
                   >
                     架构仪表盘
                   </button>
+                  {/* 票 04 — Agent 活动（MCP 审计读数）：与 metrics 同款的
+                      「一跳可达」落点，一级导航不增项（ADR-0021 驾驶舱）。 */}
+                  <button
+                    type="button"
+                    data-testid="menu-agent-activity"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onSelectView('audit');
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-muted hover:bg-subtle hover:text-ink"
+                  >
+                    Agent 活动
+                  </button>
                   <button
                     type="button"
                     data-testid="export-onboarding"

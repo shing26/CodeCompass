@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.9.0] - 2026-11-01
+
+**MCP 协议人体工学批：工具面签名零变化，协议层用得更标准，agent 用量第一次可被维护者看见。**
+背景是 v1.8 双轴评审后的改进盘点——17 工具契约冻结不动（ADR-0021），改进集中在三处：
+宿主权限推断、可恢复错误的机器可读性、agent 与引擎交互形态的可见性（均写入
+`.scratch/mcp-protocol-ergonomics/`，01–04 实施、05 登记 deferred）。
+
+### 新增
+
+- **Tool annotations**（票 01）：15 个只读工具标 `readOnlyHint: true`，
+  `codecompass_remove_repo` 标 `destructiveHint: true`（索引数据级联删除，与 install
+  器 autoApprove 白名单立场一致），`codecompass_index_repo` 标 `idempotentHint: false`。
+  tools/list 线上可见——宿主从此按协议标准自行推断权限，而非依赖手写允许列表。
+- **isError 结构化错误契约**（票 02）：SDK 此前已把 handler 抛错统一转为**纯文本** isError
+  结果——所有错误同形，agent 无法程序化分类。本版给可恢复错误升级为**机器可读载荷**
+  `{error: {code, message, hint}}`（`isError: true` 保持不变），agent 可按 code 分类重试：
+  `invalid_argument` / `repo_not_found` / `repo_not_ready` / `symbol_not_found`，17 处校验
+  与查库 throw 逐处归类，错误文案零变化；非工具错误维持 SDK 裸文本默认。
+- **索引进度通知**（票 03）：`index_repo` 在客户端声明 `_meta.progressToken` 时，把 worker
+  四阶段（DISCOVERY → AST_EXTRACTION → CROSS_LANG_BRIDGE → FINALIZING）事件转发为
+  `notifications/progress`（best-effort：通知晚于响应、部分客户端会忽略——**ADR-0016
+  轮询契约仍是权威路径**，注释与测试均如实声明）。
+- **Audit-driven cockpit「Agent 活动」**（票 04）：新端点 `GET /api/audit/mcp/summary`
+  把已落盘的 MCP 审计日志（v0.27 引入的 ServerLogger `mcp/tool_call` 行）聚合为 per-tool
+  调用数 / 成功率 / p50 / p95 + 最近失败样本 + 最近调用流；读侧再过 `maskSensitiveText`
+  双保险，日志缺失 fail-soft 返回空聚合。Web 新视图消费同端点——入口在 TopBar「更多
+  操作」菜单 + 深链 `?mode=audit`，**一级导航保持 5 项**（v1.2 票 01 的 IA 纪律）。
+  这是驾驶舱第一次能回答「agent 到底怎么用引擎、哪类调用在失败、哪些工具没人用」。
+
+### 明确不做
+
+- **MCP sampling**：会让引擎反向依赖宿主模型，破坏零 LLM 身份——明确拒绝。
+- **structuredContent + outputSchema**（票 05）：周级改造，登记 deferred 单独开线；
+  错误面已由票 02 先行结构化，届时从错误契约扩展到成功载荷即可。
+
+### 门禁（本机实跑）
+
+控制面 922/922（73 文件）、web 444/444（42 文件）、双包 typecheck 绿、e2e closeout
+门禁 74/0（MCP tools/list 17 工具名棘轮在 annotations 下零漂移；golden eval 幻觉率 0%）。
+控制面首轮全量曾出现 1 例负载敏感瞬时失败（README「本机实跑备注」所记形态），复跑全绿。
+
 ## [1.8.0] - 2026-10-27
 
 **chat 流式可感知：服务端进度、心跳与慢模型断点提示。** R5-05 的后端半此前是空的——

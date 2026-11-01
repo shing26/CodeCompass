@@ -11,6 +11,7 @@ import { ArchitectureDeltaView } from './components/ArchitectureDeltaView';
 import { EvolutionView } from './components/EvolutionView';
 import { ChatView } from './components/ChatView';
 import { ScanHealthView } from './components/ScanHealthView';
+import { AgentActivityView } from './components/AgentActivityView';
 import { SnippetView } from './components/SnippetView';
 import { AskDock } from './components/AskDock';
 import { TourPlayer } from './components/TourPlayer';
@@ -314,6 +315,10 @@ function WorkbenchShell() {
           ) : view === 'snippet' ? (
             /* v1.4 票 02 — 片段分析：无仓库也可达，故置于 noRepo 兜底之前。 */
             <SnippetView client={client} onBack={() => setView('topo')} />
+          ) : view === 'audit' ? (
+            /* 票 04 — Agent 活动：工作台级 MCP 审计读数，不依赖选中仓库
+               （入口在 TopBar 更多操作菜单，深链 ?mode=audit）。 */
+            <AgentActivityView client={client} />
           ) : noRepo || view === 'topo' ? (
             <Canvas
               repo={currentRepo}
