@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.10.0] - 2026-11-02
+
+**MCP 返回载荷协议级校验：17 工具声明 outputSchema，成功结果同时携带 structuredContent——宿主可按 schema 机器读结果。** v1.9 登记 deferred 的票 05 解冻（`.scratch/mcp-structured-output/`）；文本通道逐字节不变、输入契约零变化，纯加性批。
+
+### 新增
+
+- **outputSchema（全 17 工具）**：单一注册表 `mcp/output-schemas.ts` 按 zod shape 声明，SDK 渲染进 tools/list 并**硬校验每个成功结果**（缺失或不符即 `McpError InvalidParams`）——schema 与真实载荷的一致性由协议层执法，漂移即运行时红。`verification` 回执（v1.5 定名契约）逐字段入 schema；17 名全覆盖由 ratchet 测试钉死。
+- **structuredContent**：由**掩码后的文本**反序列化得出（`textResult` 单一出库咽喉），掩码覆盖双通道是构造性保证而非两处实现（R1，ADR-0003/0019）；文本通道逐字节不变，老客户端零迁移。wire 测试钉死 `parse(text)` 与 structuredContent 深等。
+- **trace_call_chain 数组包装**：唯一返回裸数组的工具在结构化通道包装为 `{ items: [...] }`（MCP 要求 structuredContent 为对象）；文本通道仍为裸数组。
+- **conformance 探针 ⑦**：声明 outputSchema 的工具成功调用必须返回对象型 structuredContent（零项目数据依赖，可对任意实现跑；`mcp-tool-contract.md` 新第六节记三条硬规则 + schema 保真度规则）。
+
+### 如实边界
+
+- `module_evolution` / `plan_evolution` 运行时双形状（计划 / 约定冲突），因 SDK 顶层只接受对象 schema（`normalizeObjectSchema` 对 union 返回 undefined、校验即崩——实测），声明为全字段 optional 的单对象形状，仅 `verification` 必填；代价是 schema 不排除两支字段混出的病态载荷。
+- schema 类型自 contracts / engine 手工重声明（contracts 无 zod schema、SDK 校验运行时值）：契约类型改动需平行编辑 `output-schemas.ts`，漂移以运行时红暴露——代价与规则记入注释与文档第六节。
+
+### 门禁（本机实跑）
+
+控制面 931/931（73 文件；2 例负载敏感瞬时失败单跑复绿，README「本机实跑备注」形态）、web 444/444（42 文件）、bridge 26/26、双包 typecheck 绿、e2e closeout 门禁 74/0（MCP tools/list 17 工具名棘轮零漂移）、conformance 7/7（self，schema_tools=17）+ 假服务端反向 4 违规仍被抓。
+双轴 code-review（fixed point `24ed360`）报告 `docs/reports/code-review-2026-11-02-v110.md`：硬违规 0；处置修 4（fail-soft 死路删除、getConventions 复用 profile shape、类型收窄删死分支、17/17 wire 覆盖补齐）、如实化 2（spec D1 措辞、集中注册表）、披露 2。
+
 ## [1.9.0] - 2026-11-01
 
 **MCP 协议人体工学批：工具面签名零变化，协议层用得更标准，agent 用量第一次可被维护者看见。**

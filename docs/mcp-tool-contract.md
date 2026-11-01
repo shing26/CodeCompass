@@ -58,8 +58,20 @@ python scripts/e2e/mcp_conformance.py
 python scripts/e2e/mcp_conformance.py --server-cmd "<启动服务的命令>"
 ```
 
-六项断言：① `initialize` 握手（protocolVersion / serverInfo.name / capabilities.tools）；② `tools/list` 形状（name 唯一、description 非空、inputSchema.type=object）；③ `tools/call` 信封（`content[0].type==='text'`，成功与域错误都须合规）；④ 未知工具名必须显式失败；⑤ 类型不匹配的参数必须被拒（不得静默强转）；⑥ 缺必填参数必须被拒。
+七项断言：① `initialize` 握手（protocolVersion / serverInfo.name / capabilities.tools）；② `tools/list` 形状（name 唯一、description 非空、inputSchema.type=object）；③ `tools/call` 信封（`content[0].type==='text'`，成功与域错误都须合规）；④ 未知工具名必须显式失败；⑤ 类型不匹配的参数必须被拒（不得静默强转）；⑥ 缺必填参数必须被拒；⑦ 声明 outputSchema 的工具成功调用必须返回对象型 structuredContent（v1.10 票 05，详见第六节）。
 
 **反向验收**：`scripts/e2e/fixtures/mcp-bad-server.mjs` 是故意违规的假服务端（两种模式：`--mode=handshake` 缺 capabilities.tools；`--mode=tools` 空描述 + 未知名静默成功 + 无参数校验）。门禁的 `issue14 mcp-conformance` 同时跑「本仓必须全绿」与「假服务端必须被抓」——**只绿自己不能证明可对任意实现跑**。
 
 > 与本仓 `closeout_gate.py` 的分工：gate 断言本仓业务语义（五桶/图谱/门禁史）且**保持不动**；本套件承担可移植面。两者并存，职责不同。
+
+## 六、structuredContent 与 outputSchema（票 05，v1.10）
+
+17 个工具在 `tools/list` 中声明 **`outputSchema`**（zod shape 单一源：`services/control-plane/src/mcp/output-schemas.ts`），成功结果同时携带 **`structuredContent`**——宿主从此可按 schema 机器读结果，无需解析文本。三条硬规则：
+
+1. **SDK 强制校验**：声明 outputSchema 后，SDK 对每个成功（非 isError）结果做 schema 校验，缺失或不符直接抛 `McpError InvalidParams`（`server/mcp.js` validateToolOutput）；isError 结果不校验——错误契约（票 02 的 `{error:{code,message,hint}}`）不受影响，且错误结果**不携带** structuredContent。
+2. **掩码同源（R1 双通道）**：structuredContent 由**掩码后的文本**反序列化得出（`textResult` 单一出库咽喉），绝不从原始 value 直出——掩码覆盖双通道是构造性保证，不是两处分别实现。文本通道逐字节不变，老客户端零迁移。
+3. **数组的对象化包装**：MCP 要求 structuredContent 必须是对象。唯一返回裸数组的 `codecompass_trace_call_chain` 在**结构化通道**包装为 `{ items: [...] }`；文本通道仍是裸数组。同源 parity 由 wire 测试钉死（`structured.items` deep-equals `parse(text)`）。
+
+**schema 保真度规则**（改 handler 返回形状时同步改 `output-schemas.ts`，否则运行时即红）：`JSON.stringify` 丢弃 `undefined` 的字段必须 `.optional()`；含 `null` 的字段必须 `.nullable()`；一律普通 `z.object`（非 strict）——`verification` 回执等加性字段永远兼容。`module_evolution` / `plan_evolution` 运行时双形状（计划 / 约定冲突），因 SDK 顶层只接受对象 schema（union 会在校验时崩），声明为全字段 optional 的单对象形状，仅 `verification` 必填。
+
+**通用断言**：即第五节的第 ⑦ 项——声明了 outputSchema 的工具，成功调用必须返回对象型 structuredContent（零项目数据依赖，可对任意实现跑；无 outputSchema 的服务端 vacuous 通过，不算违规）。

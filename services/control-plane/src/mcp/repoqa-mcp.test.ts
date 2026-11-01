@@ -24,6 +24,8 @@ import {
 } from './repoqa-mcp';
 import { parseArgs, runCli } from '../cli';
 import { ServerLogger } from '../log-sink';
+import { z } from 'zod';
+import { MCP_OUTPUT_SCHEMAS } from './output-schemas';
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -233,7 +235,7 @@ async function rawCallTool(
   name: string,
   args: Record<string, unknown>,
   meta?: Record<string, unknown>
-): Promise<{ response: RawResponse; text: string }> {
+): Promise<{ response: RawResponse; text: string; structured?: Record<string, unknown> }> {
   const response = await rawRequest(transport, 'tools/call', {
     name,
     arguments: args,
@@ -242,7 +244,9 @@ async function rawCallTool(
   expect(response.error).toBeUndefined();
   const content = response.result.content as Array<{ type: string; text?: string }>;
   expect(content[0].type).toBe('text');
-  return { response, text: content[0].text ?? '' };
+  const structured = (response.result as { structuredContent?: Record<string, unknown> })
+    .structuredContent;
+  return { response, text: content[0].text ?? '', structured };
 }
 
 describe('Issue 20 MCP tool metadata', () => {
@@ -1664,6 +1668,149 @@ describe('票 03 index progress notifications', () => {
       } as never);
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(progress).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('票 05 structuredContent + outputSchema (mcp-structured-output)', () => {
+  /** zod-validate a structured payload against a tool's declared output shape. */
+  function validates(name: string, structured: Record<string, unknown>): boolean {
+    return z.object(MCP_OUTPUT_SCHEMAS[name]).safeParse(structured).success;
+  }
+
+  it('textResult derives the structured channel from the MASKED text (R1 parity)', () => {
+    const secret = 'AKIA' + 'A'.repeat(16);
+    const result = textResult({ note: `token=${secret}`, plain: 'hello' });
+    expect(JSON.stringify(result.content)).not.toContain('AKIA');
+    const structured = (result as { structuredContent?: Record<string, unknown> })
+      .structuredContent;
+    expect(structured).toBeDefined();
+    expect(JSON.stringify(structured)).not.toContain('AKIA');
+  });
+
+  it('textResult wraps array payloads as { items } and keeps strings text-only', () => {
+    const wrapped = textResult([{ a: 1 }]) as {
+      structuredContent?: { items: unknown[] };
+    };
+    expect(wrapped.structuredContent).toEqual({ items: [{ a: 1 }] });
+    const plain = textResult('plain string') as {
+      content: Array<{ text: string }>;
+      structuredContent?: unknown;
+    };
+    expect(plain.content[0].text).toBe('plain string');
+    expect(plain.structuredContent).toBeUndefined();
+  });
+
+  it('MCP_OUTPUT_SCHEMAS covers all seventeen tools (ratchet: a missing entry silently ships unstructured)', () => {
+    expect(Object.keys(MCP_OUTPUT_SCHEMAS).sort()).toEqual(MCP_TOOLS.map((tool) => tool.name).sort());
+  });
+
+  it('textResult keeps JSON validity through masking (quotes, backslashes, newlines, a secret)', () => {
+    const secret = 'AKIA' + 'A'.repeat(16);
+    const payload = {
+      note: `token=${secret}`,
+      tricky: 'say "hi" \\ and / break\nlines',
+      中文: '中文值不受影响'
+    };
+    const result = textResult(payload) as {
+      content: Array<{ text: string }>;
+      structuredContent: Record<string, unknown>;
+    };
+    // Masking substitutions must never break the JSON envelope: the
+    // structured channel IS the text, re-parsed — parity holds exactly.
+    const reparsed = JSON.parse(result.content[0].text);
+    expect(reparsed).toEqual(result.structuredContent);
+    expect(JSON.stringify(result.structuredContent)).not.toContain('AKIA');
+  });
+
+  it('tools/list exposes outputSchema for every tool, rendered as an object JSON Schema', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      const client = new Client({ name: 'repoqa-mcp-client', version: '0.0.1' });
+      await client.connect(clientTransport);
+      const tools = await client.listTools();
+      expect(tools.tools).toHaveLength(MCP_TOOLS.length);
+      for (const tool of tools.tools) {
+        const outputSchema = tool.outputSchema as { type?: string } | undefined;
+        expect(outputSchema, `${tool.name} is missing outputSchema`).toBeDefined();
+        expect(outputSchema!.type).toBe('object');
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('successful object payloads carry structuredContent that validates and matches the text channel', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text, structured } = await rawCallTool(clientTransport, 'codecompass_list_repos', {});
+      expect(structured).toBeDefined();
+      expect(validates('codecompass_list_repos', structured!)).toBe(true);
+      // Same-source parity: the structured channel IS the masked text, re-parsed.
+      expect(structured).toEqual(JSON.parse(text));
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('array payloads (trace_call_chain) wrap as { items } in the structured channel, text stays a bare array', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { text, structured } = await rawCallTool(clientTransport, 'codecompass_trace_call_chain', {
+        repoId: repo.id,
+        symbolOrMethod: 'listOrders'
+      });
+      const hops = JSON.parse(text) as unknown[];
+      expect(Array.isArray(hops)).toBe(true);
+      expect(structured).toBeDefined();
+      expect(structured!.items).toEqual(hops);
+      expect(validates('codecompass_trace_call_chain', structured!)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('error results (isError) never carry structuredContent', async () => {
+    const { deps } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      const { response, structured } = await rawCallTool(clientTransport, 'codecompass_get_dashboard', {
+        repoId: 'no-such-repo'
+      });
+      expect(response.result.isError).toBe(true);
+      expect(structured).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('the three tools without other wire coverage validate too (domain_radar / diagnose / refactor_plan)', async () => {
+    const { deps, repo } = await setupIndexedRepo();
+    const { server, clientTransport } = await startServerPair(deps);
+    try {
+      await rawInitialize(clientTransport);
+      // The SDK hard-validates every success against the declared outputSchema
+      // (a mismatch throws before the result ships), so reaching a result at
+      // all proves schema agreement; the parity check pins the same-source rule.
+      const probes: Array<[string, Record<string, unknown>]> = [
+        ['codecompass_domain_radar', { repoId: repo.id }],
+        ['codecompass_diagnose', { repoId: repo.id, entrySymbol: 'listOrders' }],
+        ['codecompass_refactor_plan', { repoId: repo.id, targetSymbol: 'listOrders', changeType: 'SIGNATURE_CHANGE' }]
+      ];
+      for (const [name, args] of probes) {
+        const { text, structured } = await rawCallTool(clientTransport, name, args);
+        expect(structured, `${name} returned no structuredContent`).toBeDefined();
+        expect(validates(name, structured!)).toBe(true);
+        expect(structured).toEqual(JSON.parse(text));
+      }
     } finally {
       await server.close();
     }

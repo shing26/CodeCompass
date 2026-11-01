@@ -231,6 +231,40 @@ def run_suite(server_cmd: str, cwd: str | None = None) -> list[tuple[str, bool, 
         else:
             results.append(("missing required argument rejected", False,
                             "no tool declares required arguments to probe with"))
+
+        # G — a tool that declares an outputSchema must return an object-shaped
+        # structuredContent on success (MCP hosts machine-read that channel;
+        # the spec requires object). Domain errors skip — only the shape of
+        # successful answers is under test. Vacuously true when the server
+        # declares no outputSchema at all (that is not a violation).
+        schema_tools = [
+            tool for tool in tools
+            if isinstance((tool.get("outputSchema") or {}).get("type"), str)
+        ]
+        if schema_tools:
+            success_probes = 0
+            problems = []
+            for tool in schema_tools:
+                arguments = {}
+                properties = (tool.get("inputSchema") or {}).get("properties") or {}
+                for key in (tool.get("inputSchema") or {}).get("required") or []:
+                    spec = properties.get(key) if isinstance(properties.get(key), dict) else {}
+                    declared = spec.get("type")
+                    arguments[key] = {"string": "conformance-probe", "number": 1, "boolean": True}.get(declared, "conformance-probe")
+                call = session.request("tools/call", {"name": tool["name"], "arguments": arguments})
+                if _failed(call):
+                    continue
+                success_probes += 1
+                call_result = call.get("result") if isinstance(call.get("result"), dict) else {}
+                structured = call_result.get("structuredContent")
+                if not isinstance(structured, dict):
+                    problems.append(f"{tool.get('name')}:structuredContent")
+            results.append(("outputSchema tools return object structuredContent on success",
+                            not problems,
+                            f"schema_tools={len(schema_tools)} success_probes={success_probes} problems={problems[:4]}"))
+        else:
+            results.append(("outputSchema tools return object structuredContent on success",
+                            True, "vacuous: server declares no outputSchema"))
         return results
     finally:
         session.close()

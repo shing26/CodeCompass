@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { loadConfig, cockpitBaseUrl } from '../config';
 import { openDb, ensureDefaultWorkspace, backupDb } from '../db';
 import { maskSensitiveText } from '../engine/repoqa-masking';
+import { MCP_OUTPUT_SCHEMAS } from './output-schemas';
 import { EventBus } from '../events';
 import { ServerLogger } from '../log-sink';
 import type { Repo } from '../ingest/repoqa-repos';
@@ -1225,7 +1226,26 @@ export function textResult(value: unknown) {
       ? value
       : JSON.stringify(value, null, 2)
   );
-  return { content: [{ type: 'text' as const, text }] };
+  // 票 05(mcp-structured-output) — the structured channel is derived from the
+  // MASKED text, never from the raw value, so masking covers both channels by
+  // construction (R1, ADR-0003/0019). Arrays wrap as { items } because MCP
+  // requires structuredContent to be an object; the text channel keeps the
+  // bare array. The parse cannot structurally fail: the text is JSON.stringify
+  // output and credential patterns contain no quotes, so mask substitutions
+  // never cross a JSON string boundary. If a future masking rule breaks that
+  // invariant, JSON.parse throws and the call fails loudly as isError — with
+  // outputSchema declared there is no soft path: the SDK rejects a text-only
+  // success anyway, so pretending otherwise would just move the failure.
+  let structuredContent: Record<string, unknown> | undefined;
+  if (typeof value !== 'string') {
+    const parsed: unknown = JSON.parse(text);
+    if (Array.isArray(parsed)) structuredContent = { items: parsed };
+    else if (parsed !== null && typeof parsed === 'object') structuredContent = parsed as Record<string, unknown>;
+  }
+  return {
+    content: [{ type: 'text' as const, text }],
+    ...(structuredContent === undefined ? {} : { structuredContent })
+  };
 }
 
 /** 票 02 — isError envelope for McpToolError; mask keeps the R1 egress invariant. */
@@ -1350,6 +1370,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
       {
         description: meta.description,
         inputSchema: zodShapeFor(meta),
+        // 票 05 — the SDK hard-validates every successful result against this
+        // (missing/mismatched structuredContent → McpError InvalidParams), so
+        // the shapes in output-schemas.ts must track the handler payloads
+        // exactly; MCP_OUTPUT_SCHEMAS covering all 17 names is test-ratcheted.
+        outputSchema: MCP_OUTPUT_SCHEMAS[meta.name],
         annotations: meta.annotations
       },
       async (args: McpToolHandlerArgs, extra?: McpToolExtra) => {
