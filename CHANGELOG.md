@@ -20,6 +20,11 @@
 
 控制面 931/931（73 文件；2 例负载敏感瞬时失败单跑复绿，README「本机实跑备注」形态）、web 444/444（42 文件）、bridge 26/26、双包 typecheck 绿、e2e closeout 门禁 74/0（MCP tools/list 17 工具名棘轮零漂移）、conformance 7/7（self，schema_tools=17）+ 假服务端反向 4 违规仍被抓。
 双轴 code-review（fixed point `24ed360`）报告 `docs/reports/code-review-2026-11-02-v110.md`：硬违规 0；处置修 4（fail-soft 死路删除、getConventions 复用 profile shape、类型收窄删死分支、17/17 wire 覆盖补齐）、如实化 2（spec D1 措辞、集中注册表）、披露 2。
+- **Release**：tag `v1.10.0`（`88e6699`）→ workflow
+  [#41346984672](https://github.com/shing26/CodeCompass/actions/runs/41346984672) **success**
+  （3m10s，含 Artifact browser gate）；资产含工件 + `browser-check.json`（2,637 B）+ `e2e-result.json`（12,686 B）。
+- **npm**：`@codecompass/cli@1.10.0` 已发布（2026-11-02T03:34:35Z；dist-tag `latest` 已指向 1.10.0，
+  临时前缀安装 `codecompass --version` = 1.10.0）。
 
 ## [1.9.0] - 2026-11-01
 

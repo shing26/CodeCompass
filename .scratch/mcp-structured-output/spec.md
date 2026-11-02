@@ -68,4 +68,4 @@ wire 测试断言:`parse(text)` 深等于 `structuredContent`(数组工具除外
 ## Comments
 
 - (实施后回写)
-- 2026-11-02 收口完毕:版本五处推进 1.10.0(bridge-adapters 保持 0.6.0 独立版本线)、CHANGELOG 顶部条目、README(徽章/路线图/版本实情/套件计数 931/基线)、HANDOFF v1.10.0 段。双轴 code-review(fixed point `24ed360`)见 `docs/reports/code-review-2026-11-02-v110.md`:0 硬违规,修 4 / 如实化 2 / 披露 2。门禁终态:控制面 931(2 例负载敏感单跑复绿)/ web 444 / bridge 26、e2e 74/0、conformance 7/7。commit 按 Mimosa 约定留给用户 shell;tag 与 npm 发布待用户执行。
+- 2026-11-02 收口完毕:版本五处推进 1.10.0(bridge-adapters 保持 0.6.0 独立版本线)、CHANGELOG 顶部条目、README(徽章/路线图/版本实情/套件计数 931/基线)、HANDOFF v1.10.0 段。双轴 code-review(fixed point `24ed360`)见 `docs/reports/code-review-2026-11-02-v110.md`:0 硬违规,修 4 / 如实化 2 / 披露 2。门禁终态:控制面 931(2 例负载敏感单跑复绿)/ web 444 / bridge 26、e2e 74/0、conformance 7/7。commit 按 Mimosa 约定留给用户 shell;tag 与 npm 发布待用户执行。- 2026-11-02 发布完毕：commit `88e6699` / tag `v1.10.0` 已推，Release workflow #41346984672 **success**（3m10s，含 Artifact browser gate）；npm `@codecompass/cli@1.10.0` 已发布（2026-11-02T03:34:35Z，`latest` = 1.10.0，临时前缀安装校验 1.10.0）；README/CHANGELOG/HANDOFF 发布回写。
